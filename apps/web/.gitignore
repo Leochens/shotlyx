@@ -1,0 +1,16 @@
+# Turborepo
+.turbo
+
+# Env vars
+.env*
+!.env.example
+
+.next/
+
+.font-cache/
+
+next-env.d.ts
+
+*.tsbuildinfo
+
+agent-dev/logs/

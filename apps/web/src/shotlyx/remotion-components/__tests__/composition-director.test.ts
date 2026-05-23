@@ -1,0 +1,40 @@
+import { describe, expect, test } from "bun:test";
+import { createShotlyxMGCompositionPlan } from "../composition-director";
+
+describe("Shotlyx MG composition director", () => {
+	test("plans AI Agent explainers as narrative content layers", () => {
+		const plan = createShotlyxMGCompositionPlan({
+			prompt: "介绍 AI Agent 运行原理，包含感知、思考、行动、工具调用和记忆",
+			componentCount: 4,
+			durationSeconds: 6,
+			styleGuide: "深色科技风",
+		});
+
+		expect(plan.title).toContain("AI Agent");
+		expect(plan.components.map((component) => component.id)).toEqual([
+			"agent-concept",
+			"agent-loop",
+			"agent-tools",
+			"agent-memory",
+		]);
+		expect(plan.components[1]?.focus).toContain("感知");
+		expect(plan.components[2]?.focus).toContain("Function Calling");
+		expect(plan.components[3]?.qualityBar).toContain("闭环");
+	});
+
+	test("keeps chart requests focused on data hierarchy", () => {
+		const plan = createShotlyxMGCompositionPlan({
+			prompt: "做一个中国人口近十年变化折线图 MG",
+			componentCount: 3,
+			durationSeconds: 8,
+		});
+
+		expect(plan.components.map((component) => component.id)).toEqual([
+			"context-background",
+			"data-main",
+			"insight-callout",
+		]);
+		expect(plan.components[1]?.qualityBar).toContain("propsSchema table");
+		expect(plan.components[2]?.screenTiming).toBe("16.0s-24.0s");
+	});
+});

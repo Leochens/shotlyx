@@ -1,0 +1,1491 @@
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+import { useChatStore } from "./store";
+import { MessageItem } from "./message-item";
+import type { ToolActionResult, ToolCallActionRequest } from "./tool-call-card";
+import { BottomToolbar } from "./bottom-toolbar";
+import { SessionSidebar } from "./session-sidebar";
+import { useEditor } from "@/editor/use-editor";
+import { parseSSEStream } from "./sse-parser";
+import type { SSEEvent } from "./sse-parser";
+import {
+	Captions,
+	Check,
+	Copy,
+	Loader2,
+	MessageSquare,
+	Mic2,
+	Scissors,
+	Search,
+	Sparkles,
+	Trash2,
+	type LucideIcon,
+} from "lucide-react";
+import type {
+	AgentPlan,
+	MessageAction,
+	ToolCallRecord,
+} from "@/agent/controller/types";
+import { isClarificationRequest } from "@/agent/controller/clarification";
+import { sanitizeToolResultForModel } from "@/agent/controller/tool-result-sanitizer";
+import { useAgentContextStore } from "@/agent/context/store";
+import type { AgentContextReference } from "@/agent/context/types";
+import type { ChatMessage } from "./types";
+import type { ToolProgressEvent, ToolResult } from "@/agent/mcp/types";
+import { resumeShotlyxMGJobInBackground } from "@/agent/tools/creative/creative-tools";
+import {
+	getShotlyxMGJobDataFromToolCall,
+	getRunningShotlyxMGJobIdsFromMessages,
+	isRunningShotlyxMGToolCall,
+} from "./mg-job-records";
+import { formatToolCallForCopy } from "./tool-result-copy";
+import { buildToolResultContext } from "./tool-context";
+import { useAppLocale } from "@/i18n/use-app-locale";
+
+function formatElapsed(ms: number): string {
+	const totalSec = ms / 1000;
+	if (totalSec < 60) {
+		return `${totalSec.toFixed(1)}s`;
+	}
+	const min = Math.floor(totalSec / 60);
+	const sec = (totalSec % 60).toFixed(0).padStart(2, "0");
+	return `${min}m${sec}s`;
+}
+
+function getErrorMessage(error: unknown): string {
+	if (error instanceof Error) return error.message;
+	if (typeof error === "string") return error;
+	try {
+		return JSON.stringify(error);
+	} catch {
+		return "工具执行失败";
+	}
+}
+
+function buildClientToolErrorResult({
+	error,
+	message,
+}: {
+	error?: unknown;
+	message?: string;
+}): ToolResult {
+	return {
+		status: "error",
+		error: message ?? getErrorMessage(error),
+		errorCategory: "system_error",
+		suggestion: "请稍后重试，或先刷新编辑器状态后再执行。",
+	};
+}
+
+const STARTER_PROMPT_STYLES: Array<{
+	icon: LucideIcon;
+	iconClassName: string;
+}> = [
+	{
+		icon: Scissors,
+		iconClassName:
+			"border-cyan-700/20 bg-cyan-500/10 text-cyan-700 dark:border-cyan-300/20 dark:bg-cyan-300/10 dark:text-cyan-200",
+	},
+	{
+		icon: Captions,
+		iconClassName:
+			"border-emerald-700/20 bg-emerald-500/10 text-emerald-700 dark:border-emerald-300/20 dark:bg-emerald-300/10 dark:text-emerald-200",
+	},
+	{
+		icon: Search,
+		iconClassName:
+			"border-amber-700/20 bg-amber-500/10 text-amber-700 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-200",
+	},
+	{
+		icon: Mic2,
+		iconClassName:
+			"border-rose-700/20 bg-rose-500/10 text-rose-700 dark:border-rose-300/20 dark:bg-rose-300/10 dark:text-rose-200",
+	},
+];
+
+const DEFAULT_SESSION_NAMES = new Set(["新会话", "New conversation"]);
+
+function getSessionTitle(params: {
+	name?: string;
+	fallback: string;
+	newSession: string;
+}): string {
+	const { name, fallback, newSession } = params;
+	if (!name) return fallback;
+	if (DEFAULT_SESSION_NAMES.has(name)) return newSession;
+	return name;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getStringField({
+	value,
+	key,
+}: {
+	value: unknown;
+	key: string;
+}): string | undefined {
+	if (!isRecord(value)) return undefined;
+	const nextValue = value[key];
+	return typeof nextValue === "string" ? nextValue : undefined;
+}
+
+function getBooleanField({
+	value,
+	key,
+}: {
+	value: unknown;
+	key: string;
+}): boolean | undefined {
+	if (!isRecord(value)) return undefined;
+	const nextValue = value[key];
+	return typeof nextValue === "boolean" ? nextValue : undefined;
+}
+
+function getNumberField({
+	value,
+	key,
+}: {
+	value: unknown;
+	key: string;
+}): number | undefined {
+	if (!isRecord(value)) return undefined;
+	const nextValue = value[key];
+	return typeof nextValue === "number" ? nextValue : undefined;
+}
+
+function getRecordField({
+	value,
+	key,
+}: {
+	value: unknown;
+	key: string;
+}): Record<string, unknown> | undefined {
+	if (!isRecord(value)) return undefined;
+	const nextValue = value[key];
+	return isRecord(nextValue) ? nextValue : undefined;
+}
+
+function patchStockCandidateImportResult({
+	data,
+	candidateId,
+	importData,
+}: {
+	data: unknown;
+	candidateId: string;
+	importData: unknown;
+}): unknown {
+	if (!isRecord(data) || !Array.isArray(data.candidates)) return data;
+
+	return {
+		...data,
+		candidates: data.candidates.map((candidate) => {
+			if (
+				!isRecord(candidate) ||
+				typeof candidate.id !== "string" ||
+				candidate.id !== candidateId
+			) {
+				return candidate;
+			}
+
+			return {
+				...candidate,
+				mediaAssetId:
+					getStringField({ value: importData, key: "mediaAssetId" }) ??
+					getStringField({ value: candidate, key: "mediaAssetId" }),
+				name:
+					getStringField({ value: importData, key: "name" }) ??
+					getStringField({ value: candidate, key: "name" }),
+				previewUrl:
+					getStringField({ value: importData, key: "previewUrl" }) ??
+					getStringField({ value: candidate, key: "previewUrl" }),
+				thumbnailUrl:
+					getStringField({ value: importData, key: "thumbnailUrl" }) ??
+					getStringField({ value: candidate, key: "thumbnailUrl" }),
+				sizeBytes:
+					getNumberField({ value: importData, key: "sizeBytes" }) ??
+					getNumberField({ value: candidate, key: "sizeBytes" }),
+				width:
+					getNumberField({ value: importData, key: "width" }) ??
+					getNumberField({ value: candidate, key: "width" }),
+				height:
+					getNumberField({ value: importData, key: "height" }) ??
+					getNumberField({ value: candidate, key: "height" }),
+				durationSeconds:
+					getNumberField({ value: importData, key: "durationSeconds" }) ??
+					getNumberField({ value: candidate, key: "durationSeconds" }),
+			};
+		}),
+	};
+}
+
+function cancelShotlyxMGJobs({ jobIds }: { jobIds: string[] }): void {
+	void Promise.all(
+		jobIds.map(async (jobId) => {
+			try {
+				await fetch(`/api/agent/creative/mg-jobs/${jobId}`, {
+					method: "DELETE",
+				});
+			} catch {
+				// Stopping the chat flow should not be blocked by a best-effort job cancel.
+			}
+		}),
+	);
+}
+
+function isStepRisk(
+	value: unknown,
+): value is AgentPlan["steps"][number]["risk"] {
+	return (
+		value === "none" || value === "destructive" || value === "irreversible"
+	);
+}
+
+function isAgentStep(value: unknown): value is AgentPlan["steps"][number] {
+	if (!isRecord(value)) return false;
+	return (
+		typeof value.tool === "string" &&
+		isRecord(value.params) &&
+		typeof value.description === "string" &&
+		isStepRisk(value.risk)
+	);
+}
+
+function isActionVariant(value: unknown): value is MessageAction["variant"] {
+	return value === "primary" || value === "secondary" || value === "danger";
+}
+
+function isMessageAction(value: unknown): value is MessageAction {
+	if (!isRecord(value)) return false;
+	return (
+		typeof value.id === "string" &&
+		typeof value.label === "string" &&
+		isActionVariant(value.variant) &&
+		(value.value === undefined || typeof value.value === "string") &&
+		(value.description === undefined ||
+			typeof value.description === "string") &&
+		(value.isOption === undefined || typeof value.isOption === "boolean")
+	);
+}
+
+function parsePlanEventData(value: unknown): {
+	reasoning?: string;
+	steps: AgentPlan["steps"];
+	displayContent?: string;
+	needsConfirmation?: boolean;
+	actions?: MessageAction[];
+} | null {
+	if (!isRecord(value) || !Array.isArray(value.steps)) return null;
+	const steps = value.steps.filter(isAgentStep);
+	if (steps.length !== value.steps.length) return null;
+	const rawActions = Array.isArray(value.actions) ? value.actions : undefined;
+	const actions = rawActions?.filter(isMessageAction);
+	if (rawActions && actions?.length !== rawActions.length) return null;
+
+	return {
+		reasoning:
+			typeof value.reasoning === "string" ? value.reasoning : undefined,
+		steps,
+		displayContent:
+			typeof value.displayContent === "string"
+				? value.displayContent
+				: undefined,
+		needsConfirmation: getBooleanField({ value, key: "needsConfirmation" }),
+		actions,
+	};
+}
+
+export function ChatPanel() {
+	const { copy, locale } = useAppLocale();
+	const [input, setInput] = useState("");
+	const [sidebarOpen, setSidebarOpen] = useState(false);
+	const [showClearConfirm, setShowClearConfirm] = useState(false);
+	const [copied, setCopied] = useState(false);
+	const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set());
+	const isSelecting = selectedMsgIds.size > 0;
+	const runAbortRef = useRef<AbortController | null>(null);
+	const streamAbortRef = useRef<AbortController | null>(null);
+	const toolAbortControllersRef = useRef<Map<string, AbortController>>(
+		new Map(),
+	);
+	const resumedMGJobsRef = useRef<Set<string>>(new Set());
+	const resumedMGJobAbortControllersRef = useRef<Map<string, AbortController>>(
+		new Map(),
+	);
+	const [startTime, setStartTime] = useState<number | null>(null);
+	const [elapsedMs, setElapsedMs] = useState(0);
+	const { draftReferences, clearDraftReferences } = useAgentContextStore();
+
+	useEffect(() => {
+		if (startTime === null) return;
+		const interval = setInterval(() => {
+			setElapsedMs(Date.now() - startTime);
+		}, 100);
+		return () => clearInterval(interval);
+	}, [startTime]);
+
+	const {
+		getActiveMessages,
+		addMessage,
+		isLoading,
+		setLoading,
+		mode,
+		setMode,
+		selectedAgent,
+		setSelectedAgent,
+		pendingPlan,
+		setPendingPlan,
+		streamingMessageId,
+		setStreamingMessageId,
+		updateMessageContent,
+		updateMessageThought,
+		updateMessageActions,
+		updateMessageClarification,
+		updateMessageToolCalls,
+		activeSessionId,
+		setActiveProject,
+		clearSessionMessages,
+		removeMessage,
+		getActiveSession,
+	} = useChatStore();
+	const editor = useEditor();
+	const projectId = useEditor(
+		(editor) => editor.project.getActiveOrNull()?.metadata.id ?? null,
+	);
+	const messages = getActiveMessages();
+	const activeSession = getActiveSession();
+	const visibleMessages = messages.filter((msg) => !msg.hidden);
+	const toRequestMessage = (
+		message: Pick<ChatMessage, "role" | "content" | "toolCalls"> & {
+			references?: AgentContextReference[];
+		},
+	) => ({
+		role: message.role,
+		content: `${message.content}${buildToolResultContext({
+			toolCalls: message.toolCalls,
+		})}`,
+		references: message.references,
+	});
+
+	useEffect(() => {
+		if (projectId) {
+			setActiveProject(projectId);
+		}
+	}, [projectId, setActiveProject]);
+
+	useEffect(() => {
+		const abortControllers = resumedMGJobAbortControllersRef.current;
+		const resumedJobs = resumedMGJobsRef.current;
+		return () => {
+			for (const controller of abortControllers.values()) {
+				controller.abort();
+			}
+			abortControllers.clear();
+			resumedJobs.clear();
+		};
+	}, []);
+
+	useEffect(() => {
+		if (!activeSessionId || isLoading) return;
+
+		for (const message of messages) {
+			for (const [toolIndex, toolCall] of (message.toolCalls ?? []).entries()) {
+				if (!isRunningShotlyxMGToolCall(toolCall)) continue;
+				const jobData = getShotlyxMGJobDataFromToolCall({ toolCall });
+				if (!jobData) continue;
+
+				const resumeKey = `${activeSessionId}:${message.id}:${
+					toolCall.callId ?? `${jobData.jobId}:${toolIndex}`
+				}`;
+				if (resumedMGJobsRef.current.has(resumeKey)) continue;
+
+				const abort = new AbortController();
+				resumedMGJobsRef.current.add(resumeKey);
+				resumedMGJobAbortControllersRef.current.set(resumeKey, abort);
+
+				const appendProgress = (event: ToolProgressEvent) => {
+					const session = useChatStore
+						.getState()
+						.sessions.find((item) => item.id === activeSessionId);
+					const currentMessage = session?.messages.find(
+						(item) => item.id === message.id,
+					);
+					if (!currentMessage?.toolCalls) return;
+
+					const nextToolCalls = currentMessage.toolCalls.map(
+						(currentToolCall) => {
+							const isSameCall =
+								(toolCall.callId &&
+									currentToolCall.callId === toolCall.callId) ||
+								(!toolCall.callId &&
+									currentToolCall.tool === toolCall.tool &&
+									JSON.stringify(currentToolCall.params) ===
+										JSON.stringify(toolCall.params));
+							if (!isSameCall) return currentToolCall;
+
+							const alreadyRecorded = (currentToolCall.progress ?? []).some(
+								(progress) =>
+									progress.stage === event.stage &&
+									progress.label === event.label &&
+									progress.status === event.status &&
+									progress.current === event.current &&
+									progress.total === event.total,
+							);
+							if (alreadyRecorded) return currentToolCall;
+
+							return {
+								...currentToolCall,
+								progress: [
+									...(currentToolCall.progress ?? []),
+									{
+										...event,
+										timestamp: Date.now(),
+									},
+								],
+							};
+						},
+					);
+
+					updateMessageToolCalls(
+						{ id: message.id, toolCalls: nextToolCalls },
+						activeSessionId,
+					);
+
+					if (
+						event.status === "error" ||
+						event.stage === "completed" ||
+						event.stage === "complete" ||
+						event.stage === "cancelled"
+					) {
+						resumedMGJobAbortControllersRef.current.delete(resumeKey);
+					}
+				};
+
+				resumeShotlyxMGJobInBackground({
+					editor,
+					jobId: jobData.jobId,
+					sourcePrompt: jobData.sourcePrompt,
+					startTimeSeconds: jobData.startTimeSeconds,
+					insertToTimeline: jobData.insertToTimeline,
+					signal: abort.signal,
+					onProgress: appendProgress,
+				});
+			}
+		}
+	}, [activeSessionId, editor, isLoading, messages, updateMessageToolCalls]);
+
+	const handleSSEEvent = ({
+		sseEvent,
+		accumulated,
+		currentAssistantMsgIdRef,
+		runSessionIdRef,
+		runSignal,
+	}: {
+		sseEvent: SSEEvent;
+		accumulated: { text: string; thought: string };
+		currentAssistantMsgIdRef: { current: string | null };
+		runSessionIdRef: { current: string | null };
+		runSignal: AbortSignal;
+	}) => {
+		if (runSignal.aborted) return;
+		const data: unknown = JSON.parse(sseEvent.data);
+
+		// Ensure a single assistant message exists for this turn.
+		// All content (thinking, text, tool calls) accumulates here.
+		const ensureAssistantMessage = (): string => {
+			if (!currentAssistantMsgIdRef.current) {
+				const mid = `assistant-${Date.now()}`;
+				addMessage({
+					id: mid,
+					role: "assistant",
+					content: accumulated.text,
+					thought: accumulated.thought,
+					timestamp: Date.now(),
+				});
+				currentAssistantMsgIdRef.current = mid;
+				setStreamingMessageId(mid);
+			}
+			return currentAssistantMsgIdRef.current;
+		};
+
+		if (sseEvent.event === "init") {
+			runSessionIdRef.current =
+				getStringField({ value: data, key: "sessionId" }) ?? null;
+			return;
+		}
+
+		if (sseEvent.event === "done") {
+			return;
+		}
+
+		if (sseEvent.event === "reasoning-start") {
+			ensureAssistantMessage();
+			return;
+		}
+
+		if (sseEvent.event === "reasoning-delta") {
+			const text = getStringField({ value: data, key: "text" }) ?? "";
+			accumulated.thought += text;
+			const mid = ensureAssistantMessage();
+			updateMessageThought({ id: mid, thought: accumulated.thought });
+			return;
+		}
+
+		if (sseEvent.event === "reasoning-end") {
+			return;
+		}
+
+		if (sseEvent.event === "text-start") {
+			ensureAssistantMessage();
+			return;
+		}
+
+		if (sseEvent.event === "text-delta") {
+			const text = getStringField({ value: data, key: "text" }) ?? "";
+			accumulated.text += text;
+			const mid = ensureAssistantMessage();
+			updateMessageContent({ id: mid, content: accumulated.text });
+			return;
+		}
+
+		if (sseEvent.event === "text-end") {
+			return;
+		}
+
+		if (sseEvent.event === "tool-call") {
+			const callId = getStringField({ value: data, key: "callId" });
+			const tool = getStringField({ value: data, key: "tool" });
+			if (!callId || !tool) return;
+			const params = getRecordField({ value: data, key: "params" }) ?? {};
+
+			const pendingRecord: ToolCallRecord = { callId, tool, params };
+			const mid = ensureAssistantMessage();
+			const toolAbort = new AbortController();
+			toolAbortControllersRef.current.set(callId, toolAbort);
+			const appendToolProgress = (event: ToolProgressEvent) => {
+				const updatedMsgs = getActiveMessages();
+				const updatedMsg = updatedMsgs.find((m) => m.id === mid);
+				const currentToolCalls = (updatedMsg?.toolCalls ?? []).map((tc) => {
+					if (tc.callId !== callId) return tc;
+					return {
+						...tc,
+						progress: [
+							...(tc.progress ?? []),
+							{
+								...event,
+								timestamp: Date.now(),
+							},
+						],
+					};
+				});
+				updateMessageToolCalls({
+					id: mid,
+					toolCalls: currentToolCalls,
+				});
+			};
+
+			// Append to existing toolCalls on this message
+			const currentMsgs = getActiveMessages();
+			const currentMsg = currentMsgs.find((m) => m.id === mid);
+			const existingToolCalls = currentMsg?.toolCalls ?? [];
+			updateMessageToolCalls({
+				id: mid,
+				toolCalls: [...existingToolCalls, pendingRecord],
+			});
+
+			void (async () => {
+				let toolResult: ToolResult;
+				try {
+					if (!editor) {
+						toolResult = {
+							status: "error",
+							error: "编辑器尚未准备好，无法执行工具",
+							errorCategory: "state_error",
+							suggestion: "请稍后重试，或刷新编辑器后再执行。",
+						};
+					} else {
+						toolResult = await editor.mcp.execute({
+							toolName: tool,
+							params,
+							signal: toolAbort.signal,
+							onProgress: appendToolProgress,
+						});
+					}
+				} catch (error) {
+					if (runSignal.aborted || toolAbort.signal.aborted) return;
+					toolResult = buildClientToolErrorResult({ error });
+				}
+
+				if (runSignal.aborted || toolAbort.signal.aborted) return;
+
+				const modelToolResult = sanitizeToolResultForModel({
+					toolName: tool,
+					result: toolResult,
+				});
+				const updatedMsgs = getActiveMessages();
+				const updatedMsg = updatedMsgs.find((m) => m.id === mid);
+				const currentToolCalls = (updatedMsg?.toolCalls ?? []).map((tc) => {
+					const isSameCall =
+						tc.callId === callId ||
+						(tc.callId === undefined &&
+							tc.tool === tool &&
+							JSON.stringify(tc.params) === JSON.stringify(params) &&
+							!tc.result);
+					if (isSameCall) {
+						return {
+							...tc,
+							result: {
+								status: toolResult.status,
+								data: toolResult.data,
+								error: toolResult.error,
+							},
+						} as ToolCallRecord;
+					}
+					return tc;
+				});
+				updateMessageToolCalls({
+					id: mid,
+					toolCalls: currentToolCalls,
+				});
+
+				const sid = runSessionIdRef.current;
+				if (!sid) return;
+
+				try {
+					const response = await fetch(`/api/agent/chat/${sid}/tool-result`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ callId, result: modelToolResult }),
+					});
+					if (!response.ok) {
+						const errorBody = await response.json().catch(() => null);
+						const errorDetail =
+							getStringField({ value: errorBody, key: "error" }) ??
+							`HTTP ${response.status}`;
+						throw new Error(`HTTP ${response.status}: ${errorDetail}`);
+					}
+				} catch (error) {
+					if (runSignal.aborted || toolAbort.signal.aborted) return;
+					addMessage({
+						id: `tool-result-post-error-${Date.now()}`,
+						role: "assistant",
+						content: `工具 ${tool} 已执行，但结果回传失败：${getErrorMessage(error)}`,
+						timestamp: Date.now(),
+					});
+				}
+			})().finally(() => {
+				toolAbortControllersRef.current.delete(callId);
+			});
+
+			return;
+		}
+
+		if (sseEvent.event === "tool-result") {
+			return;
+		}
+
+		if (sseEvent.event === "plan") {
+			const planData = parsePlanEventData(data);
+			if (!planData) return;
+
+			const plan: AgentPlan = {
+				complexity:
+					planData.steps.length > 3
+						? "complex"
+						: planData.steps.length > 1
+							? "medium"
+							: "simple",
+				reasoning: planData.reasoning ?? "",
+				steps: planData.steps,
+				needsConfirmation: planData.needsConfirmation ?? false,
+				actions: planData.actions,
+			};
+
+			setPendingPlan(plan);
+
+			if (planData.reasoning) {
+				accumulated.thought = planData.reasoning;
+				const mid = ensureAssistantMessage();
+				updateMessageThought({
+					id: mid,
+					thought: planData.reasoning,
+				});
+			}
+			if (planData.displayContent) {
+				accumulated.text = planData.displayContent;
+				const mid = ensureAssistantMessage();
+				updateMessageContent({
+					id: mid,
+					content: planData.displayContent,
+				});
+			}
+			if (planData.actions !== undefined) {
+				const mid = ensureAssistantMessage();
+				updateMessageActions({
+					id: mid,
+					actions: planData.actions,
+				});
+			}
+		}
+		if (sseEvent.event === "message-actions") {
+			const rawActions =
+				isRecord(data) && Array.isArray(data.actions)
+					? data.actions
+					: undefined;
+			const actions = rawActions?.filter(isMessageAction);
+			if (!rawActions || actions?.length !== rawActions.length) return;
+			const mid = ensureAssistantMessage();
+			updateMessageActions({ id: mid, actions });
+			return;
+		}
+		if (sseEvent.event === "clarification-request") {
+			const clarification = getRecordField({
+				value: data,
+				key: "clarification",
+			});
+			if (!isClarificationRequest(clarification)) return;
+			const mid = ensureAssistantMessage();
+			updateMessageClarification({ id: mid, clarification });
+			return;
+		}
+		if (sseEvent.event === "error") {
+			const message =
+				getStringField({ value: data, key: "message" }) ?? "未知错误";
+			const category =
+				getStringField({ value: data, key: "category" }) ?? "unknown";
+			const isRetryable = category === "network" || category === "rate_limit";
+
+			addMessage({
+				id: `error-${Date.now()}`,
+				role: "assistant",
+				content: "",
+				error: { message, category, isRetryable },
+				timestamp: Date.now(),
+			});
+
+			setLoading(false);
+			setStreamingMessageId(null);
+			setStartTime(null);
+			return;
+		}
+	};
+
+	const runSSEAgent = async ({
+		msgsToSend,
+		extra,
+	}: {
+		msgsToSend: Array<{
+			role: string;
+			content: string;
+			references?: AgentContextReference[];
+		}>;
+		extra?: { action?: string; plan?: AgentPlan };
+	}) => {
+		setStartTime(Date.now());
+		const runAbort = new AbortController();
+		runAbortRef.current = runAbort;
+
+		const accumulated = { text: "", thought: "" };
+		const currentAssistantMsgIdRef: { current: string | null } = {
+			current: null,
+		};
+		const runSessionIdRef: { current: string | null } = {
+			current: null,
+		};
+
+		try {
+			const body: Record<string, unknown> = {
+				messages: msgsToSend,
+				mode,
+				toolSchemas: editor.mcp.getToolSchemas(),
+				context: {
+					activeBrandKit: editor.project.getActiveBrandKit(),
+				},
+			};
+
+			if (extra?.action) body.action = extra.action;
+			if (extra?.plan)
+				body.plan = {
+					reasoning: extra.plan.reasoning,
+					steps: extra.plan.steps.map((s) => ({
+						tool: s.tool,
+						params: s.params,
+						description: s.description,
+						risk: s.risk,
+					})),
+				};
+
+			const response = await fetch("/api/agent/chat", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+				signal: runAbort.signal,
+			});
+
+			if (!response.ok) {
+				const err = await response.json().catch(() => ({ error: "Unknown" }));
+				throw new Error(
+					getStringField({ value: err, key: "error" }) ??
+						`HTTP ${response.status}`,
+				);
+			}
+
+			const resBody = response.body;
+			if (!resBody) throw new Error("No response body");
+
+			await new Promise<void>((resolve, reject) => {
+				const streamAbort = parseSSEStream({
+					stream: resBody,
+					onEvent: (sseEvent) => {
+						handleSSEEvent({
+							sseEvent,
+							accumulated,
+							currentAssistantMsgIdRef,
+							runSessionIdRef,
+							runSignal: runAbort.signal,
+						});
+					},
+					onComplete: () => resolve(),
+					onError: (error) => {
+						addMessage({
+							id: `err-${Date.now()}`,
+							role: "assistant",
+							content: `SSE 流错误: ${error.message}`,
+							timestamp: Date.now(),
+						});
+						reject(error);
+					},
+				});
+				streamAbortRef.current = streamAbort;
+			});
+		} catch (err) {
+			if (runAbort.signal.aborted) {
+				return;
+			}
+			addMessage({
+				id: `err-${Date.now()}`,
+				role: "assistant",
+				content: `调用失败: ${err instanceof Error ? err.message : String(err)}`,
+				timestamp: Date.now(),
+			});
+		} finally {
+			setStreamingMessageId(null);
+			setLoading(false);
+			setStartTime(null);
+			if (runAbortRef.current === runAbort) {
+				runAbortRef.current = null;
+				streamAbortRef.current = null;
+			}
+		}
+	};
+
+	const handleStop = () => {
+		const activeMessages = getActiveMessages();
+		const runningMGJobIds = getRunningShotlyxMGJobIdsFromMessages({
+			messages: activeMessages,
+		});
+		if (runningMGJobIds.length > 0) {
+			cancelShotlyxMGJobs({ jobIds: runningMGJobIds });
+		}
+		runAbortRef.current?.abort();
+		streamAbortRef.current?.abort();
+		for (const controller of toolAbortControllersRef.current.values()) {
+			controller.abort();
+		}
+		toolAbortControllersRef.current.clear();
+		for (const message of activeMessages) {
+			if (
+				!message.toolCalls?.some(
+					(toolCall) =>
+						!toolCall.result || isRunningShotlyxMGToolCall(toolCall),
+				)
+			) {
+				continue;
+			}
+			updateMessageToolCalls({
+				id: message.id,
+				toolCalls: message.toolCalls.map((toolCall) =>
+					isRunningShotlyxMGToolCall(toolCall)
+						? {
+								...toolCall,
+								progress: [
+									...(toolCall.progress ?? []),
+									{
+										stage: "cancelled",
+										label: "MG 子智能体已停止",
+										status: "error",
+										timestamp: Date.now(),
+									},
+								],
+								result: {
+									status: "error",
+									data: toolCall.result?.data,
+									error: "已停止",
+								},
+							}
+						: toolCall.result
+							? toolCall
+							: {
+									...toolCall,
+									result: {
+										status: "error",
+										error: "已停止",
+									},
+								},
+				),
+			});
+		}
+		setStreamingMessageId(null);
+		setLoading(false);
+		setStartTime(null);
+		addMessage({
+			id: `stop-${Date.now()}`,
+			role: "assistant",
+			content: "已停止当前 Agent 流程。你可以直接输入新的需求重新开始。",
+			timestamp: Date.now(),
+		});
+	};
+
+	const submitPrompt = async ({
+		prompt,
+		references = draftReferences,
+	}: {
+		prompt: string;
+		references?: AgentContextReference[];
+	}) => {
+		const trimmed = prompt.trim();
+		if (!trimmed || isLoading || !editor) return;
+
+		const userMsg = {
+			id: `u-${Date.now()}`,
+			role: "user" as const,
+			content: trimmed,
+			references,
+			timestamp: Date.now(),
+		};
+		addMessage(userMsg);
+		setInput("");
+		setLoading(true);
+
+		const allMsgs = [...getActiveMessages(), userMsg];
+		await runSSEAgent({
+			msgsToSend: allMsgs.map(toRequestMessage),
+		});
+		clearDraftReferences();
+	};
+
+	const handleSubmit = async () => {
+		await submitPrompt({ prompt: input, references: draftReferences });
+	};
+
+	const handleStarterPrompt = (prompt: string) => {
+		void submitPrompt({ prompt, references: draftReferences });
+	};
+
+	const handleClarificationAnswer = async (answer: string) => {
+		const trimmed = answer.trim();
+		if (!trimmed || isLoading || !editor) return;
+
+		const userMsg = {
+			id: `u-clarification-${Date.now()}`,
+			role: "user" as const,
+			content: trimmed,
+			timestamp: Date.now(),
+		};
+		addMessage(userMsg);
+		setLoading(true);
+
+		const allMsgs = [...getActiveMessages(), userMsg];
+		await runSSEAgent({
+			msgsToSend: allMsgs.map(toRequestMessage),
+		});
+	};
+
+	const handleActionClick = async (actionId: string) => {
+		if (!editor) return;
+
+		if (actionId.startsWith("option-")) {
+			const selectedValue = actionId.slice("option-".length);
+			const currentMessages = getActiveMessages();
+			const lastAssistant = [...currentMessages]
+				.reverse()
+				.find(
+					(m) => m.role === "assistant" && m.actions?.some((a) => a.isOption),
+				);
+			const selectedAction = lastAssistant?.actions?.find(
+				(a) => a.id === actionId,
+			);
+			const label = selectedAction?.label ?? selectedValue;
+			if (selectedAction?.value === "__other__") {
+				setInput("");
+				return;
+			}
+
+			const userMsg = {
+				id: `u-option-${Date.now()}`,
+				role: "user" as const,
+				content:
+					typeof selectedAction?.value === "string" && selectedAction.value
+						? selectedAction.value
+						: label,
+				timestamp: Date.now(),
+			};
+			addMessage(userMsg);
+			setLoading(true);
+
+			const allMsgs = [...getActiveMessages(), userMsg];
+			await runSSEAgent({
+				msgsToSend: allMsgs.map(toRequestMessage),
+			});
+			return;
+		}
+
+		if (actionId === "confirm") {
+			if (!pendingPlan) return;
+			setLoading(true);
+
+			const allMsgs = getActiveMessages();
+			await runSSEAgent({
+				msgsToSend: allMsgs.map(toRequestMessage),
+				extra: { action: "confirm", plan: pendingPlan },
+			});
+			setPendingPlan(null);
+			return;
+		}
+
+		if (actionId === "continue") {
+			if (!pendingPlan) {
+				setLoading(true);
+				const allMsgs = getActiveMessages();
+				await runSSEAgent({
+					msgsToSend: allMsgs.map(toRequestMessage),
+				});
+				return;
+			}
+			setLoading(true);
+
+			const allMsgs = getActiveMessages();
+			await runSSEAgent({
+				msgsToSend: allMsgs.map(toRequestMessage),
+				extra: { action: "continue", plan: pendingPlan },
+			});
+			setPendingPlan(null);
+			return;
+		}
+
+		if (actionId === "modify") {
+			if (!pendingPlan) {
+				addMessage({
+					id: `modify-${Date.now()}`,
+					role: "assistant",
+					content: "当前没有待确认的计划。请告诉我你想怎么修改？",
+					timestamp: Date.now(),
+				});
+				return;
+			}
+			addMessage({
+				id: `modify-${Date.now()}`,
+				role: "assistant",
+				content: `当前计划：\n${pendingPlan.steps.map((s, i) => `${i + 1}. ${s.description}`).join("\n")}\n\n告诉我你想怎么修改`,
+				timestamp: Date.now(),
+			});
+			setPendingPlan(null);
+		}
+	};
+
+	const handleToolAction = async ({
+		messageId,
+		request,
+	}: {
+		messageId: string;
+		request: ToolCallActionRequest;
+	}): Promise<ToolActionResult> => {
+		if (!editor) {
+			return {
+				status: "error",
+				error: "编辑器尚未准备好，无法导入素材",
+			};
+		}
+
+		if (request.action !== "stock-import-candidate") {
+			return {
+				status: "error",
+				error: "未知的工具卡片操作",
+			};
+		}
+
+		const result = await editor.mcp.execute({
+			toolName: "stock_import_media",
+			params: { candidateId: request.payload.candidateId },
+		});
+
+		if (result.status === "success") {
+			const currentMessages = getActiveMessages();
+			const currentMessage = currentMessages.find(
+				(msg) => msg.id === messageId,
+			);
+			if (currentMessage?.toolCalls) {
+				updateMessageToolCalls(
+					{
+						id: messageId,
+						toolCalls: currentMessage.toolCalls.map((toolCall) => {
+							if (
+								toolCall.tool !== "stock_search_media" ||
+								toolCall.result?.status !== "success"
+							) {
+								return toolCall;
+							}
+
+							return {
+								...toolCall,
+								result: {
+									...toolCall.result,
+									data: patchStockCandidateImportResult({
+										data: toolCall.result.data,
+										candidateId: request.payload.candidateId,
+										importData: result.data,
+									}),
+								},
+							};
+						}),
+					},
+					activeSessionId ?? undefined,
+				);
+			}
+		}
+
+		return {
+			status: result.status,
+			data: result.data,
+			error: result.error,
+		};
+	};
+
+	const handleRetry = async () => {
+		if (!editor || isLoading) return;
+
+		const msgs = getActiveMessages();
+		const lastMsg = msgs[msgs.length - 1];
+		if (lastMsg?.error) {
+			removeMessage(lastMsg.id);
+		}
+
+		setLoading(true);
+
+		const allMsgs = getActiveMessages();
+		await runSSEAgent({
+			msgsToSend: allMsgs.map(toRequestMessage),
+		});
+	};
+	const handleClearConfirm = () => {
+		clearSessionMessages();
+		if (activeSessionId !== null) {
+			editor?.command.agentSession.endSession(activeSessionId);
+		}
+		setShowClearConfirm(false);
+	};
+
+	const handleCopyChat = async () => {
+		const visibleMessages = messages.filter((msg) => !msg.hidden);
+		const text = formatMessagesForCopy(visibleMessages);
+		await navigator.clipboard.writeText(text);
+		setCopied(true);
+		setTimeout(() => setCopied(false), 2000);
+	};
+
+	const formatMessagesForCopy = (msgs: typeof messages) => {
+		return msgs
+			.map((msg) => {
+				const role =
+					msg.role === "user"
+						? locale === "zh-CN"
+							? "用户"
+							: "User"
+						: locale === "zh-CN"
+							? "助手"
+							: "Assistant";
+				let line = `[${role}]`;
+				if (msg.thought) {
+					line += `\n  思考: ${msg.thought}`;
+				}
+				if (msg.content) {
+					line += `\n  ${msg.content}`;
+				}
+				if (msg.toolCalls && msg.toolCalls.length > 0) {
+					const calls = msg.toolCalls
+						.map((toolCall) => formatToolCallForCopy(toolCall))
+						.join("\n");
+					line += `\n${calls}`;
+				}
+				if (msg.references && msg.references.length > 0) {
+					line += `\n  引用: ${msg.references
+						.map((reference) => `${reference.kind}:${reference.label}`)
+						.join(", ")}`;
+				}
+				return line;
+			})
+			.join("\n\n");
+	};
+
+	const handleToggleSelect = (msgId: string) => {
+		setSelectedMsgIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(msgId)) {
+				next.delete(msgId);
+			} else {
+				next.add(msgId);
+			}
+			return next;
+		});
+	};
+
+	const handleMessageClick = ({
+		msgId,
+		isToggleGesture,
+	}: {
+		msgId: string;
+		isToggleGesture: boolean;
+	}) => {
+		if (!isSelecting && !isToggleGesture) return;
+		if (window.getSelection()?.toString()) return;
+		handleToggleSelect(msgId);
+	};
+
+	const handleCopySelected = async () => {
+		const selected = messages.filter((msg) => selectedMsgIds.has(msg.id));
+		const text = formatMessagesForCopy(selected);
+		await navigator.clipboard.writeText(text);
+		setCopied(true);
+		setSelectedMsgIds(new Set());
+		setTimeout(() => setCopied(false), 2000);
+	};
+
+	return (
+		<div
+			data-testid="chat-panel"
+			className="flex h-full bg-background text-foreground"
+		>
+			<SessionSidebar
+				isOpen={sidebarOpen}
+				onToggle={() => setSidebarOpen(!sidebarOpen)}
+			/>
+			<div className="flex flex-1 flex-col overflow-hidden">
+				<div className="flex items-center justify-between border-b border-border/70 bg-background/95 px-3 py-2">
+					<div className="flex items-center gap-2">
+						{!sidebarOpen && (
+							<button
+								type="button"
+								onClick={() => setSidebarOpen(true)}
+								className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+								aria-label={copy.editor.chat.openSessions}
+								title={copy.editor.chat.openSessions}
+							>
+								<MessageSquare size={16} />
+							</button>
+						)}
+						<span className="text-sm font-medium text-foreground">
+							{getSessionTitle({
+								name: activeSession?.name,
+								fallback: copy.editor.chat.sessionFallback,
+								newSession: copy.editor.chat.newSession,
+							})}
+						</span>
+					</div>
+					<div className="flex items-center gap-2">
+						{showClearConfirm ? (
+							<div className="flex items-center gap-1.5">
+								<span className="text-xs text-muted-foreground">
+									{copy.editor.chat.confirmClear}
+								</span>
+								<button
+									type="button"
+									data-testid="clear-confirm-button"
+									onClick={handleClearConfirm}
+									className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-500"
+								>
+									{copy.editor.chat.confirm}
+								</button>
+								<button
+									type="button"
+									onClick={() => setShowClearConfirm(false)}
+									className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+								>
+									{copy.editor.chat.cancel}
+								</button>
+							</div>
+						) : (
+							<>
+								<button
+									type="button"
+									onClick={handleCopyChat}
+									className="rounded-sm p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+									aria-label={copy.editor.chat.copyChat}
+									title={copy.editor.chat.copyChat}
+								>
+									{copied ? <Check size={14} /> : <Copy size={14} />}
+								</button>
+								<button
+									type="button"
+									data-testid="clear-session-button"
+									onClick={() => setShowClearConfirm(true)}
+									className="rounded-sm p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-red-400"
+									aria-label={copy.editor.chat.clearChat}
+									title={copy.editor.chat.clearChat}
+								>
+									<Trash2 size={14} />
+								</button>
+							</>
+						)}
+					</div>
+				</div>
+
+				<div className="min-w-0 flex-1 select-text overflow-y-auto overflow-x-hidden bg-[linear-gradient(180deg,rgba(34,211,238,0.045),transparent_18rem)] p-3">
+					{visibleMessages.length === 0 && !isLoading ? (
+						<AgentEmptyState
+							disabled={isLoading || !editor}
+							onPromptSelect={handleStarterPrompt}
+						/>
+					) : null}
+					{visibleMessages.map((msg) => (
+						<div
+							key={msg.id}
+							className={`relative select-text ${isSelecting ? "cursor-pointer" : "cursor-text"} ${selectedMsgIds.has(msg.id) ? "rounded bg-primary/10 ring-1 ring-primary/40" : ""}`}
+							onClick={(event) =>
+								handleMessageClick({
+									msgId: msg.id,
+									isToggleGesture: event.metaKey || event.ctrlKey,
+								})
+							}
+							onKeyDown={undefined}
+							role={isSelecting ? "button" : undefined}
+							tabIndex={isSelecting ? 0 : undefined}
+						>
+							<MessageItem
+								message={msg}
+								onActionClick={handleActionClick}
+								onOptionCustomAnswer={handleClarificationAnswer}
+								onClarificationAnswer={handleClarificationAnswer}
+								onToolAction={(request) =>
+									handleToolAction({ messageId: msg.id, request })
+								}
+								onRetry={handleRetry}
+								isStreaming={msg.id === streamingMessageId}
+							/>
+						</div>
+					))}
+					{isLoading && (
+						<div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+							<Loader2 size={14} className="animate-spin" />
+							<span>
+								{copy.editor.chat.running}{" "}
+								{startTime !== null ? `(${formatElapsed(elapsedMs)})` : ""}
+							</span>
+						</div>
+					)}
+				</div>
+				{isSelecting && (
+					<div className="flex items-center justify-between border-t bg-muted px-3 py-2">
+						<span className="text-xs text-muted-foreground">
+							{copy.editor.chat.selectedCount} {selectedMsgIds.size}
+						</span>
+						<div className="flex gap-2">
+							<button
+								type="button"
+								onClick={() => setSelectedMsgIds(new Set())}
+								className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+							>
+								{copy.editor.chat.cancel}
+							</button>
+							<button
+								type="button"
+								onClick={handleCopySelected}
+								className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
+							>
+								{copy.editor.chat.copySelected}
+							</button>
+						</div>
+					</div>
+				)}
+				<BottomToolbar
+					input={input}
+					mode={mode}
+					selectedAgent={selectedAgent}
+					agents={["default", "editor", "media"]}
+					disabled={isLoading}
+					onInputChange={setInput}
+					onSubmit={handleSubmit}
+					onStop={handleStop}
+					onModeChange={setMode}
+					onAgentChange={setSelectedAgent}
+				/>
+			</div>
+		</div>
+	);
+}
+
+function AgentEmptyState({
+	disabled,
+	onPromptSelect,
+}: {
+	disabled: boolean;
+	onPromptSelect: (prompt: string) => void;
+}) {
+	const { copy } = useAppLocale();
+	const starters = copy.editor.chat.starters;
+
+	return (
+		<div className="flex min-h-full flex-col justify-center gap-4 py-4">
+			<div className="rounded-sm border border-cyan-700/15 bg-[linear-gradient(135deg,rgba(8,145,178,0.12),rgba(16,185,129,0.07)_44%,rgba(251,191,36,0.08))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)] dark:border-cyan-300/15 dark:bg-[linear-gradient(135deg,rgba(34,211,238,0.11),rgba(16,185,129,0.05)_44%,rgba(251,191,36,0.06))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+				<div className="mb-4 flex items-start gap-3">
+					<span className="flex size-9 shrink-0 items-center justify-center rounded-sm border border-cyan-700/25 bg-cyan-500/10 text-cyan-700 dark:border-cyan-300/25 dark:bg-cyan-300/10 dark:text-cyan-200">
+						<Sparkles size={18} />
+					</span>
+					<div className="min-w-0">
+						<p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-cyan-700 dark:text-cyan-300">
+							{copy.editor.chat.emptyKicker}
+						</p>
+						<h3 className="mt-1 text-lg font-semibold text-foreground">
+							{copy.editor.chat.emptyTitle}
+						</h3>
+						<p className="mt-1 text-sm text-muted-foreground">
+							{copy.editor.chat.emptyBody}
+						</p>
+					</div>
+				</div>
+
+				<div className="grid gap-2">
+					{starters.map(({ label, hint, prompt }, index) => {
+						const { icon: Icon, iconClassName } =
+							STARTER_PROMPT_STYLES[index] ?? STARTER_PROMPT_STYLES[0];
+						return (
+							<button
+								key={label}
+								type="button"
+								disabled={disabled}
+								onClick={() => onPromptSelect(prompt)}
+								className="group flex min-h-14 w-full cursor-pointer items-center gap-3 rounded-sm border border-border bg-background/72 px-3 py-2 text-left transition-colors hover:border-cyan-300/35 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+							>
+								<span
+									className={`flex size-8 shrink-0 items-center justify-center rounded-sm border ${iconClassName}`}
+								>
+									<Icon size={16} />
+								</span>
+								<span className="min-w-0 flex-1">
+									<span className="block truncate text-sm font-medium text-foreground">
+										{label}
+									</span>
+									<span className="mt-0.5 block truncate text-xs text-muted-foreground">
+										{hint}
+									</span>
+								</span>
+							</button>
+						);
+					})}
+				</div>
+			</div>
+		</div>
+	);
+}

@@ -1,0 +1,2703 @@
+import type { Tool, ToolExecutionContext } from "@/agent/mcp/types";
+import {
+	optionalBooleanParam,
+	optionalNumberParam,
+	optionalStringParam,
+	requireStringParam,
+} from "@/agent/mcp/validation";
+import {
+	createShotlyxMGCompositionPlan,
+	type ShotlyxMGCompositionComponentPlan,
+	type ShotlyxMGCompositionDirectorPlan,
+} from "@/shotlyx/remotion-components/composition-director";
+import { registerShotlyxMGAsset } from "@/shotlyx/remotion-components/asset-store";
+import type { GenerateShotlyxMGComponentOptions } from "@/shotlyx/remotion-components/generator";
+import {
+	SHOTLYX_MG_GRAPHIC_DEFINITION_ID,
+	buildShotlyxMGElementFromAsset,
+} from "@/shotlyx/remotion-components/project-assets";
+import {
+	buildRemotionSkillContextSummary,
+	formatRemotionSkillSummary,
+	type RemotionSkillContextSummary,
+} from "@/shotlyx/remotion-components/skill-context";
+import {
+	SHOTLYX_REMOTION_COMPONENT_RUNTIME,
+	type ShotlyxMGAsset,
+	type ShotlyxMGPropDefinition,
+	type ShotlyxMGPropValue,
+	type ShotlyxRemotionComponentDocument,
+} from "@/shotlyx/remotion-components/types";
+import type { EditorCore } from "@/core";
+import { motionGraphicDefinitions } from "@/graphics/definitions/motion-graphics";
+import type { ProcessedMediaAsset } from "@/media/processing";
+import { buildMotionGraphicManifest } from "@/motion-graphics/manifest";
+import type { ParamValues } from "@/params";
+import type { TimelineElement } from "@/timeline";
+import type { MediaTime } from "@/wasm";
+import {
+	getCreativeAsset,
+	registerCreativeAsset,
+} from "./creative-asset-store";
+import { searchMockVideos } from "./mock-video-provider";
+import type { CreativeAsset } from "./types";
+
+const ORIENTATIONS = ["landscape", "portrait", "square"] as const;
+const ASPECT_RATIOS = ["1:1", "16:9", "9:16"] as const;
+const IMAGE_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as const;
+const MEDIA_TIME_TICKS_PER_SECOND = 90_000;
+// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+const ZERO_CREATIVE_MEDIA_TIME = 0 as MediaTime;
+
+type Orientation = (typeof ORIENTATIONS)[number];
+type AspectRatio = (typeof ASPECT_RATIOS)[number];
+type ImageSize = (typeof IMAGE_SIZES)[number];
+
+interface ImportedCreativeAssetResult {
+	mediaAssetId: string;
+	name: string;
+	type: CreativeAsset["type"];
+	title: string;
+	sizeBytes?: number;
+	width?: number;
+	height?: number;
+	previewUrl?: string;
+	thumbnailUrl?: string;
+	alreadyImported: boolean;
+}
+
+type CreativeFetchFn = (
+	input: RequestInfo | URL,
+	init?: RequestInit,
+) => Promise<Response>;
+
+const SHOTLYX_MG_EDITABLE_INSTANCE_PARAMS = [
+	{
+		key: "opacity",
+		label: "Opacity",
+		type: "number",
+		min: 0,
+		max: 1,
+		step: 0.01,
+	},
+] as const;
+
+interface CreativeToolDeps {
+	fetchFn: CreativeFetchFn;
+	processMediaAssetsFn: (args: {
+		files: FileList | File[];
+	}) => Promise<ProcessedMediaAsset[]>;
+	generateShotlyxMGComponentFn?: (
+		args: GenerateShotlyxMGComponentOptions,
+	) => Promise<ShotlyxRemotionComponentDocument>;
+}
+
+interface ShotlyxMGJobEvent {
+	type:
+		| "started"
+		| "progress"
+		| "component-complete"
+		| "completed"
+		| "cancelled"
+		| "error";
+	jobId: string;
+	label?: string;
+	status?: "running" | "success" | "error";
+	detail?: string;
+	index?: number;
+	total?: number;
+	document?: ShotlyxRemotionComponentDocument;
+	error?: string;
+}
+
+async function defaultProcessMediaAssetsFn(args: {
+	files: FileList | File[];
+}): Promise<ProcessedMediaAsset[]> {
+	const { processMediaAssets } = await import("@/media/processing");
+	return processMediaAssets(args);
+}
+
+function isOrientation(value: string): value is Orientation {
+	return ORIENTATIONS.some((item) => item === value);
+}
+
+function isAspectRatio(value: string): value is AspectRatio {
+	return ASPECT_RATIOS.some((item) => item === value);
+}
+
+function isImageSize(value: string): value is ImageSize {
+	return IMAGE_SIZES.some((item) => item === value);
+}
+
+function requirePositiveInteger({
+	value,
+	key,
+	max,
+}: {
+	value: number;
+	key: string;
+	max: number;
+}): number {
+	if (!Number.isInteger(value) || value < 1 || value > max) {
+		throw new Error(`类型不匹配："${key}" 必须为 1 到 ${max} 的整数`);
+	}
+	return value;
+}
+
+function optionalOrientationParam(
+	params: Record<string, unknown>,
+): Orientation | undefined {
+	const value = optionalStringParam(params, "orientation");
+	if (value === undefined) return undefined;
+	if (!isOrientation(value)) {
+		throw new Error(
+			`类型不匹配："orientation" 必须为以下之一：${ORIENTATIONS.join(", ")}`,
+		);
+	}
+	return value;
+}
+
+function optionalAspectRatioParam(
+	params: Record<string, unknown>,
+): AspectRatio | undefined {
+	const value = optionalStringParam(params, "aspectRatio");
+	if (value === undefined) return undefined;
+	if (!isAspectRatio(value)) {
+		throw new Error(
+			`类型不匹配："aspectRatio" 必须为以下之一：${ASPECT_RATIOS.join(", ")}`,
+		);
+	}
+	return value;
+}
+
+function optionalImageSizeParam(
+	params: Record<string, unknown>,
+): ImageSize | undefined {
+	const value = optionalStringParam(params, "size");
+	if (value === undefined) return undefined;
+	if (!isImageSize(value)) {
+		throw new Error(
+			`类型不匹配："size" 必须为以下之一：${IMAGE_SIZES.join(", ")}`,
+		);
+	}
+	return value;
+}
+
+function resolveImageSize({
+	aspectRatio,
+	size,
+}: {
+	aspectRatio?: AspectRatio;
+	size?: ImageSize;
+}): ImageSize {
+	if (size) return size;
+
+	switch (aspectRatio) {
+		case "16:9":
+			return "1536x1024";
+		case "9:16":
+			return "1024x1536";
+		case "1:1":
+		default:
+			return "1024x1024";
+	}
+}
+
+function dimensionsFromSize(size: ImageSize): {
+	width: number;
+	height: number;
+} {
+	const [width, height] = size.split("x").map((value) => Number(value));
+	return { width, height };
+}
+
+function extensionFromContentType({
+	contentType,
+	fallback,
+}: {
+	contentType: string;
+	fallback: "png" | "mp4";
+}): string {
+	if (contentType === "image/jpeg") return "jpg";
+	if (contentType === "image/webp") return "webp";
+	if (contentType === "image/png") return "png";
+	if (contentType === "video/quicktime") return "mov";
+	if (contentType === "video/webm") return "webm";
+	if (contentType === "video/mp4") return "mp4";
+	return fallback;
+}
+
+function sanitizeFilenamePart(value: string): string {
+	const sanitized = value
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "");
+	return sanitized || "creative-asset";
+}
+
+function buildGeneratedImageTitle({
+	prompt,
+	index,
+}: {
+	prompt: string;
+	index: number;
+}): string {
+	const normalized = prompt.trim().replace(/\s+/g, " ");
+	if (!normalized) return `Generated image ${index + 1}`;
+	const title =
+		normalized.length > 48 ? normalized.slice(0, 48).trim() : normalized;
+	return index === 0 ? title : `${title} ${index + 1}`;
+}
+
+function buildCompositionName({ prompt }: { prompt: string }): string {
+	const normalized = prompt.trim().replace(/\s+/g, " ");
+	if (!normalized) return "Shotlyx MG 组合";
+	const title =
+		normalized.length > 40 ? normalized.slice(0, 40).trim() : normalized;
+	return `${title} · MG 组合`;
+}
+
+function buildShotlyxMGJobComponentAssetId({
+	jobId,
+	index,
+}: {
+	jobId: string;
+	index: number;
+}): string {
+	return `shotlyx-mg-job-${jobId}-component-${index + 1}`;
+}
+
+function buildCompositionComponentPrompt({
+	prompt,
+	directorPlan,
+	component,
+	componentIndex,
+	totalComponents,
+	transparentBackground,
+}: {
+	prompt: string;
+	directorPlan: ShotlyxMGCompositionDirectorPlan;
+	component: ShotlyxMGCompositionComponentPlan;
+	componentIndex: number;
+	totalComponents: number;
+	transparentBackground: boolean;
+}): string {
+	return [
+		`组合式 Shotlyx MG 总需求：${prompt}`,
+		`Director 总体概念：${directorPlan.title}`,
+		`Director 视觉风格：${directorPlan.visualStyle}`,
+		`Director 叙事弧线：${directorPlan.narrativeArc}`,
+		`现在只生成第 ${componentIndex + 1}/${totalComponents} 个小组件：${component.label}。`,
+		`组件职责：${component.focus}`,
+		`视觉角色：${component.visualRole}`,
+		`时间位置：${component.screenTiming}`,
+		`动效方向：${component.animationDirection}`,
+		`质量底线：${component.qualityBar}`,
+		"这个组件会和其他小组件叠加使用，所以只输出自己负责的视觉层，不要试图完成整个动画。",
+		transparentBackground
+			? "背景模式：透明。不要绘制全画布黑底/实底，只输出可叠加到视频上的局部图形、文字、线条和强调层。"
+			: "背景模式：允许根据设计需要绘制完整背景。",
+		"所有用户后续可能修改的文字、颜色、数据、数值和显示开关都必须进入 propsSchema。",
+	].join("\n");
+}
+
+function emitToolProgress({
+	context,
+	stage,
+	label,
+	status,
+	detail,
+	current,
+	total,
+}: {
+	context?: ToolExecutionContext;
+	stage: string;
+	label: string;
+	status: "running" | "success" | "error";
+	detail?: string;
+	current?: number;
+	total?: number;
+}): void {
+	context?.onProgress?.({
+		stage,
+		label,
+		status,
+		detail,
+		current,
+		total,
+	});
+}
+
+function emitRemotionSkillProgress({
+	context,
+	summary,
+}: {
+	context?: ToolExecutionContext;
+	summary: RemotionSkillContextSummary;
+}): void {
+	emitToolProgress({
+		context,
+		stage: "skill-context",
+		label: "已加载 Remotion Skill",
+		status: "success",
+		detail: formatRemotionSkillSummary({ summary }),
+		current: summary.selectedRules.length,
+		total: summary.selectedRules.length,
+	});
+}
+
+function getToolErrorDetail(error: unknown): string {
+	if (error instanceof Error) return error.message;
+	if (typeof error === "string") return error;
+	return "生成失败";
+}
+
+function getMGDefinition({ definitionId }: { definitionId: string }) {
+	const definition = motionGraphicDefinitions.find(
+		(item) => item.id === definitionId,
+	);
+	if (!definition) {
+		throw new Error(`资源不存在：找不到 MG 定义 "${definitionId}"`);
+	}
+	return definition;
+}
+
+function isShotlyxMGDefinitionId({ definitionId }: { definitionId: string }) {
+	return definitionId === SHOTLYX_MG_GRAPHIC_DEFINITION_ID;
+}
+
+function requireShotlyxMGAssetForElement({
+	editor,
+	element,
+}: {
+	editor: EditorCore;
+	element: TimelineElement;
+}) {
+	if (
+		element.type !== "graphic" ||
+		!isShotlyxMGDefinitionId({ definitionId: element.definitionId }) ||
+		!element.motionGraphicAssetId
+	) {
+		throw new Error("类型不匹配：目标不是 Shotlyx MG 动画");
+	}
+	const asset = editor.project.getShotlyxMGAsset?.({
+		id: element.motionGraphicAssetId,
+	});
+	if (!asset) {
+		throw new Error(
+			`资源不存在：找不到 Shotlyx MG 资源 "${element.motionGraphicAssetId}"`,
+		);
+	}
+	return asset;
+}
+
+function mediaTimeFromSecondsForCreative({
+	seconds,
+}: {
+	seconds: number;
+}): MediaTime {
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+	return Math.round(seconds * MEDIA_TIME_TICKS_PER_SECOND) as MediaTime;
+}
+
+function getStartTime({
+	editor,
+	params,
+}: {
+	editor: EditorCore;
+	params: Record<string, unknown>;
+}): MediaTime {
+	const startTimeSeconds = optionalNumberParam(params, "startTimeSeconds");
+	if (startTimeSeconds !== undefined) {
+		return mediaTimeFromSecondsForCreative({ seconds: startTimeSeconds });
+	}
+
+	const currentTime = editor.playback.getCurrentTime();
+	return typeof currentTime === "number"
+		? currentTime
+		: ZERO_CREATIVE_MEDIA_TIME;
+}
+
+function listTimelineElements({ editor }: { editor: EditorCore }): Array<{
+	trackId: string;
+	element: TimelineElement;
+}> {
+	const scene = editor.scenes.getActiveSceneOrNull();
+	if (!scene) return [];
+	return [
+		scene.tracks.main,
+		...scene.tracks.overlay,
+		...scene.tracks.audio,
+	].flatMap((track) =>
+		track.elements.map((element) => ({ trackId: track.id, element })),
+	);
+}
+
+function findInsertedElement({
+	editor,
+	beforeIds,
+}: {
+	editor: EditorCore;
+	beforeIds: Set<string>;
+}): { trackId: string; elementId: string } | null {
+	const selection = editor.selection.getSelectedElements();
+	const selected = selection[0];
+	if (selected) {
+		return selected;
+	}
+
+	const item = listTimelineElements({ editor }).find(
+		(candidate) => !beforeIds.has(candidate.element.id),
+	);
+	return item ? { trackId: item.trackId, elementId: item.element.id } : null;
+}
+
+function requireParamValuesObject(value: unknown): ParamValues {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		throw new Error("参数格式错误：props 必须为对象");
+	}
+	const props: ParamValues = {};
+	for (const [key, nextValue] of Object.entries(value)) {
+		if (
+			typeof nextValue !== "string" &&
+			typeof nextValue !== "number" &&
+			typeof nextValue !== "boolean"
+		) {
+			throw new Error(
+				`类型不匹配：MG 参数 "${key}" 必须为字符串、数字或布尔值`,
+			);
+		}
+		if (typeof nextValue === "number" && Number.isNaN(nextValue)) {
+			throw new Error(`类型不匹配：MG 参数 "${key}" 不能为 NaN`);
+		}
+		props[key] = nextValue;
+	}
+	return props;
+}
+
+function isShotlyxMGPropValue(value: unknown): value is ShotlyxMGPropValue {
+	if (
+		typeof value === "string" ||
+		typeof value === "number" ||
+		typeof value === "boolean"
+	) {
+		return !(typeof value === "number" && Number.isNaN(value));
+	}
+	if (!Array.isArray(value)) return false;
+	return value.every((row) => {
+		if (typeof row !== "object" || row === null || Array.isArray(row)) {
+			return false;
+		}
+		return Object.values(row).every(
+			(item) =>
+				typeof item === "string" ||
+				typeof item === "number" ||
+				typeof item === "boolean",
+		);
+	});
+}
+
+function requireShotlyxMGPropsObject({
+	asset,
+	value,
+}: {
+	asset: ShotlyxMGAsset;
+	value: unknown;
+}): Record<string, ShotlyxMGPropValue> {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		throw new Error("参数格式错误：props 必须为对象");
+	}
+	const editableKeys = new Set(
+		asset.document.propsSchema.map((prop) => prop.key),
+	);
+	const props: Record<string, ShotlyxMGPropValue> = {};
+	for (const [key, nextValue] of Object.entries(value)) {
+		if (!editableKeys.has(key)) {
+			throw new Error(`参数不存在：Shotlyx MG 不包含属性 "${key}"`);
+		}
+		if (!isShotlyxMGPropValue(nextValue)) {
+			throw new Error(
+				`类型不匹配：Shotlyx MG 参数 "${key}" 必须为字符串、数字、布尔值或表格数组`,
+			);
+		}
+		props[key] = nextValue;
+	}
+	return props;
+}
+
+function isTransparentColorValue(value: unknown): boolean {
+	if (typeof value !== "string") return false;
+	const normalized = value.trim().toLowerCase().replace(/\s+/g, "");
+	return (
+		normalized === "transparent" ||
+		normalized === "#0000" ||
+		normalized === "#00000000" ||
+		normalized === "rgba(0,0,0,0)" ||
+		normalized === "hsla(0,0%,0%,0)"
+	);
+}
+
+function isShotlyxMGBackgroundColorProp({
+	prop,
+}: {
+	prop: Pick<ShotlyxMGPropDefinition, "key" | "label" | "type">;
+}): boolean {
+	if (prop.type !== "color") return false;
+	const text = `${prop.key} ${prop.label}`.toLowerCase();
+	return (
+		text.includes("background") ||
+		text.includes("backdrop") ||
+		text.includes("canvas") ||
+		/\bbg\b/.test(text)
+	);
+}
+
+function getShotlyxMGBackgroundPropKeys({
+	asset,
+}: {
+	asset: ShotlyxMGAsset;
+}): string[] {
+	return asset.document.propsSchema
+		.filter((prop) => isShotlyxMGBackgroundColorProp({ prop }))
+		.map((prop) => prop.key);
+}
+
+function solidBackgroundFallbackForProp({
+	prop,
+	currentValue,
+}: {
+	prop: ShotlyxMGPropDefinition;
+	currentValue: unknown;
+}): string {
+	if (typeof currentValue === "string" && !isTransparentColorValue(currentValue)) {
+		return currentValue;
+	}
+	if (
+		typeof prop.default === "string" &&
+		!isTransparentColorValue(prop.default)
+	) {
+		return prop.default;
+	}
+	return "#0f172a";
+}
+
+function buildShotlyxMGBackgroundPropUpdates({
+	asset,
+	transparentBackground,
+	currentProps,
+}: {
+	asset: ShotlyxMGAsset;
+	transparentBackground?: boolean;
+	currentProps?: Record<string, unknown>;
+}): {
+	props: Record<string, ShotlyxMGPropValue>;
+	backgroundPropKeys: string[];
+} {
+	if (transparentBackground === undefined) {
+		return { props: {}, backgroundPropKeys: [] };
+	}
+	const props: Record<string, ShotlyxMGPropValue> = {};
+	const backgroundProps = asset.document.propsSchema.filter((prop) =>
+		isShotlyxMGBackgroundColorProp({ prop }),
+	);
+	for (const prop of backgroundProps) {
+		props[prop.key] = transparentBackground
+			? "transparent"
+			: solidBackgroundFallbackForProp({
+					prop,
+					currentValue: currentProps?.[prop.key] ?? asset.document.defaultProps[prop.key],
+				});
+	}
+	return {
+		props,
+		backgroundPropKeys: backgroundProps.map((prop) => prop.key),
+	};
+}
+
+function mergeTransparentBackgroundProps({
+	props,
+	backgroundProps,
+	transparentBackground,
+}: {
+	props: Record<string, ShotlyxMGPropValue>;
+	backgroundProps: Record<string, ShotlyxMGPropValue>;
+	transparentBackground?: boolean;
+}): Record<string, ShotlyxMGPropValue> {
+	if (transparentBackground === undefined) return props;
+	return transparentBackground
+		? { ...props, ...backgroundProps }
+		: { ...backgroundProps, ...props };
+}
+
+function requireShotlyxMGUpdatePropsObject({
+	asset,
+	value,
+}: {
+	asset: ShotlyxMGAsset;
+	value: unknown;
+}): {
+	props: Record<string, ShotlyxMGPropValue>;
+	instanceParams: Record<string, string | number | boolean>;
+} {
+	if (value === undefined) {
+		return { props: {}, instanceParams: {} };
+	}
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		throw new Error("参数格式错误：props 必须为对象");
+	}
+	const editableKeys = new Set(
+		asset.document.propsSchema.map((prop) => prop.key),
+	);
+	const props: Record<string, ShotlyxMGPropValue> = {};
+	const instanceParams: Record<string, string | number | boolean> = {};
+	for (const [key, nextValue] of Object.entries(value)) {
+		if (editableKeys.has(key)) {
+			if (!isShotlyxMGPropValue(nextValue)) {
+				throw new Error(
+					`类型不匹配：Shotlyx MG 参数 "${key}" 必须为字符串、数字、布尔值或表格数组`,
+				);
+			}
+			props[key] = nextValue;
+			continue;
+		}
+		if (key === "opacity") {
+			if (
+				typeof nextValue !== "number" ||
+				Number.isNaN(nextValue) ||
+				nextValue < 0 ||
+				nextValue > 1
+			) {
+				throw new Error('类型不匹配："opacity" 必须在 0 到 1 之间');
+			}
+			instanceParams.opacity = nextValue;
+			continue;
+		}
+		throw new Error(`参数不存在：Shotlyx MG 不包含属性 "${key}"`);
+	}
+	return { props, instanceParams };
+}
+
+function getShotlyxMGInstanceParams({
+	element,
+}: {
+	element: TimelineElement;
+}): Record<string, string | number | boolean> {
+	const params: Record<string, string | number | boolean> = {};
+	for (const definition of SHOTLYX_MG_EDITABLE_INSTANCE_PARAMS) {
+		const value = element.params[definition.key];
+		if (
+			typeof value === "string" ||
+			typeof value === "number" ||
+			typeof value === "boolean"
+		) {
+			params[definition.key] = value;
+		}
+	}
+	return params;
+}
+
+function resolveMGElementFromParams({
+	editor,
+	params,
+}: {
+	editor: EditorCore;
+	params: Record<string, unknown>;
+}): { trackId: string; element: TimelineElement } {
+	const elementId = optionalStringParam(params, "elementId");
+	const trackId = optionalStringParam(params, "trackId");
+	const name = optionalStringParam(params, "name")?.toLowerCase();
+	const elements = listTimelineElements({ editor });
+
+	const direct = elementId
+		? elements.find(
+				(item) =>
+					item.element.id === elementId &&
+					(trackId ? item.trackId === trackId : true),
+			)
+		: null;
+	if (direct) {
+		return direct;
+	}
+
+	const named = name
+		? elements.find(
+				(item) =>
+					item.element.name.toLowerCase().includes(name) ||
+					name.includes(item.element.name.toLowerCase()),
+			)
+		: null;
+	if (named) {
+		return named;
+	}
+
+	const selected = editor.selection.getSelectedElements()[0];
+	const selectedItem = selected
+		? elements.find(
+				(item) =>
+					item.trackId === selected.trackId &&
+					item.element.id === selected.elementId,
+			)
+		: null;
+	if (selectedItem) {
+		return selectedItem;
+	}
+
+	throw new Error(
+		"无法确定 MG 动画：请提供 elementId/name，或先选中一个 MG 动画",
+	);
+}
+
+function resolveShotlyxMGAssetFromParams({
+	editor,
+	params,
+}: {
+	editor: EditorCore;
+	params: Record<string, unknown>;
+}): ShotlyxMGAsset | null {
+	const assetId = optionalStringParam(params, "motionGraphicAssetId");
+	if (assetId) {
+		return editor.project.getShotlyxMGAsset?.({ id: assetId }) ?? null;
+	}
+
+	const assetName = optionalStringParam(params, "assetName")?.toLowerCase();
+	if (assetName) {
+		const asset = editor.project
+			.getShotlyxMGAssets?.()
+			.find(
+				(item) =>
+					item.name.toLowerCase().includes(assetName) ||
+					assetName.includes(item.name.toLowerCase()),
+			);
+		if (asset) return asset;
+	}
+
+	try {
+		const { element } = resolveMGElementFromParams({ editor, params });
+		if (
+			element.type === "graphic" &&
+			isShotlyxMGDefinitionId({ definitionId: element.definitionId })
+		) {
+			return requireShotlyxMGAssetForElement({ editor, element });
+		}
+	} catch {
+		return null;
+	}
+
+	return null;
+}
+
+function resolveMGAssetFromParams({
+	editor,
+	params,
+}: {
+	editor: EditorCore;
+	params: Record<string, unknown>;
+}) {
+	const assetId = optionalStringParam(params, "motionGraphicAssetId");
+	if (assetId) {
+		const asset = editor.project.getMotionGraphicAsset({ id: assetId });
+		if (!asset) {
+			throw new Error(`资源不存在：找不到 MG 资源 "${assetId}"`);
+		}
+		return asset;
+	}
+
+	const assetName = optionalStringParam(params, "assetName")?.toLowerCase();
+	if (assetName) {
+		const asset = editor.project
+			.getMotionGraphicAssets()
+			.find(
+				(item) =>
+					item.name.toLowerCase().includes(assetName) ||
+					assetName.includes(item.name.toLowerCase()),
+			);
+		if (asset) {
+			return asset;
+		}
+	}
+
+	const { element } = resolveMGElementFromParams({ editor, params });
+	if (element.type !== "graphic" || !element.motionGraphicAssetId) {
+		throw new Error("无法确定 MG 资源：目标不是项目级 MG 资源实例");
+	}
+
+	const asset = editor.project.getMotionGraphicAsset({
+		id: element.motionGraphicAssetId,
+	});
+	if (!asset) {
+		throw new Error(
+			`资源不存在：找不到 MG 资源 "${element.motionGraphicAssetId}"`,
+		);
+	}
+	return asset;
+}
+
+function getShotlyxMGEditableProps({ asset }: { asset: ShotlyxMGAsset }) {
+	return asset.document.propsSchema.map((prop) => ({
+		key: prop.key,
+		label: prop.label,
+		type: prop.type,
+		role: prop.role,
+		default: prop.default,
+		options: prop.options,
+		columns: prop.columns,
+	}));
+}
+
+function buildShotlyxMGSchemaResult({ asset }: { asset: ShotlyxMGAsset }) {
+	return {
+		shotlyxMGAssetId: asset.id,
+		motionGraphicAssetId: asset.id,
+		name: asset.name,
+		definitionId: SHOTLYX_MG_GRAPHIC_DEFINITION_ID,
+		durationSeconds: asset.document.durationSeconds,
+		transparentBackground: asset.document.transparentBackground ?? false,
+		backgroundPropKeys: getShotlyxMGBackgroundPropKeys({ asset }),
+		params: asset.document.defaultProps,
+		manifest: asset.document.manifest ?? null,
+		editableProps: getShotlyxMGEditableProps({ asset }),
+		renderer: "shotlyx-remotion-component-v1",
+	};
+}
+
+function buildFilename({
+	asset,
+	contentType,
+}: {
+	asset: CreativeAsset;
+	contentType: string;
+}): string {
+	const extension = extensionFromContentType({
+		contentType,
+		fallback: asset.type === "image" ? "png" : "mp4",
+	});
+	return `${sanitizeFilenamePart(asset.title)}.${extension}`;
+}
+
+async function parseImageGenerationResponse(response: Response): Promise<{
+	images: Array<{
+		url: string;
+		model: string;
+		prompt: string;
+		provider: "openai-compatible";
+	}>;
+}> {
+	try {
+		const payload: unknown = await response.json();
+		if (
+			typeof payload !== "object" ||
+			payload === null ||
+			!("images" in payload) ||
+			!Array.isArray(payload.images)
+		) {
+			throw new Error("provider_error: invalid image generation response");
+		}
+
+		const images = payload.images.map((item) => {
+			if (typeof item !== "object" || item === null) {
+				throw new Error("provider_error: invalid image generation response");
+			}
+
+			const url = "url" in item ? item.url : undefined;
+			const model = "model" in item ? item.model : undefined;
+			const prompt = "prompt" in item ? item.prompt : undefined;
+
+			if (
+				typeof url !== "string" ||
+				typeof model !== "string" ||
+				typeof prompt !== "string"
+			) {
+				throw new Error("provider_error: invalid image generation response");
+			}
+
+			return {
+				url,
+				model,
+				prompt,
+				provider: "openai-compatible" as const,
+			};
+		});
+
+		return { images };
+	} catch {
+		throw new Error("provider_error: invalid image generation response");
+	}
+}
+
+async function readRouteError(response: Response): Promise<string> {
+	try {
+		const payload: unknown = await response.json();
+		if (
+			typeof payload === "object" &&
+			payload !== null &&
+			"error" in payload &&
+			typeof payload.error === "string" &&
+			payload.error.length > 0
+		) {
+			return payload.error;
+		}
+	} catch {
+		// Fallback to generic provider_error when the route error payload is invalid.
+	}
+
+	return "provider_error";
+}
+
+function isShotlyxRemotionComponentDocument(
+	value: unknown,
+): value is ShotlyxRemotionComponentDocument {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return false;
+	}
+	const version: unknown = Reflect.get(value, "version");
+	const runtime: unknown = Reflect.get(value, "runtime");
+	const name: unknown = Reflect.get(value, "name");
+	const durationSeconds: unknown = Reflect.get(value, "durationSeconds");
+	const fps: unknown = Reflect.get(value, "fps");
+	const width: unknown = Reflect.get(value, "width");
+	const height: unknown = Reflect.get(value, "height");
+	const aspectRatio: unknown = Reflect.get(value, "aspectRatio");
+	const componentSource: unknown = Reflect.get(value, "componentSource");
+	const compiledModule: unknown = Reflect.get(value, "compiledModule");
+	const propsSchema: unknown = Reflect.get(value, "propsSchema");
+	const defaultProps: unknown = Reflect.get(value, "defaultProps");
+	return (
+		version === 1 &&
+		runtime === SHOTLYX_REMOTION_COMPONENT_RUNTIME &&
+		typeof name === "string" &&
+		typeof durationSeconds === "number" &&
+		typeof fps === "number" &&
+		typeof width === "number" &&
+		typeof height === "number" &&
+		typeof aspectRatio === "string" &&
+		typeof componentSource === "string" &&
+		typeof compiledModule === "string" &&
+		Array.isArray(propsSchema) &&
+		typeof defaultProps === "object" &&
+		defaultProps !== null &&
+		!Array.isArray(defaultProps)
+	);
+}
+
+async function parseShotlyxMGJobStartResponse(response: Response): Promise<{
+	jobId: string;
+}> {
+	let payload: unknown;
+	try {
+		payload = await response.json();
+	} catch {
+		throw new Error("provider_error: invalid Shotlyx MG job response");
+	}
+	if (
+		typeof payload !== "object" ||
+		payload === null ||
+		!("jobId" in payload) ||
+		typeof payload.jobId !== "string"
+	) {
+		throw new Error("provider_error: invalid Shotlyx MG job response");
+	}
+	return { jobId: payload.jobId };
+}
+
+function buildShotlyxMGJobRouteBody({
+	args,
+	componentCount,
+}: {
+	args: GenerateShotlyxMGComponentOptions;
+	componentCount: number;
+}): Record<string, unknown> {
+	return {
+		prompt: args.prompt,
+		durationSeconds: args.durationSeconds,
+		aspectRatio: args.aspectRatio,
+		styleGuide: args.styleGuide,
+		transparentBackground: args.transparentBackground,
+		componentCount,
+		repairAttempts: args.repairAttempts,
+		preferPlainJson: args.preferPlainJson,
+		maxOutputTokens: args.maxOutputTokens,
+	};
+}
+
+async function startShotlyxMGJobViaRoute({
+	args,
+	fetchFn,
+	componentCount,
+}: {
+	args: GenerateShotlyxMGComponentOptions;
+	fetchFn: CreativeFetchFn;
+	componentCount: number;
+}): Promise<{ jobId: string }> {
+	let response: Response;
+	try {
+		response = await fetchFn("/api/agent/creative/mg-jobs", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(
+				buildShotlyxMGJobRouteBody({
+					args,
+					componentCount,
+				}),
+			),
+			signal: args.abortSignal,
+		});
+	} catch {
+		throw new Error("provider_error: Shotlyx MG job request failed");
+	}
+
+	if (!response.ok) {
+		throw new Error(await readRouteError(response));
+	}
+
+	return parseShotlyxMGJobStartResponse(response);
+}
+
+function parseShotlyxMGJobEvent(value: unknown): ShotlyxMGJobEvent | null {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return null;
+	}
+	const type = Reflect.get(value, "type");
+	const jobId = Reflect.get(value, "jobId");
+	if (
+		!(
+			type === "started" ||
+			type === "progress" ||
+			type === "component-complete" ||
+			type === "completed" ||
+			type === "cancelled" ||
+			type === "error"
+		) ||
+		typeof jobId !== "string"
+	) {
+		return null;
+	}
+	const document = Reflect.get(value, "document");
+	return {
+		type,
+		jobId,
+		label:
+			typeof Reflect.get(value, "label") === "string"
+				? Reflect.get(value, "label")
+				: undefined,
+		status:
+			Reflect.get(value, "status") === "success" ||
+			Reflect.get(value, "status") === "error" ||
+			Reflect.get(value, "status") === "running"
+				? Reflect.get(value, "status")
+				: undefined,
+		detail:
+			typeof Reflect.get(value, "detail") === "string"
+				? Reflect.get(value, "detail")
+				: undefined,
+		index:
+			typeof Reflect.get(value, "index") === "number"
+				? Reflect.get(value, "index")
+				: undefined,
+		total:
+			typeof Reflect.get(value, "total") === "number"
+				? Reflect.get(value, "total")
+				: undefined,
+		document: isShotlyxRemotionComponentDocument(document)
+			? document
+			: undefined,
+		error:
+			typeof Reflect.get(value, "error") === "string"
+				? Reflect.get(value, "error")
+				: undefined,
+	};
+}
+
+function readSSEEventData({ chunk }: { chunk: string }): unknown | null {
+	const dataLines = chunk
+		.split("\n")
+		.filter((line) => line.startsWith("data: "))
+		.map((line) => line.slice("data: ".length));
+	if (dataLines.length === 0) return null;
+	try {
+		return JSON.parse(dataLines.join("\n"));
+	} catch {
+		return null;
+	}
+}
+
+async function followShotlyxMGJob({
+	jobId,
+	fetchFn,
+	signal,
+	onEvent,
+}: {
+	jobId: string;
+	fetchFn: CreativeFetchFn;
+	signal?: AbortSignal;
+	onEvent: (event: ShotlyxMGJobEvent) => void;
+}): Promise<void> {
+	const response = await fetchFn(
+		`/api/agent/creative/mg-jobs/${jobId}/events`,
+		{
+			method: "GET",
+			signal,
+		},
+	);
+	if (!response.ok) {
+		throw new Error(await readRouteError(response));
+	}
+	if (!response.body) {
+		throw new Error("provider_error: Shotlyx MG job stream missing body");
+	}
+
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		buffer += decoder.decode(value, { stream: true });
+		const chunks = buffer.split("\n\n");
+		buffer = chunks.pop() ?? "";
+		for (const chunk of chunks) {
+			const parsed = readSSEEventData({ chunk });
+			const event = parseShotlyxMGJobEvent(parsed);
+			if (!event) continue;
+			onEvent(event);
+			if (event.type === "completed" || event.type === "error") {
+				return;
+			}
+		}
+	}
+
+	if (buffer.trim()) {
+		const parsed = readSSEEventData({ chunk: buffer });
+		const event = parseShotlyxMGJobEvent(parsed);
+		if (event) onEvent(event);
+	}
+}
+
+async function cancelShotlyxMGJobViaRoute({
+	jobId,
+	fetchFn,
+}: {
+	jobId: string;
+	fetchFn: CreativeFetchFn;
+}): Promise<void> {
+	const response = await fetchFn(`/api/agent/creative/mg-jobs/${jobId}`, {
+		method: "DELETE",
+	});
+	if (!response.ok && response.status !== 404) {
+		throw new Error(await readRouteError(response));
+	}
+}
+
+function saveShotlyxMGDocumentToProject({
+	editor,
+	document,
+	sourcePrompt,
+	startTime,
+	insertToTimeline,
+	assetId,
+}: {
+	editor: EditorCore;
+	document: ShotlyxRemotionComponentDocument;
+	sourcePrompt: string;
+	startTime: MediaTime;
+	insertToTimeline: boolean;
+	assetId?: string;
+}): { assetId: string; name: string; trackId?: string; elementId?: string } {
+	const existingAsset = assetId
+		? editor.project.getShotlyxMGAsset?.({ id: assetId })
+		: null;
+	const asset =
+		existingAsset ??
+		registerShotlyxMGAsset({
+			id: assetId,
+			document,
+			sourcePrompt: document.sourcePrompt ?? sourcePrompt,
+		});
+	if (!existingAsset) {
+		editor.project.upsertShotlyxMGAsset({ asset });
+	}
+
+	if (!insertToTimeline) {
+		return { assetId: asset.id, name: asset.name };
+	}
+	const existingElement = listTimelineElements({ editor }).find(
+		(item) =>
+			item.element.type === "graphic" &&
+			item.element.motionGraphicAssetId === asset.id,
+	);
+	if (existingElement) {
+		return {
+			assetId: asset.id,
+			name: asset.name,
+			trackId: existingElement.trackId,
+			elementId: existingElement.element.id,
+		};
+	}
+
+	const beforeIds = new Set(
+		listTimelineElements({ editor }).map((item) => item.element.id),
+	);
+	const element = buildShotlyxMGElementFromAsset({
+		asset,
+		startTime,
+	});
+
+	editor.timeline.insertElement({
+		element,
+		placement: { mode: "auto", trackType: "graphic" },
+	});
+
+	const inserted = findInsertedElement({ editor, beforeIds });
+	return {
+		assetId: asset.id,
+		name: asset.name,
+		trackId: inserted?.trackId,
+		elementId: inserted?.elementId,
+	};
+}
+
+function followShotlyxMGJobInBackground({
+	editor,
+	fetchFn,
+	jobId,
+	sourcePrompt,
+	startTime,
+	insertToTimeline,
+	context,
+}: {
+	editor: EditorCore;
+	fetchFn: CreativeFetchFn;
+	jobId: string;
+	sourcePrompt: string;
+	startTime: MediaTime;
+	insertToTimeline: boolean;
+	context?: ToolExecutionContext;
+}): void {
+	const handledComponentKeys = new Set<string>();
+	const handleAbort = () => {
+		void cancelShotlyxMGJobViaRoute({ jobId, fetchFn }).catch((error) => {
+			emitToolProgress({
+				context,
+				stage: "cancelled",
+				label: "停止 MG 子智能体失败",
+				status: "error",
+				detail: getToolErrorDetail(error),
+			});
+		});
+	};
+	if (context?.signal?.aborted) {
+		handleAbort();
+	} else {
+		context?.signal?.addEventListener("abort", handleAbort, { once: true });
+	}
+	void followShotlyxMGJob({
+		jobId,
+		fetchFn,
+		signal: context?.signal,
+		onEvent: (event) => {
+			if (event.type === "component-complete" && event.document) {
+				const componentIndex = event.index ?? 0;
+				const componentKey = `${event.jobId}:${componentIndex}`;
+				if (handledComponentKeys.has(componentKey)) {
+					return;
+				}
+				handledComponentKeys.add(componentKey);
+				const saved = saveShotlyxMGDocumentToProject({
+					editor,
+					document: event.document,
+					sourcePrompt,
+					startTime,
+					insertToTimeline,
+					assetId: buildShotlyxMGJobComponentAssetId({
+						jobId: event.jobId,
+						index: componentIndex,
+					}),
+				});
+				emitToolProgress({
+					context,
+					stage: "generation",
+					label: event.label ?? `已生成${saved.name}`,
+					status: "success",
+					current: event.index === undefined ? undefined : event.index + 1,
+					total: event.total,
+				});
+				return;
+			}
+			if (event.type === "error") {
+				emitToolProgress({
+					context,
+					stage: "generation",
+					label: event.label ?? "MG 子智能体失败",
+					status: "error",
+					detail: event.error,
+				});
+				return;
+			}
+			emitToolProgress({
+				context,
+				stage: event.type,
+				label:
+					event.label ??
+					(event.type === "completed"
+						? "MG 子智能体已完成"
+						: "MG 子智能体运行中"),
+				status:
+					event.status ?? (event.type === "completed" ? "success" : "running"),
+				detail: event.detail,
+				current: event.index === undefined ? undefined : event.index + 1,
+				total: event.total,
+			});
+		},
+	})
+		.catch((error) => {
+			if (context?.signal?.aborted) return;
+			emitToolProgress({
+				context,
+				stage: "generation",
+				label: "MG 子智能体连接失败",
+				status: "error",
+				detail: getToolErrorDetail(error),
+			});
+		})
+		.finally(() => {
+			context?.signal?.removeEventListener("abort", handleAbort);
+		});
+}
+
+export function resumeShotlyxMGJobInBackground({
+	editor,
+	fetchFn = globalThis.fetch.bind(globalThis),
+	jobId,
+	sourcePrompt,
+	startTimeSeconds = 0,
+	insertToTimeline,
+	signal,
+	onProgress,
+}: {
+	editor: EditorCore;
+	fetchFn?: CreativeFetchFn;
+	jobId: string;
+	sourcePrompt: string;
+	startTimeSeconds?: number;
+	insertToTimeline: boolean;
+	signal?: AbortSignal;
+	onProgress?: ToolExecutionContext["onProgress"];
+}): void {
+	followShotlyxMGJobInBackground({
+		editor,
+		fetchFn,
+		jobId,
+		sourcePrompt,
+		startTime: mediaTimeFromSecondsForCreative({ seconds: startTimeSeconds }),
+		insertToTimeline,
+		context: { signal, onProgress },
+	});
+}
+
+async function importCreativeAsset({
+	editor,
+	asset,
+	deps,
+}: {
+	editor: EditorCore;
+	asset: CreativeAsset;
+	deps: CreativeToolDeps;
+}): Promise<ImportedCreativeAssetResult> {
+	if (asset.mediaAssetId) {
+		return {
+			mediaAssetId: asset.mediaAssetId,
+			name: asset.name ?? asset.title,
+			type: asset.type,
+			title: asset.title,
+			sizeBytes: asset.sizeBytes,
+			width: asset.width,
+			height: asset.height,
+			previewUrl: asset.previewUrl,
+			thumbnailUrl: asset.thumbnailUrl,
+			alreadyImported: true,
+		};
+	}
+
+	const project = editor.project.getActiveOrNull();
+	if (!project) {
+		throw new Error("状态错误：未加载项目，无法导入创意资源");
+	}
+
+	const source = asset.downloadUrl ?? asset.url;
+
+	let response: Response;
+	try {
+		response = await deps.fetchFn(source, { method: "GET" });
+	} catch {
+		throw new Error("网络错误：无法下载创意资源");
+	}
+
+	if (!response.ok) {
+		throw new Error(`网络错误：无法下载创意资源 (${response.status})`);
+	}
+
+	const blob = await response.blob();
+	const file = new File(
+		[blob],
+		buildFilename({
+			asset,
+			contentType: blob.type,
+		}),
+		{
+			type: blob.type,
+		},
+	);
+
+	const processed = await deps.processMediaAssetsFn({ files: [file] });
+	const mediaAsset = processed[0];
+	if (!mediaAsset) {
+		throw new Error("媒体处理失败：无法处理创意资源");
+	}
+
+	const result = await editor.media.addMediaAsset({
+		projectId: project.metadata.id,
+		asset: mediaAsset,
+	});
+	if (!result) {
+		throw new Error("媒体导入失败：保存创意资源时出错");
+	}
+
+	return {
+		mediaAssetId: result.id,
+		name: result.name,
+		type: asset.type,
+		title: asset.title,
+		sizeBytes: result.file.size,
+		width: result.width,
+		height: result.height,
+		previewUrl: result.url,
+		thumbnailUrl: result.thumbnailUrl,
+		alreadyImported: false,
+	};
+}
+
+export function buildCreativeTools({
+	editor,
+	deps,
+}: {
+	editor: EditorCore;
+	deps?: Partial<CreativeToolDeps>;
+}): Tool[] {
+	const fetchFn = deps?.fetchFn ?? fetch;
+	const creativeDeps: CreativeToolDeps = {
+		fetchFn,
+		processMediaAssetsFn:
+			deps?.processMediaAssetsFn ?? defaultProcessMediaAssetsFn,
+		generateShotlyxMGComponentFn: deps?.generateShotlyxMGComponentFn,
+	};
+	return [
+		{
+			name: "creative_search_video",
+			description: "搜索 mock 视频素材，返回候选资源，不修改项目状态",
+			parameters: {
+				query: {
+					type: "string",
+					description: "搜索关键词",
+				},
+				orientation: {
+					type: "string",
+					description: "画幅方向：landscape、portrait、square",
+					optional: true,
+				},
+				durationSeconds: {
+					type: "number",
+					description: "最大时长秒数",
+					optional: true,
+				},
+				count: {
+					type: "number",
+					description: "返回数量，默认 5，最大 10",
+					optional: true,
+				},
+			},
+			handler: (params) => {
+				const query = requireStringParam(params, "query");
+				const orientation = optionalOrientationParam(params);
+				const durationSeconds = optionalNumberParam(params, "durationSeconds");
+				const countValue = optionalNumberParam(params, "count");
+				const count =
+					countValue === undefined
+						? undefined
+						: requirePositiveInteger({
+								value: countValue,
+								key: "count",
+								max: 10,
+							});
+				const result = searchMockVideos({
+					query,
+					orientation,
+					durationSeconds,
+					count,
+				});
+
+				return {
+					candidates: result.candidates.map((candidate) => {
+						const { id: _id, ...input } = candidate;
+						return registerCreativeAsset(input);
+					}),
+				};
+			},
+		},
+		{
+			name: "creative_generate_image",
+			description:
+				"调用服务端 OpenAI-compatible 生图 API 生成图片，并自动保存到 Shotlyx 媒体资源库",
+			parameters: {
+				prompt: {
+					type: "string",
+					description: "生图 prompt",
+				},
+				aspectRatio: {
+					type: "string",
+					description: "画幅比例：1:1、16:9、9:16",
+					optional: true,
+				},
+				size: {
+					type: "string",
+					description: "图片尺寸：1024x1024、1536x1024、1024x1536",
+					optional: true,
+				},
+				count: {
+					type: "number",
+					description: "生成数量，默认 1，最大 4",
+					optional: true,
+				},
+			},
+			handler: async (params) => {
+				const prompt = requireStringParam(params, "prompt");
+				const aspectRatio = optionalAspectRatioParam(params);
+				const requestedSize = optionalImageSizeParam(params);
+				const countValue = optionalNumberParam(params, "count");
+				const count =
+					countValue === undefined
+						? 1
+						: requirePositiveInteger({
+								value: countValue,
+								key: "count",
+								max: 4,
+							});
+				const size = resolveImageSize({
+					aspectRatio,
+					size: requestedSize,
+				});
+
+				let response: Response;
+				try {
+					response = await creativeDeps.fetchFn("/api/agent/creative/image", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							prompt,
+							size,
+							count,
+						}),
+					});
+				} catch {
+					throw new Error("provider_error: image generation request failed");
+				}
+
+				if (!response.ok) {
+					throw new Error(await readRouteError(response));
+				}
+
+				const result = await parseImageGenerationResponse(response);
+				const { width, height } = dimensionsFromSize(size);
+
+				const images: Array<{
+					id: string;
+					type: CreativeAsset["type"];
+					provider: CreativeAsset["provider"];
+					title: string;
+					name?: string;
+					sizeBytes?: number;
+					width?: number;
+					height?: number;
+					mediaAssetId?: string;
+					previewUrl?: string;
+					thumbnailUrl?: string;
+					model?: string;
+					imported: boolean;
+				}> = [];
+				for (const [index, image] of result.images.entries()) {
+					const title = buildGeneratedImageTitle({
+						prompt: image.prompt,
+						index,
+					});
+					const asset = registerCreativeAsset({
+						type: "image",
+						provider: "openai-compatible",
+						title,
+						url: image.url,
+						previewUrl: image.url,
+						prompt: image.prompt,
+						model: image.model,
+						width,
+						height,
+					});
+					const imported = await importCreativeAsset({
+						editor,
+						asset,
+						deps: creativeDeps,
+					});
+
+					asset.mediaAssetId = imported.mediaAssetId;
+					asset.name = imported.name;
+					asset.sizeBytes = imported.sizeBytes;
+					asset.width = imported.width ?? asset.width;
+					asset.height = imported.height ?? asset.height;
+					asset.previewUrl = imported.previewUrl ?? asset.previewUrl;
+					asset.thumbnailUrl = imported.thumbnailUrl ?? asset.thumbnailUrl;
+
+					images.push({
+						id: asset.id,
+						type: asset.type,
+						provider: asset.provider,
+						title: asset.title,
+						name: asset.name,
+						sizeBytes: asset.sizeBytes,
+						width: asset.width,
+						height: asset.height,
+						mediaAssetId: asset.mediaAssetId,
+						previewUrl: asset.previewUrl,
+						thumbnailUrl: asset.thumbnailUrl,
+						model: asset.model,
+						imported: true,
+					});
+				}
+
+				return { images };
+			},
+		},
+		{
+			name: "shotlyx_generate_mg_composition",
+			description:
+				"将复杂自定义 MG 拆成多个可编辑 Shotlyx Component 小组件逐个生成、保存到 Assets，并可叠加插入时间线。用于复杂 MG、数据可视化、多层讲解动画。",
+			parameters: {
+				prompt: {
+					type: "string",
+					description:
+						"整体 MG 动画需求描述，包含主题、内容、数据、风格或节奏要求",
+				},
+				durationSeconds: {
+					type: "number",
+					description:
+						"每个小组件的动画时长秒数，默认由生成器决定，最大 120 秒",
+					optional: true,
+				},
+				aspectRatio: {
+					type: "string",
+					description: "画幅比例：16:9、9:16、1:1，默认 16:9",
+					optional: true,
+				},
+				styleGuide: {
+					type: "string",
+					description:
+						"可选风格或品牌约束。只有用户明确给出、项目已有品牌上下文，或上层 Agent 判断必须确认时才提供。",
+					optional: true,
+				},
+				componentCount: {
+					type: "number",
+					description: "拆分生成的小组件数量，默认 3，最大 5",
+					optional: true,
+				},
+				startTimeSeconds: {
+					type: "number",
+					description: "插入时间线的开始时间。省略时使用当前播放头",
+					optional: true,
+				},
+				transparentBackground: {
+					type: "boolean",
+					description:
+						"是否生成透明背景 MG，默认 true。用于叠加到视频素材上；只有用户明确要完整背景时设为 false。",
+					optional: true,
+				},
+				insertToTimeline: {
+					type: "boolean",
+					description: "是否自动插入时间线，默认 true",
+					optional: true,
+				},
+			},
+			mutating: true,
+			// Tool handlers use the MCP runtime signature.
+			// eslint-disable-next-line shotlyx/prefer-object-params
+			handler: async (params, context) => {
+				const prompt = requireStringParam(params, "prompt");
+				if (!editor.project.getActiveOrNull()) {
+					throw new Error("状态错误：未加载项目，无法保存 Shotlyx MG 资产");
+				}
+				const durationSeconds = optionalNumberParam(params, "durationSeconds");
+				if (
+					durationSeconds !== undefined &&
+					(durationSeconds <= 0 || durationSeconds > 120)
+				) {
+					throw new Error(
+						"类型不匹配：durationSeconds 必须大于 0 且不超过 120",
+					);
+				}
+				const componentCountValue = optionalNumberParam(
+					params,
+					"componentCount",
+				);
+				const componentCount = requirePositiveInteger({
+					value: componentCountValue ?? 3,
+					key: "componentCount",
+					max: 5,
+				});
+				const aspectRatio = optionalAspectRatioParam(params) ?? "16:9";
+				const styleGuide = optionalStringParam(params, "styleGuide");
+				const transparentBackground =
+					optionalBooleanParam(params, "transparentBackground") ?? true;
+				const insertToTimeline =
+					optionalBooleanParam(params, "insertToTimeline") ?? true;
+				if (insertToTimeline && !editor.scenes.getActiveSceneOrNull()) {
+					throw new Error("状态错误：未加载场景，无法插入 Shotlyx MG 动画");
+				}
+				const startTime = getStartTime({ editor, params });
+				const remotionSkill = buildRemotionSkillContextSummary({
+					prompt,
+					styleGuide,
+				});
+				emitRemotionSkillProgress({
+					context,
+					summary: remotionSkill,
+				});
+				const directorPlan = createShotlyxMGCompositionPlan({
+					prompt,
+					componentCount,
+					durationSeconds,
+					styleGuide,
+				});
+				emitToolProgress({
+					context,
+					stage: "director",
+					label: "已规划 MG Director 分镜",
+					status: "success",
+					detail: `${directorPlan.title} · ${directorPlan.components
+						.map((component) => component.label)
+						.join(" / ")}`,
+					current: 0,
+					total: directorPlan.components.length,
+				});
+
+				if (!creativeDeps.generateShotlyxMGComponentFn) {
+					const { jobId } = await startShotlyxMGJobViaRoute({
+						args: {
+							prompt,
+							durationSeconds,
+							aspectRatio,
+							styleGuide,
+							transparentBackground,
+							abortSignal: context?.signal,
+							repairAttempts: 1,
+							preferPlainJson: false,
+							maxOutputTokens: 8000,
+						},
+						fetchFn: creativeDeps.fetchFn,
+						componentCount,
+					});
+					emitToolProgress({
+						context,
+						stage: "started",
+						label: "MG 子智能体已启动",
+						status: "running",
+						current: 0,
+						total: componentCount,
+					});
+					followShotlyxMGJobInBackground({
+						editor,
+						fetchFn: creativeDeps.fetchFn,
+						jobId,
+						sourcePrompt: prompt,
+						startTime,
+						insertToTimeline,
+						context,
+					});
+					return {
+						jobId,
+						name: buildCompositionName({ prompt }),
+						runtime: "shotlyx-mg-job-v1",
+						status: "running",
+						inserted: insertToTimeline,
+						startTimeSeconds: Number(startTime) / MEDIA_TIME_TICKS_PER_SECOND,
+						componentCount,
+						transparentBackground,
+						remotionSkill,
+						directorPlan,
+					};
+				}
+
+				const components = [];
+				const timelineElements = [];
+				const componentPlans = directorPlan.components;
+				const compositionName = buildCompositionName({ prompt });
+
+				emitToolProgress({
+					context,
+					stage: "planning",
+					label: "规划 MG 小组件",
+					status: "running",
+					current: 0,
+					total: componentPlans.length,
+				});
+				emitToolProgress({
+					context,
+					stage: "planning",
+					label: `已规划 ${componentPlans.length} 个小组件`,
+					status: "success",
+					current: 0,
+					total: componentPlans.length,
+				});
+
+				for (const [index, component] of componentPlans.entries()) {
+					emitToolProgress({
+						context,
+						stage: "generation",
+						label: `生成${component.label}`,
+						status: "running",
+						detail: component.focus,
+						current: index + 1,
+						total: componentPlans.length,
+					});
+
+					let document: ShotlyxRemotionComponentDocument;
+					try {
+						document = await creativeDeps.generateShotlyxMGComponentFn({
+							prompt: buildCompositionComponentPrompt({
+								prompt,
+								directorPlan,
+								component,
+								componentIndex: index,
+								totalComponents: componentPlans.length,
+								transparentBackground,
+							}),
+							durationSeconds,
+							aspectRatio,
+							styleGuide,
+							transparentBackground,
+							abortSignal: context?.signal,
+							repairAttempts: 1,
+							preferPlainJson: false,
+							maxOutputTokens: 8000,
+						});
+					} catch (error) {
+						emitToolProgress({
+							context,
+							stage: "generation",
+							label: `生成${component.label}失败`,
+							status: "error",
+							detail: getToolErrorDetail(error),
+							current: index + 1,
+							total: componentPlans.length,
+						});
+						throw error;
+					}
+
+					const asset = registerShotlyxMGAsset({
+						document,
+						sourcePrompt: document.sourcePrompt ?? prompt,
+					});
+					editor.project.upsertShotlyxMGAsset({ asset });
+
+					let inserted: { trackId: string; elementId: string } | null = null;
+					if (insertToTimeline) {
+						const beforeIds = new Set(
+							listTimelineElements({ editor }).map((item) => item.element.id),
+						);
+						const element = buildShotlyxMGElementFromAsset({
+							asset,
+							startTime,
+						});
+
+						editor.timeline.insertElement({
+							element,
+							placement: { mode: "auto", trackType: "graphic" },
+						});
+
+						inserted = findInsertedElement({ editor, beforeIds });
+						if (inserted) {
+							timelineElements.push(inserted);
+						}
+					}
+
+					const componentResult = {
+						componentId: component.id,
+						label: component.label,
+						focus: component.focus,
+						visualRole: component.visualRole,
+						qualityBar: component.qualityBar,
+						shotlyxMGAssetId: asset.id,
+						name: asset.name,
+						durationSeconds: asset.document.durationSeconds,
+						aspectRatio: asset.document.aspectRatio,
+						transparentBackground:
+							asset.document.transparentBackground ?? transparentBackground,
+						trackId: inserted?.trackId,
+						elementId: inserted?.elementId,
+						editableProps: asset.document.propsSchema.map((prop) => ({
+							key: prop.key,
+							label: prop.label,
+							type: prop.type,
+							role: prop.role,
+						})),
+					};
+					components.push(componentResult);
+
+					emitToolProgress({
+						context,
+						stage: "generation",
+						label: `已生成${asset.name}`,
+						status: "success",
+						current: index + 1,
+						total: componentPlans.length,
+					});
+				}
+
+				emitToolProgress({
+					context,
+					stage: "complete",
+					label: "组合 MG 已完成",
+					status: "success",
+					current: componentPlans.length,
+					total: componentPlans.length,
+				});
+
+				return {
+					name: compositionName,
+					runtime: "shotlyx-mg-composition-v1",
+					inserted: insertToTimeline,
+					componentCount: components.length,
+					transparentBackground,
+					components,
+					timelineElements,
+					remotionSkill,
+					directorPlan,
+					validationReport: {
+						status: "passed",
+						renderer: "shotlyx-remotion-component-v1",
+					},
+				};
+			},
+		},
+		{
+			name: "shotlyx_generate_mg_component",
+			description:
+				"生成任意 Shotlyx Component MG 动画资产，保存到项目 Assets，并可插入时间线。用于自定义 MG、数据可视化、讲解动画、信息图动画，不使用固定模板。",
+			parameters: {
+				prompt: {
+					type: "string",
+					description: "MG 动画需求描述，包含主题、内容、数据、风格或节奏要求",
+				},
+				durationSeconds: {
+					type: "number",
+					description: "动画时长秒数，默认由生成器决定，最大 120 秒",
+					optional: true,
+				},
+				aspectRatio: {
+					type: "string",
+					description: "画幅比例：16:9、9:16、1:1，默认 16:9",
+					optional: true,
+				},
+				styleGuide: {
+					type: "string",
+					description:
+						"可选风格或品牌约束。只有用户明确给出、项目已有品牌上下文，或上层 Agent 判断必须确认时才提供。",
+					optional: true,
+				},
+				startTimeSeconds: {
+					type: "number",
+					description: "插入时间线的开始时间。省略时使用当前播放头",
+					optional: true,
+				},
+				transparentBackground: {
+					type: "boolean",
+					description:
+						"是否生成透明背景 MG，默认 true。用于叠加到视频素材上；只有用户明确要完整背景时设为 false。",
+					optional: true,
+				},
+				insertToTimeline: {
+					type: "boolean",
+					description: "是否自动插入时间线，默认 true",
+					optional: true,
+				},
+			},
+			mutating: true,
+			// Tool handlers use the MCP runtime signature.
+			// eslint-disable-next-line shotlyx/prefer-object-params
+			handler: async (params, context) => {
+				const prompt = requireStringParam(params, "prompt");
+				if (!editor.project.getActiveOrNull()) {
+					throw new Error("状态错误：未加载项目，无法保存 Shotlyx MG 资产");
+				}
+				const durationSeconds = optionalNumberParam(params, "durationSeconds");
+				if (
+					durationSeconds !== undefined &&
+					(durationSeconds <= 0 || durationSeconds > 120)
+				) {
+					throw new Error(
+						"类型不匹配：durationSeconds 必须大于 0 且不超过 120",
+					);
+				}
+				const aspectRatio = optionalAspectRatioParam(params) ?? "16:9";
+				const styleGuide = optionalStringParam(params, "styleGuide");
+				const transparentBackground =
+					optionalBooleanParam(params, "transparentBackground") ?? true;
+				const insertToTimeline =
+					optionalBooleanParam(params, "insertToTimeline") ?? true;
+				if (insertToTimeline && !editor.scenes.getActiveSceneOrNull()) {
+					throw new Error("状态错误：未加载场景，无法插入 Shotlyx MG 动画");
+				}
+				const startTime = getStartTime({ editor, params });
+
+				if (!creativeDeps.generateShotlyxMGComponentFn) {
+					const { jobId } = await startShotlyxMGJobViaRoute({
+						args: {
+							prompt,
+							durationSeconds,
+							aspectRatio,
+							styleGuide,
+							transparentBackground,
+							abortSignal: context?.signal,
+							repairAttempts: 2,
+							preferPlainJson: false,
+							maxOutputTokens: 8000,
+						},
+						fetchFn: creativeDeps.fetchFn,
+						componentCount: 1,
+					});
+					emitToolProgress({
+						context,
+						stage: "started",
+						label: "MG 子智能体已启动",
+						status: "running",
+						current: 0,
+						total: 1,
+					});
+					followShotlyxMGJobInBackground({
+						editor,
+						fetchFn: creativeDeps.fetchFn,
+						jobId,
+						sourcePrompt: prompt,
+						startTime,
+						insertToTimeline,
+						context,
+					});
+					return {
+						jobId,
+						name: prompt,
+						runtime: "shotlyx-mg-job-v1",
+						status: "running",
+						inserted: insertToTimeline,
+						startTimeSeconds: Number(startTime) / MEDIA_TIME_TICKS_PER_SECOND,
+						componentCount: 1,
+						transparentBackground,
+					};
+				}
+
+				const document = await creativeDeps.generateShotlyxMGComponentFn({
+					prompt,
+					durationSeconds,
+					aspectRatio,
+					styleGuide,
+					transparentBackground,
+					abortSignal: context?.signal,
+					repairAttempts: 2,
+					preferPlainJson: false,
+					maxOutputTokens: 8000,
+				});
+				const asset = registerShotlyxMGAsset({
+					document,
+					sourcePrompt: document.sourcePrompt ?? prompt,
+				});
+				editor.project.upsertShotlyxMGAsset({ asset });
+
+				if (!insertToTimeline) {
+					return {
+						shotlyxMGAssetId: asset.id,
+						name: asset.name,
+						runtime: "shotlyx-mg-component-v1",
+						inserted: false,
+						durationSeconds: asset.document.durationSeconds,
+						aspectRatio: asset.document.aspectRatio,
+						transparentBackground:
+							asset.document.transparentBackground ?? transparentBackground,
+						editableProps: asset.document.propsSchema.map((prop) => ({
+							key: prop.key,
+							label: prop.label,
+							type: prop.type,
+							role: prop.role,
+						})),
+						validationReport: {
+							status: "passed",
+							renderer: "shotlyx-remotion-component-v1",
+						},
+					};
+				}
+
+				const scene = editor.scenes.getActiveSceneOrNull();
+				if (!scene) {
+					throw new Error("状态错误：未加载场景，无法插入 Shotlyx MG 动画");
+				}
+				const beforeIds = new Set(
+					listTimelineElements({ editor }).map((item) => item.element.id),
+				);
+				const element = buildShotlyxMGElementFromAsset({
+					asset,
+					startTime,
+				});
+
+				editor.timeline.insertElement({
+					element,
+					placement: { mode: "auto", trackType: "graphic" },
+				});
+
+				const inserted = findInsertedElement({ editor, beforeIds });
+				return {
+					shotlyxMGAssetId: asset.id,
+					name: asset.name,
+					runtime: "shotlyx-mg-component-v1",
+					inserted: true,
+					trackId: inserted?.trackId,
+					elementId: inserted?.elementId,
+					durationSeconds: asset.document.durationSeconds,
+					aspectRatio: asset.document.aspectRatio,
+					transparentBackground:
+						asset.document.transparentBackground ?? transparentBackground,
+					editableProps: asset.document.propsSchema.map((prop) => ({
+						key: prop.key,
+						label: prop.label,
+						type: prop.type,
+						role: prop.role,
+					})),
+					validationReport: {
+						status: "passed",
+						renderer: "shotlyx-remotion-component-v1",
+					},
+				};
+			},
+		},
+		{
+			name: "creative_update_mg_animation",
+			description:
+				"修改已插入时间线的 MG 动画实例参数。可用于改文字、颜色、字体、数值，不需要重新生成资源。",
+			parameters: {
+				trackId: {
+					type: "string",
+					description: "MG 动画所在轨道 ID。可省略并使用当前选中元素",
+					optional: true,
+				},
+				elementId: {
+					type: "string",
+					description: "MG 动画元素 ID。可省略并使用当前选中元素",
+					optional: true,
+				},
+				name: {
+					type: "string",
+					description: "按名称模糊匹配 MG 动画",
+					optional: true,
+				},
+				props: {
+					type: "object",
+					description:
+						'要修改的参数对象，例如 { "title": "新标题", "accentColor": "#76b900", "opacity": 0.8 }',
+					optional: true,
+				},
+				transparentBackground: {
+					type: "boolean",
+					description:
+						"是否把这个时间线实例的背景切为透明。true 会把可编辑背景色 prop 设置为 transparent；false 会恢复为非透明背景色。",
+					optional: true,
+				},
+			},
+			mutating: true,
+			handler: (params) => {
+				const { trackId, element } = resolveMGElementFromParams({
+					editor,
+					params,
+				});
+				if (element.type !== "graphic") {
+					throw new Error("类型不匹配：目标片段不是 graphic/MG 动画");
+				}
+				if (isShotlyxMGDefinitionId({ definitionId: element.definitionId })) {
+					const asset = requireShotlyxMGAssetForElement({ editor, element });
+					const transparentBackground = optionalBooleanParam(
+						params,
+						"transparentBackground",
+					);
+					const parsedProps = requireShotlyxMGUpdatePropsObject({
+						asset,
+						value: params.props,
+					});
+					if (
+						params.props === undefined &&
+						transparentBackground === undefined
+					) {
+						throw new Error(
+							"参数缺失：请提供 props 或 transparentBackground",
+						);
+					}
+					const backgroundUpdate = buildShotlyxMGBackgroundPropUpdates({
+						asset,
+						transparentBackground,
+						currentProps: {
+							...asset.document.defaultProps,
+							...element.params,
+						},
+					});
+					const props = mergeTransparentBackgroundProps({
+						props: parsedProps.props,
+						backgroundProps: backgroundUpdate.props,
+						transparentBackground,
+					});
+					const instanceParams = parsedProps.instanceParams;
+					editor.timeline.updateElements({
+						updates: [
+							{
+								trackId,
+								elementId: element.id,
+								patch: {
+									// Shotlyx table props are valid runtime values even though
+									// the generic ParamValues type only models primitive controls.
+									// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+									params: {
+										...element.params,
+										...props,
+										...instanceParams,
+									} as unknown as ParamValues,
+								},
+							},
+						],
+					});
+					return {
+						updated: true,
+						trackId,
+						elementId: element.id,
+						definitionId: element.definitionId,
+						motionGraphicAssetId: element.motionGraphicAssetId,
+						props,
+						instanceParams,
+						transparentBackground,
+						backgroundPropKeys: backgroundUpdate.backgroundPropKeys,
+						editableProps: getShotlyxMGEditableProps({ asset }),
+						renderer: "shotlyx-remotion-component-v1",
+					};
+				}
+				const definition = getMGDefinition({
+					definitionId: element.definitionId,
+				});
+				if (definition.category !== "motion-graphic") {
+					throw new Error("类型不匹配：目标 graphic 不是 MG 动画");
+				}
+				const props = requireParamValuesObject(params.props);
+				editor.timeline.updateElements({
+					updates: [
+						{
+							trackId,
+							elementId: element.id,
+							patch: {
+								params: props,
+							},
+						},
+					],
+				});
+				return {
+					updated: true,
+					trackId,
+					elementId: element.id,
+					definitionId: element.definitionId,
+					motionGraphicAssetId: element.motionGraphicAssetId,
+					props,
+				};
+			},
+		},
+		{
+			name: "creative_update_mg_asset",
+			description:
+				"修改资源库中的项目级 MG 预制件本体。会同步更新所有引用该资源的时间线实例基础参数。",
+			parameters: {
+				motionGraphicAssetId: {
+					type: "string",
+					description: "项目级 MG 资源 ID。可省略并通过当前选中实例推断",
+					optional: true,
+				},
+				assetName: {
+					type: "string",
+					description: "按资源名称模糊匹配 MG 资源",
+					optional: true,
+				},
+				trackId: {
+					type: "string",
+					description: "引用该资源的时间线实例轨道 ID",
+					optional: true,
+				},
+				elementId: {
+					type: "string",
+					description: "引用该资源的时间线实例元素 ID",
+					optional: true,
+				},
+				name: {
+					type: "string",
+					description: "按时间线实例名称模糊匹配",
+					optional: true,
+				},
+				newName: {
+					type: "string",
+					description: "新的 MG 资源名称",
+					optional: true,
+				},
+				durationSeconds: {
+					type: "number",
+					description: "新的 MG 资源时长秒数",
+					optional: true,
+				},
+				props: {
+					type: "object",
+					description:
+						'要修改的资源基础参数对象，例如 { "title": "新标题", "accentColor": "#76b900" }',
+					optional: true,
+				},
+				transparentBackground: {
+					type: "boolean",
+					description:
+						"是否把这个 MG 资源本体的背景切为透明。true 会把可编辑背景色 prop 设置为 transparent；false 会恢复为非透明背景色。",
+					optional: true,
+				},
+			},
+			mutating: true,
+			handler: (params) => {
+				const shotlyxAsset = resolveShotlyxMGAssetFromParams({
+					editor,
+					params,
+				});
+				if (shotlyxAsset) {
+					const transparentBackground = optionalBooleanParam(
+						params,
+						"transparentBackground",
+					);
+					const requestedProps =
+						params.props === undefined
+							? {}
+							: requireShotlyxMGPropsObject({
+									asset: shotlyxAsset,
+									value: params.props,
+								});
+					const backgroundUpdate = buildShotlyxMGBackgroundPropUpdates({
+						asset: shotlyxAsset,
+						transparentBackground,
+						currentProps: shotlyxAsset.document.defaultProps,
+					});
+					const props = mergeTransparentBackgroundProps({
+						props: requestedProps,
+						backgroundProps: backgroundUpdate.props,
+						transparentBackground,
+					});
+					const durationSeconds = optionalNumberParam(
+						params,
+						"durationSeconds",
+					);
+					if (
+						durationSeconds !== undefined &&
+						(durationSeconds <= 0 || durationSeconds > 120)
+					) {
+						throw new Error(
+							"类型不匹配：durationSeconds 必须大于 0 且不超过 120",
+						);
+					}
+					const newName = optionalStringParam(params, "newName");
+					const nextName = newName?.trim() || shotlyxAsset.name;
+					const nextDuration =
+						durationSeconds ?? shotlyxAsset.document.durationSeconds;
+					const nextTransparentBackground =
+						transparentBackground ?? shotlyxAsset.document.transparentBackground;
+					const nextAsset: ShotlyxMGAsset = {
+						...shotlyxAsset,
+						name: nextName,
+						document: {
+							...shotlyxAsset.document,
+							name: nextName,
+							durationSeconds: nextDuration,
+							transparentBackground: nextTransparentBackground,
+							defaultProps: {
+								...shotlyxAsset.document.defaultProps,
+								...props,
+							},
+							manifest: shotlyxAsset.document.manifest
+								? {
+										...shotlyxAsset.document.manifest,
+										name: nextName,
+										durationSeconds: nextDuration,
+										transparentBackground: nextTransparentBackground,
+										durationInFrames: Math.round(
+											nextDuration * shotlyxAsset.document.fps,
+										),
+									}
+								: undefined,
+						},
+						updatedAt: new Date().toISOString(),
+					};
+					editor.project.upsertShotlyxMGAsset({ asset: nextAsset });
+					return {
+						updated: true,
+						...buildShotlyxMGSchemaResult({ asset: nextAsset }),
+						props,
+						transparentBackground:
+							nextAsset.document.transparentBackground ?? false,
+						backgroundPropKeys: backgroundUpdate.backgroundPropKeys,
+					};
+				}
+
+				const asset = resolveMGAssetFromParams({ editor, params });
+				const definition = getMGDefinition({
+					definitionId: asset.definitionId,
+				});
+				const props =
+					params.props === undefined
+						? {}
+						: requireParamValuesObject(params.props);
+				const durationSeconds = optionalNumberParam(params, "durationSeconds");
+				if (
+					durationSeconds !== undefined &&
+					(durationSeconds <= 0 || durationSeconds > 120)
+				) {
+					throw new Error(
+						"类型不匹配：durationSeconds 必须大于 0 且不超过 120",
+					);
+				}
+				const newName = optionalStringParam(params, "newName");
+				const nextParams = {
+					...asset.params,
+					...props,
+				};
+				const now = new Date().toISOString();
+				const nextAsset = {
+					...asset,
+					name: newName?.trim() || asset.name,
+					duration:
+						durationSeconds === undefined
+							? asset.duration
+							: mediaTimeFromSecondsForCreative({
+									seconds: durationSeconds,
+								}),
+					params: nextParams,
+					manifest: buildMotionGraphicManifest({
+						definition,
+						kind: asset.kind,
+						params: nextParams,
+						sourcePrompt: asset.sourcePrompt,
+						generatedAt: asset.manifest?.generatedAt ?? asset.createdAt,
+						updatedAt: now,
+					}),
+					updatedAt: now,
+				};
+				editor.project.upsertMotionGraphicAsset({ asset: nextAsset });
+				return {
+					updated: true,
+					motionGraphicAssetId: nextAsset.id,
+					name: nextAsset.name,
+					definitionId: nextAsset.definitionId,
+					durationSeconds:
+						durationSeconds ?? nextAsset.duration / MEDIA_TIME_TICKS_PER_SECOND,
+					props,
+					manifest: nextAsset.manifest,
+				};
+			},
+		},
+		{
+			name: "creative_get_mg_asset_schema",
+			description:
+				"查看资源库中项目级 MG 预制件的可编辑 manifest/schema，用于按资源本体继续修改。",
+			parameters: {
+				motionGraphicAssetId: {
+					type: "string",
+					description: "项目级 MG 资源 ID。可省略并通过当前选中实例推断",
+					optional: true,
+				},
+				assetName: {
+					type: "string",
+					description: "按资源名称模糊匹配 MG 资源",
+					optional: true,
+				},
+				trackId: {
+					type: "string",
+					description: "引用该资源的时间线实例轨道 ID",
+					optional: true,
+				},
+				elementId: {
+					type: "string",
+					description: "引用该资源的时间线实例元素 ID",
+					optional: true,
+				},
+				name: {
+					type: "string",
+					description: "按时间线实例名称模糊匹配并推断资源",
+					optional: true,
+				},
+			},
+			handler: (params) => {
+				const shotlyxAsset = resolveShotlyxMGAssetFromParams({
+					editor,
+					params,
+				});
+				if (shotlyxAsset) {
+					return buildShotlyxMGSchemaResult({ asset: shotlyxAsset });
+				}
+
+				const asset = resolveMGAssetFromParams({ editor, params });
+				const definition = getMGDefinition({
+					definitionId: asset.definitionId,
+				});
+				const manifest =
+					asset.manifest ??
+					buildMotionGraphicManifest({
+						definition,
+						kind: asset.kind,
+						params: asset.params,
+						sourcePrompt: asset.sourcePrompt,
+						generatedAt: asset.createdAt,
+						updatedAt: asset.updatedAt,
+					});
+				return {
+					motionGraphicAssetId: asset.id,
+					name: asset.name,
+					definitionId: asset.definitionId,
+					kind: asset.kind,
+					durationSeconds: asset.duration / MEDIA_TIME_TICKS_PER_SECOND,
+					params: asset.params,
+					manifest,
+				};
+			},
+		},
+		{
+			name: "creative_get_mg_animation_schema",
+			description:
+				"查看已选中或指定 MG 动画的可编辑参数 schema，帮助后续精确修改。",
+			parameters: {
+				trackId: {
+					type: "string",
+					description: "MG 动画所在轨道 ID。可省略并使用当前选中元素",
+					optional: true,
+				},
+				elementId: {
+					type: "string",
+					description: "MG 动画元素 ID。可省略并使用当前选中元素",
+					optional: true,
+				},
+				name: {
+					type: "string",
+					description: "按名称模糊匹配 MG 动画",
+					optional: true,
+				},
+			},
+			handler: (params) => {
+				const { trackId, element } = resolveMGElementFromParams({
+					editor,
+					params,
+				});
+				if (element.type !== "graphic") {
+					throw new Error("类型不匹配：目标片段不是 graphic/MG 动画");
+				}
+				if (isShotlyxMGDefinitionId({ definitionId: element.definitionId })) {
+					const asset = requireShotlyxMGAssetForElement({ editor, element });
+					const resolvedProps = { ...asset.document.defaultProps };
+					for (const prop of asset.document.propsSchema) {
+						const value = element.params[prop.key];
+						if (isShotlyxMGPropValue(value)) {
+							resolvedProps[prop.key] = value;
+						}
+					}
+					return {
+						trackId,
+						elementId: element.id,
+						...buildShotlyxMGSchemaResult({ asset }),
+						instanceParams: getShotlyxMGInstanceParams({ element }),
+						editableInstanceParams: SHOTLYX_MG_EDITABLE_INSTANCE_PARAMS,
+						params: resolvedProps,
+					};
+				}
+				const definition = getMGDefinition({
+					definitionId: element.definitionId,
+				});
+				if (definition.category !== "motion-graphic") {
+					throw new Error("类型不匹配：目标 graphic 不是 MG 动画");
+				}
+				const asset = element.motionGraphicAssetId
+					? editor.project.getMotionGraphicAsset({
+							id: element.motionGraphicAssetId,
+						})
+					: null;
+				const resolvedParams = {
+					...(element.motionGraphicBaseParams ?? {}),
+					...element.params,
+				};
+				const manifest =
+					asset?.manifest ??
+					buildMotionGraphicManifest({
+						definition,
+						kind: asset?.kind,
+						params: asset?.params ?? resolvedParams,
+						sourcePrompt: asset?.sourcePrompt,
+						generatedAt: asset?.createdAt,
+						updatedAt: asset?.updatedAt,
+					});
+				return {
+					trackId,
+					elementId: element.id,
+					motionGraphicAssetId: element.motionGraphicAssetId,
+					definitionId: element.definitionId,
+					name: element.name,
+					baseParams: element.motionGraphicBaseParams ?? null,
+					instanceParams: element.params,
+					params: resolvedParams,
+					manifest,
+					editableParams: definition.params.map((param) => ({
+						key: param.key,
+						label: param.label,
+						type: param.type,
+						default: param.default,
+					})),
+				};
+			},
+		},
+		{
+			name: "creative_import_asset",
+			description: "将 creative asset candidate 导入 Shotlyx 媒体库",
+			parameters: {
+				assetId: {
+					type: "string",
+					description: "creative asset ID",
+				},
+			},
+			mutating: true,
+			handler: async (params) => {
+				const assetId = requireStringParam(params, "assetId");
+				const asset = getCreativeAsset({ id: assetId });
+				if (!asset) {
+					throw new Error(`资源不存在：找不到 creative asset "${assetId}"`);
+				}
+
+				const imported = await importCreativeAsset({
+					editor,
+					asset,
+					deps: creativeDeps,
+				});
+				asset.mediaAssetId = imported.mediaAssetId;
+				asset.name = imported.name;
+				asset.sizeBytes = imported.sizeBytes;
+				asset.width = imported.width ?? asset.width;
+				asset.height = imported.height ?? asset.height;
+				asset.previewUrl = imported.previewUrl ?? asset.previewUrl;
+				asset.thumbnailUrl = imported.thumbnailUrl ?? asset.thumbnailUrl;
+				return imported;
+			},
+		},
+	];
+}
