@@ -2,7 +2,10 @@ import { BaseNode } from "./base-node";
 import type { TextElement, SubtitleElement } from "@/timeline";
 import type { EffectPass } from "@/effects/types";
 import type { BlendMode, Transform } from "@/rendering";
-import { drawMeasuredTextLayout } from "@/text/primitives";
+import {
+	drawMeasuredTextHighlight,
+	drawMeasuredTextLayout,
+} from "@/text/primitives";
 import type { MeasuredTextElement } from "@/text/measure-element";
 
 export type TextNodeParams = (TextElement | SubtitleElement) & {
@@ -19,6 +22,8 @@ export interface ResolvedTextNodeState {
 	opacity: number;
 	textColor: string;
 	backgroundColor: string;
+	highlightText?: string;
+	highlightColor?: string;
 	effectPasses: EffectPass[][];
 	measuredText: MeasuredTextElement;
 }
@@ -56,6 +61,22 @@ export function renderTextToContext({
 		backgroundColor: resolved.backgroundColor,
 		textBaseline: baseline,
 	});
+
+	const highlightText = resolved.highlightText;
+	const highlightColor = resolved.highlightColor;
+	if (
+		typeof highlightText === "string" &&
+		highlightText.length > 0 &&
+		typeof highlightColor === "string"
+	) {
+		drawMeasuredTextHighlight({
+			ctx,
+			layout: resolved.measuredText,
+			highlightText,
+			textColor: highlightColor,
+			textBaseline: baseline,
+		});
+	}
 
 	ctx.restore();
 }

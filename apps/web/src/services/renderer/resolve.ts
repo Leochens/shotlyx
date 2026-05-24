@@ -371,6 +371,14 @@ function resolveTextNode({
 			propertyPath: "background.color",
 			localTime,
 		}),
+		highlightText:
+			typeof textElement.params["subtitle.highlightText"] === "string"
+				? textElement.params["subtitle.highlightText"]
+				: undefined,
+		highlightColor:
+			typeof textElement.params["subtitle.highlightColor"] === "string"
+				? textElement.params["subtitle.highlightColor"]
+				: undefined,
 		effectPasses: resolveEffectPassGroups({
 			effects: textElement.effects,
 			animations: textElement.animations,
