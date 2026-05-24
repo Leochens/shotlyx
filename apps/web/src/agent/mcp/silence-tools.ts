@@ -13,6 +13,7 @@ import type {
 	TimelineTrack,
 } from "@/timeline";
 import type { MediaTime } from "@/wasm";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 import type { Tool } from "./types";
 import {
 	optionalNumberParam,
@@ -24,7 +25,6 @@ const MAX_PLAN_AGE_MS = 30 * 60 * 1000;
 const MAX_STORED_PLANS = 12;
 const MAX_TARGETS_FOR_MODEL = 12;
 const MAX_SEGMENTS_PER_TARGET_FOR_MODEL = 8;
-const MEDIA_TIME_TICKS_PER_SECOND = 90_000;
 
 type SilenceScope = "auto" | "selection" | "timeline" | "element";
 

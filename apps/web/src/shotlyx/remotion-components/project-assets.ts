@@ -2,6 +2,7 @@ import type { ElementAnimations } from "@/animation/types";
 import type { ParamValues } from "@/params";
 import type { CreateGraphicElement } from "@/timeline/types";
 import type { MediaTime } from "@/wasm";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 import type { ShotlyxMGAsset } from "./types";
 
 export const SHOTLYX_MG_PROJECT_PROVIDER_ID = "shotlyx-remotion-component";
@@ -12,7 +13,6 @@ export const SHOTLYX_MG_BACKGROUND_COLOR_PARAM_KEY =
 export const SHOTLYX_MG_BACKGROUND_OPACITY_PARAM_KEY =
 	"shotlyxMGBackgroundOpacity";
 
-const MEDIA_TIME_TICKS_PER_SECOND = 90_000;
 // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 const ZERO_SHOTLYX_MEDIA_TIME = 0 as MediaTime;
 

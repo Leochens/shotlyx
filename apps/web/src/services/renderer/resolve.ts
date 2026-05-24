@@ -1,4 +1,4 @@
-import { mediaTimeToSeconds, roundMediaTime, type MediaTime } from "@/wasm";
+import { mediaTimeToSeconds, roundMediaTime } from "@/wasm";
 import { getElementLocalTime } from "@/animation";
 import { resolveEffectParamsAtTime } from "@/animation/effect-param-channel";
 import {
@@ -336,7 +336,7 @@ function resolveTextNode({
 		node.params.type === "subtitle"
 			? buildRenderableTextElementFromSubtitle({
 					element: node.params,
-					timelineTime: context.time as MediaTime,
+					timelineTime: context.time,
 				})
 			: node.params;
 	if (!textElement) {

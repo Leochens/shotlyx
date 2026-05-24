@@ -7,12 +7,13 @@ import { buildProjectTools } from "@/agent/mcp/project-tools";
 import { buildSceneTools } from "@/agent/mcp/scene-tools";
 import type { EditorCore } from "@/core";
 import type { MediaTime } from "@/wasm";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 import type { TScene } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
 import type { TProject } from "@/project/types";
 
 function mockMediaTimeFromSeconds({ seconds }: { seconds: number }): MediaTime {
-	return Math.round(seconds * 90000) as unknown as MediaTime;
+	return Math.round(seconds * MEDIA_TIME_TICKS_PER_SECOND) as unknown as MediaTime;
 }
 
 interface MockEditorOverrides {
@@ -246,8 +247,8 @@ describe("timeline_insert_text", () => {
 			element: {
 				type: "text",
 				name: "Text",
-				startTime: 90000,
-				duration: 360000,
+					startTime: MEDIA_TIME_TICKS_PER_SECOND,
+					duration: 4 * MEDIA_TIME_TICKS_PER_SECOND,
 				params: {
 					content: "花生：地下宝藏",
 					fontSize: 28,

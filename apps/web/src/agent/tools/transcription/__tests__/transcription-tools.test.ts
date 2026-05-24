@@ -5,6 +5,7 @@ import {
 	buildTranscriptionTools,
 	createTranscriptionToolDeps,
 } from "@/agent/tools/transcription/transcription-tools";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
 describe("transcription tools", () => {
 	test("builds subtitles_generate_from_video schema", () => {
@@ -32,7 +33,7 @@ describe("transcription tools", () => {
 	test("calls injected generator with normalized defaults", async () => {
 		const generateSubtitlesFromVideo = mock(async () => ({
 			imported: true,
-			provider: "local",
+			provider: "volcengine",
 			cueCount: 1,
 			groupId: "subtitle-group",
 			trackId: "track-subtitles",
@@ -43,14 +44,13 @@ describe("transcription tools", () => {
 
 		const result = await tool?.handler({
 			language: "zh",
-			provider: "local",
 			style: "social",
 		});
 
 		expect(generateSubtitlesFromVideo).toHaveBeenCalledWith(
 			expect.objectContaining({
 				source: "timeline",
-				provider: "local",
+				provider: "volcengine",
 				language: "zh",
 				style: "social",
 				placement: "bottom",
@@ -58,12 +58,16 @@ describe("transcription tools", () => {
 		);
 		expect(result).toMatchObject({
 			imported: true,
-			provider: "local",
+			provider: "volcengine",
 			cueCount: 1,
 		});
 	});
 
 	test("client deps extract timeline audio, call cloud ASR, and import cues", async () => {
+		const addMediaAsset = mock(async ({ asset }: { asset: { name: string } }) => ({
+			id: "subtitle-asset",
+			name: asset.name,
+		}));
 		const execute = mock(async () => ({
 			status: "success" as const,
 			data: {
@@ -79,8 +83,12 @@ describe("transcription tools", () => {
 					tracks: { main: { id: "main", elements: [] }, overlay: [], audio: [] },
 				}),
 			},
-			media: { getAssets: () => [] },
-			timeline: { getTotalDuration: () => 90_000 },
+			project: { getActive: () => ({ metadata: { id: "project-1" } }) },
+			media: {
+				getAssets: () => [],
+				addMediaAsset,
+			},
+			timeline: { getTotalDuration: () => MEDIA_TIME_TICKS_PER_SECOND },
 			mcp: { execute },
 		} as unknown as EditorCore;
 		const fetchFn = mock(async () => {
@@ -94,6 +102,11 @@ describe("transcription tools", () => {
 							text: "你好 Shotlyx",
 							startTimeSeconds: 0,
 							durationSeconds: 2,
+							tokens: [
+								{ text: "你", startTime: 0, duration: 0.25 },
+								{ text: "好", startTime: 0.25, duration: 0.25 },
+								{ text: "Shotlyx", startTime: 0.75, duration: 0.7 },
+							],
 						},
 					],
 				}),
@@ -135,20 +148,59 @@ describe("transcription tools", () => {
 					format: "cues",
 					style: "social",
 					placement: "lower_third",
+					cues: [
+						expect.objectContaining({
+							text: "你好 Shotlyx",
+							tokens: [
+								{ text: "你", startTime: 0, duration: 0.25 },
+								{ text: "好", startTime: 0.25, duration: 0.25 },
+								{ text: "Shotlyx", startTime: 0.75, duration: 0.7 },
+							],
+						}),
+					],
 				}),
 			}),
+		);
+		expect(addMediaAsset).toHaveBeenCalledTimes(1);
+		const addMediaCall = addMediaAsset.mock.calls[0]?.[0] as {
+			asset: { name: string; type: string; file: File };
+			projectId: string;
+		};
+		expect(addMediaCall.projectId).toBe("project-1");
+		expect(addMediaCall.asset).toMatchObject({
+			name: "transcript-tencent.tokens.srt",
+			type: "subtitle",
+		});
+		expect(await addMediaCall.asset.file.text()).toBe(
+			[
+				"1",
+				"00:00:00,000 --> 00:00:00,250",
+				"你",
+				"",
+				"2",
+				"00:00:00,250 --> 00:00:00,500",
+				"好",
+				"",
+				"3",
+				"00:00:00,750 --> 00:00:01,450",
+				"Shotlyx",
+				"",
+			].join("\n"),
 		);
 		expect(result).toMatchObject({
 			imported: true,
 			provider: "tencent",
 			cueCount: 1,
 			groupId: "subtitle-group",
+			subtitleAssetId: "subtitle-asset",
 		});
 		expect(progressEvents).toMatchObject([
 			{ stage: "audio-extract", status: "running" },
 			{ stage: "audio-extract", status: "success" },
 			{ stage: "asr-provider", status: "running" },
 			{ stage: "asr-provider", status: "success" },
+			{ stage: "subtitle-asset", status: "running" },
+			{ stage: "subtitle-asset", status: "success" },
 			{ stage: "subtitle-import", status: "running" },
 			{ stage: "subtitle-import", status: "success" },
 		]);

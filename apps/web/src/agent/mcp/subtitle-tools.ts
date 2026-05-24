@@ -8,7 +8,6 @@ import {
 } from "@/subtitles/layer";
 import { parseSrt } from "@/subtitles/srt";
 import type {
-	SubtitleCue,
 	SubtitleLayerCue,
 	SubtitleRevealMode,
 	SubtitleToken,

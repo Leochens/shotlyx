@@ -6,11 +6,12 @@ import {
 	getSubtitleSourceTimeSeconds,
 	resolveSubtitleTextAtTime,
 } from "@/subtitles/layer";
-
-const TICKS_PER_SECOND = 90_000;
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
 function ticks(seconds: number): MediaTime {
-	return Math.round(seconds * TICKS_PER_SECOND) as unknown as MediaTime;
+	return Math.round(
+		seconds * MEDIA_TIME_TICKS_PER_SECOND,
+	) as unknown as MediaTime;
 }
 
 function makeElement(
@@ -122,5 +123,87 @@ describe("subtitle layer timing", () => {
 				revealMode: "token",
 			})?.text,
 		).toBe("今天我");
+	});
+
+	test("does not fake token timing when a cue has no timed tokens", () => {
+		const element = makeElement({
+			cues: [
+				{
+					text: "我吃了一个苹果",
+					startTime: 0,
+					duration: 2,
+				},
+			],
+			revealMode: "token",
+		});
+
+		expect(
+			resolveSubtitleTextAtTime({
+				element,
+				timelineTime: ticks(0.4),
+				revealMode: "token",
+			})?.text,
+		).toBe("我吃了一个苹果");
+	});
+
+	test("reveals timed tokens as a prefix of the original text with punctuation", () => {
+		const element = makeElement({
+			cues: [
+				{
+					text: "好，我们在 TOI 试完之后。",
+					startTime: 5,
+					duration: 4,
+					tokens: [
+						{ text: "好", startTime: 5, duration: 0.2 },
+						{ text: "我", startTime: 5.4, duration: 0.1 },
+						{ text: "们", startTime: 5.5, duration: 0.1 },
+						{ text: "在", startTime: 5.6, duration: 0.1 },
+						{ text: "TOI", startTime: 6, duration: 0.4 },
+						{ text: "试", startTime: 6.8, duration: 0.2 },
+					],
+				},
+			],
+			revealMode: "token",
+		});
+
+		expect(
+			resolveSubtitleTextAtTime({
+				element,
+				timelineTime: ticks(5.45),
+				revealMode: "token",
+			})?.text,
+		).toBe("好，我");
+		expect(
+			resolveSubtitleTextAtTime({
+				element,
+				timelineTime: ticks(6.05),
+				revealMode: "token",
+			})?.text,
+		).toBe("好，我们在 TOI");
+	});
+
+	test("does not reveal a 5.49 second token at the 4 second 17 frame timecode", () => {
+		const element = makeElement({
+			cues: [
+				{
+					text: "好，我们在",
+					startTime: 5.49,
+					duration: 1,
+					tokens: [
+						{ text: "好", startTime: 5.49, duration: 0.24 },
+						{ text: "我", startTime: 5.73, duration: 0.08 },
+					],
+				},
+			],
+			revealMode: "token",
+		});
+
+		expect(
+			resolveSubtitleTextAtTime({
+				element,
+				timelineTime: ticks(4 + 17 / 30),
+				revealMode: "token",
+			}),
+		).toBeNull();
 	});
 });

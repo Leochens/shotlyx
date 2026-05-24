@@ -5,6 +5,7 @@ import { buildPlaybackTools } from "@/agent/mcp/playback-tools";
 import { buildSelectionTools } from "@/agent/mcp/selection-tools";
 import { buildMediaTools } from "@/agent/mcp/media-tools";
 import { buildProjectTools } from "@/agent/mcp/project-tools";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
 function mockMediaTimeFromSeconds({
 	seconds,
@@ -12,7 +13,9 @@ function mockMediaTimeFromSeconds({
 	seconds: number;
 }): import("@/wasm").MediaTime {
 	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-	return Math.round(seconds * 90000) as unknown as import("@/wasm").MediaTime;
+	return Math.round(
+		seconds * MEDIA_TIME_TICKS_PER_SECOND,
+	) as unknown as import("@/wasm").MediaTime;
 }
 
 describe("MCPServer", () => {

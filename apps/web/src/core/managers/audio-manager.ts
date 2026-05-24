@@ -2,7 +2,12 @@ import type { EditorCore } from "@/core";
 import { TICKS_PER_SECOND } from "@/wasm";
 import { clampRetimeRate, shouldMaintainPitch } from "@/retime/rate";
 import type { AudioClipSource } from "@/media/audio";
-import { createAudioContext, collectAudioClips } from "@/media/audio";
+import {
+	createAudioContext,
+	collectAudioClips,
+	createTimestampedAudioBuffer,
+	resampleAudioBuffer,
+} from "@/media/audio";
 import {
 	buildAudioGainAutomation,
 	hasAnimatedVolume,
@@ -225,7 +230,9 @@ export class AudioManager {
 		for (const source of this.queuedSources) {
 			try {
 				source.stop();
-			} catch {}
+			} catch {
+				// The source may already have ended by the time playback is stopped.
+			}
 			source.disconnect();
 		}
 		this.queuedSources.clear();
@@ -470,8 +477,7 @@ export class AudioManager {
 	}
 
 	private hasCurveRetime({ clip }: { clip: AudioClipSource }): boolean {
-		const mode = (clip.retime as { mode?: unknown } | undefined)?.mode;
-		return mode === "curve";
+		return getRetimeMode({ retime: clip.retime }) === "curve";
 	}
 
 	private scheduleClipGainAutomation({
@@ -606,12 +612,10 @@ export class AudioManager {
 			}
 
 			const sink = new AudioBufferSink(audioTrack);
-			const chunks: AudioBuffer[] = [];
-			let totalSamples = 0;
+			const chunks: WrappedAudioBuffer[] = [];
 
-			for await (const { buffer } of sink.buffers(0)) {
-				chunks.push(buffer);
-				totalSamples += buffer.length;
+			for await (const chunk of sink.buffers(0)) {
+				chunks.push(chunk);
 			}
 
 			if (chunks.length === 0) {
@@ -619,48 +623,16 @@ export class AudioManager {
 			}
 
 			const targetSampleRate = audioContext.sampleRate;
-			const nativeSampleRate = chunks[0].sampleRate;
-			const numChannels = Math.min(2, chunks[0].numberOfChannels);
-			const nativeChannels = Array.from(
-				{ length: numChannels },
-				() => new Float32Array(totalSamples),
-			);
+			const nativeBuffer = createTimestampedAudioBuffer({
+				audioContext,
+				chunks,
+			});
+			if (!nativeBuffer) return null;
 
-			let offset = 0;
-			for (const chunk of chunks) {
-				for (let channel = 0; channel < numChannels; channel++) {
-					nativeChannels[channel].set(
-						chunk.getChannelData(Math.min(channel, chunk.numberOfChannels - 1)),
-						offset,
-					);
-				}
-				offset += chunk.length;
-			}
-
-			const outputSamples = Math.ceil(
-				totalSamples * (targetSampleRate / nativeSampleRate),
-			);
-			const offlineContext = new OfflineAudioContext(
-				numChannels,
-				outputSamples,
+			return await resampleAudioBuffer({
+				buffer: nativeBuffer,
 				targetSampleRate,
-			);
-			const nativeBuffer = audioContext.createBuffer(
-				numChannels,
-				totalSamples,
-				nativeSampleRate,
-			);
-
-			for (let channel = 0; channel < numChannels; channel++) {
-				nativeBuffer.copyToChannel(nativeChannels[channel], channel);
-			}
-
-			const sourceNode = offlineContext.createBufferSource();
-			sourceNode.buffer = nativeBuffer;
-			sourceNode.connect(offlineContext.destination);
-			sourceNode.start(0);
-
-			return await offlineContext.startRendering();
+			});
 		} catch (error) {
 			console.warn("Failed to decode clip audio:", error);
 			return null;
@@ -697,4 +669,15 @@ export class AudioManager {
 			return null;
 		}
 	}
+}
+
+function getRetimeMode({
+	retime,
+}: {
+	retime: AudioClipSource["retime"];
+}): unknown {
+	if (!retime || typeof retime !== "object" || !("mode" in retime)) {
+		return undefined;
+	}
+	return retime.mode;
 }

@@ -13,6 +13,7 @@ import type {
 import type { ParamValues } from "@/params";
 import type { CreateTimelineElement } from "@/timeline";
 import type { MediaTime } from "@/wasm";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 import { isRecord } from "./providers/helpers";
 import {
 	getStockAsset,
@@ -64,7 +65,6 @@ async function defaultProcessMediaAssetsFn(input: { files: File[] }) {
 	return processMediaAssets(input);
 }
 
-const MEDIA_TIME_TICKS_PER_SECOND = 90_000;
 // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 const ZERO_STOCK_MEDIA_TIME = 0 as MediaTime;
 

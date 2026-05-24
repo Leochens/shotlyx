@@ -8,19 +8,17 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { useReducer, useRef, useState } from "react";
-import { extractTimelineAudio } from "@/media/mediabunny";
 import { useEditor } from "@/editor/use-editor";
 import { TRANSCRIPTION_DIAGNOSTICS_SCOPE } from "@/transcription/diagnostics";
-import { DEFAULT_TRANSCRIPTION_SAMPLE_RATE } from "@/transcription/audio";
 import { TRANSCRIPTION_LANGUAGES } from "@/transcription/supported-languages";
-import type {
-	CaptionChunk,
-	TranscriptionLanguage,
-	TranscriptionProgress,
-} from "@/transcription/types";
-import { transcriptionService } from "@/services/transcription/service";
-import { decodeAudioToFloat32 } from "@/media/audio";
-import { buildCaptionChunks } from "@/transcription/caption";
+import type { CaptionChunk, TranscriptionLanguage } from "@/transcription/types";
+import {
+	CAPTION_TRANSCRIPTION_PROVIDER_OPTIONS,
+	DEFAULT_CAPTION_TRANSCRIPTION_PROVIDER,
+	type CaptionTranscriptionProvider,
+	getCaptionProviderStartStep,
+	isCaptionTranscriptionProvider,
+} from "@/subtitles/caption-provider";
 import { parseSubtitleFile } from "@/subtitles/parse";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -85,6 +83,10 @@ function processingReducer(
 export function Captions() {
 	const [selectedLanguage, setSelectedLanguage] =
 		useState<TranscriptionLanguage>("auto");
+	const [selectedProvider, setSelectedProvider] =
+		useState<CaptionTranscriptionProvider>(
+			DEFAULT_CAPTION_TRANSCRIPTION_PROVIDER,
+		);
 	const [processing, dispatch] = useReducer(processingReducer, IDLE_STATE);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -95,17 +97,6 @@ export function Captions() {
 	const activeDiagnostics = useEditor((e) =>
 		e.diagnostics.getActive({ scope: TRANSCRIPTION_DIAGNOSTICS_SCOPE }),
 	);
-
-	const handleProgress = (progress: TranscriptionProgress) => {
-		if (progress.status === "loading-model") {
-			dispatch({
-				type: "update_step",
-				step: `Loading model ${Math.round(progress.progress)}%`,
-			});
-		} else if (progress.status === "transcribing") {
-			dispatch({ type: "update_step", step: "Transcribing..." });
-		}
-	};
 
 	const insertCaptions = async ({
 		captions,
@@ -131,31 +122,31 @@ export function Captions() {
 	};
 
 	const handleGenerateTranscript = async () => {
-		dispatch({ type: "start", step: "Extracting audio..." });
+		dispatch({
+			type: "start",
+			step: getCaptionProviderStartStep({ provider: selectedProvider }),
+		});
 		try {
-			const audioBlob = await extractTimelineAudio({
-				tracks: editor.scenes.getActiveScene().tracks,
-				mediaAssets: editor.media.getAssets(),
-				totalDuration: editor.timeline.getTotalDuration(),
+			const result = await editor.mcp.execute({
+				toolName: "subtitles_generate_from_video",
+				params: {
+					source: "timeline",
+					provider: selectedProvider,
+					language: selectedLanguage,
+					style: "clean",
+					placement: "bottom",
+				},
+				onProgress: (event) => {
+					if (event.status === "running") {
+						dispatch({ type: "update_step", step: event.label });
+					}
+				},
 			});
-
-			dispatch({ type: "update_step", step: "Preparing audio..." });
-			const { samples } = await decodeAudioToFloat32({
-				audioBlob,
-				sampleRate: DEFAULT_TRANSCRIPTION_SAMPLE_RATE,
-			});
-
-			const result = await transcriptionService.transcribe({
-				audioData: samples,
-				language: selectedLanguage === "auto" ? undefined : selectedLanguage,
-				onProgress: handleProgress,
-			});
-
-			dispatch({ type: "update_step", step: "Generating captions..." });
-			const captionChunks = buildCaptionChunks({ segments: result.segments });
-
-			if (!(await insertCaptions({ captions: captionChunks }))) {
-				dispatch({ type: "fail", error: "No captions were generated" });
+			if (result.status === "error") {
+				dispatch({
+					type: "fail",
+					error: result.error ?? "Subtitle generation failed",
+				});
 				return;
 			}
 
@@ -247,6 +238,11 @@ export function Captions() {
 		setSelectedLanguage(matchedLanguage.code);
 	};
 
+	const handleProviderChange = ({ value }: { value: string }) => {
+		if (!isCaptionTranscriptionProvider(value)) return;
+		setSelectedProvider(value);
+	};
+
 	const error = processing.status === "idle" ? processing.error : null;
 	const warnings = processing.status === "idle" ? processing.warnings : [];
 
@@ -302,6 +298,23 @@ export function Captions() {
 			>
 				<SectionContent className="flex flex-col gap-4 h-full pt-1">
 					<SectionFields>
+						<SectionField label="Recognition">
+							<Select
+								value={selectedProvider}
+								onValueChange={(value) => handleProviderChange({ value })}
+							>
+								<SelectTrigger>
+									<SelectValue placeholder="Select a provider" />
+								</SelectTrigger>
+								<SelectContent>
+									{CAPTION_TRANSCRIPTION_PROVIDER_OPTIONS.map((provider) => (
+										<SelectItem key={provider.id} value={provider.id}>
+											{provider.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</SectionField>
 						<SectionField label="Language">
 							<Select
 								value={selectedLanguage}

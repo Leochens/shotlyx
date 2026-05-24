@@ -73,6 +73,7 @@ When given a task:
 - Insert imported media with timeline_insert_media after querying timeline_get_summary for a valid trackId.
 - Use timeline_insert_text_overlay when the user asks to add a title, visual caption, lower-third, label, or explanatory text. It plans readable size, safe placement, and styling automatically.
 - Use timeline_insert_text only when the user explicitly needs precise raw text parameters or asks to edit a specific text element manually.
+- Use subtitles_generate_from_video when the user asks to generate subtitles, transcribe speech, or convert the current timeline audio to text. Prefer provider "volcengine" when the user explicitly asks for 火山引擎/豆包 ASR; the imported result is a unified subtitle layer with word/token timing when available.
 - Use subtitles_import when the user provides SRT content, asks to import subtitles, or wants transcript-like captions across the whole video. Use subtitles_update_style to change the unified subtitle format for the whole imported subtitle group.
 - Use silence_analyze_timeline when the user asks to remove silence, cut dead air, 自动剪静音, or tighten pauses. It only analyzes and returns a planId plus a summary; it does not edit the timeline.
 - Use silence_apply_cut_plan only after silence_analyze_timeline found segments and the user has confirmed the edit, unless the user explicitly asked to apply directly in auto mode. Pass the returned planId; if omitted, the tool uses the latest silence analysis plan.

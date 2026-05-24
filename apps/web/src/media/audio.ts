@@ -8,6 +8,7 @@ import type {
 import { shouldMaintainPitch } from "@/retime/rate";
 import type { MediaAsset } from "@/media/types";
 import { applyAudioMasteringToBuffer } from "@/media/audio-mastering";
+import { buildTimestampedAudioChunkLayout } from "@/media/audio-timestamp";
 import type { AudioCapableElement } from "@/timeline/audio-state";
 import {
 	hasAnimatedVolume,
@@ -19,7 +20,13 @@ import { canElementHaveAudio, hasMediaId } from "@/timeline/element-utils";
 import { canTrackHaveAudio } from "@/timeline";
 import { mediaSupportsAudio } from "@/media/media-utils";
 import { getSourceTimeAtClipTime, renderRetimedBuffer } from "@/retime";
-import { Input, ALL_FORMATS, BlobSource, AudioBufferSink } from "mediabunny";
+import {
+	Input,
+	ALL_FORMATS,
+	BlobSource,
+	AudioBufferSink,
+	type WrappedAudioBuffer,
+} from "mediabunny";
 import { TICKS_PER_SECOND } from "@/wasm";
 import { computeRmsBuckets, type SampleBucket } from "@/media/waveform-summary";
 
@@ -54,6 +61,83 @@ export function createAudioContext({
 export interface DecodedAudio {
 	samples: Float32Array;
 	sampleRate: number;
+}
+
+export function createTimestampedAudioBuffer({
+	audioContext,
+	chunks,
+}: {
+	audioContext: AudioContext;
+	chunks: WrappedAudioBuffer[];
+}): AudioBuffer | null {
+	if (chunks.length === 0) return null;
+
+	const sampleRate = chunks[0].buffer.sampleRate;
+	const numChannels = Math.min(
+		MAX_AUDIO_CHANNELS,
+		Math.max(...chunks.map((chunk) => chunk.buffer.numberOfChannels)),
+	);
+	const layout = buildTimestampedAudioChunkLayout({
+		sampleRate,
+		chunks: chunks.map((chunk) => ({
+			timestamp: chunk.timestamp,
+			length: chunk.buffer.length,
+		})),
+	});
+	if (layout.totalSamples <= 0 || numChannels <= 0) return null;
+
+	const outputBuffer = audioContext.createBuffer(
+		numChannels,
+		layout.totalSamples,
+		sampleRate,
+	);
+	for (const placement of layout.placements) {
+		if (placement.samplesToCopy <= 0) continue;
+		const chunk = chunks[placement.chunkIndex];
+		for (let channel = 0; channel < numChannels; channel++) {
+			const sourceChannel = Math.min(channel, chunk.buffer.numberOfChannels - 1);
+			const sourceData = chunk.buffer
+				.getChannelData(sourceChannel)
+				.subarray(
+					placement.sourceStartSample,
+					placement.sourceStartSample + placement.samplesToCopy,
+				);
+			outputBuffer.copyToChannel(
+				sourceData,
+				channel,
+				placement.outputStartSample,
+			);
+		}
+	}
+
+	return outputBuffer;
+}
+
+export async function resampleAudioBuffer({
+	buffer,
+	targetSampleRate,
+}: {
+	buffer: AudioBuffer;
+	targetSampleRate: number;
+}): Promise<AudioBuffer> {
+	if (buffer.sampleRate === targetSampleRate) {
+		return buffer;
+	}
+
+	const outputSamples = Math.ceil(
+		buffer.length * (targetSampleRate / buffer.sampleRate),
+	);
+	const offlineContext = new OfflineAudioContext(
+		buffer.numberOfChannels,
+		outputSamples,
+		targetSampleRate,
+	);
+	const sourceNode = offlineContext.createBufferSource();
+	sourceNode.buffer = buffer;
+	sourceNode.connect(offlineContext.destination);
+	sourceNode.start(0);
+
+	return await offlineContext.startRendering();
 }
 
 export async function decodeAudioToFloat32({
@@ -290,62 +374,24 @@ export async function resolveAudioBufferForAsset({
 		const sink = new AudioBufferSink(audioTrack);
 		const targetSampleRate = audioContext.sampleRate;
 
-		const chunks: AudioBuffer[] = [];
-		let totalSamples = 0;
+		const chunks: WrappedAudioBuffer[] = [];
 
-		for await (const { buffer } of sink.buffers(0)) {
-			chunks.push(buffer);
-			totalSamples += buffer.length;
+		for await (const chunk of sink.buffers(0)) {
+			chunks.push(chunk);
 		}
 
 		if (chunks.length === 0) return null;
 
-		const nativeSampleRate = chunks[0].sampleRate;
-		const numChannels = Math.min(
-			MAX_AUDIO_CHANNELS,
-			chunks[0].numberOfChannels,
-		);
+		const nativeBuffer = createTimestampedAudioBuffer({
+			audioContext,
+			chunks,
+		});
+		if (!nativeBuffer) return null;
 
-		const nativeChannels = Array.from(
-			{ length: numChannels },
-			() => new Float32Array(totalSamples),
-		);
-		let offset = 0;
-		for (const chunk of chunks) {
-			for (let channel = 0; channel < numChannels; channel++) {
-				const sourceData = chunk.getChannelData(
-					Math.min(channel, chunk.numberOfChannels - 1),
-				);
-				nativeChannels[channel].set(sourceData, offset);
-			}
-			offset += chunk.length;
-		}
-
-		// use OfflineAudioContext for high-quality resampling to target rate
-		const outputSamples = Math.ceil(
-			totalSamples * (targetSampleRate / nativeSampleRate),
-		);
-		const offlineContext = new OfflineAudioContext(
-			numChannels,
-			outputSamples,
+		return await resampleAudioBuffer({
+			buffer: nativeBuffer,
 			targetSampleRate,
-		);
-
-		const nativeBuffer = audioContext.createBuffer(
-			numChannels,
-			totalSamples,
-			nativeSampleRate,
-		);
-		for (let ch = 0; ch < numChannels; ch++) {
-			nativeBuffer.copyToChannel(nativeChannels[ch], ch);
-		}
-
-		const sourceNode = offlineContext.createBufferSource();
-		sourceNode.buffer = nativeBuffer;
-		sourceNode.connect(offlineContext.destination);
-		sourceNode.start(0);
-
-		return await offlineContext.startRendering();
+		});
 	} catch (error) {
 		console.warn("Failed to decode asset audio:", error);
 		return null;

@@ -9,16 +9,17 @@ import { buildEffectsTools } from "@/agent/mcp/effects-tools";
 import { buildEditorTools } from "@/agent/mcp/editor-tools";
 import type { EditorCore } from "@/core";
 import type { MediaTime } from "@/wasm";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 import type { TScene } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
 import type { TProject } from "@/project/types";
 
 function mockMediaTimeFromSeconds({ seconds }: { seconds: number }): MediaTime {
-	return Math.round(seconds * 90000) as unknown as MediaTime;
+	return Math.round(seconds * MEDIA_TIME_TICKS_PER_SECOND) as unknown as MediaTime;
 }
 
 function mockMediaTimeToSeconds({ time }: { time: MediaTime }): number {
-	return (time as unknown as number) / 90000;
+	return (time as unknown as number) / MEDIA_TIME_TICKS_PER_SECOND;
 }
 
 interface MockEditorOverrides {

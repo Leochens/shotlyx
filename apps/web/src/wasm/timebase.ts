@@ -1,0 +1,1 @@
+export const MEDIA_TIME_TICKS_PER_SECOND = 120_000;

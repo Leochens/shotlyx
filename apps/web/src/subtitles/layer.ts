@@ -1,14 +1,13 @@
 import type { TextElement, SubtitleElement } from "@/timeline";
-import type { MediaTime } from "@/wasm";
 import type {
 	SubtitleCue,
 	SubtitleLayerCue,
 	SubtitleRevealMode,
 	SubtitleToken,
 } from "./types";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
 const EPSILON_SECONDS = 1 / 1000;
-const MEDIA_TIME_TICKS_PER_SECOND = 90_000;
 
 export interface ResolvedSubtitleText {
 	text: string;
@@ -22,7 +21,7 @@ export function getSubtitleSourceTimeSeconds({
 	timelineTime,
 }: {
 	element: SubtitleElement;
-	timelineTime: MediaTime;
+	timelineTime: number;
 }): number {
 	return (
 		(timelineTime - element.startTime + element.trimStart) /
@@ -80,7 +79,7 @@ export function resolveSubtitleTextAtTime({
 	revealMode = element.revealMode ?? "full",
 }: {
 	element: SubtitleElement;
-	timelineTime: MediaTime;
+	timelineTime: number;
 	revealMode?: SubtitleRevealMode;
 }): ResolvedSubtitleText | null {
 	if (
@@ -122,7 +121,7 @@ export function buildRenderableTextElementFromSubtitle({
 	timelineTime,
 }: {
 	element: SubtitleElement;
-	timelineTime: MediaTime;
+	timelineTime: number;
 }): TextElement | null {
 	const resolved = resolveSubtitleTextAtTime({ element, timelineTime });
 	if (!resolved || resolved.text.length === 0) {
@@ -182,10 +181,10 @@ function resolveTokenRevealText({
 	cue: SubtitleLayerCue;
 	sourceTimeSeconds: number;
 }): string {
-	const tokens =
-		cue.tokens && cue.tokens.length > 0
-			? cue.tokens
-			: buildFallbackTokens({ cue });
+	const tokens = cue.tokens;
+	if (!tokens || tokens.length === 0) {
+		return cue.text;
+	}
 	const visibleTokens = tokens.filter(
 		(token) =>
 			sourceTimeSeconds >=
@@ -200,20 +199,24 @@ function resolveTokenRevealText({
 	});
 }
 
-function buildFallbackTokens({
-	cue,
+function buildOriginalTextPrefix({
+	tokens,
+	originalText,
 }: {
-	cue: SubtitleLayerCue;
-}): SubtitleToken[] {
-	const parts = hasCjk({ value: cue.text })
-		? Array.from(cue.text)
-		: (cue.text.match(/\S+\s*/g) ?? [cue.text]);
-	const tokenDuration = cue.duration / Math.max(parts.length, 1);
-	return parts.map((text, index) => ({
-		text,
-		startTime: cue.startTime + index * tokenDuration,
-		duration: tokenDuration,
-	}));
+	tokens: SubtitleToken[];
+	originalText: string;
+}): string | null {
+	let cursor = 0;
+	let endIndex = 0;
+	for (const token of tokens) {
+		const index = originalText.indexOf(token.text, cursor);
+		if (index === -1) {
+			return null;
+		}
+		endIndex = index + token.text.length;
+		cursor = endIndex;
+	}
+	return originalText.slice(0, endIndex).trimEnd();
 }
 
 function joinTokens({
@@ -223,13 +226,14 @@ function joinTokens({
 	tokens: SubtitleToken[];
 	originalText: string;
 }): string {
+	const originalPrefix = buildOriginalTextPrefix({ tokens, originalText });
+	if (originalPrefix) {
+		return originalPrefix;
+	}
+
 	const tokenText = tokens.map((token) => token.text);
 	if (tokenText.some((text) => /\s/.test(text)) || !/\s/.test(originalText)) {
 		return tokenText.join("");
 	}
 	return tokenText.join(" ");
-}
-
-function hasCjk({ value }: { value: string }): boolean {
-	return /[\u3400-\u9fff]/.test(value);
 }

@@ -1,7 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { EditorCore } from "@/core";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
-const TICKS_PER_SECOND = 90_000;
+const TICKS_PER_SECOND = MEDIA_TIME_TICKS_PER_SECOND;
 const ZERO_MEDIA_TIME = 0;
 
 function mediaTime({ ticks }: { ticks: number }) {

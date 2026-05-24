@@ -14,9 +14,10 @@ import type {
 	TranscriptionModelId,
 } from "@/transcription/types";
 import type { SubtitleToken } from "@/subtitles/types";
+import { formatSrt } from "@/subtitles/srt";
 
 const DEFAULT_TRANSCRIPTION_SOURCE = "timeline";
-const DEFAULT_TRANSCRIPTION_PROVIDER = "local";
+const DEFAULT_TRANSCRIPTION_PROVIDER = "volcengine";
 const DEFAULT_SUBTITLE_STYLE = "clean";
 const DEFAULT_SUBTITLE_PLACEMENT = "bottom";
 
@@ -206,6 +207,108 @@ function buildTimelineAudioFile({ blob }: { blob: Blob }): File {
 	return new File([blob], "shotlyx-timeline-audio.wav", {
 		type: blob.type || "audio/wav",
 	});
+}
+
+function sanitizeFilePart({ value }: { value: string }): string {
+	return value
+		.toLowerCase()
+		.replace(/[^a-z0-9._-]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, 48);
+}
+
+function resolveAbsoluteTokenStartTime({
+	cue,
+	token,
+}: {
+	cue: TranscriptionCue;
+	token: SubtitleToken;
+}): number {
+	const tokenLooksRelative =
+		token.startTime < cue.startTimeSeconds &&
+		token.startTime <= cue.durationSeconds + 0.001;
+	return tokenLooksRelative
+		? cue.startTimeSeconds + token.startTime
+		: token.startTime;
+}
+
+function buildTokenTimedSubtitleCues({
+	transcription,
+}: {
+	transcription: TranscribeAudioResult;
+}): Array<{ text: string; startTime: number; duration: number }> {
+	return transcription.cues
+		.flatMap((cue) =>
+			(cue.tokens ?? []).map((token) => ({
+				text: token.text,
+				startTime: resolveAbsoluteTokenStartTime({ cue, token }),
+				duration: token.duration,
+			})),
+		)
+		.filter(
+			(cue) =>
+				cue.text.trim().length > 0 &&
+				Number.isFinite(cue.startTime) &&
+				Number.isFinite(cue.duration) &&
+				cue.duration > 0,
+		)
+		.sort((a, b) => a.startTime - b.startTime);
+}
+
+function buildTranscriptionSubtitleFile({
+	transcription,
+}: {
+	transcription: TranscribeAudioResult;
+}): File {
+	const provider = sanitizeFilePart({ value: transcription.provider }) || "asr";
+	const model = transcription.model
+		? `-${sanitizeFilePart({ value: transcription.model })}`
+		: "";
+	const tokenTimedCues = buildTokenTimedSubtitleCues({ transcription });
+	const hasTokenTimedCues = tokenTimedCues.length > 0;
+	const fileName = `transcript-${provider}${model}${
+		hasTokenTimedCues ? ".tokens" : ""
+	}.srt`;
+	const content = `${formatSrt({
+		cues: hasTokenTimedCues
+			? tokenTimedCues
+			: transcription.cues.map((cue) => ({
+					text: cue.text,
+					startTime: cue.startTimeSeconds,
+					duration: cue.durationSeconds,
+				})),
+	})}\n`;
+	return new File([content], fileName, {
+		type: "application/x-subrip;charset=utf-8",
+	});
+}
+
+async function saveTranscriptionSubtitleAsset({
+	editor,
+	transcription,
+}: {
+	editor: EditorCore;
+	transcription: TranscribeAudioResult;
+}): Promise<{ subtitleAssetId?: string; subtitleAssetName?: string }> {
+	const project = editor.project.getActive();
+	const file = buildTranscriptionSubtitleFile({ transcription });
+	const result = await editor.media.addMediaAsset({
+		projectId: project.metadata.id,
+		asset: {
+			name: file.name,
+			type: "subtitle",
+			file,
+			url:
+				typeof URL !== "undefined" && "createObjectURL" in URL
+					? URL.createObjectURL(file)
+					: undefined,
+		},
+	});
+	if (!result) return {};
+	return {
+		subtitleAssetId: result.id,
+		subtitleAssetName: result.name,
+	};
 }
 
 function normalizeLocalLanguage({
@@ -409,6 +512,36 @@ export function createTranscriptionToolDeps({
 			}
 
 			input.onProgress?.({
+				stage: "subtitle-asset",
+				label: "正在保存字幕文件到资源库",
+				status: "running",
+			});
+			let subtitleAsset: { subtitleAssetId?: string; subtitleAssetName?: string } =
+				{};
+			try {
+				subtitleAsset = await saveTranscriptionSubtitleAsset({
+					editor,
+					transcription,
+				});
+				input.onProgress?.({
+					stage: "subtitle-asset",
+					label: subtitleAsset.subtitleAssetName
+						? "字幕文件已保存到资源库"
+						: "字幕文件未保存",
+					status: subtitleAsset.subtitleAssetName ? "success" : "error",
+					detail: subtitleAsset.subtitleAssetName,
+				});
+			} catch (error) {
+				console.warn("Failed to save transcription subtitle asset:", error);
+				input.onProgress?.({
+					stage: "subtitle-asset",
+					label: "字幕文件保存失败",
+					status: "error",
+					detail: error instanceof Error ? error.message : undefined,
+				});
+			}
+
+			input.onProgress?.({
 				stage: "subtitle-import",
 				label: "正在插入字幕到时间线",
 				status: "running",
@@ -443,6 +576,7 @@ export function createTranscriptionToolDeps({
 						: transcription.cues.length,
 				groupId: typeof data.groupId === "string" ? data.groupId : undefined,
 				trackId: typeof data.trackId === "string" ? data.trackId : undefined,
+				...subtitleAsset,
 				language: transcription.language,
 				model: transcription.model,
 				text: transcription.text,
@@ -469,7 +603,7 @@ export function buildTranscriptionTools({
 				provider: {
 					type: "string",
 					description:
-						"ASR provider ID：local、openai-compatible、tencent、volcengine、aliyun、baidu、iflytek。默认 local。",
+						"ASR provider ID：volcengine、local、openai-compatible、tencent、aliyun、baidu、iflytek。默认 volcengine。",
 					optional: true,
 				},
 				language: {

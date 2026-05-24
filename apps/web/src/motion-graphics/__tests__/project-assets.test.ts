@@ -4,11 +4,12 @@ import {
 	buildProjectMotionGraphicAsset,
 } from "@/motion-graphics/project-assets";
 import type { MediaTime } from "@/wasm";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 const ZERO_TIME = 0 as MediaTime;
 // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-const ONE_SECOND = 90_000 as MediaTime;
+const ONE_SECOND = MEDIA_TIME_TICKS_PER_SECOND as MediaTime;
 
 describe("project motion graphic assets", () => {
 	test("builds timeline instances that keep asset params separate from overrides", () => {

@@ -76,6 +76,18 @@ export function parseSrt({ input }: { input: string }): ParseSubtitleResult {
 	};
 }
 
+export function formatSrt({ cues }: { cues: SubtitleCue[] }): string {
+	return cues
+		.map((cue, index) => {
+			const start = formatSrtTimestamp({ seconds: cue.startTime });
+			const end = formatSrtTimestamp({
+				seconds: cue.startTime + cue.duration,
+			});
+			return `${index + 1}\n${start} --> ${end}\n${cue.text.trim()}`;
+		})
+		.join("\n\n");
+}
+
 function parseSrtTimestamp({ input }: { input: string }): number {
 	const normalized = input.trim().replace(",", ".");
 	const match = normalized.match(/^(\d{2}):(\d{2}):(\d{2})\.(\d{1,3})$/);
@@ -95,4 +107,19 @@ function parseSrtTimestamp({ input }: { input: string }): number {
 		parsedSeconds +
 		parsedMilliseconds / 1000
 	);
+}
+
+function formatSrtTimestamp({ seconds }: { seconds: number }): string {
+	const safeMilliseconds = Math.max(0, Math.round(seconds * 1000));
+	const hours = Math.floor(safeMilliseconds / 3_600_000);
+	const minutes = Math.floor((safeMilliseconds % 3_600_000) / 60_000);
+	const wholeSeconds = Math.floor((safeMilliseconds % 60_000) / 1000);
+	const milliseconds = safeMilliseconds % 1000;
+	return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(
+		2,
+		"0",
+	)}:${String(wholeSeconds).padStart(2, "0")},${String(milliseconds).padStart(
+		3,
+		"0",
+	)}`;
 }

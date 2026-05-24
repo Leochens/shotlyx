@@ -115,12 +115,12 @@ describe("V22 to V23 Migration", () => {
 		const scenes = asRecordArray(result.project.scenes);
 		const scene = scenes[0];
 		expect(scene.bookmarks).toEqual([
-			{
-				time: 300_000,
-				duration: 90_000,
-				note: "Marker",
-				color: "#ff0000",
-			},
+				{
+					time: 300_000,
+					duration: 0.75 * 120_000,
+					note: "Marker",
+					color: "#ff0000",
+				},
 			{ time: 540_000 },
 		]);
 

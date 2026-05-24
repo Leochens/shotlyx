@@ -400,8 +400,8 @@ describe("stock media tools", () => {
 				name: "People editing videos.mp4",
 				type: "video",
 				mediaId: "media-broll-1",
-				startTime: Math.round(5 * 90_000),
-				duration: Math.round(4 * 90_000),
+					startTime: Math.round(5 * 120_000),
+					duration: Math.round(4 * 120_000),
 			},
 		});
 	});

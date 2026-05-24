@@ -1601,7 +1601,7 @@ describe("buildCreativeTools", () => {
 			engine: "opencut-graphic-v1",
 			definitionId: "mg-battle-card",
 			kind: "battle-card",
-			duration: 900000,
+				duration: 1_200_000,
 			sourcePrompt: "NVIDIA vs AMD",
 			params: {
 				title: "Old title",
@@ -1645,7 +1645,7 @@ describe("buildCreativeTools", () => {
 			props: { title: "New title", rightColor: "#76b900" },
 		});
 		expect(asset.name).toBe("Updated Battle");
-		expect(asset.duration).toBe(360000);
+			expect(asset.duration).toBe(480_000);
 		expect(asset.params.title).toBe("New title");
 		expect(asset.params.rightColor).toBe("#76b900");
 		expect(asset.params.progress).toBe(1);
@@ -1665,7 +1665,7 @@ describe("buildCreativeTools", () => {
 			engine: "opencut-graphic-v1",
 			definitionId: "mg-battle-card",
 			kind: "battle-card",
-			duration: 900000,
+				duration: 1_200_000,
 			sourcePrompt: "NVIDIA vs AMD",
 			params: {
 				title: "NVIDIA vs AMD",

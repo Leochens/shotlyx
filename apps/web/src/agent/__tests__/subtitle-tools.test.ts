@@ -3,9 +3,10 @@ import { describe, expect, mock, test } from "bun:test";
 import type { EditorCore } from "@/core";
 import { buildSubtitleTools } from "@/agent/mcp/subtitle-tools";
 import type { MediaTime } from "@/wasm";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
 function mockMediaTimeFromSeconds({ seconds }: { seconds: number }): MediaTime {
-	return Math.round(seconds * 90000) as unknown as MediaTime;
+	return Math.round(seconds * MEDIA_TIME_TICKS_PER_SECOND) as unknown as MediaTime;
 }
 
 function createMockEditor({
@@ -91,11 +92,11 @@ describe("subtitle tools", () => {
 			revealMode: "full",
 		});
 		expect(insertElement.mock.calls.length).toBe(1);
-		expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
-			element: {
-				type: "subtitle",
-				startTime: 0,
-				duration: 405000,
+			expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
+				element: {
+					type: "subtitle",
+					startTime: 0,
+					duration: Math.round(4.5 * MEDIA_TIME_TICKS_PER_SECOND),
 				params: {
 					"subtitle.role": "layer",
 				},
@@ -154,11 +155,11 @@ describe("subtitle tools", () => {
 			cueCount: 2,
 		});
 		expect(insertElement.mock.calls.length).toBe(2);
-		expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
-			element: {
-				type: "text",
-				startTime: 0,
-				duration: 180000,
+			expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
+				element: {
+					type: "text",
+					startTime: 0,
+					duration: Math.round(2 * MEDIA_TIME_TICKS_PER_SECOND),
 				params: {
 					content: "花生其实不是坚果",
 					"subtitle.role": "cue",

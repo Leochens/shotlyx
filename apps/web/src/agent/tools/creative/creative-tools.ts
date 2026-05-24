@@ -35,6 +35,7 @@ import { buildMotionGraphicManifest } from "@/motion-graphics/manifest";
 import type { ParamValues } from "@/params";
 import type { TimelineElement } from "@/timeline";
 import type { MediaTime } from "@/wasm";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 import {
 	getCreativeAsset,
 	registerCreativeAsset,
@@ -45,7 +46,6 @@ import type { CreativeAsset } from "./types";
 const ORIENTATIONS = ["landscape", "portrait", "square"] as const;
 const ASPECT_RATIOS = ["1:1", "16:9", "9:16"] as const;
 const IMAGE_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as const;
-const MEDIA_TIME_TICKS_PER_SECOND = 90_000;
 // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 const ZERO_CREATIVE_MEDIA_TIME = 0 as MediaTime;
 

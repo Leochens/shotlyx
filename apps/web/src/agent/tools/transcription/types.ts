@@ -67,6 +67,8 @@ export interface GenerateSubtitlesFromVideoResult {
 	cueCount: number;
 	groupId?: string;
 	trackId?: string;
+	subtitleAssetId?: string;
+	subtitleAssetName?: string;
 	language?: string;
 	model?: string;
 	text?: string;

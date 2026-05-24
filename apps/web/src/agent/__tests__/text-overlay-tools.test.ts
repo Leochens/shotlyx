@@ -4,9 +4,10 @@ import type { EditorCore } from "@/core";
 import { planTextOverlay } from "@/agent/mcp/text-overlay-planner";
 import { buildTextOverlayTools } from "@/agent/mcp/text-overlay-tools";
 import type { MediaTime } from "@/wasm";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
 function mockMediaTimeFromSeconds({ seconds }: { seconds: number }): MediaTime {
-	return Math.round(seconds * 90000) as unknown as MediaTime;
+	return Math.round(seconds * MEDIA_TIME_TICKS_PER_SECOND) as unknown as MediaTime;
 }
 
 function createMockEditor({

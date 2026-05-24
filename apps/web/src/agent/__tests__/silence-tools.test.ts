@@ -3,11 +3,10 @@ import { describe, expect, mock, test } from "bun:test";
 import { buildSilenceTools } from "@/agent/mcp/silence-tools";
 import type { EditorCore } from "@/core";
 import type { MediaTime } from "@/wasm";
-
-const TICKS_PER_SECOND = 90_000;
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
 function seconds(value: number): MediaTime {
-	return Math.round(value * TICKS_PER_SECOND) as unknown as MediaTime;
+	return Math.round(value * MEDIA_TIME_TICKS_PER_SECOND) as unknown as MediaTime;
 }
 
 function createMockEditor({

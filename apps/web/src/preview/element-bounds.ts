@@ -9,7 +9,6 @@ import {
 } from "@/animation";
 import { resolveTransformAtTime } from "@/rendering/animation-values";
 import { buildTransformFromParams } from "@/rendering";
-import type { MediaTime } from "@/wasm";
 
 export interface ElementBounds {
 	cx: number;
@@ -178,7 +177,7 @@ function getElementBounds({
 			element.type === "subtitle"
 				? buildRenderableTextElementFromSubtitle({
 						element,
-						timelineTime: timelineTime as MediaTime,
+						timelineTime,
 					})
 				: element;
 		if (!textElement) return null;

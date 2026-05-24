@@ -7,10 +7,14 @@ import type {
 	TranscriptionCue,
 } from "./types";
 import type { SubtitleToken } from "@/subtitles/types";
+import { randomUUID } from "node:crypto";
 
-const DEFAULT_ASR_PROVIDER: AsrProviderId = "openai-compatible";
+const DEFAULT_ASR_PROVIDER: AsrProviderId = "volcengine";
 const DEFAULT_ASR_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_TEXT_ONLY_DURATION_SECONDS = 3;
+const DEFAULT_VOLCENGINE_FLASH_URL =
+	"https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash";
+const DEFAULT_VOLCENGINE_FLASH_RESOURCE_ID = "volc.bigasr.auc_turbo";
 
 export const ASR_PROVIDER_CONFIGS: AsrProviderConfig[] = [
 	{
@@ -31,7 +35,7 @@ export const ASR_PROVIDER_CONFIGS: AsrProviderConfig[] = [
 	{
 		id: "volcengine",
 		displayName: "Volcengine/Doubao ASR",
-		implemented: false,
+		implemented: true,
 	},
 	{
 		id: "aliyun",
@@ -51,6 +55,11 @@ export const ASR_PROVIDER_CONFIGS: AsrProviderConfig[] = [
 ];
 
 export interface OpenAICompatibleAsrProviderDeps {
+	fetchFn?: typeof fetch;
+	env?: Record<string, string | undefined>;
+}
+
+export interface VolcengineAsrProviderDeps {
 	fetchFn?: typeof fetch;
 	env?: Record<string, string | undefined>;
 }
@@ -82,7 +91,14 @@ function optionalString(value: unknown): string | undefined {
 }
 
 function optionalNumber(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+	if (typeof value === "number") {
+		return Number.isFinite(value) ? value : undefined;
+	}
+	if (typeof value === "string" && value.trim().length > 0) {
+		const parsed = Number(value);
+		return Number.isFinite(parsed) ? parsed : undefined;
+	}
+	return undefined;
 }
 
 function normalizeTokens({
@@ -211,6 +227,127 @@ function normalizeOpenAICompatibleResponse({
 	};
 }
 
+function volcengineHeaders({
+	env,
+	requestId,
+}: {
+	env: Record<string, string | undefined>;
+	requestId: string;
+}): Headers {
+	const headers = new Headers({
+		"Content-Type": "application/json",
+		"X-Api-Resource-Id":
+			env.VOLCENGINE_ASR_RESOURCE_ID ?? DEFAULT_VOLCENGINE_FLASH_RESOURCE_ID,
+		"X-Api-Request-Id": requestId,
+		"X-Api-Sequence": "-1",
+	});
+	const apiKey = env.VOLCENGINE_ASR_API_KEY ?? env.VOLCENGINE_API_KEY;
+	if (!apiKey) {
+		throw new Error("configuration_error: missing VOLCENGINE_ASR_API_KEY");
+	}
+	headers.set("X-Api-Key", apiKey);
+	return headers;
+}
+
+function normalizeVolcengineWord({ value }: { value: unknown }): SubtitleToken | null {
+	if (!isRecord(value)) return null;
+	const text = optionalString(value.text) ?? optionalString(value.word);
+	const start = optionalNumber(value.start_time) ?? optionalNumber(value.startTime);
+	const end = optionalNumber(value.end_time) ?? optionalNumber(value.endTime);
+	if (!text || start === undefined || end === undefined || end < start) {
+		return null;
+	}
+	return {
+		text,
+		startTime: start / 1000,
+		duration: Math.max((end - start) / 1000, 0.001),
+		...(typeof value.confidence === "number"
+			? { confidence: value.confidence }
+			: {}),
+	};
+}
+
+function normalizeVolcengineUtterance({
+	value,
+	index,
+}: {
+	value: unknown;
+	index: number;
+}): TranscriptionCue {
+	if (!isRecord(value)) {
+		throw new Error(`provider_error: invalid Volcengine utterance ${index}`);
+	}
+	const text = optionalString(value.text);
+	const start = optionalNumber(value.start_time) ?? optionalNumber(value.startTime);
+	const end = optionalNumber(value.end_time) ?? optionalNumber(value.endTime);
+	if (!text || start === undefined || end === undefined || end <= start) {
+		throw new Error(
+			`provider_error: Volcengine utterance ${index} has invalid timing`,
+		);
+	}
+	const rawWords = Array.isArray(value.words) ? value.words : [];
+	const tokens = rawWords.flatMap((word) => {
+		const token = normalizeVolcengineWord({ value: word });
+		return token ? [token] : [];
+	});
+	return {
+		text,
+		startTimeSeconds: start / 1000,
+		durationSeconds: (end - start) / 1000,
+		...(tokens.length > 0 ? { tokens } : {}),
+	};
+}
+
+function normalizeVolcengineResponse({
+	body,
+	model,
+	logId,
+}: {
+	body: unknown;
+	model?: string;
+	logId?: string;
+}): TranscribeAudioResult {
+	if (!isRecord(body) || !isRecord(body.result)) {
+		throw new Error("provider_error: Volcengine ASR response has no result");
+	}
+	const result = body.result;
+	const text = optionalString(result.text) ?? "";
+	const rawUtterances = Array.isArray(result.utterances)
+		? result.utterances
+		: [];
+	const cues =
+		rawUtterances.length > 0
+			? rawUtterances.map((utterance, index) =>
+					normalizeVolcengineUtterance({ value: utterance, index }),
+				)
+			: text
+				? [
+						{
+							text,
+							startTimeSeconds: 0,
+							durationSeconds:
+								isRecord(body.audio_info) &&
+								typeof body.audio_info.duration === "number"
+									? body.audio_info.duration / 1000
+									: DEFAULT_TEXT_ONLY_DURATION_SECONDS,
+						},
+					]
+				: [];
+	if (cues.length === 0) {
+		throw new Error("provider_error: Volcengine ASR returned no captions");
+	}
+	return {
+		text: text || cues.map((cue) => cue.text).join(""),
+		cues,
+		provider: "volcengine",
+		model,
+		metadata: {
+			mode: "flash",
+			...(logId ? { logId } : {}),
+		},
+	};
+}
+
 function isAsrProviderId(value: string): value is AsrProviderId {
 	return ASR_PROVIDER_CONFIGS.some((config) => config.id === value);
 }
@@ -262,6 +399,56 @@ export class OpenAICompatibleAsrProvider implements AsrProvider {
 	}
 }
 
+export class VolcengineAsrProvider implements AsrProvider {
+	readonly id = "volcengine" as const;
+
+	constructor(private deps: VolcengineAsrProviderDeps = {}) {}
+
+	async transcribe(input: TranscribeAudioInput): Promise<TranscribeAudioResult> {
+		const env = this.deps.env ?? process.env;
+		const requestId = randomUUID();
+		const audioData = Buffer.from(await input.audio.arrayBuffer()).toString(
+			"base64",
+		);
+		const response = await (this.deps.fetchFn ?? fetch)(
+			env.VOLCENGINE_ASR_FLASH_URL ?? DEFAULT_VOLCENGINE_FLASH_URL,
+			{
+				method: "POST",
+				headers: volcengineHeaders({ env, requestId }),
+				body: JSON.stringify({
+					user: {
+						uid: env.VOLCENGINE_ASR_UID ?? "shotlyx",
+					},
+					audio: {
+						data: audioData,
+					},
+					request: {
+						model_name: input.model ?? "bigmodel",
+						enable_itn: true,
+						enable_punc: true,
+						enable_ddc: true,
+						show_utterances: true,
+					},
+				}),
+			},
+		);
+		const statusCode = response.headers.get("X-Api-Status-Code");
+		const statusMessage = response.headers.get("X-Api-Message") ?? "";
+		if (!response.ok || (statusCode && statusCode !== "20000000")) {
+			throw new Error(
+				`provider_error: Volcengine ASR failed${
+					statusCode ? ` (${statusCode} ${statusMessage})` : ""
+				}`,
+			);
+		}
+		return normalizeVolcengineResponse({
+			body: await response.json(),
+			model: input.model ?? "bigmodel",
+			logId: response.headers.get("X-Tt-Logid") ?? undefined,
+		});
+	}
+}
+
 export class AsrProviderRegistry {
 	private providers: Partial<Record<AsrProviderId, AsrProvider>>;
 	private env: Record<string, string | undefined>;
@@ -282,7 +469,7 @@ export class AsrProviderRegistry {
 		if (!isAsrProviderId(id)) {
 			throw new Error(`provider_unsupported: unknown ASR provider "${id}"`);
 		}
-		if (id !== "openai-compatible") {
+		if (id !== "openai-compatible" && id !== "volcengine") {
 			throw providerUnavailable(id);
 		}
 		const found = this.providers[id];
@@ -295,17 +482,21 @@ export class AsrProviderRegistry {
 
 export function createAsrProviderRegistry({
 	openAICompatibleDeps,
+	volcengineDeps,
 	env,
 }: {
 	openAICompatibleDeps?: OpenAICompatibleAsrProviderDeps;
+	volcengineDeps?: VolcengineAsrProviderDeps;
 	env?: Record<string, string | undefined>;
 } = {}): AsrProviderRegistry {
-	const registryEnv = env ?? openAICompatibleDeps?.env ?? process.env;
+	const registryEnv =
+		env ?? openAICompatibleDeps?.env ?? volcengineDeps?.env ?? process.env;
 	return new AsrProviderRegistry({
 		providers: {
 			"openai-compatible": new OpenAICompatibleAsrProvider(
 				openAICompatibleDeps,
 			),
+			volcengine: new VolcengineAsrProvider(volcengineDeps),
 		},
 		env: registryEnv,
 	});
