@@ -212,6 +212,53 @@ export function drawMeasuredTextLayout({
 	}
 }
 
+export function drawMeasuredTextHighlight({
+	ctx,
+	layout,
+	highlightText,
+	textColor,
+	textBaseline = "middle",
+}: {
+	ctx: TextCanvasContext;
+	layout: MeasuredTextLayout;
+	highlightText: string;
+	textColor: string;
+	textBaseline?: CanvasTextBaseline;
+}): void {
+	const highlightLines = highlightText.split("\n");
+	ctx.font = layout.fontString;
+	ctx.textAlign = "left";
+	ctx.textBaseline = textBaseline;
+	ctx.fillStyle = textColor;
+	setCanvasLetterSpacing({ ctx, letterSpacingPx: layout.letterSpacing });
+
+	for (let index = 0; index < layout.lines.length; index++) {
+		const text = highlightLines[index] ?? "";
+		if (!text) continue;
+		const lineY = index * layout.lineHeightPx - layout.block.visualCenterOffset;
+		ctx.fillText(
+			text,
+			getLineStartX({
+				textAlign: layout.textAlign,
+				lineWidth: layout.lineMetrics[index].width,
+			}),
+			lineY,
+		);
+	}
+}
+
+function getLineStartX({
+	textAlign,
+	lineWidth,
+}: {
+	textAlign: TextAlign;
+	lineWidth: number;
+}): number {
+	if (textAlign === "left") return 0;
+	if (textAlign === "right") return -lineWidth;
+	return -lineWidth / 2;
+}
+
 export function strokeMeasuredTextLayout({
 	ctx,
 	layout,

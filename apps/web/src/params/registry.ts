@@ -326,6 +326,67 @@ const textElementParams: ElementParamDefinition[] = [
 	},
 ];
 
+const subtitleElementParams: ElementParamDefinition[] = [
+	{
+		key: "subtitle.revealMode",
+		label: "Display Mode",
+		type: "select",
+		default: "line",
+		keyframable: false,
+		options: [
+			{ value: "line", label: "Line" },
+			{ value: "token", label: "Word by Word" },
+			{ value: "karaoke", label: "Karaoke" },
+		],
+		read: ({ element }) => {
+			if (element.type !== "subtitle") return null;
+			return element.revealMode === "full"
+				? "line"
+				: (element.revealMode ?? "line");
+		},
+		write: ({ element, value }) => {
+			if (
+				element.type !== "subtitle" ||
+				(value !== "line" && value !== "token" && value !== "karaoke")
+			) {
+				return element;
+			}
+			return {
+				...element,
+				revealMode: value,
+			};
+		},
+	},
+	{
+		key: "subtitle.maxCharsPerLine",
+		label: "Max Chars / Line",
+		type: "number",
+		default: 18,
+		min: 4,
+		max: 80,
+		step: 1,
+		keyframable: false,
+	},
+	{
+		key: "subtitle.lineBreakMode",
+		label: "Line Overflow",
+		type: "select",
+		default: "wrap",
+		keyframable: false,
+		options: [
+			{ value: "wrap", label: "Auto Wrap" },
+			{ value: "page", label: "One Line at a Time" },
+		],
+	},
+	{
+		key: "subtitle.highlightColor",
+		label: "Highlight Color",
+		type: "color",
+		default: "#22d3ee",
+		dependencies: [{ param: "subtitle.revealMode", equals: "karaoke" }],
+	},
+];
+
 export const elementParamRegistry = new DefinitionRegistry<
 	ElementType,
 	readonly ElementParamDefinition[]
@@ -342,7 +403,7 @@ elementParamRegistry.register({
 });
 elementParamRegistry.register({
 	key: "subtitle",
-	definition: [...textElementParams, ...visualElementParams],
+	definition: [...subtitleElementParams, ...textElementParams, ...visualElementParams],
 });
 elementParamRegistry.register({
 	key: "sticker",

@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: shotlyx
-      POSTGRES_PASSWORD: shotlyx
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shotlyx}
       POSTGRES_DB: shotlyx
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -35,7 +35,7 @@ services:
       - "8079:80"
     environment:
       SRH_MODE: env
-      SRH_TOKEN: example_token
+      SRH_TOKEN: ${UPSTASH_REDIS_REST_TOKEN:-example_token}
       SRH_CONNECTION_STRING: "redis://redis:6379"
     depends_on:
       redis:
@@ -61,10 +61,10 @@ services:
       - "3100:3000"
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://shotlyx:shotlyx@db:5432/shotlyx
-      - BETTER_AUTH_SECRET=your-production-secret-key-here
+      - DATABASE_URL=postgresql://shotlyx:${POSTGRES_PASSWORD:-shotlyx}@db:5432/shotlyx
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-local-dev-only-change-me}
       - UPSTASH_REDIS_REST_URL=http://serverless-redis-http:80
-      - UPSTASH_REDIS_REST_TOKEN=example_token
+      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN:-example_token}
       - NEXT_PUBLIC_SITE_URL=http://localhost:3100
       - NEXT_PUBLIC_MARBLE_API_URL=https://api.marblecms.com
       - MARBLE_WORKSPACE_KEY=${MARBLE_WORKSPACE_KEY:-placeholder}

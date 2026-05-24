@@ -45,7 +45,8 @@ export interface SubtitleCue extends CaptionChunk {
 	style?: SubtitleStyleOverrides;
 }
 
-export type SubtitleRevealMode = "full" | "token";
+export type SubtitleRevealMode = "line" | "token" | "karaoke" | "full";
+export type SubtitleLineBreakMode = "wrap" | "page";
 
 export interface SubtitleToken {
 	text: string;

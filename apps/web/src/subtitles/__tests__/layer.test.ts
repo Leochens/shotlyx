@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { SubtitleElement } from "@/timeline";
 import type { MediaTime } from "@/wasm";
 import {
+	buildRenderableTextElementFromSubtitle,
 	getSubtitleSourceTimeSeconds,
 	resolveSubtitleTextAtTime,
 } from "@/subtitles/layer";
@@ -205,5 +206,109 @@ describe("subtitle layer timing", () => {
 				revealMode: "token",
 			}),
 		).toBeNull();
+	});
+
+	test("line mode wraps long CJK captions by the configured character limit", () => {
+		const element = makeElement({
+			params: {
+				...makeElement().params,
+				"subtitle.maxCharsPerLine": 3,
+				"subtitle.lineBreakMode": "wrap",
+			},
+			revealMode: "line",
+			cues: [
+				{
+					text: "我吃了一个苹果",
+					startTime: 0,
+					duration: 3,
+				},
+			],
+		});
+
+		expect(
+			resolveSubtitleTextAtTime({
+				element,
+				timelineTime: ticks(1),
+			})?.text,
+		).toBe("我吃了\n一个苹\n果");
+	});
+
+	test("page line break mode shows only the active wrapped line", () => {
+		const element = makeElement({
+			params: {
+				...makeElement().params,
+				"subtitle.maxCharsPerLine": 3,
+				"subtitle.lineBreakMode": "page",
+			},
+			revealMode: "line",
+			cues: [
+				{
+					text: "我吃了一个苹果",
+					startTime: 0,
+					duration: 6,
+				},
+			],
+		});
+
+		expect(
+			resolveSubtitleTextAtTime({
+				element,
+				timelineTime: ticks(1),
+			})?.text,
+		).toBe("我吃了");
+		expect(
+			resolveSubtitleTextAtTime({
+				element,
+				timelineTime: ticks(2.5),
+			})?.text,
+		).toBe("一个苹");
+		expect(
+			resolveSubtitleTextAtTime({
+				element,
+				timelineTime: ticks(4.5),
+			})?.text,
+		).toBe("果");
+	});
+
+	test("karaoke mode keeps the full line visible while exposing highlighted prefix", () => {
+		const element = makeElement({
+			params: {
+				...makeElement().params,
+				"subtitle.maxCharsPerLine": 20,
+				"subtitle.lineBreakMode": "wrap",
+				"subtitle.highlightColor": "#22d3ee",
+			},
+			revealMode: "karaoke",
+			cues: [
+				{
+					text: "我吃了一个苹果",
+					startTime: 0,
+					duration: 4,
+					tokens: [
+						{ text: "我", startTime: 0, duration: 0.2 },
+						{ text: "吃", startTime: 0.8, duration: 0.2 },
+						{ text: "了", startTime: 1.6, duration: 0.2 },
+						{ text: "一", startTime: 2.4, duration: 0.2 },
+					],
+				},
+			],
+		});
+
+		const resolved = resolveSubtitleTextAtTime({
+			element,
+			timelineTime: ticks(1.7),
+		});
+		expect(resolved?.text).toBe("我吃了一个苹果");
+		expect(resolved?.highlightText).toBe("我吃了");
+		expect(
+			buildRenderableTextElementFromSubtitle({
+				element,
+				timelineTime: ticks(1.7),
+			})?.params,
+		).toMatchObject({
+			content: "我吃了一个苹果",
+			"subtitle.highlightText": "我吃了",
+			"subtitle.highlightColor": "#22d3ee",
+		});
 	});
 });

@@ -89,7 +89,7 @@ describe("subtitle tools", () => {
 			trackId: "track-sub",
 			cueCount: 2,
 			skippedCueCount: 0,
-			revealMode: "full",
+			revealMode: "line",
 		});
 		expect(insertElement.mock.calls.length).toBe(1);
 			expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
@@ -99,6 +99,8 @@ describe("subtitle tools", () => {
 					duration: Math.round(4.5 * MEDIA_TIME_TICKS_PER_SECOND),
 				params: {
 					"subtitle.role": "layer",
+					"subtitle.maxCharsPerLine": 18,
+					"subtitle.lineBreakMode": "wrap",
 				},
 				cues: [
 					{
@@ -118,6 +120,59 @@ describe("subtitle tools", () => {
 		const groupId =
 			insertElement.mock.calls[0]?.[0].element.params["subtitle.groupId"];
 		expect(typeof groupId).toBe("string");
+	});
+
+	test("subtitles_import stores layer captions unwrapped so the panel can change wrapping later", () => {
+		const insertElement = mock(() => ({
+			elementId: "subtitle-1",
+			trackId: "track-sub",
+		}));
+		const editor = createMockEditor({ insertElement });
+		const tools = buildSubtitleTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find((item) => item.name === "subtitles_import");
+
+		const result = tool?.handler({
+			format: "cues",
+			insertMode: "layer",
+			revealMode: "karaoke",
+			lineBreakMode: "page",
+			maxCharsPerLine: 3,
+			cues: [
+				{
+					text: "我吃了一个苹果",
+					startTimeSeconds: 0,
+					durationSeconds: 3,
+				},
+			],
+		});
+
+		expect(result).toMatchObject({
+			imported: true,
+			insertMode: "layer",
+			cueCount: 1,
+			revealMode: "karaoke",
+		});
+		expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
+			element: {
+				type: "subtitle",
+				revealMode: "karaoke",
+				params: {
+					"subtitle.maxCharsPerLine": 3,
+					"subtitle.lineBreakMode": "page",
+					"subtitle.highlightColor": "#22d3ee",
+				},
+				cues: [
+					{
+						text: "我吃了一个苹果",
+						startTime: 0,
+						duration: 3,
+					},
+				],
+			},
+		});
 	});
 
 	test("subtitles_import can still insert legacy text elements", () => {

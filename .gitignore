@@ -20,6 +20,22 @@ node_modules
 **/.DS_Store
 bun.lockb
 
+# logs and reports
+logs/
+**/logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+bun-debug.log*
+coverage/
+**/coverage/
+playwright-report/
+**/playwright-report/
+test-results/
+**/test-results/
+
 # content-collections
 .content-collections
 **/.content-collections/
@@ -38,5 +54,19 @@ target/
 
 .next
 **/.next/
+
+# deployment/local state
+.vercel/
+**/.vercel/
+.wrangler/
+**/.wrangler/
+.dev.vars
+**/.dev.vars
+
+# local databases and dumps
+*.db
+*.sqlite
+*.sqlite3
+*.dump
 
 rust-migration-notes.md

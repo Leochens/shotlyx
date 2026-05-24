@@ -34,6 +34,12 @@ type SubtitleStyle = (typeof SUBTITLE_STYLES)[number];
 const SUBTITLE_PLACEMENTS = ["bottom", "lower_third"] as const;
 type SubtitlePlacement = (typeof SUBTITLE_PLACEMENTS)[number];
 
+const SUBTITLE_REVEAL_MODES = ["line", "token", "karaoke"] as const;
+type UserSubtitleRevealMode = (typeof SUBTITLE_REVEAL_MODES)[number];
+
+const SUBTITLE_LINE_BREAK_MODES = ["wrap", "page"] as const;
+type SubtitleLineBreakMode = (typeof SUBTITLE_LINE_BREAK_MODES)[number];
+
 function getCanvasSize({ editor }: { editor: EditorCore }): {
 	width: number;
 	height: number;
@@ -326,23 +332,23 @@ function findSubtitleElements({
 
 function buildLayerCues({
 	cues,
-	maxCharsPerLine,
 }: {
 	cues: SubtitleLayerCue[];
-	maxCharsPerLine: number;
 }): SubtitleLayerCue[] {
 	return normalizeSubtitleLayerCues({
 		cues: cues.map((cue) => ({
 			...cue,
-			text:
-				cue.tokens && cue.tokens.length > 0
-					? cue.text.trim()
-					: wrapCueText({
-							text: cue.text,
-							maxCharsPerLine,
-						}),
+			text: cue.text.trim(),
 		})),
 	});
+}
+
+function resolveDefaultMaxCharsPerLine({
+	cues,
+}: {
+	cues: SubtitleLayerCue[];
+}): number {
+	return cues.some((cue) => hasCjk({ value: cue.text })) ? 18 : 42;
 }
 
 export function buildSubtitleTools({
@@ -402,6 +408,23 @@ export function buildSubtitleTools({
 					description: "Optional line wrapping limit",
 					optional: true,
 				},
+				lineBreakMode: {
+					type: "string",
+					description:
+						"Line overflow mode: wrap for automatic multi-line wrapping, or page to show one wrapped line at a time.",
+					optional: true,
+				},
+				revealMode: {
+					type: "string",
+					description:
+						"Display mode: line, token, or karaoke. Defaults to token when token timing exists, otherwise line.",
+					optional: true,
+				},
+				highlightColor: {
+					type: "string",
+					description: "Karaoke highlight color, e.g. #22d3ee.",
+					optional: true,
+				},
 			},
 			mutating: true,
 			handler: (params) => {
@@ -458,7 +481,25 @@ export function buildSubtitleTools({
 				const canvasSize = getCanvasSize({ editor });
 				const maxCharsPerLine =
 					optionalNumberParam(params, "maxCharsPerLine") ??
-					(cues.some((cue) => hasCjk({ value: cue.text })) ? 18 : 42);
+					resolveDefaultMaxCharsPerLine({ cues });
+				const rawLineBreakMode = optionalStringParam(params, "lineBreakMode");
+				const lineBreakMode = rawLineBreakMode
+					? (requireEnumParam(
+							{ lineBreakMode: rawLineBreakMode },
+							"lineBreakMode",
+							SUBTITLE_LINE_BREAK_MODES,
+						) as SubtitleLineBreakMode)
+					: "wrap";
+				const rawRevealMode = optionalStringParam(params, "revealMode");
+				const explicitRevealMode = rawRevealMode
+					? (requireEnumParam(
+							{ revealMode: rawRevealMode },
+							"revealMode",
+							SUBTITLE_REVEAL_MODES,
+						) as UserSubtitleRevealMode)
+					: undefined;
+				const highlightColor =
+					optionalStringParam(params, "highlightColor") ?? "#22d3ee";
 				const styleParams = buildSubtitleStyleParams({
 					style,
 					placement,
@@ -468,7 +509,6 @@ export function buildSubtitleTools({
 				if (insertMode === "layer") {
 					const layerCues = buildLayerCues({
 						cues,
-						maxCharsPerLine,
 					});
 					const layerDuration = getSubtitleLayerDurationSeconds({
 						cues: layerCues,
@@ -476,11 +516,11 @@ export function buildSubtitleTools({
 					const layerDurationTime = mediaTimeFromSeconds({
 						seconds: layerDuration,
 					});
-					const revealMode: SubtitleRevealMode = layerCues.some(
-						(cue) => (cue.tokens?.length ?? 0) > 0,
-					)
-						? "token"
-						: "full";
+					const revealMode: SubtitleRevealMode =
+						explicitRevealMode ??
+						(layerCues.some((cue) => (cue.tokens?.length ?? 0) > 0)
+							? "token"
+							: "line");
 					const insertResult = editor.timeline.insertElement({
 						element: {
 							type: "subtitle",
@@ -496,6 +536,9 @@ export function buildSubtitleTools({
 								content: "",
 								"subtitle.role": "layer",
 								"subtitle.groupId": groupId,
+								"subtitle.maxCharsPerLine": maxCharsPerLine,
+								"subtitle.lineBreakMode": lineBreakMode,
+								"subtitle.highlightColor": highlightColor,
 							},
 							cues: layerCues,
 							revealMode,

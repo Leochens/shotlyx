@@ -62,6 +62,12 @@ const TEXT_PARAM_KEYS = [
 const SUBTITLE_PARAM_KEYS = TEXT_PARAM_KEYS.filter(
 	(key) => key !== "content",
 );
+const SUBTITLE_DISPLAY_PARAM_KEYS = [
+	"subtitle.revealMode",
+	"subtitle.maxCharsPerLine",
+	"subtitle.lineBreakMode",
+	"subtitle.highlightColor",
+] as const;
 
 export type TabContentProps = {
 	trackId: string;
@@ -194,7 +200,9 @@ function buildTextTab({
 				element={element}
 				trackId={trackId}
 				paramKeys={
-					element.type === "subtitle" ? SUBTITLE_PARAM_KEYS : TEXT_PARAM_KEYS
+					element.type === "subtitle"
+						? [...SUBTITLE_DISPLAY_PARAM_KEYS, ...SUBTITLE_PARAM_KEYS]
+						: TEXT_PARAM_KEYS
 				}
 				sectionKey="text"
 			/>
