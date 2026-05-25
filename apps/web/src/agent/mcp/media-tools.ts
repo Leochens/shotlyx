@@ -1,6 +1,10 @@
 import type { EditorCore } from "@/core";
 import type { Tool } from "./types";
-import { requireStringParam, optionalStringParam } from "./validation";
+import {
+	requireNumberParam,
+	requireStringParam,
+	optionalStringParam,
+} from "./validation";
 import type { MediaAsset } from "@/media/types";
 
 function assetToResult(asset: MediaAsset) {
@@ -39,9 +43,7 @@ export function buildMediaTools(editor: EditorCore): Tool[] {
 				},
 			},
 			handler: (params) => {
-				const query = params.query
-					? String(params.query).toLowerCase()
-					: "";
+				const query = params.query ? String(params.query).toLowerCase() : "";
 				const typeFilter = params.type
 					? String(params.type).toLowerCase()
 					: null;
@@ -49,9 +51,7 @@ export function buildMediaTools(editor: EditorCore): Tool[] {
 				const results = assets.filter((asset) => {
 					const nameMatch =
 						query === "" || asset.name.toLowerCase().includes(query);
-					const typeMatch = typeFilter
-						? asset.type === typeFilter
-						: true;
+					const typeMatch = typeFilter ? asset.type === typeFilter : true;
 					return nameMatch && typeMatch;
 				});
 				return {
@@ -69,6 +69,48 @@ export function buildMediaTools(editor: EditorCore): Tool[] {
 				return {
 					results: assets.map(assetToResult),
 					count: assets.length,
+				};
+			},
+		},
+		{
+			name: "media_read_text_asset",
+			description:
+				"读取项目资源库中的文本或字幕文件内容。用于在生成配音前读取 SRT/VTT/TXT 文案。",
+			parameters: {
+				assetId: {
+					type: "string",
+					description: "媒体资源 ID，必须是 subtitle 或 text 类型",
+				},
+				maxChars: {
+					type: "number",
+					description: "最多返回字符数，默认 20000",
+					optional: true,
+				},
+			},
+			handler: async (params) => {
+				const assetId = requireStringParam(params, "assetId");
+				const maxChars =
+					params.maxChars === undefined
+						? 20_000
+						: requireNumberParam(params, "maxChars");
+				const asset = editor.media
+					.getAssets()
+					.find((item) => item.id === assetId);
+				if (!asset) {
+					throw new Error(`未找到媒体资源：${assetId}`);
+				}
+				if (asset.type !== "subtitle" && asset.type !== "text") {
+					throw new Error("类型不匹配：只能读取字幕或文本文件");
+				}
+				const text = await asset.file.text();
+				const truncated = text.length > maxChars;
+				return {
+					id: asset.id,
+					name: asset.name,
+					type: asset.type,
+					text: truncated ? text.slice(0, maxChars) : text,
+					truncated,
+					totalChars: text.length,
 				};
 			},
 		},
@@ -123,9 +165,7 @@ export function buildMediaTools(editor: EditorCore): Tool[] {
 					source.split("/").pop()?.split("?")[0] || "imported-media";
 				const file = new File([blob], filename, { type: blob.type });
 
-				const { processMediaAssets } = await import(
-					"@/media/processing"
-				);
+				const { processMediaAssets } = await import("@/media/processing");
 				const processed = await processMediaAssets({
 					files: [file],
 				});
@@ -138,7 +178,7 @@ export function buildMediaTools(editor: EditorCore): Tool[] {
 
 				// Override type if user provided a valid hint
 				if (typeHint) {
-					asset.type = typeHint as import("@/media/types").MediaType;
+					asset.type = typeHint;
 				}
 
 				const result = await editor.media.addMediaAsset({

@@ -11,11 +11,12 @@ const webEnvSchema = z.object({
 	NEXT_PUBLIC_MARBLE_API_URL: z.url(),
 
 	// Server
-	DATABASE_URL: z.string().refine(
-		(url) =>
-			url.startsWith("postgres://") || url.startsWith("postgresql://"),
-		"DATABASE_URL must be a postgres:// or postgresql:// URL",
-	),
+	DATABASE_URL: z
+		.string()
+		.refine(
+			(url) => url.startsWith("postgres://") || url.startsWith("postgresql://"),
+			"DATABASE_URL must be a postgres:// or postgresql:// URL",
+		),
 
 	BETTER_AUTH_SECRET: z.string(),
 	UPSTASH_REDIS_REST_URL: z.url(),
@@ -48,6 +49,21 @@ const webEnvSchema = z.object({
 	TTS_GENERATION_API_KEY: z.string().optional(),
 	TTS_GENERATION_MODEL: z.string().optional(),
 	TTS_GENERATION_VOICE: z.string().optional(),
+	VOLCENGINE_TTS_API_KEY: z.string().optional(),
+	VOLCENGINE_TTS_APP_ID: z.string().optional(),
+	VOLCENGINE_TTS_ACCESS_KEY: z.string().optional(),
+	VOLCENGINE_TTS_RESOURCE_ID: z.string().optional(),
+	VOLCENGINE_TTS_CLONE_RESOURCE_ID: z.string().optional(),
+	VOLCENGINE_TTS_DEFAULT_SPEAKER: z.string().optional(),
+	VOLCENGINE_TTS_SAMPLE_RATE: z.string().optional(),
+	VOLCENGINE_TTS_URL: z.string().url().optional(),
+	VOLCENGINE_TTS_UID: z.string().optional(),
+	VOLCENGINE_TTS_CLONED_VOICES: z.string().optional(),
+	VOLCENGINE_ACCESS_KEY_ID: z.string().optional(),
+	VOLCENGINE_SECRET_ACCESS_KEY: z.string().optional(),
+	VOLCENGINE_ARK_API_KEY: z.string().optional(),
+	VOLCENGINE_ARK_BASE_URL: z.string().url().optional(),
+	SEEDANCE_VIDEO_MODEL: z.string().optional(),
 	ASR_PROVIDER: z.string().optional(),
 	ASR_BASE_URL: z.string().url().optional(),
 	ASR_API_KEY: z.string().optional(),

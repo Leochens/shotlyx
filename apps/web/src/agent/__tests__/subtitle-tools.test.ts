@@ -16,11 +16,13 @@ function createMockEditor({
 	})),
 	addTrack = mock(() => "track-sub"),
 	updateElements = mock(() => {}),
+	getTrackById = mock(() => null),
 	sceneTracks,
 }: {
 	insertElement?: ReturnType<typeof mock>;
 	addTrack?: ReturnType<typeof mock>;
 	updateElements?: ReturnType<typeof mock>;
+	getTrackById?: ReturnType<typeof mock>;
 	sceneTracks?: unknown;
 } = {}): EditorCore {
 	return {
@@ -28,7 +30,7 @@ function createMockEditor({
 			addTrack,
 			insertElement,
 			updateElements,
-			getTrackById: () => null,
+			getTrackById,
 		},
 		project: {
 			getActiveOrNull: () => ({
@@ -297,6 +299,121 @@ describe("subtitle tools", () => {
 					fontWeight: "bold",
 					"background.enabled": true,
 				},
+			},
+		});
+	});
+
+	test("subtitles_translate adds translated line cues to an existing subtitle layer", async () => {
+		const updateElements = mock(() => {});
+		const subtitleElement = {
+			id: "subtitle-1",
+			type: "subtitle",
+			params: { "subtitle.groupId": "group-1" },
+			revealMode: "karaoke",
+			cues: [
+				{
+					text: "我吃了一个苹果",
+					startTime: 0,
+					duration: 2,
+					tokens: [{ text: "我", startTime: 0, duration: 0.2 }],
+				},
+				{
+					text: "很好吃",
+					startTime: 2,
+					duration: 1,
+				},
+			],
+		};
+		const subtitleTrack = {
+			id: "track-sub",
+			type: "text",
+			elements: [subtitleElement],
+		};
+		const sceneTracks = {
+			main: { id: "main", type: "video", elements: [] },
+			overlay: [subtitleTrack],
+			audio: [],
+		};
+		const fetchFn = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+			expect(String(input)).toBe("/api/agent/subtitle-translation");
+			expect(JSON.parse(String(init?.body))).toMatchObject({
+				targetLanguage: "en",
+				sourceLanguage: "zh",
+				cues: [
+					{ index: 0, text: "我吃了一个苹果", startTime: 0, duration: 2 },
+					{ index: 1, text: "很好吃", startTime: 2, duration: 1 },
+				],
+			});
+			return new Response(
+				JSON.stringify({
+					provider: "mock",
+					targetLanguage: "en",
+					translations: [
+						{ index: 0, text: "I ate an apple" },
+						{ index: 1, text: "It tasted good" },
+					],
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			);
+		});
+		const editor = createMockEditor({
+			updateElements,
+			getTrackById: mock(({ trackId }: { trackId: string }) =>
+				trackId === "track-sub" ? subtitleTrack : null,
+			),
+			sceneTracks,
+		});
+		const tools = buildSubtitleTools({
+			editor,
+			deps: {
+				mediaTimeFromSeconds: mockMediaTimeFromSeconds,
+				fetchFn,
+			},
+		});
+		const tool = tools.find((item) => item.name === "subtitles_translate");
+
+		const result = await tool?.handler({
+			targetLanguage: "en",
+			sourceLanguage: "zh",
+		});
+
+		expect(result).toMatchObject({
+			translated: true,
+			targetLanguage: "en",
+			trackId: "track-sub",
+			elementId: "subtitle-1",
+			cueCount: 2,
+		});
+		expect(updateElements.mock.calls[0]?.[0].updates[0]).toMatchObject({
+			trackId: "track-sub",
+			elementId: "subtitle-1",
+			patch: {
+				revealMode: "line",
+				params: {
+					"subtitle.bilingual.enabled": true,
+					"subtitle.bilingual.targetLanguage": "en",
+					"subtitle.lineBreakMode": "wrap",
+				},
+				cues: [
+					{
+						text: "我吃了一个苹果",
+						translations: {
+							en: {
+								text: "I ate an apple",
+								language: "en",
+								provider: "mock",
+							},
+						},
+					},
+					{
+						text: "很好吃",
+						translations: {
+							en: {
+								text: "It tasted good",
+							},
+						},
+					},
+				],
 			},
 		});
 	});

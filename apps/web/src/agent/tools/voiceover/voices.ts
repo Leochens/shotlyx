@@ -1,0 +1,103 @@
+import type { VoiceProfile } from "./types";
+
+export const DEFAULT_VOLCENGINE_TTS_RESOURCE_ID = "seed-tts-2.0";
+export const DEFAULT_VOLCENGINE_CLONE_RESOURCE_ID = "seed-icl-2.0";
+export const DEFAULT_VOLCENGINE_TTS_SPEAKER = "zh_female_xiaohe_uranus_bigtts";
+
+export const VOLCENGINE_PRESET_VOICES: VoiceProfile[] = [
+	{
+		id: "volcengine:xiaohe",
+		name: "小何",
+		provider: "volcengine",
+		kind: "preset",
+		speaker: "zh_female_xiaohe_uranus_bigtts",
+		resourceId: DEFAULT_VOLCENGINE_TTS_RESOURCE_ID,
+		locale: "zh-CN",
+		gender: "female",
+		tags: ["通用", "自然", "中文"],
+		description: "适合教程、产品介绍和日常解说的自然女声。",
+		status: "available",
+	},
+	{
+		id: "volcengine:vivi",
+		name: "Vivi",
+		provider: "volcengine",
+		kind: "preset",
+		speaker: "zh_female_vv_uranus_bigtts",
+		resourceId: DEFAULT_VOLCENGINE_TTS_RESOURCE_ID,
+		locale: "zh-CN",
+		gender: "female",
+		tags: ["清晰", "多语种", "方言"],
+		description: "清晰、轻快，适合短视频讲解和生活化旁白。",
+		status: "available",
+	},
+	{
+		id: "volcengine:cancan",
+		name: "灿灿",
+		provider: "volcengine",
+		kind: "preset",
+		speaker: "zh_female_cancan_uranus_bigtts",
+		resourceId: DEFAULT_VOLCENGINE_TTS_RESOURCE_ID,
+		locale: "zh-CN",
+		gender: "female",
+		tags: ["情绪", "故事", "角色"],
+		description: "更适合带情绪的叙事、故事和角色化表达。",
+		status: "available",
+	},
+	{
+		id: "volcengine:yunzhou",
+		name: "云舟",
+		provider: "volcengine",
+		kind: "preset",
+		speaker: "zh_male_m191_uranus_bigtts",
+		resourceId: DEFAULT_VOLCENGINE_TTS_RESOURCE_ID,
+		locale: "zh-CN",
+		gender: "male",
+		tags: ["稳重", "解说", "知识"],
+		description: "稳重男声，适合知识类、产品说明和长一点的解说。",
+		status: "available",
+	},
+	{
+		id: "volcengine:dayi",
+		name: "大壹",
+		provider: "volcengine",
+		kind: "preset",
+		speaker: "zh_male_dayi_uranus_bigtts",
+		resourceId: DEFAULT_VOLCENGINE_TTS_RESOURCE_ID,
+		locale: "zh-CN",
+		gender: "male",
+		tags: ["视频配音", "厚实", "商业"],
+		description: "声音更厚实，适合商业视频和正式旁白。",
+		status: "available",
+	},
+	{
+		id: "volcengine:sunwukong",
+		name: "猴哥",
+		provider: "volcengine",
+		kind: "preset",
+		speaker: "zh_male_sunwukong_uranus_bigtts",
+		resourceId: DEFAULT_VOLCENGINE_TTS_RESOURCE_ID,
+		locale: "zh-CN",
+		gender: "male",
+		tags: ["角色", "剧情", "活泼"],
+		description: "角色感更强，适合剧情化、娱乐化片段。",
+		status: "available",
+	},
+	{
+		id: "volcengine:sajiaoxuemei",
+		name: "撒娇学妹",
+		provider: "volcengine",
+		kind: "preset",
+		speaker: "zh_female_sajiaoxuemei_uranus_bigtts",
+		resourceId: DEFAULT_VOLCENGINE_TTS_RESOURCE_ID,
+		locale: "zh-CN",
+		gender: "female",
+		tags: ["年轻", "角色", "轻快"],
+		description: "偏年轻、轻快，适合轻松口播和角色设定。",
+		status: "available",
+	},
+];
+
+export function getDefaultVolcengineVoice(): VoiceProfile {
+	return VOLCENGINE_PRESET_VOICES[0];
+}

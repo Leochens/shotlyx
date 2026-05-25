@@ -1394,6 +1394,9 @@ export function ChatPanel() {
 					disabled={isLoading}
 					onInputChange={setInput}
 					onSubmit={handleSubmit}
+					onMediaSubmit={(prompt) => {
+						void submitPrompt({ prompt, references: draftReferences });
+					}}
 					onStop={handleStop}
 					onModeChange={setMode}
 					onAgentChange={setSelectedAgent}

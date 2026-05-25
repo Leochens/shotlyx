@@ -311,4 +311,51 @@ describe("subtitle layer timing", () => {
 			"subtitle.highlightColor": "#22d3ee",
 		});
 	});
+
+	test("bilingual subtitles force line display and ignore karaoke highlighting", () => {
+		const element = makeElement({
+			params: {
+				...makeElement().params,
+				"subtitle.bilingual.enabled": true,
+				"subtitle.bilingual.targetLanguage": "en",
+				"subtitle.maxCharsPerLine": 30,
+				"subtitle.lineBreakMode": "page",
+			},
+			revealMode: "karaoke",
+			cues: [
+				{
+					text: "我吃了一个苹果",
+					startTime: 0,
+					duration: 4,
+					translations: {
+						en: {
+							text: "I ate an apple",
+							language: "en",
+						},
+					},
+					tokens: [
+						{ text: "我", startTime: 0, duration: 0.2 },
+						{ text: "吃", startTime: 0.8, duration: 0.2 },
+						{ text: "了", startTime: 1.6, duration: 0.2 },
+					],
+				} as never,
+			],
+		});
+
+		const resolved = resolveSubtitleTextAtTime({
+			element,
+			timelineTime: ticks(0.9),
+		});
+		expect(resolved?.text).toBe("我吃了一个苹果\nI ate an apple");
+		expect(resolved?.highlightText).toBeUndefined();
+		expect(
+			buildRenderableTextElementFromSubtitle({
+				element,
+				timelineTime: ticks(0.9),
+			})?.params,
+		).toMatchObject({
+			content: "我吃了一个苹果\nI ate an apple",
+			"subtitle.highlightText": "",
+		});
+	});
 });

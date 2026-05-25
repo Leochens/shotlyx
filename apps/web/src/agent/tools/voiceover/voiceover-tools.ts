@@ -9,9 +9,11 @@ import type { processMediaAssets } from "@/media/processing";
 import type {
 	GenerateVoiceoverAudioResult,
 	GenerateVoiceoverAudioInput,
+	VoiceProfile,
 	VoiceoverCandidateMetadata,
 	VoiceoverToolDeps,
 } from "./types";
+import { VOLCENGINE_PRESET_VOICES } from "./voices";
 
 const DEFAULT_VOICEOVER_PROVIDER = "default";
 const DEFAULT_VOICEOVER_SPEED = 1;
@@ -83,12 +85,56 @@ async function parseVoiceoverApiError(response: Response): Promise<string> {
 	return `provider_error: voiceover generation failed with ${response.status}`;
 }
 
+function isVoiceListResponse(value: unknown): value is {
+	voices: VoiceProfile[];
+	defaultVoiceId?: string;
+	providerConfigured?: boolean;
+	warning?: string;
+} {
+	if (typeof value !== "object" || value === null || !("voices" in value)) {
+		return false;
+	}
+	const voices = value.voices;
+	return Array.isArray(voices);
+}
+
+async function defaultListVoices({
+	fetchFn = globalThis.fetch.bind(globalThis),
+}: {
+	fetchFn?: typeof fetch;
+} = {}): Promise<{
+	voices: VoiceProfile[];
+	defaultVoiceId?: string;
+	providerConfigured?: boolean;
+	warning?: string;
+}> {
+	try {
+		const response = await fetchFn("/api/agent/voiceover/voices");
+		if (!response.ok) {
+			throw new Error(`voice list failed with ${response.status}`);
+		}
+		const data: unknown = await response.json();
+		if (!isVoiceListResponse(data)) {
+			throw new Error("voice list response was invalid");
+		}
+		return data;
+	} catch (error) {
+		return {
+			voices: VOLCENGINE_PRESET_VOICES,
+			defaultVoiceId: VOLCENGINE_PRESET_VOICES[0]?.id,
+			providerConfigured: false,
+			warning: error instanceof Error ? error.message : "voice list failed",
+		};
+	}
+}
+
 export function createVoiceoverToolDeps({
 	editor,
 	fetchFn = globalThis.fetch.bind(globalThis),
 	processMediaAssetsFn,
 }: CreateVoiceoverToolDepsOptions): VoiceoverToolDeps {
 	return {
+		listVoices: () => defaultListVoices({ fetchFn }),
 		async generateVoiceoverAudio(
 			input: GenerateVoiceoverAudioInput,
 		): Promise<GenerateVoiceoverAudioResult> {
@@ -109,9 +155,12 @@ export function createVoiceoverToolDeps({
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					text: input.text,
-					voice: input.voice,
+					voice: input.voice ?? input.voiceId,
+					voiceId: input.voiceId,
+					resourceId: input.resourceId,
 					language: input.language,
 					speed: input.speed,
+					emotion: input.emotion,
 					provider: input.provider === "default" ? undefined : input.provider,
 					format: "mp3",
 				}),
@@ -140,8 +189,7 @@ export function createVoiceoverToolDeps({
 				getHeaderOrUndefined({
 					headers: response.headers,
 					name: "x-voiceover-filename",
-				}) ??
-				`voiceover.${extensionFromMimeType(mimeType)}`;
+				}) ?? `voiceover.${extensionFromMimeType(mimeType)}`;
 			const file = new File([blob], filename, { type: mimeType });
 			const mediaProcessor =
 				processMediaAssetsFn ??
@@ -178,14 +226,16 @@ export function createVoiceoverToolDeps({
 				getHeaderOrUndefined({
 					headers: response.headers,
 					name: "x-voiceover-provider",
-				}) ??
-				input.provider;
+				}) ?? input.provider;
 			const voice =
 				getHeaderOrUndefined({
 					headers: response.headers,
 					name: "x-voiceover-voice",
-				}) ??
-				input.voice;
+				}) ?? input.voice;
+			const resourceId = getHeaderOrUndefined({
+				headers: response.headers,
+				name: "x-voiceover-resource-id",
+			});
 			return {
 				asset: {
 					id: result.id,
@@ -214,11 +264,17 @@ export function createVoiceoverToolDeps({
 					},
 					durationSeconds: result.duration,
 					sizeBytes: file.size,
+					metadata: {
+						resourceId,
+						emotion: input.emotion,
+					},
 				},
 				message: "旁白音频已生成并导入资源库",
 				metadata: {
 					mediaAssetId: result.id,
 					imported: true,
+					resourceId,
+					emotion: input.emotion,
 				},
 			};
 		},
@@ -273,6 +329,17 @@ export function buildVoiceoverTools({
 }: BuildVoiceoverToolsOptions = {}): Tool[] {
 	return [
 		{
+			name: "voiceover_list_voices",
+			description:
+				"List available voiceover voices, including Shotlyx-managed Volcengine/Doubao preset voices and configured cloned voices. Use this before asking the user to choose a voice.",
+			parameters: {},
+			mutating: false,
+			handler: async () => {
+				const listVoices = deps?.listVoices ?? defaultListVoices;
+				return listVoices();
+			},
+		},
+		{
 			name: "agent_generate_voiceover",
 			description:
 				"根据文本生成旁白音频，返回可导入或可保存的 audio asset/candidate metadata。provider 细节由注入的 generateVoiceoverAudio 实现负责。",
@@ -286,9 +353,26 @@ export function buildVoiceoverTools({
 					description: "声音/说话人 ID 或名称，由 provider 解释",
 					optional: true,
 				},
+				voiceId: {
+					type: "string",
+					description:
+						"voiceover_list_voices 返回的 voice id；如果提供，会优先作为声音 ID 使用",
+					optional: true,
+				},
+				resourceId: {
+					type: "string",
+					description:
+						"火山引擎 X-Api-Resource-Id，例如 seed-tts-2.0 或 seed-icl-2.0",
+					optional: true,
+				},
 				language: {
 					type: "string",
 					description: "语言代码，例如 zh-CN、en-US",
+					optional: true,
+				},
+				emotion: {
+					type: "string",
+					description: "可选语气/情绪标签，由 provider 支持情况决定",
 					optional: true,
 				},
 				speed: {
@@ -311,11 +395,29 @@ export function buildVoiceoverTools({
 					throw new Error('参数缺失："text" 为必填项，且必须为非空字符串');
 				}
 				const voice = optionalStringParam(params, "voice");
+				const voiceId = optionalStringParam(params, "voiceId");
+				const resourceId = optionalStringParam(params, "resourceId");
 				const language = optionalStringParam(params, "language");
+				const emotion = optionalStringParam(params, "emotion");
 				const speed = normalizeSpeed(optionalNumberParam(params, "speed"));
 				const provider =
 					optionalStringParam(params, "provider") ?? DEFAULT_VOICEOVER_PROVIDER;
 				const generateVoiceoverAudio = assertGenerateVoiceoverAudio(deps);
+				let resolvedVoice = voice;
+				let resolvedResourceId = resourceId;
+				if (voiceId) {
+					const listVoices = deps?.listVoices ?? defaultListVoices;
+					const voiceList = await listVoices();
+					const selectedVoice = voiceList.voices.find(
+						(item) => item.id === voiceId || item.speaker === voiceId,
+					);
+					if (selectedVoice) {
+						resolvedVoice = selectedVoice.speaker;
+						resolvedResourceId = selectedVoice.resourceId ?? resolvedResourceId;
+					} else if (!resolvedVoice) {
+						resolvedVoice = voiceId;
+					}
+				}
 
 				context?.onProgress?.({
 					stage: "generation",
@@ -325,10 +427,13 @@ export function buildVoiceoverTools({
 
 				const result = await generateVoiceoverAudio({
 					text,
-					voice,
+					voice: resolvedVoice,
+					voiceId,
+					resourceId: resolvedResourceId,
 					language,
 					speed,
 					provider,
+					emotion,
 					abortSignal: context?.signal,
 					onProgress: context?.onProgress,
 				});
@@ -336,7 +441,7 @@ export function buildVoiceoverTools({
 				const normalized = normalizeVoiceoverResult({
 					result,
 					text,
-					voice,
+					voice: resolvedVoice,
 					language,
 					speed,
 					provider,

@@ -1,6 +1,7 @@
 export const VOICEOVER_PROVIDER_IDS = [
 	"edge-tts",
 	"openai",
+	"volcengine",
 	"google",
 	"minimax",
 ] as const;
@@ -12,11 +13,13 @@ export type VoiceoverAudioFormat = "mp3" | "wav" | "ogg";
 export interface SynthesizeVoiceoverInput {
 	text: string;
 	voice?: string;
+	resourceId?: string;
 	locale?: string;
 	format?: VoiceoverAudioFormat;
 	speed?: number;
 	rate?: string;
 	pitch?: string;
+	emotion?: string;
 	outputPath?: string;
 	provider?: string;
 }
@@ -27,6 +30,7 @@ export interface VoiceoverAudio {
 	mimeType: string;
 	provider: VoiceoverProviderId;
 	voice?: string;
+	resourceId?: string;
 	filePath?: string;
 }
 
@@ -78,11 +82,31 @@ export interface VoiceoverProgressEvent {
 export interface GenerateVoiceoverAudioInput {
 	text: string;
 	voice?: string;
+	voiceId?: string;
+	resourceId?: string;
 	language?: string;
 	speed: number;
 	provider: string;
+	emotion?: string;
 	abortSignal?: AbortSignal;
 	onProgress?: (event: VoiceoverProgressEvent) => void;
+}
+
+export type VoiceProfileKind = "preset" | "cloned";
+
+export interface VoiceProfile {
+	id: string;
+	name: string;
+	provider: VoiceoverProviderId | "default";
+	kind: VoiceProfileKind;
+	speaker: string;
+	resourceId?: string;
+	locale?: string;
+	gender?: "female" | "male" | "neutral";
+	tags?: string[];
+	description?: string;
+	previewUrl?: string;
+	status?: "available" | "training" | "expired" | "unknown";
 }
 
 export interface GenerateVoiceoverAudioResult {
@@ -97,4 +121,10 @@ export interface VoiceoverToolDeps {
 	generateVoiceoverAudio(
 		input: GenerateVoiceoverAudioInput,
 	): Promise<GenerateVoiceoverAudioResult>;
+	listVoices?(): Promise<{
+		voices: VoiceProfile[];
+		defaultVoiceId?: string;
+		providerConfigured?: boolean;
+		warning?: string;
+	}>;
 }

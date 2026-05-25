@@ -403,6 +403,62 @@ describe("buildCreativeTools", () => {
 		expect(addMediaAsset).toHaveBeenCalledTimes(1);
 	});
 
+	test("creative_generate_seedance_video omits blank reference fields", async () => {
+		let postedBody: unknown;
+		const fetchMock = mock(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe("/api/agent/creative/video/seedance");
+				if (typeof init?.body !== "string") {
+					throw new Error("Expected Seedance request body to be a string");
+				}
+				postedBody = JSON.parse(init.body);
+
+				return new Response(
+					JSON.stringify({ error: "provider_error: synthetic stop" }),
+					{
+						status: 502,
+						headers: { "Content-Type": "application/json" },
+					},
+				);
+			},
+		);
+
+		const tools = buildCreativeTools({
+			editor: asEditorCore({
+				media: {
+					getAssets: () => [],
+				},
+			}),
+			deps: {
+				fetchFn: fetchMock,
+			},
+		});
+
+		const seedanceTool = tools.find(
+			(tool) => tool.name === "creative_generate_seedance_video",
+		);
+		if (!seedanceTool) {
+			throw new Error("Expected Seedance tool to be registered");
+		}
+
+		await expect(
+			seedanceTool.handler({
+				prompt: "claymation peanut seedling",
+				aspectRatio: "16:9",
+				durationSeconds: 5,
+				referenceMediaAssetId: "",
+				referenceImageUrl: "",
+			}),
+		).rejects.toThrow("provider_error: synthetic stop");
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(postedBody).toEqual({
+			prompt: "claymation peanut seedling",
+			aspectRatio: "16:9",
+			durationSeconds: 5,
+		});
+	});
+
 	test("shotlyx_generate_mg_component saves an editable MG asset and inserts it", async () => {
 		let selectedElements: Array<{ trackId: string; elementId: string }> = [];
 		const scene = {
@@ -475,11 +531,7 @@ describe("buildCreativeTools", () => {
 		);
 
 		expect(generateShotlyxMGComponent).toHaveBeenCalledTimes(1);
-		const generatorCalls = generateShotlyxMGComponent.mock
-			.calls as unknown as Array<[Record<string, unknown>]>;
-		expect(
-			generatorCalls[0]?.[0],
-		).toMatchObject({
+		expect(generateShotlyxMGComponent.mock.calls[0]?.[0]).toMatchObject({
 			prompt: "生成中国人口近十年变化折线图 MG",
 			durationSeconds: 6,
 			aspectRatio: "16:9",
@@ -843,11 +895,7 @@ describe("buildCreativeTools", () => {
 		);
 
 		expect(generateShotlyxMGComponent).toHaveBeenCalledTimes(1);
-		const generatorCalls = generateShotlyxMGComponent.mock
-			.calls as unknown as Array<[Record<string, unknown>]>;
-		expect(
-			generatorCalls[0]?.[0],
-		).toMatchObject({
+		expect(generateShotlyxMGComponent.mock.calls[0]?.[0]).toMatchObject({
 			transparentBackground: true,
 		});
 		expect(result.name).toBe("后端生成 MG");
@@ -943,11 +991,7 @@ describe("buildCreativeTools", () => {
 		);
 
 		expect(generateShotlyxMGComponent).toHaveBeenCalledTimes(3);
-		const generatorCalls = generateShotlyxMGComponent.mock
-			.calls as unknown as Array<[Record<string, unknown>]>;
-		expect(
-			generatorCalls[0]?.[0],
-		).toMatchObject({
+		expect(generateShotlyxMGComponent.mock.calls[0]?.[0]).toMatchObject({
 			transparentBackground: true,
 		});
 		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(3);

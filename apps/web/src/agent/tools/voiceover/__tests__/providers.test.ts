@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import {
 	EdgeTtsProvider,
 	OpenAICompatibleTtsProvider,
+	VolcengineTtsProvider,
 	createVoiceoverProviderRegistry,
 	synthesizeVoiceover,
 } from "@/agent/tools/voiceover/providers";
@@ -70,7 +71,9 @@ describe("voiceover providers", () => {
 		const ttsFactory = mock(() => ({ ttsPromise }));
 		const provider = new EdgeTtsProvider({
 			ttsFactory,
-			readFile: mock(async () => Buffer.from([])) as unknown as EdgeTtsProviderDeps["readFile"],
+			readFile: mock(async () =>
+				Buffer.from([]),
+			) as unknown as EdgeTtsProviderDeps["readFile"],
 			rm: async () => undefined,
 			mkdtemp: async () => "/tmp/shotlyx-voiceover-test",
 			tmpdir: () => "/tmp",
@@ -130,6 +133,60 @@ describe("voiceover providers", () => {
 		expect(result.provider).toBe("openai");
 	});
 
+	test("VolcengineTtsProvider posts to V3 chunked TTS endpoint", async () => {
+		const fetchFn = mock(async () => {
+			return new Response(
+				[
+					JSON.stringify({
+						code: 0,
+						message: "",
+						data: Buffer.from([9, 10]).toString("base64"),
+					}),
+					JSON.stringify({ code: 20000000, message: "OK", data: null }),
+				].join("\n"),
+				{
+					headers: { "Content-Type": "text/plain" },
+				},
+			);
+		});
+		const provider = new VolcengineTtsProvider({
+			fetchFn: fetchFn as unknown as typeof fetch,
+			env: {
+				VOLCENGINE_TTS_API_KEY: "volc-key",
+				VOLCENGINE_TTS_DEFAULT_SPEAKER: "zh_female_xiaohe_uranus_bigtts",
+			},
+		});
+
+		const result = await provider.synthesize({
+			text: "你好，Shotlyx",
+			format: "mp3",
+			speed: 1.25,
+		});
+
+		expect(fetchFn).toHaveBeenCalledWith(
+			"https://openspeech.bytedance.com/api/v3/tts/unidirectional",
+			expect.objectContaining({
+				method: "POST",
+				headers: expect.objectContaining({
+					"X-Api-Key": "volc-key",
+					"X-Api-Resource-Id": "seed-tts-2.0",
+				}),
+			}),
+		);
+		const body = JSON.parse(
+			String((fetchFn.mock.calls[0]?.[1] as RequestInit | undefined)?.body),
+		) as {
+			req_params: {
+				speaker: string;
+				audio_params: { speech_rate?: number };
+			};
+		};
+		expect(body.req_params.speaker).toBe("zh_female_xiaohe_uranus_bigtts");
+		expect(body.req_params.audio_params.speech_rate).toBe(25);
+		expect(Array.from(result.audio)).toEqual([9, 10]);
+		expect(result.provider).toBe("volcengine");
+	});
+
 	test("synthesizeVoiceover defaults to pure JS OpenAI-compatible provider", async () => {
 		const fetchFn = mock(async () => {
 			return new Response(new Uint8Array([8]), {
@@ -174,8 +231,9 @@ describe("voiceover providers", () => {
 			registry,
 		});
 
-		const ttsFactoryCalls = ttsFactory.mock
-			.calls as unknown as Array<[EdgeTtsConfig]>;
+		const ttsFactoryCalls = ttsFactory.mock.calls as unknown as Array<
+			[EdgeTtsConfig]
+		>;
 		const edgeConfig = ttsFactoryCalls[0]?.[0];
 		expect(edgeConfig).toEqual(expect.objectContaining({ rate: "+25%" }));
 	});

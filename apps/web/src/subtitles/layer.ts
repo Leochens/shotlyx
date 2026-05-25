@@ -1,6 +1,7 @@
 import type { TextElement, SubtitleElement } from "@/timeline";
 import type {
 	SubtitleCue,
+	SubtitleCueTranslation,
 	SubtitleLineBreakMode,
 	SubtitleLayerCue,
 	SubtitleRevealMode,
@@ -245,6 +246,11 @@ function resolveTextForMode({
 	revealMode: NormalizedRevealMode;
 	element: SubtitleElement;
 }): Pick<ResolvedSubtitleText, "text" | "highlightText" | "highlightColor"> {
+	const translation = resolveCueTranslation({ cue, element });
+	if (resolveBilingualEnabled({ element }) && translation) {
+		return applyBilingualLineLayout({ cue, translation, element });
+	}
+
 	const maxCharsPerLine = resolveMaxCharsPerLine({ element, cue });
 	const lineBreakMode = resolveLineBreakMode({ element });
 
@@ -293,13 +299,7 @@ function resolveMaxCharsPerLine({
 	element: SubtitleElement;
 	cue: SubtitleLayerCue;
 }): number {
-	const value = element.params["subtitle.maxCharsPerLine"];
-	if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-		return Math.max(1, Math.round(value));
-	}
-	return hasCjk({ value: cue.text })
-		? DEFAULT_MAX_CHARS_PER_LINE_CJK
-		: DEFAULT_MAX_CHARS_PER_LINE_WORDS;
+	return resolveMaxCharsForText({ element, text: cue.text });
 }
 
 function resolveLineBreakMode({
@@ -319,6 +319,123 @@ function resolveHighlightColor({
 	return typeof value === "string" && value.trim().length > 0
 		? value
 		: DEFAULT_HIGHLIGHT_COLOR;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function resolveBilingualEnabled({
+	element,
+}: {
+	element: SubtitleElement;
+}): boolean {
+	const value = element.params["subtitle.bilingual.enabled"];
+	return value === true || value === "true";
+}
+
+function resolveBilingualTargetLanguage({
+	element,
+}: {
+	element: SubtitleElement;
+}): string | null {
+	const value = element.params["subtitle.bilingual.targetLanguage"];
+	return typeof value === "string" && value.trim().length > 0
+		? value.trim()
+		: null;
+}
+
+function normalizeCueTranslation({
+	value,
+}: {
+	value: unknown;
+}): SubtitleCueTranslation | null {
+	if (typeof value === "string" && value.trim().length > 0) {
+		return { text: value.trim() };
+	}
+	if (!isRecord(value)) return null;
+	const text = value.text;
+	if (typeof text !== "string" || text.trim().length === 0) {
+		return null;
+	}
+	return {
+		text: text.trim(),
+		...(typeof value.language === "string" ? { language: value.language } : {}),
+		...(typeof value.provider === "string" ? { provider: value.provider } : {}),
+		...(typeof value.updatedAt === "string"
+			? { updatedAt: value.updatedAt }
+			: {}),
+	};
+}
+
+function resolveCueTranslation({
+	cue,
+	element,
+}: {
+	cue: SubtitleLayerCue;
+	element: SubtitleElement;
+}): SubtitleCueTranslation | null {
+	const translations = cue.translations;
+	if (!translations) return null;
+
+	const targetLanguage = resolveBilingualTargetLanguage({ element });
+	if (targetLanguage) {
+		const exactTranslation = normalizeCueTranslation({
+			value: translations[targetLanguage],
+		});
+		if (exactTranslation) return exactTranslation;
+	}
+
+	const fallbackValue = Object.values(translations).find(
+		(value) => normalizeCueTranslation({ value }) !== null,
+	);
+	return fallbackValue
+		? normalizeCueTranslation({ value: fallbackValue })
+		: null;
+}
+
+function resolveMaxCharsForText({
+	element,
+	text,
+}: {
+	element: SubtitleElement;
+	text: string;
+}): number {
+	const value = element.params["subtitle.maxCharsPerLine"];
+	if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+		return Math.max(1, Math.round(value));
+	}
+	return hasCjk({ value: text })
+		? DEFAULT_MAX_CHARS_PER_LINE_CJK
+		: DEFAULT_MAX_CHARS_PER_LINE_WORDS;
+}
+
+function applyBilingualLineLayout({
+	cue,
+	translation,
+	element,
+}: {
+	cue: SubtitleLayerCue;
+	translation: SubtitleCueTranslation;
+	element: SubtitleElement;
+}): Pick<ResolvedSubtitleText, "text" | "highlightText" | "highlightColor"> {
+	const sourceLines = wrapTextByChars({
+		text: cue.text,
+		maxCharsPerLine: resolveMaxCharsForText({ element, text: cue.text }),
+	});
+	const translationLines = wrapTextByChars({
+		text: translation.text,
+		maxCharsPerLine: resolveMaxCharsForText({
+			element,
+			text: translation.text,
+		}),
+	});
+	const layout = element.params["subtitle.bilingual.layout"];
+	const lines =
+		layout === "translation-first"
+			? [...translationLines, ...sourceLines]
+			: [...sourceLines, ...translationLines];
+	return { text: lines.join("\n") };
 }
 
 interface SubtitleLineSegment {

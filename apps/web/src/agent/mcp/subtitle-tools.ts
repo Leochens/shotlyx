@@ -1,6 +1,10 @@
 import type { EditorCore } from "@/core";
 import type { ParamValues } from "@/params";
-import type { CreateTimelineElement, TimelineTrack } from "@/timeline";
+import type {
+	CreateTimelineElement,
+	SubtitleElement,
+	TimelineTrack,
+} from "@/timeline";
 import type { MediaTime } from "@/wasm";
 import {
 	getSubtitleLayerDurationSeconds,
@@ -39,6 +43,21 @@ type UserSubtitleRevealMode = (typeof SUBTITLE_REVEAL_MODES)[number];
 
 const SUBTITLE_LINE_BREAK_MODES = ["wrap", "page"] as const;
 type SubtitleLineBreakMode = (typeof SUBTITLE_LINE_BREAK_MODES)[number];
+
+interface SubtitleLayerRef {
+	trackId: string;
+	elementId: string;
+	element: SubtitleElement;
+}
+
+interface SubtitleTranslationResult {
+	provider?: string;
+	targetLanguage?: string;
+	translations: Array<{
+		index: number;
+		text: string;
+	}>;
+}
 
 function getCanvasSize({ editor }: { editor: EditorCore }): {
 	width: number;
@@ -330,6 +349,130 @@ function findSubtitleElements({
 	);
 }
 
+function isSubtitleElement(value: unknown): value is SubtitleElement {
+	return (
+		isRecord(value) &&
+		value.type === "subtitle" &&
+		Array.isArray(value.cues)
+	);
+}
+
+function findFirstSubtitleLayerInTrack({
+	track,
+	elementId,
+}: {
+	track: TimelineTrack;
+	elementId?: string;
+}): SubtitleLayerRef | null {
+	for (const element of track.elements) {
+		if (!isSubtitleElement(element)) continue;
+		if (elementId && element.id !== elementId) continue;
+		return { trackId: track.id, elementId: element.id, element };
+	}
+	return null;
+}
+
+function resolveSubtitleLayer({
+	editor,
+	trackId,
+	elementId,
+}: {
+	editor: EditorCore;
+	trackId?: string;
+	elementId?: string;
+}): SubtitleLayerRef {
+	if (trackId) {
+		const track = editor.timeline.getTrackById({ trackId });
+		if (!track) {
+			throw new Error(`字幕不存在：找不到轨道 "${trackId}"`);
+		}
+		const match = findFirstSubtitleLayerInTrack({ track, elementId });
+		if (!match) {
+			throw new Error(
+				elementId
+					? `字幕不存在：找不到字幕元素 "${elementId}"`
+					: `字幕不存在：轨道 "${trackId}" 中没有统一字幕层`,
+			);
+		}
+		return match;
+	}
+
+	for (const track of getAllTracks({ editor })) {
+		const match = findFirstSubtitleLayerInTrack({ track, elementId });
+		if (match) return match;
+	}
+
+	throw new Error(
+		elementId
+			? `字幕不存在：找不到字幕元素 "${elementId}"`
+			: "字幕不存在：请先生成或导入统一字幕层",
+	);
+}
+
+async function parseSubtitleTranslationApiError({
+	response,
+}: {
+	response: Response;
+}): Promise<string> {
+	try {
+		const body = await response.json();
+		if (
+			typeof body === "object" &&
+			body !== null &&
+			"error" in body &&
+			typeof body.error === "string"
+		) {
+			return body.error;
+		}
+	} catch {
+		// Fall through.
+	}
+	return `provider_error: subtitle translation failed with ${response.status}`;
+}
+
+function parseSubtitleTranslationResult({
+	value,
+}: {
+	value: unknown;
+}): SubtitleTranslationResult {
+	if (!isRecord(value)) {
+		throw new Error("provider_error: subtitle translation response is invalid");
+	}
+	const translations = value.translations;
+	if (!Array.isArray(translations)) {
+		throw new Error(
+			"provider_error: subtitle translation response missing translations",
+		);
+	}
+	return {
+		provider:
+			typeof value.provider === "string" && value.provider.trim().length > 0
+				? value.provider.trim()
+				: undefined,
+		targetLanguage:
+			typeof value.targetLanguage === "string" &&
+			value.targetLanguage.trim().length > 0
+				? value.targetLanguage.trim()
+				: undefined,
+		translations: translations
+			.map((item) => {
+				if (!isRecord(item)) return null;
+				const index = item.index;
+				const text = item.text;
+				if (
+					typeof index !== "number" ||
+					!Number.isInteger(index) ||
+					typeof text !== "string" ||
+					text.trim().length === 0
+				) {
+					return null;
+				}
+				return { index, text: text.trim() };
+			})
+			.filter((item): item is { index: number; text: string } => item !== null),
+	};
+}
+
 function buildLayerCues({
 	cues,
 }: {
@@ -356,9 +499,13 @@ export function buildSubtitleTools({
 	deps,
 }: {
 	editor: EditorCore;
-	deps: { mediaTimeFromSeconds: (args: { seconds: number }) => MediaTime };
+	deps: {
+		mediaTimeFromSeconds: (args: { seconds: number }) => MediaTime;
+		fetchFn?: typeof fetch;
+	};
 }): Tool[] {
 	const { mediaTimeFromSeconds } = deps;
+	const fetchFn = deps.fetchFn ?? globalThis.fetch.bind(globalThis);
 
 	return [
 		{
@@ -599,6 +746,147 @@ export function buildSubtitleTools({
 					warnings,
 					style,
 					placement,
+				};
+			},
+		},
+		{
+			name: "subtitles_translate",
+			description:
+				"Translate an existing unified subtitle layer into a bilingual subtitle layer. The translated line is shown line-by-line; token and karaoke reveal modes are disabled for bilingual display.",
+			parameters: {
+				targetLanguage: {
+					type: "string",
+					description:
+						"Target language code or name, e.g. en, ja, English, Japanese",
+				},
+				sourceLanguage: {
+					type: "string",
+					description: "Optional source language code or name",
+					optional: true,
+				},
+				subtitleTrackId: {
+					type: "string",
+					description:
+						"Optional subtitle track ID. Omit to use the first subtitle layer in the active scene.",
+					optional: true,
+				},
+				subtitleElementId: {
+					type: "string",
+					description:
+						"Optional subtitle element ID. Omit to use the first subtitle layer.",
+					optional: true,
+				},
+			},
+			mutating: true,
+			// eslint-disable-next-line shotlyx/prefer-object-params -- MCP tool handlers receive positional params/context.
+			handler: async (params, context) => {
+				const targetLanguage = requireStringParam(params, "targetLanguage").trim();
+				if (!targetLanguage) {
+					throw new Error("参数格式错误：targetLanguage 不能为空");
+				}
+				const sourceLanguage = optionalStringParam(params, "sourceLanguage");
+				const trackId =
+					optionalStringParam(params, "subtitleTrackId") ??
+					optionalStringParam(params, "trackId");
+				const elementId =
+					optionalStringParam(params, "subtitleElementId") ??
+					optionalStringParam(params, "elementId");
+				const layer = resolveSubtitleLayer({
+					editor,
+					trackId,
+					elementId,
+				});
+
+				context?.onProgress?.({
+					stage: "translate",
+					label: "Translating subtitle lines...",
+					status: "running",
+				});
+				const response = await fetchFn("/api/agent/subtitle-translation", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						targetLanguage,
+						sourceLanguage,
+						cues: layer.element.cues.map((cue, index) => ({
+							index,
+							text: cue.text,
+							startTime: cue.startTime,
+							duration: cue.duration,
+						})),
+					}),
+					signal: context?.signal,
+				});
+				if (!response.ok) {
+					throw new Error(
+						await parseSubtitleTranslationApiError({ response }),
+					);
+				}
+
+				const translationResult = parseSubtitleTranslationResult({
+					value: await response.json(),
+				});
+				const translatedByIndex = new Map(
+					translationResult.translations.map((item) => [item.index, item.text]),
+				);
+				if (translatedByIndex.size === 0) {
+					throw new Error("provider_error: subtitle translation returned no cues");
+				}
+
+				const provider = translationResult.provider ?? "agent-llm";
+				const language = translationResult.targetLanguage ?? targetLanguage;
+				const updatedAt = new Date().toISOString();
+				const nextCues = layer.element.cues.map((cue, index) => {
+					const translatedText = translatedByIndex.get(index);
+					if (!translatedText) return cue;
+					return {
+						...cue,
+						translations: {
+							...cue.translations,
+							[language]: {
+								...cue.translations?.[language],
+								text: translatedText,
+								language,
+								provider,
+								updatedAt,
+							},
+						},
+					};
+				});
+
+				editor.timeline.updateElements({
+					updates: [
+						{
+							trackId: layer.trackId,
+							elementId: layer.elementId,
+							patch: {
+								cues: nextCues,
+								revealMode: "line",
+								params: {
+									"subtitle.bilingual.enabled": true,
+									"subtitle.bilingual.targetLanguage": language,
+									"subtitle.lineBreakMode": "wrap",
+								},
+							},
+						},
+					],
+				});
+
+				context?.onProgress?.({
+					stage: "translate",
+					label: "Bilingual subtitles updated",
+					status: "success",
+				});
+
+				return {
+					translated: true,
+					targetLanguage: language,
+					sourceLanguage,
+					provider,
+					trackId: layer.trackId,
+					elementId: layer.elementId,
+					cueCount: nextCues.length,
+					revealMode: "line",
 				};
 			},
 		},

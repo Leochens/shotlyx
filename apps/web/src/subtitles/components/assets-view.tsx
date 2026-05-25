@@ -61,6 +61,18 @@ const IDLE_STATE: ProcessingState = {
 	warnings: [],
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readToolData({
+	result,
+}: {
+	result: { data?: unknown };
+}): Record<string, unknown> | null {
+	return isRecord(result.data) ? result.data : null;
+}
+
 /* eslint-disable shotlyx/prefer-object-params -- React reducers must accept (state, action). */
 function processingReducer(
 	state: ProcessingState,
@@ -83,6 +95,8 @@ function processingReducer(
 export function Captions() {
 	const [selectedLanguage, setSelectedLanguage] =
 		useState<TranscriptionLanguage>("auto");
+	const [selectedTargetLanguage, setSelectedTargetLanguage] =
+		useState<string>("en");
 	const [selectedProvider, setSelectedProvider] =
 		useState<CaptionTranscriptionProvider>(
 			DEFAULT_CAPTION_TRANSCRIPTION_PROVIDER,
@@ -153,6 +167,105 @@ export function Captions() {
 			dispatch({ type: "succeed", warnings: [] });
 		} catch (error) {
 			console.error("Transcription failed:", error);
+			dispatch({
+				type: "fail",
+				error:
+					error instanceof Error
+						? error.message
+						: "An unexpected error occurred",
+			});
+		}
+	};
+
+	const translateCaptions = async ({
+		trackId,
+		elementId,
+	}: {
+		trackId?: string;
+		elementId?: string;
+	} = {}) => {
+		const result = await editor.mcp.execute({
+			toolName: "subtitles_translate",
+			params: {
+				targetLanguage: selectedTargetLanguage,
+				sourceLanguage:
+					selectedLanguage === "auto" ? undefined : selectedLanguage,
+				subtitleTrackId: trackId,
+				subtitleElementId: elementId,
+			},
+			onProgress: (event) => {
+				if (event.status === "running") {
+					dispatch({ type: "update_step", step: event.label });
+				}
+			},
+		});
+		if (result.status === "error") {
+			throw new Error(result.error ?? "Subtitle translation failed");
+		}
+		return true;
+	};
+
+	const handleTranslateCurrentCaptions = async () => {
+		dispatch({ type: "start", step: "Translating captions..." });
+		try {
+			await translateCaptions();
+			dispatch({ type: "succeed", warnings: [] });
+		} catch (error) {
+			console.error("Subtitle translation failed:", error);
+			dispatch({
+				type: "fail",
+				error:
+					error instanceof Error
+						? error.message
+						: "An unexpected error occurred",
+			});
+		}
+	};
+
+	const handleGenerateBilingualSubtitles = async () => {
+		dispatch({
+			type: "start",
+			step: getCaptionProviderStartStep({ provider: selectedProvider }),
+		});
+		try {
+			const transcriptResult = await editor.mcp.execute({
+				toolName: "subtitles_generate_from_video",
+				params: {
+					source: "timeline",
+					provider: selectedProvider,
+					language: selectedLanguage,
+					style: "clean",
+					placement: "bottom",
+					revealMode: "line",
+					lineBreakMode: "wrap",
+				},
+				onProgress: (event) => {
+					if (event.status === "running") {
+						dispatch({ type: "update_step", step: event.label });
+					}
+				},
+			});
+			if (transcriptResult.status === "error") {
+				dispatch({
+					type: "fail",
+					error:
+						transcriptResult.error ?? "Subtitle generation failed",
+				});
+				return;
+			}
+
+			dispatch({ type: "update_step", step: "Translating captions..." });
+			const data = readToolData({ result: transcriptResult });
+			await translateCaptions({
+				trackId:
+					typeof data?.trackId === "string" ? data.trackId : undefined,
+				elementId:
+					typeof data?.elementId === "string" ? data.elementId : undefined,
+			});
+
+			dispatch({ type: "succeed", warnings: [] });
+		} catch (error) {
+			console.error("Bilingual subtitle generation failed:", error);
 			dispatch({
 				type: "fail",
 				error:
@@ -241,6 +354,14 @@ export function Captions() {
 	const handleProviderChange = ({ value }: { value: string }) => {
 		if (!isCaptionTranscriptionProvider(value)) return;
 		setSelectedProvider(value);
+	};
+
+	const handleTargetLanguageChange = ({ value }: { value: string }) => {
+		const matchedLanguage = TRANSCRIPTION_LANGUAGES.find(
+			(language) => language.code === value,
+		);
+		if (!matchedLanguage) return;
+		setSelectedTargetLanguage(matchedLanguage.code);
 	};
 
 	const error = processing.status === "idle" ? processing.error : null;
@@ -333,17 +454,61 @@ export function Captions() {
 								</SelectContent>
 							</Select>
 						</SectionField>
+						<SectionField label="Translate To">
+							<Select
+								value={selectedTargetLanguage}
+								onValueChange={(value) =>
+									handleTargetLanguageChange({ value })
+								}
+							>
+								<SelectTrigger>
+									<SelectValue placeholder="Select a language" />
+								</SelectTrigger>
+								<SelectContent>
+									{TRANSCRIPTION_LANGUAGES.map((language) => (
+										<SelectItem key={language.code} value={language.code}>
+											{language.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</SectionField>
 					</SectionFields>
 
-					<Button
-						type="button"
-						className="mt-auto w-full"
-						onClick={handleGenerateTranscript}
-						disabled={isProcessing || activeDiagnostics.length > 0}
-					>
-						{isProcessing && <Spinner className="mr-1" />}
-						{isProcessing ? processing.step : "Generate transcript"}
-					</Button>
+					<div className="mt-auto space-y-2">
+						{isProcessing && (
+							<div className="text-muted-foreground flex items-center gap-2 text-xs">
+								<Spinner />
+								<span>{processing.step}</span>
+							</div>
+						)}
+						<Button
+							type="button"
+							className="w-full"
+							onClick={handleGenerateTranscript}
+							disabled={isProcessing || activeDiagnostics.length > 0}
+						>
+							Generate transcript
+						</Button>
+						<div className="grid grid-cols-2 gap-2">
+							<Button
+								type="button"
+								variant="outline"
+								onClick={handleTranslateCurrentCaptions}
+								disabled={isProcessing}
+							>
+								Translate captions
+							</Button>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={handleGenerateBilingualSubtitles}
+								disabled={isProcessing || activeDiagnostics.length > 0}
+							>
+								Generate bilingual
+							</Button>
+						</div>
+					</div>
 					{error && (
 						<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
 							<p className="text-destructive text-sm">{error}</p>

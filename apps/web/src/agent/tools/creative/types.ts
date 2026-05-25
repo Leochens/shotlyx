@@ -1,6 +1,9 @@
 export type CreativeAssetType = "video" | "image";
 
-export type CreativeAssetProvider = "mock" | "openai-compatible";
+export type CreativeAssetProvider =
+	| "mock"
+	| "openai-compatible"
+	| "volcengine-seedance";
 
 export interface CreativeAssetLicense {
 	label: string;

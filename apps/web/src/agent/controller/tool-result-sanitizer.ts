@@ -50,6 +50,26 @@ function compactGeneratedImageForModel(
 	};
 }
 
+function compactGeneratedVideoForModel(
+	video: unknown,
+): Record<string, unknown> {
+	if (!isRecord(video)) return {};
+
+	return {
+		id: video.id,
+		title: video.title,
+		name: video.name,
+		sizeBytes: video.sizeBytes,
+		width: video.width,
+		height: video.height,
+		duration: video.duration,
+		mediaAssetId: video.mediaAssetId,
+		model: video.model,
+		taskId: video.taskId,
+		imported: video.imported,
+	};
+}
+
 function compactStockCandidateForModel(
 	candidate: unknown,
 ): Record<string, unknown> {
@@ -178,7 +198,10 @@ export function sanitizeToolResultForModel({
 		};
 	}
 
-	if (toolName !== "creative_generate_image") {
+	if (
+		toolName !== "creative_generate_image" &&
+		toolName !== "creative_generate_seedance_video"
+	) {
 		if (toolName === "stock_search_media") {
 			const data = isRecord(result.data) ? result.data : {};
 			const candidates = Array.isArray(data.candidates) ? data.candidates : [];
@@ -246,6 +269,17 @@ export function sanitizeToolResultForModel({
 	}
 
 	const data = isRecord(result.data) ? result.data : {};
+	if (toolName === "creative_generate_seedance_video") {
+		const videos = Array.isArray(data.videos) ? data.videos : [];
+		return {
+			status,
+			verified: result.verified,
+			data: {
+				videos: videos.map((video) => compactGeneratedVideoForModel(video)),
+			},
+		};
+	}
+
 	const images = Array.isArray(data.images) ? data.images : [];
 
 	return {

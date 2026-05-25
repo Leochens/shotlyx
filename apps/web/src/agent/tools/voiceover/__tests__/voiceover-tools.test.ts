@@ -32,9 +32,9 @@ function getVoiceoverTool() {
 		},
 		metadata: { model: "mock-voice-v1" },
 	}));
-	const [tool] = buildVoiceoverTools({
+	const tool = buildVoiceoverTools({
 		deps: { generateVoiceoverAudio },
-	});
+	}).find((item) => item.name === "agent_generate_voiceover");
 	if (!tool) throw new Error("Expected voiceover tool");
 	return { tool, generateVoiceoverAudio };
 }
@@ -121,9 +121,9 @@ describe("voiceover tools", () => {
 				mimeType: "audio/mpeg",
 			},
 		}));
-		const [tool] = buildVoiceoverTools({
+		const tool = buildVoiceoverTools({
 			deps: { generateVoiceoverAudio },
-		});
+		}).find((item) => item.name === "agent_generate_voiceover");
 
 		const result = await tool?.handler({ text: "Hello" });
 
@@ -160,11 +160,96 @@ describe("voiceover tools", () => {
 	});
 
 	test("requires injected provider implementation", async () => {
-		const [tool] = buildVoiceoverTools();
+		const tool = buildVoiceoverTools().find(
+			(item) => item.name === "agent_generate_voiceover",
+		);
 
 		await expect(tool?.handler({ text: "Hello" })).rejects.toThrow(
 			"请注入 generateVoiceoverAudio",
 		);
+	});
+
+	test("lists available voices through injected voice catalog", async () => {
+		const listVoices = mock(async () => ({
+			defaultVoiceId: "volcengine:xiaohe",
+			providerConfigured: true,
+			voices: [
+				{
+					id: "volcengine:xiaohe",
+					name: "Xiaohe",
+					provider: "volcengine" as const,
+					kind: "preset" as const,
+					speaker: "zh_female_xiaohe_uranus_bigtts",
+					resourceId: "seed-tts-2.0",
+					status: "available" as const,
+				},
+			],
+		}));
+		const tool = buildVoiceoverTools({
+			deps: {
+				listVoices,
+				generateVoiceoverAudio: mock(async () => ({})),
+			},
+		}).find((item) => item.name === "voiceover_list_voices");
+
+		const result = await tool?.handler({});
+
+		expect(listVoices).toHaveBeenCalled();
+		expect(result).toMatchObject({
+			defaultVoiceId: "volcengine:xiaohe",
+			providerConfigured: true,
+			voices: [
+				{
+					speaker: "zh_female_xiaohe_uranus_bigtts",
+					resourceId: "seed-tts-2.0",
+				},
+			],
+		});
+	});
+
+	test("resolves voiceId to Volcengine speaker and resource id", async () => {
+		const generateVoiceoverAudio = mock(async () => ({
+			asset: {
+				id: "audio_1",
+				name: "Narration.mp3",
+				url: "blob:narration",
+				mimeType: "audio/mpeg",
+			},
+		}));
+		const tool = buildVoiceoverTools({
+			deps: {
+				generateVoiceoverAudio,
+				listVoices: async () => ({
+					voices: [
+						{
+							id: "volcengine:cloned:mine",
+							name: "Mine",
+							provider: "volcengine",
+							kind: "cloned",
+							speaker: "S_mine",
+							resourceId: "seed-icl-2.0",
+							status: "available",
+						},
+					],
+				}),
+			},
+		}).find((item) => item.name === "agent_generate_voiceover");
+
+		await tool?.handler({
+			text: "Hello",
+			voiceId: "volcengine:cloned:mine",
+			provider: "volcengine",
+		});
+
+		const calls = generateVoiceoverAudio.mock.calls as unknown as Array<
+			[GenerateVoiceoverAudioInput]
+		>;
+		expect(calls[0]?.[0]).toMatchObject({
+			voice: "S_mine",
+			voiceId: "volcengine:cloned:mine",
+			resourceId: "seed-icl-2.0",
+			provider: "volcengine",
+		});
 	});
 
 	test("client voiceover deps emit provider and import progress stages", async () => {

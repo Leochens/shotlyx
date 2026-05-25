@@ -137,16 +137,18 @@ export function getToolOutputDisplay(
 	if (status === "success") {
 		return {
 			tone: "success",
-			text:
-				toolCall.tool === "creative_generate_image"
-					? "图片已生成并保存到资源库。"
-					: toolCall.tool === "stock_search_media"
-						? "素材候选已通过资源卡展示。"
-						: toolCall.tool === "rough_cut_create_review"
-							? "粗剪审核单已生成，请在弹窗里确认后再剪辑。"
-							: toolCall.tool === "rough_cut_apply_review"
-								? "已按审核结果完成粗剪。"
-								: stringifyCompact(toolCall.result.data),
+				text:
+					toolCall.tool === "creative_generate_image"
+						? "图片已生成并保存到资源库。"
+						: toolCall.tool === "creative_generate_seedance_video"
+							? "Seedance 视频已生成并保存到资源库。"
+							: toolCall.tool === "stock_search_media"
+								? "素材候选已通过资源卡展示。"
+								: toolCall.tool === "rough_cut_create_review"
+									? "粗剪审核单已生成，请在弹窗里确认后再剪辑。"
+									: toolCall.tool === "rough_cut_apply_review"
+										? "已按审核结果完成粗剪。"
+										: stringifyCompact(toolCall.result.data),
 		};
 	}
 	return {

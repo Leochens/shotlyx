@@ -55,9 +55,17 @@ export interface SubtitleToken {
 	confidence?: number;
 }
 
+export interface SubtitleCueTranslation {
+	text: string;
+	language?: string;
+	provider?: string;
+	updatedAt?: string;
+}
+
 export interface SubtitleLayerCue extends SubtitleCue {
 	id?: string;
 	tokens?: SubtitleToken[];
+	translations?: Record<string, SubtitleCueTranslation>;
 }
 
 export interface ParseSubtitleResult {

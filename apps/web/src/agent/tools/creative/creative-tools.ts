@@ -45,12 +45,16 @@ import type { CreativeAsset } from "./types";
 
 const ORIENTATIONS = ["landscape", "portrait", "square"] as const;
 const ASPECT_RATIOS = ["1:1", "16:9", "9:16"] as const;
+const SEEDANCE_VIDEO_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"] as const;
+const SEEDANCE_VIDEO_DURATIONS = [5, 8, 10, 12] as const;
 const IMAGE_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as const;
 // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 const ZERO_CREATIVE_MEDIA_TIME = 0 as MediaTime;
 
 type Orientation = (typeof ORIENTATIONS)[number];
 type AspectRatio = (typeof ASPECT_RATIOS)[number];
+type SeedanceVideoAspectRatio = (typeof SEEDANCE_VIDEO_ASPECT_RATIOS)[number];
+type SeedanceVideoDuration = (typeof SEEDANCE_VIDEO_DURATIONS)[number];
 type ImageSize = (typeof IMAGE_SIZES)[number];
 
 interface ImportedCreativeAssetResult {
@@ -125,6 +129,16 @@ function isAspectRatio(value: string): value is AspectRatio {
 	return ASPECT_RATIOS.some((item) => item === value);
 }
 
+function isSeedanceVideoAspectRatio(
+	value: string,
+): value is SeedanceVideoAspectRatio {
+	return SEEDANCE_VIDEO_ASPECT_RATIOS.some((item) => item === value);
+}
+
+function isSeedanceVideoDuration(value: number): value is SeedanceVideoDuration {
+	return SEEDANCE_VIDEO_DURATIONS.some((item) => item === value);
+}
+
 function isImageSize(value: string): value is ImageSize {
 	return IMAGE_SIZES.some((item) => item === value);
 }
@@ -168,6 +182,43 @@ function optionalAspectRatioParam(
 		);
 	}
 	return value;
+}
+
+function optionalSeedanceVideoAspectRatioParam(
+	params: Record<string, unknown>,
+): SeedanceVideoAspectRatio | undefined {
+	const value = optionalStringParam(params, "aspectRatio");
+	if (value === undefined) return undefined;
+	if (!isSeedanceVideoAspectRatio(value)) {
+		throw new Error(
+			`类型不匹配："aspectRatio" 必须为以下之一：${SEEDANCE_VIDEO_ASPECT_RATIOS.join(", ")}`,
+		);
+	}
+	return value;
+}
+
+function optionalSeedanceVideoDurationParam(
+	params: Record<string, unknown>,
+): SeedanceVideoDuration | undefined {
+	const value = optionalNumberParam(params, "durationSeconds");
+	if (value === undefined) return undefined;
+	if (!isSeedanceVideoDuration(value)) {
+		throw new Error(
+			`类型不匹配："durationSeconds" 必须为以下之一：${SEEDANCE_VIDEO_DURATIONS.join(", ")}`,
+		);
+	}
+	return value;
+}
+
+function optionalNonEmptyStringParam({
+	params,
+	key,
+}: {
+	params: Record<string, unknown>;
+	key: string;
+}): string | undefined {
+	const value = optionalStringParam(params, key)?.trim();
+	return value ? value : undefined;
 }
 
 function optionalImageSizeParam(
@@ -248,6 +299,14 @@ function buildGeneratedImageTitle({
 	const title =
 		normalized.length > 48 ? normalized.slice(0, 48).trim() : normalized;
 	return index === 0 ? title : `${title} ${index + 1}`;
+}
+
+function buildGeneratedVideoTitle({ prompt }: { prompt: string }): string {
+	const normalized = prompt.trim().replace(/\s+/g, " ");
+	if (!normalized) return "Seedance video";
+	const title =
+		normalized.length > 48 ? normalized.slice(0, 48).trim() : normalized;
+	return `${title} · Seedance`;
 }
 
 function buildCompositionName({ prompt }: { prompt: string }): string {
@@ -942,6 +1001,163 @@ async function readRouteError(response: Response): Promise<string> {
 	}
 
 	return "provider_error";
+}
+
+async function fileToDataUrl(file: File): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => {
+			if (typeof reader.result === "string") {
+				resolve(reader.result);
+				return;
+			}
+			reject(new Error("媒体处理失败：无法读取参考图"));
+		};
+		reader.onerror = () => reject(new Error("媒体处理失败：无法读取参考图"));
+		reader.readAsDataURL(file);
+	});
+}
+
+async function referenceImageUrlFromMediaAsset({
+	editor,
+	mediaAssetId,
+}: {
+	editor: EditorCore;
+	mediaAssetId?: string;
+}): Promise<string | undefined> {
+	if (!mediaAssetId) return undefined;
+	const asset = editor.media.getAssets().find((item) => item.id === mediaAssetId);
+	if (!asset) {
+		throw new Error(`资源不存在：找不到参考图 "${mediaAssetId}"`);
+	}
+	if (asset.type !== "image") {
+		throw new Error("类型不匹配：Seedance 参考素材必须是图片资源");
+	}
+	return fileToDataUrl(asset.file);
+}
+
+async function parseSeedanceCreateResponse(response: Response): Promise<{
+	id: string;
+	model: string;
+	prompt: string;
+	aspectRatio?: string;
+	durationSeconds?: number;
+}> {
+	try {
+		const payload: unknown = await response.json();
+		if (
+			typeof payload !== "object" ||
+			payload === null ||
+			!("id" in payload) ||
+			!("model" in payload) ||
+			!("prompt" in payload) ||
+			typeof payload.id !== "string" ||
+			typeof payload.model !== "string" ||
+			typeof payload.prompt !== "string"
+		) {
+			throw new Error("provider_error: invalid Seedance create response");
+		}
+		return {
+			id: payload.id,
+			model: payload.model,
+			prompt: payload.prompt,
+			aspectRatio:
+				"aspectRatio" in payload && typeof payload.aspectRatio === "string"
+					? payload.aspectRatio
+					: undefined,
+			durationSeconds:
+				"durationSeconds" in payload &&
+				typeof payload.durationSeconds === "number"
+					? payload.durationSeconds
+					: undefined,
+		};
+	} catch {
+		throw new Error("provider_error: invalid Seedance create response");
+	}
+}
+
+async function parseSeedanceTaskResponse(response: Response): Promise<{
+	id: string;
+	model?: string;
+	status: string;
+	videoUrl?: string;
+	lastFrameUrl?: string;
+	error?: string;
+	aspectRatio?: string;
+	durationSeconds?: number;
+}> {
+	try {
+		const payload: unknown = await response.json();
+		if (
+			typeof payload !== "object" ||
+			payload === null ||
+			!("id" in payload) ||
+			!("status" in payload) ||
+			typeof payload.id !== "string" ||
+			typeof payload.status !== "string"
+		) {
+			throw new Error("provider_error: invalid Seedance task response");
+		}
+		return {
+			id: payload.id,
+			status: payload.status,
+			model:
+				"model" in payload && typeof payload.model === "string"
+					? payload.model
+					: undefined,
+			videoUrl:
+				"videoUrl" in payload && typeof payload.videoUrl === "string"
+					? payload.videoUrl
+					: undefined,
+			lastFrameUrl:
+				"lastFrameUrl" in payload && typeof payload.lastFrameUrl === "string"
+					? payload.lastFrameUrl
+					: undefined,
+			error:
+				"error" in payload && typeof payload.error === "string"
+					? payload.error
+					: undefined,
+			aspectRatio:
+				"aspectRatio" in payload && typeof payload.aspectRatio === "string"
+					? payload.aspectRatio
+					: undefined,
+			durationSeconds:
+				"durationSeconds" in payload &&
+				typeof payload.durationSeconds === "number"
+					? payload.durationSeconds
+					: undefined,
+		};
+	} catch {
+		throw new Error("provider_error: invalid Seedance task response");
+	}
+}
+
+function waitForSeedancePoll({
+	ms,
+	signal,
+}: {
+	ms: number;
+	signal?: AbortSignal;
+}): Promise<void> {
+	return new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			reject(new Error("工具调用已停止"));
+			return;
+		}
+		const timeout = globalThis.setTimeout(resolve, ms);
+		signal?.addEventListener(
+			"abort",
+			() => {
+				globalThis.clearTimeout(timeout);
+				reject(new Error("工具调用已停止"));
+			},
+			{ once: true },
+		);
+	});
+}
+
+function proxiedSeedanceDownloadUrl(videoUrl: string): string {
+	return `/api/agent/creative/video/seedance/download?url=${encodeURIComponent(videoUrl)}`;
 }
 
 function isShotlyxRemotionComponentDocument(
@@ -1676,6 +1892,215 @@ export function buildCreativeTools({
 				}
 
 				return { images };
+			},
+		},
+		{
+			name: "creative_generate_seedance_video",
+			description:
+				"调用服务端 Volcengine Ark Seedance 视频生成 API 生成视频，轮询完成后自动保存到 Shotlyx 媒体资源库",
+			parameters: {
+				prompt: {
+					type: "string",
+					description: "视频生成 prompt，描述画面、动作、镜头、风格和声音需求",
+				},
+				aspectRatio: {
+					type: "string",
+					description: "视频比例：16:9、9:16、1:1、4:3、3:4，默认 16:9",
+					optional: true,
+				},
+				durationSeconds: {
+					type: "number",
+					description: "视频时长秒数：5、8、10、12，默认 5",
+					optional: true,
+				},
+				referenceMediaAssetId: {
+					type: "string",
+					description:
+						"可选参考图媒体资源 ID。用户附加参考图或明确说使用某张图片时传入图片素材 ID",
+					optional: true,
+				},
+				referenceImageUrl: {
+					type: "string",
+					description:
+						"可选参考图 URL。仅当用户明确提供外部图片 URL 时使用；项目内图片优先用 referenceMediaAssetId",
+					optional: true,
+				},
+			},
+			// eslint-disable-next-line shotlyx/prefer-object-params
+			handler: async (params, context) => {
+				const prompt = requireStringParam(params, "prompt");
+				const aspectRatio =
+					optionalSeedanceVideoAspectRatioParam(params) ?? "16:9";
+				const durationSeconds =
+					optionalSeedanceVideoDurationParam(params) ?? 5;
+				const referenceMediaAssetId = optionalNonEmptyStringParam({
+					params,
+					key: "referenceMediaAssetId",
+				});
+				const explicitReferenceImageUrl = optionalNonEmptyStringParam({
+					params,
+					key: "referenceImageUrl",
+				});
+				const referenceImageUrl =
+					explicitReferenceImageUrl ??
+					(await referenceImageUrlFromMediaAsset({
+						editor,
+						mediaAssetId: referenceMediaAssetId,
+					}));
+
+				emitToolProgress({
+					context,
+					stage: "seedance-submit",
+					label: "正在提交 Seedance 视频生成任务",
+					status: "running",
+					detail: `${aspectRatio} · ${durationSeconds}s`,
+				});
+
+				let response: Response;
+				try {
+					response = await creativeDeps.fetchFn(
+						"/api/agent/creative/video/seedance",
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+							},
+							body: JSON.stringify({
+								prompt,
+								aspectRatio,
+								durationSeconds,
+								referenceImageUrl,
+							}),
+							signal: context?.signal,
+						},
+					);
+				} catch (error) {
+					throw new Error(
+						`provider_error: Seedance request failed${
+							error instanceof Error ? `: ${error.message}` : ""
+						}`,
+					);
+				}
+
+				if (!response.ok) {
+					throw new Error(await readRouteError(response));
+				}
+
+				const task = await parseSeedanceCreateResponse(response);
+				emitToolProgress({
+					context,
+					stage: "seedance-submit",
+					label: "Seedance 任务已创建",
+					status: "success",
+					detail: task.id,
+				});
+
+				const startedAt = Date.now();
+				const timeoutMs = 10 * 60 * 1000;
+				let currentTask: Awaited<ReturnType<typeof parseSeedanceTaskResponse>> = {
+					id: task.id,
+					status: "queued",
+				};
+				while (Date.now() - startedAt < timeoutMs) {
+					emitToolProgress({
+						context,
+						stage: "seedance-poll",
+						label: "正在等待 Seedance 生成视频",
+						status: "running",
+						detail: currentTask.status,
+					});
+					await waitForSeedancePoll({ ms: 5_000, signal: context?.signal });
+
+					const pollResponse = await creativeDeps.fetchFn(
+						`/api/agent/creative/video/seedance/${encodeURIComponent(task.id)}`,
+						{ signal: context?.signal },
+					);
+					if (!pollResponse.ok) {
+						throw new Error(await readRouteError(pollResponse));
+					}
+					currentTask = await parseSeedanceTaskResponse(pollResponse);
+					if (currentTask.status === "succeeded") break;
+					if (
+						currentTask.status === "failed" ||
+						currentTask.status === "cancelled"
+					) {
+						throw new Error(
+							currentTask.error ??
+								`provider_error: Seedance task ${currentTask.status}`,
+						);
+					}
+				}
+
+				if (currentTask.status !== "succeeded") {
+					throw new Error("provider_error: Seedance task timed out");
+				}
+				if (!currentTask.videoUrl) {
+					throw new Error("provider_error: Seedance task missing video URL");
+				}
+
+				emitToolProgress({
+					context,
+					stage: "seedance-import",
+					label: "Seedance 视频已生成，正在导入资源库",
+					status: "running",
+					detail: currentTask.videoUrl,
+				});
+
+				const title = buildGeneratedVideoTitle({ prompt });
+				const asset = registerCreativeAsset({
+					type: "video",
+					provider: "volcengine-seedance",
+					title,
+					url: currentTask.videoUrl,
+					downloadUrl: proxiedSeedanceDownloadUrl(currentTask.videoUrl),
+					previewUrl: currentTask.videoUrl,
+					thumbnailUrl: currentTask.lastFrameUrl,
+					prompt,
+					model: task.model,
+					duration: currentTask.durationSeconds ?? durationSeconds,
+				});
+				const imported = await importCreativeAsset({
+					editor,
+					asset,
+					deps: creativeDeps,
+				});
+				asset.mediaAssetId = imported.mediaAssetId;
+				asset.name = imported.name;
+				asset.sizeBytes = imported.sizeBytes;
+				asset.width = imported.width;
+				asset.height = imported.height;
+				asset.previewUrl = imported.previewUrl ?? asset.previewUrl;
+				asset.thumbnailUrl = imported.thumbnailUrl ?? asset.thumbnailUrl;
+
+				emitToolProgress({
+					context,
+					stage: "seedance-import",
+					label: "Seedance 视频已保存到资源库",
+					status: "success",
+					detail: imported.name,
+				});
+
+				return {
+					videos: [
+						{
+							id: asset.id,
+							type: asset.type,
+							provider: asset.provider,
+							title: asset.title,
+							name: asset.name,
+							sizeBytes: asset.sizeBytes,
+							width: asset.width,
+							height: asset.height,
+							duration: asset.duration,
+							mediaAssetId: asset.mediaAssetId,
+							previewUrl: asset.previewUrl,
+							thumbnailUrl: asset.thumbnailUrl,
+							model: asset.model,
+							taskId: task.id,
+							imported: true,
+						},
+					],
+				};
 			},
 		},
 		{
