@@ -65,8 +65,14 @@ Please include:
 
 By contributing, you agree that your contribution can be distributed under this repository's AGPL-3.0-only license.
 
+Substantial external contributions may require acceptance of the [Shotlyx Contributor License Agreement](CLA.md) before merge. The CLA allows GuanTou Lab to keep offering Shotlyx as an AGPL community project while also offering commercial or proprietary licensing for code and assets it has sufficient rights to license.
+
 ## Commercial Use
 
-The public code is available under AGPL-3.0-only. For commercial licensing, private integrations, or partnership discussions, use the GuanTou Lab Personal Page:
+The public code is available under AGPL-3.0-only. You may use Shotlyx commercially as long as you comply with the AGPL-3.0-only license terms.
+
+If you want to use Shotlyx under a proprietary license, include it in a closed-source product, receive private integration support, or discuss enterprise/private deployment, use the GuanTou Lab Personal Page:
 
 https://world.guantou.site/
+
+Commercial/proprietary licensing is available only for code and assets for which GuanTou Lab has sufficient licensing rights.

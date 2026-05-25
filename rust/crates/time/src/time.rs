@@ -1,3 +1,10 @@
+// SPDX-FileCopyrightText: 2025-2026 OpenCut
+// SPDX-FileCopyrightText: 2026 GuanTou Lab and Shotlyx contributors
+// SPDX-License-Identifier: AGPL-3.0-only
+//
+// Portions of this file are derived from OpenCut, originally licensed under the MIT License.
+// See licenses/OpenCut-MIT.txt for the original license notice.
+
 mod frame_rate;
 mod media_time;
 mod timecode;

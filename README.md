@@ -193,15 +193,21 @@ Several Agent routes use Node runtime behavior, streaming, provider SDKs, and fi
 
 ## License
 
-Shotlyx is licensed under [AGPL-3.0-only](LICENSE). This is a strong copyleft license designed for network/server software: if you run a modified public network version, the license requires you to make the corresponding source available under the same terms.
+Shotlyx Community Edition is licensed under [AGPL-3.0-only](LICENSE). You may use it commercially as long as you comply with the AGPL-3.0-only license terms.
 
-For commercial licensing or partnership discussions, start from the [GuanTou Lab Personal Page](https://world.guantou.site/).
+AGPL-3.0-only is a strong copyleft license designed for network/server software: if you run a modified public network version, the license requires you to make the corresponding source available under the same terms.
+
+If you want to use Shotlyx under a proprietary license, include it in a closed-source product, receive private integration support, or discuss enterprise/private deployment, start from the [GuanTou Lab Personal Page](https://world.guantou.site/).
+
+Commercial/proprietary licensing is available only for code and assets for which GuanTou Lab has sufficient licensing rights. See [NOTICE.md](NOTICE.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [COPYRIGHT.md](COPYRIGHT.md), [TRADEMARK.md](TRADEMARK.md), and [CLA.md](CLA.md).
 
 This is practical project guidance, not legal advice.
 
 ## Acknowledgements
 
 Shotlyx's base editor originates from OpenCut. The later Agent operation layer and Shotlyx-specific AI editing workflows are original work developed in this project.
+
+OpenCut is licensed under the MIT License, and its license notice is preserved in [licenses/OpenCut-MIT.txt](licenses/OpenCut-MIT.txt).
 
 Some related technical naming still exists, such as `opencut-wasm` and `opencut-graphic-v1`. Public documentation should preserve appropriate upstream attribution and notices while presenting Shotlyx as its own product.
 

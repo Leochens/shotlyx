@@ -1,6 +1,6 @@
 ## Summary
 
-- 
+-
 
 ## Type
 
@@ -37,4 +37,5 @@ Add screenshots or recordings for UI changes when useful.
 - [ ] No secrets, private media, local env files, or generated reports are committed.
 - [ ] New environment variables are documented in `.env.example`.
 - [ ] Public docs are updated when behavior changes.
+- [ ] I have read `CLA.md` and understand that substantial external contributions may require CLA acceptance before merge.
 - [ ] I have described known limitations.

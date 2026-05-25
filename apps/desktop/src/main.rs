@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 GuanTou Lab and Shotlyx contributors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use gpui::{
     div, prelude::*, px, rgb, size, App, Application, Bounds, Context, SharedString, Window,
     WindowBounds, WindowOptions,

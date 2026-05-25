@@ -1,3 +1,12 @@
+/*
+ * SPDX-FileCopyrightText: 2025-2026 OpenCut
+ * SPDX-FileCopyrightText: 2026 GuanTou Lab and Shotlyx contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ *
+ * Portions of this file are derived from OpenCut, originally licensed under the MIT License.
+ * See licenses/OpenCut-MIT.txt for the original license notice.
+ */
+
 import { PlaybackManager } from "./managers/playback-manager";
 import { TimelineManager } from "./managers/timeline-manager";
 import { ScenesManager } from "./managers/scenes-manager";
@@ -61,13 +70,11 @@ export class EditorCore {
 				...tracks,
 				overlay: tracks.overlay.filter(
 					(track) =>
-						track.elements.length > 0 ||
-						this.timeline.isRecentTrack(track.id),
+						track.elements.length > 0 || this.timeline.isRecentTrack(track.id),
 				),
 				audio: tracks.audio.filter(
 					(track) =>
-						track.elements.length > 0 ||
-						this.timeline.isRecentTrack(track.id),
+						track.elements.length > 0 || this.timeline.isRecentTrack(track.id),
 				),
 			};
 			if (

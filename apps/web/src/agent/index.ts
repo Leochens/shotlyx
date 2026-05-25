@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2026 GuanTou Lab and Shotlyx contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 export { MCPServer } from "./mcp/server";
 export type { Tool, ToolResult, ToolCall, ToolParameter } from "./mcp/types";
 export { toolToFunctionSchema, toolsToFunctionSchemas } from "./mcp/schema";

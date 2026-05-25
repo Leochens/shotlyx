@@ -193,15 +193,21 @@ bun run deploy
 
 ## 许可证
 
-Shotlyx 使用 [AGPL-3.0-only](LICENSE) 授权。这是面向网络/服务端软件的强 copyleft 许可证：如果你运行公开的修改版网络服务，许可证要求你以同样条款开放对应源码。
+Shotlyx Community Edition 使用 [AGPL-3.0-only](LICENSE) 授权。你可以将它用于商业用途，只要遵守 AGPL-3.0-only 的许可证条款。
 
-商业授权、私有集成或合作可从 [GuanTou Lab Personal Page](https://world.guantou.site/) 开始联系。
+AGPL-3.0-only 是面向网络/服务端软件的强 copyleft 许可证：如果你运行公开的修改版网络服务，许可证要求你以同样条款开放对应源码。
+
+如果你希望在 proprietary license 下使用 Shotlyx，把它纳入闭源产品，获得私有集成支持，或讨论企业/私有化部署，可以从 [GuanTou Lab Personal Page](https://world.guantou.site/) 开始联系。
+
+商业/专有授权只适用于 GuanTou Lab 具备足够授权权利的代码和资产。更多边界见 [NOTICE.md](NOTICE.md)、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、[COPYRIGHT.md](COPYRIGHT.md)、[TRADEMARK.md](TRADEMARK.md) 和 [CLA.md](CLA.md)。
 
 这只是项目工程说明，不构成法律意见。
 
 ## 致谢
 
 Shotlyx 的基础编辑器来源于 OpenCut。后续 Agent 操作层以及 Shotlyx 专属 AI 剪辑工作流，是本项目原创开发。
+
+OpenCut 使用 MIT License 授权，其许可证 notice 已保留在 [licenses/OpenCut-MIT.txt](licenses/OpenCut-MIT.txt)。
 
 仓库里仍保留了一些相关技术命名，例如 `opencut-wasm` 和 `opencut-graphic-v1`。公开文档应在呈现 Shotlyx 独立产品身份的同时，保留必要的上游来源说明和 notice。
 

@@ -19,7 +19,7 @@ export function GitHubContributeSection({
 			</div>
 			<div className="flex flex-col justify-center gap-4 sm:flex-row">
 				<Link
-					href={`${SOCIAL_LINKS.github}/blob/main/.github/CONTRIBUTING.md`}
+					href={`${SOCIAL_LINKS.github}/blob/main/CONTRIBUTING.md`}
 					target="_blank"
 					rel="noopener noreferrer"
 				>

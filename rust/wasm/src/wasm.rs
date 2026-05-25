@@ -1,3 +1,10 @@
+// SPDX-FileCopyrightText: 2025-2026 OpenCut
+// SPDX-FileCopyrightText: 2026 GuanTou Lab and Shotlyx contributors
+// SPDX-License-Identifier: AGPL-3.0-only
+//
+// Portions of this file are derived from OpenCut, originally licensed under the MIT License.
+// See licenses/OpenCut-MIT.txt for the original license notice.
+
 #[cfg(target_arch = "wasm32")]
 mod audio_analysis;
 #[cfg(target_arch = "wasm32")]
