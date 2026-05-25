@@ -36,6 +36,8 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain("Use timeline_insert_text");
 		expect(prompt).toContain("Use timeline_insert_text_overlay");
 		expect(prompt).toContain("Use subtitles_import");
+		expect(prompt).toContain('Pass revealMode "karaoke"');
+		expect(prompt).toContain("Use rough_cut_create_review");
 		expect(prompt).toContain("subtitles_update_style");
 		expect(prompt).toContain("Use agent_generate_voiceover");
 		expect(prompt).toContain("自动配音");

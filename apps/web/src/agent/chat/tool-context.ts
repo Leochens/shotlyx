@@ -1,7 +1,10 @@
 import { sanitizeToolResultForModel } from "@/agent/controller/tool-result-sanitizer";
 import type { ToolCallRecord } from "@/agent/controller/types";
 
-const CONTEXT_TOOL_NAMES = new Set(["silence_analyze_timeline"]);
+const CONTEXT_TOOL_NAMES = new Set([
+	"silence_analyze_timeline",
+	"rough_cut_create_review",
+]);
 const MAX_CONTEXT_TOOL_CALLS = 4;
 
 export function buildToolResultContext({

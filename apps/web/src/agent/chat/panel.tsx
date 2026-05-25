@@ -42,6 +42,11 @@ import {
 import { formatToolCallForCopy } from "./tool-result-copy";
 import { buildToolResultContext } from "./tool-context";
 import { useAppLocale } from "@/i18n/use-app-locale";
+import {
+	isRoughCutReviewResult,
+	RoughCutReviewDialog,
+} from "./rough-cut-review-dialog";
+import type { RoughCutReviewResult } from "@/agent/mcp/rough-cut-tools";
 
 function formatElapsed(ms: number): string {
 	const totalSec = ms / 1000;
@@ -86,6 +91,11 @@ const STARTER_PROMPT_STYLES: Array<{
 		icon: Scissors,
 		iconClassName:
 			"border-cyan-700/20 bg-cyan-500/10 text-cyan-700 dark:border-cyan-300/20 dark:bg-cyan-300/10 dark:text-cyan-200",
+	},
+	{
+		icon: Trash2,
+		iconClassName:
+			"border-red-700/20 bg-red-500/10 text-red-700 dark:border-red-300/20 dark:bg-red-300/10 dark:text-red-200",
 	},
 	{
 		icon: Captions,
@@ -317,6 +327,9 @@ export function ChatPanel() {
 	);
 	const [startTime, setStartTime] = useState<number | null>(null);
 	const [elapsedMs, setElapsedMs] = useState(0);
+	const [roughCutReview, setRoughCutReview] =
+		useState<RoughCutReviewResult | null>(null);
+	const [roughCutReviewOpen, setRoughCutReviewOpen] = useState(false);
 	const { draftReferences, clearDraftReferences } = useAgentContextStore();
 
 	useEffect(() => {
@@ -625,6 +638,14 @@ export function ChatPanel() {
 					toolName: tool,
 					result: toolResult,
 				});
+				if (
+					tool === "rough_cut_create_review" &&
+					toolResult.status === "success" &&
+					isRoughCutReviewResult(toolResult.data)
+				) {
+					setRoughCutReview(toolResult.data);
+					setRoughCutReviewOpen(true);
+				}
 				const updatedMsgs = getActiveMessages();
 				const updatedMsg = updatedMsgs.find((m) => m.id === mid);
 				const currentToolCalls = (updatedMsg?.toolCalls ?? []).map((tc) => {
@@ -1420,6 +1441,12 @@ export function ChatPanel() {
 					onStop={handleStop}
 					onModeChange={setMode}
 					onAgentChange={setSelectedAgent}
+				/>
+				<RoughCutReviewDialog
+					key={roughCutReview?.reviewId ?? "rough-cut-empty"}
+					review={roughCutReview}
+					open={roughCutReviewOpen}
+					onOpenChange={setRoughCutReviewOpen}
 				/>
 			</div>
 		</div>

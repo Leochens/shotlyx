@@ -141,6 +141,23 @@ function compactSilenceAnalysisForModel(data: unknown): Record<string, unknown> 
 	};
 }
 
+function compactRoughCutReviewForModel(data: unknown): Record<string, unknown> {
+	if (!isRecord(data)) return {};
+	return {
+		reviewId: data.reviewId,
+		openReview: data.openReview,
+		subtitleTrackId: data.subtitleTrackId,
+		subtitleElementId: data.subtitleElementId,
+		tokenCount: data.tokenCount,
+		selectedTokenCount: data.selectedTokenCount,
+		candidateCount: data.candidateCount,
+		estimatedRemovedSeconds: data.estimatedRemovedSeconds,
+		message: data.message,
+		instruction:
+			"The interactive rough-cut review dialog is shown in the UI. Do not call rough_cut_apply_review until the user confirms in that dialog.",
+	};
+}
+
 export function sanitizeToolResultForModel({
 	toolName,
 	result,
@@ -215,6 +232,14 @@ export function sanitizeToolResultForModel({
 				status,
 				verified: result.verified,
 				data: compactSilenceAnalysisForModel(data),
+			};
+		}
+		if (toolName === "rough_cut_create_review") {
+			const data = isRecord(result.data) ? result.data : {};
+			return {
+				status,
+				verified: result.verified,
+				data: compactRoughCutReviewForModel(data),
 			};
 		}
 		return compactValueForModel(result);

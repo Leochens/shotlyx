@@ -71,6 +71,8 @@ const STATUS_CONFIG = {
 	},
 } as const;
 
+const REVIEW_ONLY_TOOLS = new Set(["rough_cut_create_review"]);
+
 function getLatestProgress(toolCall: ToolCallRecord) {
 	const progress = toolCall.progress ?? [];
 	return progress[progress.length - 1];
@@ -140,7 +142,11 @@ export function getToolOutputDisplay(
 					? "图片已生成并保存到资源库。"
 					: toolCall.tool === "stock_search_media"
 						? "素材候选已通过资源卡展示。"
-						: stringifyCompact(toolCall.result.data),
+						: toolCall.tool === "rough_cut_create_review"
+							? "粗剪审核单已生成，请在弹窗里确认后再剪辑。"
+							: toolCall.tool === "rough_cut_apply_review"
+								? "已按审核结果完成粗剪。"
+								: stringifyCompact(toolCall.result.data),
 		};
 	}
 	return {
@@ -293,7 +299,9 @@ export function ToolCallGroup({ toolCalls }: ToolCallGroupProps) {
 
 			{isOpen && (
 				<div className="border-t border-neutral-800 px-2 py-2">
-					{!hasPending && !hasError && <RunReviewStrip />}
+					{!hasPending && !hasError && shouldShowRunReviewStrip(toolCalls) && (
+						<RunReviewStrip />
+					)}
 					<div className="space-y-1">
 						{toolCalls.map((toolCall, index) => (
 							<ToolCallRow
@@ -311,6 +319,10 @@ export function ToolCallGroup({ toolCalls }: ToolCallGroupProps) {
 			)}
 		</div>
 	);
+}
+
+function shouldShowRunReviewStrip(toolCalls: ToolCallRecord[]): boolean {
+	return !toolCalls.some((toolCall) => REVIEW_ONLY_TOOLS.has(toolCall.tool));
 }
 
 function RunReviewStrip() {

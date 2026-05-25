@@ -11,6 +11,7 @@ describe("creative preview helpers", () => {
 		expect(isPreviewSafeCreativeTool("stock_search_media")).toBe(true);
 		expect(isPreviewSafeCreativeTool("creative_generate_image")).toBe(true);
 		expect(isPreviewSafeCreativeTool("silence_analyze_timeline")).toBe(true);
+		expect(isPreviewSafeCreativeTool("rough_cut_create_review")).toBe(true);
 		expect(isPreviewSafeCreativeTool("stock_import_media")).toBe(false);
 		expect(isPreviewSafeCreativeTool("creative_import_asset")).toBe(false);
 		expect(isPreviewSafeCreativeTool("timeline_insert_media")).toBe(false);
@@ -43,6 +44,12 @@ describe("creative preview helpers", () => {
 				risk: "none",
 			},
 			{
+				tool: "rough_cut_create_review",
+				params: {},
+				description: "生成粗剪审核单",
+				risk: "none",
+			},
+			{
 				tool: "creative_import_asset",
 				params: { assetId: "creative_1" },
 				description: "导入资源",
@@ -56,6 +63,7 @@ describe("creative preview helpers", () => {
 			"stock_search_media",
 			"creative_generate_image",
 			"silence_analyze_timeline",
+			"rough_cut_create_review",
 		]);
 		expect(result.remainingSteps.map((step) => step.tool)).toEqual([
 			"creative_import_asset",

@@ -66,6 +66,22 @@ describe("tool call card display helpers", () => {
 		});
 	});
 
+	test("describes rough cut review as a confirmation step", () => {
+		const toolCall: ToolCallRecord = {
+			tool: "rough_cut_create_review",
+			params: {},
+			result: {
+				status: "success",
+				data: { reviewId: "rough-cut-1" },
+			},
+		};
+
+		expect(getToolOutputDisplay(toolCall)).toEqual({
+			tone: "success",
+			text: "粗剪审核单已生成，请在弹窗里确认后再剪辑。",
+		});
+	});
+
 	test("extracts stock media candidates for card rendering", () => {
 		const candidates = getStockMediaCandidates({
 			candidates: [

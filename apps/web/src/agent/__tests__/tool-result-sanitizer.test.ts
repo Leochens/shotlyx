@@ -155,4 +155,30 @@ describe("sanitizeToolResultForModel", () => {
 		expect(serialized).toContain("segmentCount");
 		expect(serialized).not.toContain("\"startSeconds\":29");
 	});
+
+	test("keeps rough cut review id without sending full transcript to the model", () => {
+		const result = sanitizeToolResultForModel({
+			toolName: "rough_cut_create_review",
+			result: {
+				status: "success",
+				data: {
+					reviewId: "rough-cut-1",
+					openReview: true,
+					tokenCount: 120,
+					selectedTokenCount: 8,
+					candidateCount: 4,
+					tokens: Array.from({ length: 120 }, (_, index) => ({
+						id: `token-${index}`,
+						text: "嗯",
+					})),
+				},
+			},
+		});
+
+		const serialized = JSON.stringify(result);
+		expect(serialized).toContain("rough-cut-1");
+		expect(serialized).toContain("rough_cut_apply_review");
+		expect(serialized).toContain("selectedTokenCount");
+		expect(serialized).not.toContain("token-119");
+	});
 });

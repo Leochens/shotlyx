@@ -231,6 +231,12 @@ timeline.patch committed`,
 							"Analyze the current media and timeline, then cut a 30-second short video: the first 3 seconds need a strong hook, the middle should stay fast, and the ending should be clean. Give me the plan before executing.",
 					},
 					{
+						label: "AI rough-cut review",
+						hint: "fillers / repeats / confirm",
+						prompt:
+							"Run an AI rough-cut review for the current timeline: generate timed captions if needed, identify filler words, breath sounds, and repeated redundant phrases, then open the interactive review so I can confirm before any cut is applied.",
+					},
+					{
 						label: "Improve captions",
 						hint: "speech / breaks / readability",
 						prompt:
@@ -525,6 +531,12 @@ timeline.patch 已提交`,
 						hint: "开头 / 节奏 / 收束",
 						prompt:
 							"请分析当前素材和时间线，帮我剪出一个 30 秒短视频：开头 3 秒要有钩子，中间保持快节奏，结尾干净收束。先给计划，再执行。",
+					},
+					{
+						label: "AI 粗剪审核",
+						hint: "口气词 / 重复 / 确认",
+						prompt:
+							"请对当前时间线做 AI 粗剪审核：如果还没有逐字字幕，先生成字幕；然后识别口气词、气声和重复冗余片段，打开交互审核弹窗让我确认后再真正剪辑。",
 					},
 					{
 						label: "优化字幕节奏",

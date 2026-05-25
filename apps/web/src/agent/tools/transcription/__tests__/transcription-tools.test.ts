@@ -27,6 +27,10 @@ describe("transcription tools", () => {
 			model: { type: "string", optional: true },
 			style: { type: "string", optional: true },
 			placement: { type: "string", optional: true },
+			revealMode: { type: "string", optional: true },
+			lineBreakMode: { type: "string", optional: true },
+			maxCharsPerLine: { type: "number", optional: true },
+			highlightColor: { type: "string", optional: true },
 		});
 	});
 
@@ -45,6 +49,10 @@ describe("transcription tools", () => {
 		const result = await tool?.handler({
 			language: "zh",
 			style: "social",
+			revealMode: "karaoke",
+			lineBreakMode: "page",
+			maxCharsPerLine: 12,
+			highlightColor: "#ffcc00",
 		});
 
 		expect(generateSubtitlesFromVideo).toHaveBeenCalledWith(
@@ -54,6 +62,10 @@ describe("transcription tools", () => {
 				language: "zh",
 				style: "social",
 				placement: "bottom",
+				revealMode: "karaoke",
+				lineBreakMode: "page",
+				maxCharsPerLine: 12,
+				highlightColor: "#ffcc00",
 			}),
 		);
 		expect(result).toMatchObject({
@@ -128,6 +140,10 @@ describe("transcription tools", () => {
 			language: "zh",
 			style: "social",
 			placement: "lower_third",
+			revealMode: "karaoke",
+			lineBreakMode: "page",
+			maxCharsPerLine: 12,
+			highlightColor: "#ffcc00",
 			onProgress: (event) => progressEvents.push(event),
 		});
 
@@ -148,6 +164,10 @@ describe("transcription tools", () => {
 					format: "cues",
 					style: "social",
 					placement: "lower_third",
+					revealMode: "karaoke",
+					lineBreakMode: "page",
+					maxCharsPerLine: 12,
+					highlightColor: "#ffcc00",
 					cues: [
 						expect.objectContaining({
 							text: "你好 Shotlyx",

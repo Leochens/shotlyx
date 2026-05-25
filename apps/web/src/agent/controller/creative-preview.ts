@@ -5,6 +5,7 @@ const PREVIEW_SAFE_TOOLS = [
 	"stock_search_media",
 	"creative_generate_image",
 	"silence_analyze_timeline",
+	"rough_cut_create_review",
 ] as const;
 
 export function isPreviewSafeTool(toolName: string): boolean {

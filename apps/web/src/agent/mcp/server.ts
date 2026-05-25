@@ -28,6 +28,7 @@ import {
 	createTranscriptionToolDeps,
 } from "@/agent/tools/transcription/transcription-tools";
 import { buildSilenceTools } from "./silence-tools";
+import { buildRoughCutTools } from "./rough-cut-tools";
 
 export class MCPServer {
 	private tools = new Map<string, Tool>();
@@ -68,6 +69,7 @@ export class MCPServer {
 			this.register(tool);
 		}
 		for (const tool of buildSilenceTools({ editor })) this.register(tool);
+		for (const tool of buildRoughCutTools({ editor })) this.register(tool);
 
 		// Register timeline and playback tools eagerly so getToolSchemas()
 		// always returns the full schema set, even before WASM loads.

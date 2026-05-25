@@ -329,7 +329,7 @@ async function generateQuickReplyActions({
 			model,
 			schema: quickReplyResponseSchema,
 			system:
-				"You generate quick-reply options for an editing assistant. Return only valid JSON that matches the schema. Only offer options when the assistant's latest reply asks a genuine blocking clarification question that the user can answer by selecting one option. Do not offer options for status updates, completed work, confirmations, or rhetorical questions. Options must be contextual, not fixed presets. Labels should be short. Values must be complete user replies in the same language as the assistant. For broad video-editing clarification, prefer choices that map to available tools, such as silence removal, subtitle generation, B-roll/media insertion, title text, voiceover, or style cleanup when those tools exist. Never offer unavailable capabilities.",
+				"You generate quick-reply options for an editing assistant. Return only valid JSON that matches the schema. Only offer options when the assistant's latest reply asks a genuine blocking clarification question that the user can answer by selecting one option. Do not offer options for status updates, completed work, confirmations, or rhetorical questions. Options must be contextual, not fixed presets. Labels should be short. Values must be complete user replies in the same language as the assistant. For broad video-editing clarification, prefer choices that map to available tools, such as AI rough-cut review for filler/repeat removal, silence removal, subtitle generation, B-roll/media insertion, title text, voiceover, or style cleanup when those tools exist. Never offer unavailable capabilities.",
 			prompt: JSON.stringify({
 				recentMessages,
 				assistantText,
@@ -794,6 +794,9 @@ export async function POST(request: NextRequest) {
 						const hasSilenceAnalysisPreview = previewSteps.some(
 							(step) => step.tool === "silence_analyze_timeline",
 						);
+						const hasRoughCutReviewPreview = previewSteps.some(
+							(step) => step.tool === "rough_cut_create_review",
+						);
 
 						for (const step of previewSteps) {
 							const line = await proxyExecuteStep(
@@ -813,12 +816,15 @@ export async function POST(request: NextRequest) {
 								{
 									role: "user",
 									content:
-										"以下预览/分析步骤已经执行完成。素材候选会由 UI 以资源卡片展示；静音分析结果会提供 planId。请基于这些真实结果生成下一步计划，不要用 Markdown 复述候选列表，不要粘贴候选链接，也不要再次调用 creative_search_video、stock_search_media、creative_generate_image 或 silence_analyze_timeline。" +
+										"以下预览/分析步骤已经执行完成。素材候选会由 UI 以资源卡片展示；静音分析结果会提供 planId；粗剪审核单会由 UI 弹窗展示。请基于这些真实结果生成下一步计划，不要用 Markdown 复述候选列表，不要粘贴候选链接，也不要再次调用 creative_search_video、stock_search_media、creative_generate_image、silence_analyze_timeline 或 rough_cut_create_review。" +
 										(hasStockPreview
 											? " 如果只是展示 stock_search_media 候选，不要生成 stock_import_media 计划；导入交给卡片底部的导入到资源库按钮。"
 											: " 只包含需要用户确认后执行的修改步骤。") +
 										(hasSilenceAnalysisPreview
 											? " 如果静音分析检测到 segmentCount > 0，并且用户的目标是剪掉静音，下一步只生成 silence_apply_cut_plan，并使用分析返回的 planId。"
+											: "") +
+										(hasRoughCutReviewPreview
+											? " 如果粗剪审核单已经打开，等待用户在弹窗里确认，不要生成 rough_cut_apply_review 计划。"
 											: "") +
 										"\n\n" +
 										observationLines.join("\n\n"),

@@ -1,5 +1,8 @@
 import type { Tool } from "@/agent/mcp/types";
-import { optionalStringParam } from "@/agent/mcp/validation";
+import {
+	optionalNumberParam,
+	optionalStringParam,
+} from "@/agent/mcp/validation";
 import type { EditorCore } from "@/core";
 import type { extractTimelineAudio } from "@/media/mediabunny";
 import type {
@@ -554,6 +557,16 @@ export function createTranscriptionToolDeps({
 					style: input.style ?? DEFAULT_SUBTITLE_STYLE,
 					placement: input.placement ?? DEFAULT_SUBTITLE_PLACEMENT,
 					...(input.trackId ? { trackId: input.trackId } : {}),
+					...(input.revealMode ? { revealMode: input.revealMode } : {}),
+					...(input.lineBreakMode
+						? { lineBreakMode: input.lineBreakMode }
+						: {}),
+					...(typeof input.maxCharsPerLine === "number"
+						? { maxCharsPerLine: input.maxCharsPerLine }
+						: {}),
+					...(input.highlightColor
+						? { highlightColor: input.highlightColor }
+						: {}),
 				},
 				signal: input.abortSignal,
 			});
@@ -631,6 +644,27 @@ export function buildTranscriptionTools({
 					description: "可选目标字幕文本轨道 ID；省略时自动创建新字幕轨",
 					optional: true,
 				},
+				revealMode: {
+					type: "string",
+					description:
+						"字幕显示模式：line、token 或 karaoke。karaoke 会按 token 时间高亮已说出的文字。",
+					optional: true,
+				},
+				lineBreakMode: {
+					type: "string",
+					description: "换行展示模式：wrap 自动换行，page 按行分页显示。",
+					optional: true,
+				},
+				maxCharsPerLine: {
+					type: "number",
+					description: "每行最大字符数，用于字幕换行或分页。",
+					optional: true,
+				},
+				highlightColor: {
+					type: "string",
+					description: "karaoke 高亮颜色，例如 #22d3ee。",
+					optional: true,
+				},
 			},
 			mutating: true,
 			// Tool handlers use the MCP Tool interface's positional signature.
@@ -658,6 +692,16 @@ export function buildTranscriptionTools({
 						fallback: DEFAULT_SUBTITLE_PLACEMENT,
 					}),
 					trackId: optionalTrimmedString({ params, key: "trackId" }),
+					revealMode: optionalTrimmedString({ params, key: "revealMode" }),
+					lineBreakMode: optionalTrimmedString({
+						params,
+						key: "lineBreakMode",
+					}),
+					maxCharsPerLine: optionalNumberParam(params, "maxCharsPerLine"),
+					highlightColor: optionalTrimmedString({
+						params,
+						key: "highlightColor",
+					}),
 					abortSignal: context?.signal,
 					onProgress: context?.onProgress,
 				});
