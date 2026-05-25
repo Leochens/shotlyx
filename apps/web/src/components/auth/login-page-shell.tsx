@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { Braces, Cpu, Network, ShieldCheck } from "lucide-react";
+import { Cpu, Network, ShieldCheck } from "lucide-react";
 import { LoginForm } from "@/components/auth/login-form";
 import { LanguageSelector } from "@/components/language-selector";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PRODUCT_NAME } from "@/site/brand";
 import { useAppLocale } from "@/i18n/use-app-locale";
+import { ShotlyxLogo } from "@/components/brand-logo";
 
 const SECURITY_ICONS = [ShieldCheck, Network, Cpu];
 
@@ -26,9 +27,12 @@ export function LoginPageShell() {
 			<div className="relative z-10 mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-7xl flex-col">
 				<header className="flex h-14 items-center justify-between">
 					<Link href="/" className="flex items-center gap-3">
-						<span className="grid size-9 place-items-center rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:border-cyan-300/35 dark:bg-cyan-300/10 dark:text-cyan-200">
-							<Braces className="size-5" />
-						</span>
+						<ShotlyxLogo
+							size={38}
+							priority
+							alt=""
+							className="drop-shadow-[0_0_22px_rgba(34,211,238,0.24)]"
+						/>
 						<span className="font-semibold text-sm uppercase tracking-[0.18em]">
 							{PRODUCT_NAME}
 						</span>

@@ -196,7 +196,7 @@ export function BottomToolbar({
 					primaryReferenceId={primaryReferenceId}
 					onRemove={removeReference}
 					onPrimaryChange={setPrimaryReference}
-					className="max-h-16 overflow-y-auto px-1 pb-1"
+					className="scrollbar-thin max-h-16 overflow-y-auto px-1 pb-1"
 				/>
 
 				<div className="flex items-center gap-1 pt-1">
@@ -221,7 +221,7 @@ export function BottomToolbar({
 								type="button"
 								variant="ghost"
 								size="icon"
-								className="size-9 rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
+								className="size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
 								aria-label={toolbarCopy.executionMode}
 								title={toolbarCopy.executionMode}
 							>
@@ -252,7 +252,7 @@ export function BottomToolbar({
 								type="button"
 								variant="ghost"
 								size="icon"
-								className="ml-auto size-9 rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
+								className="ml-auto size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
 								aria-label={toolbarCopy.addReference}
 								title={toolbarCopy.addReferenceTitle}
 							>
@@ -262,7 +262,7 @@ export function BottomToolbar({
 						<PopoverContent
 							align="end"
 							side="top"
-							className="max-h-96 w-[min(40rem,calc(100vw-2rem))] overflow-y-auto p-3"
+							className="scrollbar-thin max-h-96 w-[min(40rem,calc(100vw-2rem))] overflow-y-auto p-3"
 						>
 							<ReferencePickerSection
 								title={`${toolbarCopy.media} (${mediaAssets.length})`}
@@ -333,7 +333,7 @@ export function BottomToolbar({
 						onClick={togglePointSelect}
 						className={cn(
 							"size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
-							pointSelectEnabled && "bg-amber-500/15 text-amber-300",
+							pointSelectEnabled && "bg-primary/15 text-primary",
 						)}
 						aria-label={toolbarCopy.pointSelect}
 						title={
@@ -350,7 +350,7 @@ export function BottomToolbar({
 							type="button"
 							data-testid="chat-stop-button"
 							onClick={onStop}
-							className="size-10 rounded-sm bg-red-500 p-0 text-white hover:bg-red-400"
+							className="size-10 rounded-sm bg-destructive p-0 text-destructive-foreground hover:bg-destructive/90"
 							aria-label={toolbarCopy.stop}
 							title={toolbarCopy.stopTitle}
 						>
@@ -361,7 +361,7 @@ export function BottomToolbar({
 							type="submit"
 							data-testid="chat-send-button"
 							disabled={!input.trim()}
-							className="size-10 rounded-sm bg-amber-400 p-0 text-neutral-950 shadow-[0_0_24px_rgba(251,191,36,0.22)] hover:bg-amber-300"
+							className="size-10 rounded-sm bg-primary p-0 text-primary-foreground hover:bg-primary/90"
 							aria-label={toolbarCopy.send}
 						>
 							<Send size={18} />

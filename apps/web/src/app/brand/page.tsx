@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, Braces, GitBranch, ShieldCheck, Terminal } from "lucide-react";
+import { ArrowRight, GitBranch, ShieldCheck, Terminal } from "lucide-react";
 import { PRODUCT_NAME, SITE_INFO } from "@/site/brand";
 import { Button } from "@/components/ui/button";
+import { ShotlyxLogo } from "@/components/brand-logo";
 
 export const metadata: Metadata = {
 	title: `Foundation - ${SITE_INFO.title}`,
@@ -33,9 +34,12 @@ export default function BrandPage() {
 			<div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-6xl flex-col">
 				<header className="flex h-14 items-center justify-between">
 					<Link href="/" className="flex items-center gap-3">
-						<span className="grid size-9 place-items-center rounded-md border border-cyan-300/35 bg-cyan-300/10 text-cyan-200">
-							<Braces className="size-5" />
-						</span>
+						<ShotlyxLogo
+							size={38}
+							priority
+							alt=""
+							className="drop-shadow-[0_0_22px_rgba(34,211,238,0.28)]"
+						/>
 						<span className="font-semibold text-sm uppercase tracking-[0.18em]">
 							{PRODUCT_NAME}
 						</span>

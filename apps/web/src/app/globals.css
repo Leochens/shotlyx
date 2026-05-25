@@ -377,19 +377,33 @@
 }
 
 @utility scrollbar-thin {
+	scrollbar-color: color-mix(in oklab, var(--primary) 30%, transparent)
+		transparent;
+	scrollbar-width: thin;
 	&::-webkit-scrollbar {
-		width: 7px;
-		height: 7px;
+		width: 8px;
+		height: 8px;
 	}
 	&::-webkit-scrollbar-track {
 		background: transparent;
 	}
 	&::-webkit-scrollbar-thumb {
-		background: var(--border);
-		border-radius: 4px;
+		background: linear-gradient(
+			180deg,
+			color-mix(in oklab, var(--primary) 40%, transparent),
+			color-mix(in oklab, var(--muted-foreground) 18%, transparent)
+		);
+		border: 2px solid transparent;
+		border-radius: 999px;
+		background-clip: padding-box;
 	}
 	&::-webkit-scrollbar-thumb:hover {
-		background: var(--muted-foreground);
+		background: linear-gradient(
+			180deg,
+			color-mix(in oklab, var(--primary) 52%, transparent),
+			color-mix(in oklab, var(--muted-foreground) 24%, transparent)
+		);
+		background-clip: padding-box;
 	}
 }
 

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { Button } from "./ui/button";
-import { ArrowRight, Braces, Terminal } from "lucide-react";
+import { ArrowRight, Terminal } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 import { LanguageSelector } from "./language-selector";
 import { Menu02Icon } from "@hugeicons/core-free-icons";
@@ -12,6 +12,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/utils/ui";
 import { PRODUCT_NAME } from "@/site/brand";
 import { useAppLocale } from "@/i18n/use-app-locale";
+import { ShotlyxLogo } from "@/components/brand-logo";
 
 export function Header() {
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -25,10 +26,12 @@ export function Header() {
 			<div className="relative mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-4 sm:px-6">
 				<div className="relative z-10 flex items-center gap-6">
 					<Link href="/" className="group flex items-center gap-3">
-						<span className="relative grid size-9 place-items-center overflow-hidden rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-700 shadow-[0_0_28px_rgba(8,145,178,0.14)] dark:border-cyan-300/35 dark:bg-cyan-300/10 dark:text-cyan-200 dark:shadow-[0_0_28px_rgba(34,211,238,0.28)]">
-							<span className="absolute inset-x-1 top-1 h-px bg-cyan-500/70 dark:bg-cyan-200/70" />
-							<Braces className="size-5 transition-transform group-hover:scale-110" />
-						</span>
+						<ShotlyxLogo
+							size={38}
+							priority
+							alt=""
+							className="drop-shadow-[0_0_22px_rgba(34,211,238,0.28)] transition-transform group-hover:scale-105"
+						/>
 						<span className="font-semibold text-slate-950 tracking-[0.18em] text-sm uppercase dark:text-white">
 							{PRODUCT_NAME}
 						</span>

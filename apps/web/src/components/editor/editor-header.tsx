@@ -24,9 +24,21 @@ import { CommandIcon, Logout05Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ShortcutsDialog } from "@/actions/components/shortcuts-dialog";
 import { CommandPaletteButton } from "@/actions/components/command-palette";
-import { Braces } from "lucide-react";
 import { cn } from "@/utils/ui";
 import { useAppLocale } from "@/i18n/use-app-locale";
+import { ShotlyxLogo } from "@/components/brand-logo";
+
+const DEFAULT_EDITOR_PROJECT_TITLES = new Set([
+	"",
+	"New project",
+	"New Project",
+	"新建项目",
+	"新建绘画",
+]);
+
+function getEditorProjectTitle(name: string): string {
+	return DEFAULT_EDITOR_PROJECT_TITLES.has(name.trim()) ? "Agent" : name;
+}
 
 export function EditorHeader() {
 	return (
@@ -114,8 +126,16 @@ function ProjectDropdown() {
 		<>
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
-					<Button variant="ghost" size="icon" className="p-1 rounded-sm size-8">
-						<Braces className="size-5 text-cyan-500 dark:text-cyan-300" />
+					<Button
+						variant="ghost"
+						size="icon"
+						className="p-0.5 rounded-sm size-8"
+					>
+						<ShotlyxLogo
+							size={28}
+							className="drop-shadow-[0_0_14px_rgba(34,211,238,0.22)]"
+							alt="Shotlyx project menu"
+						/>
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="start" className="z-100 w-44">
@@ -176,10 +196,11 @@ function EditableProjectName() {
 	const originalNameRef = useRef("");
 
 	const projectName = activeProject?.metadata.name || "";
+	const displayProjectName = getEditorProjectTitle(projectName);
 
 	const startEditing = () => {
 		if (isEditing) return;
-		originalNameRef.current = projectName;
+		originalNameRef.current = displayProjectName;
 		setIsEditing(true);
 
 		requestAnimationFrame(() => {
@@ -231,7 +252,8 @@ function EditableProjectName() {
 		<input
 			ref={inputRef}
 			type="text"
-			defaultValue={projectName}
+			key={activeProject?.metadata.id ?? "agent-title"}
+			defaultValue={displayProjectName}
 			readOnly={!isEditing}
 			onClick={startEditing}
 			onBlur={saveEdit}

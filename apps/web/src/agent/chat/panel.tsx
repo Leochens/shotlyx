@@ -5,7 +5,6 @@ import { useChatStore } from "./store";
 import { MessageItem } from "./message-item";
 import type { ToolActionResult, ToolCallActionRequest } from "./tool-call-card";
 import { BottomToolbar } from "./bottom-toolbar";
-import { SessionSidebar } from "./session-sidebar";
 import { useEditor } from "@/editor/use-editor";
 import { parseSSEStream } from "./sse-parser";
 import type { SSEEvent } from "./sse-parser";
@@ -14,11 +13,9 @@ import {
 	Check,
 	Copy,
 	Loader2,
-	MessageSquare,
 	Mic2,
 	Scissors,
 	Search,
-	Sparkles,
 	Trash2,
 	type LucideIcon,
 } from "lucide-react";
@@ -89,43 +86,25 @@ const STARTER_PROMPT_STYLES: Array<{
 }> = [
 	{
 		icon: Scissors,
-		iconClassName:
-			"border-cyan-700/20 bg-cyan-500/10 text-cyan-700 dark:border-cyan-300/20 dark:bg-cyan-300/10 dark:text-cyan-200",
+		iconClassName: "border-border bg-muted/50 text-muted-foreground",
 	},
 	{
 		icon: Trash2,
-		iconClassName:
-			"border-red-700/20 bg-red-500/10 text-red-700 dark:border-red-300/20 dark:bg-red-300/10 dark:text-red-200",
+		iconClassName: "border-border bg-muted/50 text-muted-foreground",
 	},
 	{
 		icon: Captions,
-		iconClassName:
-			"border-emerald-700/20 bg-emerald-500/10 text-emerald-700 dark:border-emerald-300/20 dark:bg-emerald-300/10 dark:text-emerald-200",
+		iconClassName: "border-border bg-muted/50 text-muted-foreground",
 	},
 	{
 		icon: Search,
-		iconClassName:
-			"border-amber-700/20 bg-amber-500/10 text-amber-700 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-200",
+		iconClassName: "border-border bg-muted/50 text-muted-foreground",
 	},
 	{
 		icon: Mic2,
-		iconClassName:
-			"border-rose-700/20 bg-rose-500/10 text-rose-700 dark:border-rose-300/20 dark:bg-rose-300/10 dark:text-rose-200",
+		iconClassName: "border-border bg-muted/50 text-muted-foreground",
 	},
 ];
-
-const DEFAULT_SESSION_NAMES = new Set(["新会话", "New conversation"]);
-
-function getSessionTitle(params: {
-	name?: string;
-	fallback: string;
-	newSession: string;
-}): string {
-	const { name, fallback, newSession } = params;
-	if (!name) return fallback;
-	if (DEFAULT_SESSION_NAMES.has(name)) return newSession;
-	return name;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -311,7 +290,6 @@ function parsePlanEventData(value: unknown): {
 export function ChatPanel() {
 	const { copy, locale } = useAppLocale();
 	const [input, setInput] = useState("");
-	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const [showClearConfirm, setShowClearConfirm] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set());
@@ -362,14 +340,12 @@ export function ChatPanel() {
 		setActiveProject,
 		clearSessionMessages,
 		removeMessage,
-		getActiveSession,
 	} = useChatStore();
 	const editor = useEditor();
 	const projectId = useEditor(
 		(editor) => editor.project.getActiveOrNull()?.metadata.id ?? null,
 	);
 	const messages = getActiveMessages();
-	const activeSession = getActiveSession();
 	const visibleMessages = messages.filter((msg) => !msg.hidden);
 	const toRequestMessage = (
 		message: Pick<ChatMessage, "role" | "content" | "toolCalls"> & {
@@ -1289,31 +1265,11 @@ export function ChatPanel() {
 			data-testid="chat-panel"
 			className="flex h-full bg-background text-foreground"
 		>
-			<SessionSidebar
-				isOpen={sidebarOpen}
-				onToggle={() => setSidebarOpen(!sidebarOpen)}
-			/>
+			{/* Multi-session UI is intentionally disabled for the compact Agent surface. */}
 			<div className="flex flex-1 flex-col overflow-hidden">
 				<div className="flex items-center justify-between border-b border-border/70 bg-background/95 px-3 py-2">
 					<div className="flex items-center gap-2">
-						{!sidebarOpen && (
-							<button
-								type="button"
-								onClick={() => setSidebarOpen(true)}
-								className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-								aria-label={copy.editor.chat.openSessions}
-								title={copy.editor.chat.openSessions}
-							>
-								<MessageSquare size={16} />
-							</button>
-						)}
-						<span className="text-sm font-medium text-foreground">
-							{getSessionTitle({
-								name: activeSession?.name,
-								fallback: copy.editor.chat.sessionFallback,
-								newSession: copy.editor.chat.newSession,
-							})}
-						</span>
+						<span className="text-sm font-medium text-foreground">Agent</span>
 					</div>
 					<div className="flex items-center gap-2">
 						{showClearConfirm ? (
@@ -1363,7 +1319,7 @@ export function ChatPanel() {
 					</div>
 				</div>
 
-				<div className="min-w-0 flex-1 select-text overflow-y-auto overflow-x-hidden bg-[linear-gradient(180deg,rgba(34,211,238,0.045),transparent_18rem)] p-3">
+				<div className="scrollbar-thin min-w-0 flex-1 select-text overflow-y-auto overflow-x-hidden bg-[linear-gradient(180deg,rgba(34,211,238,0.045),transparent_18rem)] p-3">
 					{visibleMessages.length === 0 && !isLoading ? (
 						<AgentEmptyState
 							disabled={isLoading || !editor}
@@ -1464,54 +1420,35 @@ function AgentEmptyState({
 	const starters = copy.editor.chat.starters;
 
 	return (
-		<div className="flex min-h-full flex-col justify-center gap-4 py-4">
-			<div className="rounded-sm border border-cyan-700/15 bg-[linear-gradient(135deg,rgba(8,145,178,0.12),rgba(16,185,129,0.07)_44%,rgba(251,191,36,0.08))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)] dark:border-cyan-300/15 dark:bg-[linear-gradient(135deg,rgba(34,211,238,0.11),rgba(16,185,129,0.05)_44%,rgba(251,191,36,0.06))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-				<div className="mb-4 flex items-start gap-3">
-					<span className="flex size-9 shrink-0 items-center justify-center rounded-sm border border-cyan-700/25 bg-cyan-500/10 text-cyan-700 dark:border-cyan-300/25 dark:bg-cyan-300/10 dark:text-cyan-200">
-						<Sparkles size={18} />
-					</span>
-					<div className="min-w-0">
-						<p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-cyan-700 dark:text-cyan-300">
-							{copy.editor.chat.emptyKicker}
-						</p>
-						<h3 className="mt-1 text-lg font-semibold text-foreground">
-							{copy.editor.chat.emptyTitle}
-						</h3>
-						<p className="mt-1 text-sm text-muted-foreground">
-							{copy.editor.chat.emptyBody}
-						</p>
-					</div>
-				</div>
-
-				<div className="grid gap-2">
-					{starters.map(({ label, hint, prompt }, index) => {
-						const { icon: Icon, iconClassName } =
-							STARTER_PROMPT_STYLES[index] ?? STARTER_PROMPT_STYLES[0];
-						return (
-							<button
-								key={label}
-								type="button"
-								disabled={disabled}
-								onClick={() => onPromptSelect(prompt)}
-								className="group flex min-h-14 w-full cursor-pointer items-center gap-3 rounded-sm border border-border bg-background/72 px-3 py-2 text-left transition-colors hover:border-cyan-300/35 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+		<div className="flex min-h-full flex-col justify-end py-2">
+			<div className="grid gap-2">
+				{starters.map(({ label, hint, prompt }, index) => {
+					const { icon: Icon, iconClassName } =
+						STARTER_PROMPT_STYLES[index] ?? STARTER_PROMPT_STYLES[0];
+					return (
+						<button
+							key={label}
+							type="button"
+							disabled={disabled}
+							onClick={() => onPromptSelect(prompt)}
+							className="group flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-sm border border-border/70 bg-background px-3 py-2 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							<span
+								className={`flex size-7 shrink-0 items-center justify-center rounded-sm border ${iconClassName} group-hover:text-foreground`}
 							>
-								<span
-									className={`flex size-8 shrink-0 items-center justify-center rounded-sm border ${iconClassName}`}
-								>
-									<Icon size={16} />
+								<Icon size={15} />
+							</span>
+							<span className="min-w-0 flex-1">
+								<span className="block truncate text-sm font-medium text-foreground">
+									{label}
 								</span>
-								<span className="min-w-0 flex-1">
-									<span className="block truncate text-sm font-medium text-foreground">
-										{label}
-									</span>
-									<span className="mt-0.5 block truncate text-xs text-muted-foreground">
-										{hint}
-									</span>
+								<span className="mt-0.5 block truncate text-xs text-muted-foreground">
+									{hint}
 								</span>
-							</button>
-						);
-					})}
-				</div>
+							</span>
+						</button>
+					);
+				})}
 			</div>
 		</div>
 	);

@@ -45,8 +45,8 @@ export function BrandKitMenu({ className }: { className?: string }) {
 						variant="ghost"
 						size="icon"
 						className={cn(
-							"size-9 rounded-full text-neutral-300 hover:bg-neutral-800",
-							activeBrandKit && "text-amber-300",
+							"size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
+							activeBrandKit && "bg-primary/15 text-primary",
 							className,
 						)}
 						aria-label={brandKitCopy.label}
@@ -55,10 +55,7 @@ export function BrandKitMenu({ className }: { className?: string }) {
 						<Palette size={18} />
 					</Button>
 				</DropdownMenuTrigger>
-				<DropdownMenuContent
-					align="end"
-					className="w-64 border-neutral-800 bg-neutral-900 text-neutral-200"
-				>
+				<DropdownMenuContent align="end" className="w-64">
 					<DropdownMenuItem
 						onClick={() => editor.project.setActiveBrandKit({ id: null })}
 						className="h-9"
@@ -88,7 +85,7 @@ export function BrandKitMenu({ className }: { className?: string }) {
 							</span>
 						</DropdownMenuItem>
 					))}
-					<DropdownMenuSeparator className="bg-neutral-800" />
+					<DropdownMenuSeparator />
 					<DropdownMenuItem onClick={openCreateDialog} className="h-9">
 						<Plus size={14} />
 						{brandKitCopy.create}

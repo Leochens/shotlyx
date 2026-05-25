@@ -67,6 +67,8 @@ import { ProjectInfoDialog } from "@/project/components/project-info-dialog";
 import { RenameProjectDialog } from "@/project/components/rename-project-dialog";
 import { cn } from "@/utils/ui";
 import { ChangelogNotification } from "@/changelog/components/changelog-notification";
+import { PRODUCT_NAME } from "@/site/brand";
+import { ShotlyxLogo } from "@/components/brand-logo";
 const formatProjectDuration = ({
 	duration,
 }: {
@@ -148,8 +150,16 @@ function ProjectsHeader() {
 						<BreadcrumbList>
 							<BreadcrumbItem>
 								<BreadcrumbLink asChild>
-									<Link href="/" className="text-sm sm:text-base">
-										Home
+									<Link
+										href="/"
+										className="flex items-center gap-2 text-sm sm:text-base"
+									>
+										<ShotlyxLogo
+											size={28}
+											alt=""
+											className="drop-shadow-[0_0_16px_rgba(34,211,238,0.2)]"
+										/>
+										<span className="font-medium">{PRODUCT_NAME}</span>
 									</Link>
 								</BreadcrumbLink>
 							</BreadcrumbItem>
@@ -820,20 +830,12 @@ function ProjectMenu({
 	onDeleteClick: () => void;
 	onInfoClick: () => void;
 }) {
-	const handleMenuClick = ({
-		event,
-	}: {
-		event: MouseEvent<HTMLButtonElement>;
-	}) => {
+	const handleMenuClick = (event: MouseEvent<HTMLButtonElement>) => {
 		event.preventDefault();
 		event.stopPropagation();
 	};
 
-	const handleMenuKeyDown = ({
-		event,
-	}: {
-		event: KeyboardEvent<HTMLButtonElement>;
-	}) => {
+	const handleMenuKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
 		if (event.key !== "Enter" && event.key !== " ") {
 			return;
 		}
@@ -875,17 +877,9 @@ function ProjectMenu({
 					}
 					size="icon"
 					aria-label="Project menu"
-					onClick={(event) =>
-						handleMenuClick({
-							event: event as unknown as MouseEvent<HTMLButtonElement>,
-						})
-					}
+					onClick={handleMenuClick}
 					onMouseDown={(event) => event.stopPropagation()}
-					onKeyDown={(event) =>
-						handleMenuKeyDown({
-							event: event as unknown as KeyboardEvent<HTMLButtonElement>,
-						})
-					}
+					onKeyDown={handleMenuKeyDown}
 				>
 					<HugeiconsIcon
 						icon={MoreHorizontalIcon}
@@ -978,7 +972,8 @@ function EmptyState() {
 					<div className="flex flex-col items-center gap-3">
 						<h3 className="text-lg font-medium">No results found</h3>
 						<p className="text-muted-foreground max-w-md">
-							Your search for "{searchQuery}" did not return any results.
+							Your search for &quot;{searchQuery}&quot; did not return any
+							results.
 						</p>
 					</div>
 				</div>

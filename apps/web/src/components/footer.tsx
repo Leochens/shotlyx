@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { RiDiscordFill } from "react-icons/ri";
-import { Braces } from "lucide-react";
 import { PRODUCT_NAME } from "@/site/brand";
 import { SOCIAL_LINKS } from "@/site/social";
 import { useAppLocale } from "@/i18n/use-app-locale";
+import { ShotlyxLogo } from "@/components/brand-logo";
 
 export function Footer() {
 	const { copy } = useAppLocale();
@@ -16,9 +16,11 @@ export function Footer() {
 				<div className="mb-8 grid grid-cols-1 gap-12 md:grid-cols-2">
 					<div className="max-w-sm md:col-span-1">
 						<div className="mb-4 flex items-center justify-start gap-2">
-							<span className="grid size-8 place-items-center rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:border-cyan-300/35 dark:bg-cyan-300/10 dark:text-cyan-200">
-								<Braces className="size-4" />
-							</span>
+							<ShotlyxLogo
+								size={34}
+								alt=""
+								className="drop-shadow-[0_0_18px_rgba(34,211,238,0.2)]"
+							/>
 							<span className="font-semibold tracking-[0.18em] text-sm uppercase">
 								{PRODUCT_NAME}
 							</span>
