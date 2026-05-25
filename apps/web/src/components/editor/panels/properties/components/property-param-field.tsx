@@ -4,6 +4,7 @@ import type {
 	ParamDefinition,
 	NumberParamDefinition,
 	ParamValue,
+	SelectParamDefinition,
 } from "@/params";
 import {
 	formatNumberForDisplay,
@@ -24,6 +25,7 @@ import {
 import { usePropertyDraft } from "../hooks/use-property-draft";
 import { KeyframeToggle } from "./keyframe-toggle";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/utils/ui";
 
 export function PropertyParamField({
 	param,
@@ -90,17 +92,30 @@ function ParamInput({
 
 	if (param.type === "boolean") {
 		return (
-			<Switch
-				checked={Boolean(value)}
-				onCheckedChange={(checked) => {
-					onPreview(checked);
-					onCommit();
-				}}
-			/>
+			<div className="flex justify-end">
+				<Switch
+					checked={Boolean(value)}
+					onCheckedChange={(checked) => {
+						onPreview(checked);
+						onCommit();
+					}}
+				/>
+			</div>
 		);
 	}
 
 	if (param.type === "select") {
+		if (param.options.length <= 3) {
+			return (
+				<SelectButtonGroup
+					param={param}
+					value={String(value)}
+					onPreview={onPreview}
+					onCommit={onCommit}
+				/>
+			);
+		}
+
 		return (
 			<Select
 				value={String(value)}
@@ -139,6 +154,7 @@ function ParamInput({
 	if (param.type === "text") {
 		return (
 			<Textarea
+				className="min-h-16 resize-y"
 				value={String(value)}
 				onChange={(event) => onPreview(event.currentTarget.value)}
 				onBlur={onCommit}
@@ -149,7 +165,7 @@ function ParamInput({
 	if (param.type === "font") {
 		return (
 			<input
-				className="border-input bg-accent h-9 w-full rounded-md border px-3 text-sm outline-none"
+				className="border-input bg-accent h-7 w-full rounded-md border px-2.5 text-sm outline-none focus:border-primary"
 				value={String(value)}
 				onChange={(event) => onPreview(event.currentTarget.value)}
 				onBlur={onCommit}
@@ -158,6 +174,51 @@ function ParamInput({
 	}
 
 	return null;
+}
+
+function SelectButtonGroup({
+	param,
+	value,
+	onPreview,
+	onCommit,
+}: {
+	param: SelectParamDefinition;
+	value: string;
+	onPreview: (value: string) => void;
+	onCommit: () => void;
+}) {
+	return (
+		<div
+			className="grid h-7 min-w-0 gap-0.5 rounded-md border border-border bg-accent p-0.5"
+			style={{
+				gridTemplateColumns: `repeat(${param.options.length}, minmax(0, 1fr))`,
+			}}
+		>
+			{param.options.map((option) => {
+				const isSelected = option.value === value;
+				return (
+					<button
+						key={option.value}
+						type="button"
+						title={option.label}
+						aria-pressed={isSelected}
+						className={cn(
+							"min-w-0 truncate rounded-[0.25rem] px-1.5 text-xs transition-colors",
+							isSelected
+								? "bg-cyan-300/16 text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+								: "text-muted-foreground hover:bg-cyan-300/8 hover:text-foreground",
+						)}
+						onClick={() => {
+							onPreview(option.value);
+							onCommit();
+						}}
+					>
+						{option.label}
+					</button>
+				);
+			})}
+		</div>
+	);
 }
 
 function NumberParamField({
@@ -180,9 +241,7 @@ function NumberParamField({
 		);
 
 	const previewFromDisplay = (displayVal: number) => {
-		const clamped = clampDisplayValue(
-			snapToStep({ value: displayVal, step }),
-		);
+		const clamped = clampDisplayValue(snapToStep({ value: displayVal, step }));
 		onPreview(clamped / displayMultiplier);
 	};
 
@@ -207,6 +266,13 @@ function NumberParamField({
 		onCommit();
 	};
 
+	const handleStep = (direction: 1 | -1) => {
+		const parsed = parseFloat(draft.displayValue);
+		const baseDisplayValue = Number.isNaN(parsed) ? displayValue : parsed;
+		previewFromDisplay(baseDisplayValue + step * direction);
+		onCommit();
+	};
+
 	return (
 		<NumberField
 			icon={param.shortLabel}
@@ -218,6 +284,7 @@ function NumberParamField({
 			onBlur={draft.onBlur}
 			onScrub={previewFromDisplay}
 			onScrubEnd={onCommit}
+			onStep={handleStep}
 			onReset={handleReset}
 		/>
 	);

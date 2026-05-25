@@ -16,17 +16,17 @@ import {
 
 export function TabBar() {
 	const { activeTab, setActiveTab } = useAssetsPanelStore();
-	const [showTopFade, setShowTopFade] = useState(false);
-	const [showBottomFade, setShowBottomFade] = useState(false);
+	const [showStartFade, setShowStartFade] = useState(false);
+	const [showEndFade, setShowEndFade] = useState(false);
 	const scrollRef = useRef<HTMLDivElement>(null);
 
 	const checkScrollPosition = useCallback(() => {
 		const element = scrollRef.current;
 		if (!element) return;
 
-		const { scrollTop, scrollHeight, clientHeight } = element;
-		setShowTopFade(scrollTop > 0);
-		setShowBottomFade(scrollTop < scrollHeight - clientHeight - 1);
+		const { scrollLeft, scrollWidth, clientWidth } = element;
+		setShowStartFade(scrollLeft > 0);
+		setShowEndFade(scrollLeft < scrollWidth - clientWidth - 1);
 	}, []);
 
 	useEffect(() => {
@@ -46,10 +46,10 @@ export function TabBar() {
 	}, [checkScrollPosition]);
 
 	return (
-		<div className="relative flex">
+		<div className="bg-background/95 relative shrink-0 border-b border-cyan-300/10">
 			<div
 				ref={scrollRef}
-				className="scrollbar-hidden relative flex size-full p-1 flex-col items-center justify-start gap-0.5 overflow-y-auto"
+				className="scrollbar-hidden relative flex min-h-11 items-center gap-1 overflow-x-auto px-2 py-1.5"
 			>
 				{VISIBLE_TAB_KEYS.map((tabKey) => {
 					const tab = tabs[tabKey];
@@ -57,24 +57,25 @@ export function TabBar() {
 						<Tooltip key={tabKey} delayDuration={10}>
 							<TooltipTrigger asChild>
 								<Button
-									variant={activeTab === tabKey ? "secondary" : "ghost"}
+									variant="ghost"
 									size="icon"
 									aria-label={tab.label}
 									className={cn(
-										"shrink-0",
-										"h-8 w-8",
-										activeTab !== tabKey && "text-muted-foreground",
+										"size-8 shrink-0 rounded-md border transition-colors",
+										activeTab === tabKey
+											? "border-cyan-300/35 bg-cyan-300/10 text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] hover:bg-cyan-300/15"
+											: "border-transparent text-muted-foreground hover:border-cyan-300/20 hover:bg-cyan-300/[0.06] hover:text-foreground",
 									)}
 									onClick={() => setActiveTab(tabKey)}
 								>
-									<tab.icon />
+									<tab.icon className="size-4" />
 								</Button>
 							</TooltipTrigger>
 							<TooltipContent
-								side="right"
+								side="bottom"
 								align="center"
 								variant="sidebar"
-								sideOffset={8}
+								sideOffset={6}
 							>
 								<div className="text-foreground text-sm leading-none font-medium">
 									{tab.label}
@@ -85,8 +86,8 @@ export function TabBar() {
 				})}
 			</div>
 
-			<FadeOverlay direction="top" show={showTopFade} />
-			<FadeOverlay direction="bottom" show={showBottomFade} />
+			<FadeOverlay direction="left" show={showStartFade} />
+			<FadeOverlay direction="right" show={showEndFade} />
 		</div>
 	);
 }
@@ -95,16 +96,17 @@ function FadeOverlay({
 	direction,
 	show,
 }: {
-	direction: "top" | "bottom";
+	direction: "left" | "right";
 	show: boolean;
 }) {
 	return (
 		<div
 			className={cn(
-				"pointer-events-none absolute right-0 left-0 h-6",
-				direction === "top" && show
-					? "from-background top-0 bg-linear-to-b to-transparent"
-					: "from-background bottom-0 bg-linear-to-t to-transparent",
+				"from-background pointer-events-none absolute top-0 bottom-0 w-8 to-transparent transition-opacity",
+				show ? "opacity-100" : "opacity-0",
+				direction === "left"
+					? "left-0 bg-linear-to-r"
+					: "right-0 bg-linear-to-l",
 			)}
 		/>
 	);

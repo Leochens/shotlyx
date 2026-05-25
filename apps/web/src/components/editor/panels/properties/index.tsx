@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,29 +12,82 @@ import {
 import { useEditor } from "@/editor/use-editor";
 import { useElementSelection } from "@/timeline/hooks/element/use-element-selection";
 import { usePropertiesStore } from "./stores/properties-store";
-import { getPropertiesConfig } from "./registry";
+import { getPropertiesConfig, type PropertiesTabDef } from "./registry";
 import { cn } from "@/utils/ui";
-import { EmptyView } from "./empty-view";
 import { useAssetsPanelStore } from "@/components/editor/panels/assets/assets-panel-store";
+import type { SelectedAssetRef } from "@/components/editor/panels/assets/assets-panel-store";
 import { ResourcePropertiesPanel } from "@/components/editor/panels/properties/resource-properties-panel";
 import { createTimelineElementReference } from "@/agent/context/resolve-references";
 import { useAgentContextStore } from "@/agent/context/store";
 import { usePanelStore } from "@/editor/panel-store";
-import { Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useAppLocale } from "@/i18n/use-app-locale";
+import type { ElementRef } from "@/timeline/types";
 
-export function PropertiesPanel() {
+function getSelectionKey({
+	selectedElements,
+	selectedAssetRefs,
+}: {
+	selectedElements: ElementRef[];
+	selectedAssetRefs: SelectedAssetRef[];
+}): string | null {
+	if (selectedElements.length > 0) {
+		return `elements:${selectedElements
+			.map((item) => `${item.trackId}:${item.elementId}`)
+			.sort()
+			.join("|")}`;
+	}
+
+	if (selectedAssetRefs.length > 0) {
+		return `assets:${selectedAssetRefs
+			.map((item) => `${item.kind}:${item.id}`)
+			.sort()
+			.join("|")}`;
+	}
+
+	return null;
+}
+
+export function PropertiesPanel({ onCollapse }: { onCollapse?: () => void }) {
+	const { selectedElements } = useElementSelection();
+	const selectedAssetRefs = useAssetsPanelStore(
+		(state) => state.selectedAssetRefs,
+	);
+	const selectionKey = useMemo(
+		() => getSelectionKey({ selectedElements, selectedAssetRefs }),
+		[selectedAssetRefs, selectedElements],
+	);
+
+	if (!selectionKey) {
+		return null;
+	}
+
+	return (
+		<PropertiesPanelContent
+			key={selectionKey}
+			selectedElements={selectedElements}
+			selectedAssetRefs={selectedAssetRefs}
+			onCollapse={onCollapse}
+		/>
+	);
+}
+
+function PropertiesPanelContent({
+	selectedElements,
+	selectedAssetRefs,
+	onCollapse,
+}: {
+	selectedElements: ElementRef[];
+	selectedAssetRefs: SelectedAssetRef[];
+	onCollapse?: () => void;
+}) {
 	const { copy } = useAppLocale();
 	const propertiesCopy = copy.editor.properties;
 	const editor = useEditor();
 	useEditor((e) => e.scenes.getActiveSceneOrNull());
 	useEditor((e) => e.media.getAssets());
-	const { selectedElements } = useElementSelection();
 	const { activeTabPerType, setActiveTab } = usePropertiesStore();
-	const selectedAssetRefs = useAssetsPanelStore(
-		(state) => state.selectedAssetRefs,
-	);
 	const addReference = useAgentContextStore((state) => state.addReference);
 	const setAgentPanelOpen = usePanelStore((state) => state.setAgentPanelOpen);
 
@@ -64,24 +118,20 @@ export function PropertiesPanel() {
 	if (selectedElements.length === 0) {
 		if (selectedAssetRefs.length > 0) {
 			return (
-				<div className="panel bg-background flex h-full flex-col overflow-hidden rounded-sm border">
-					<ScrollArea className="flex-1 scrollbar-hidden">
+				<PropertiesPanelFrame onCollapse={onCollapse}>
+					<ScrollArea className="min-h-0 flex-1 scrollbar-hidden">
 						<ResourcePropertiesPanel selectedAssetRefs={selectedAssetRefs} />
 					</ScrollArea>
-				</div>
+				</PropertiesPanelFrame>
 			);
 		}
 
-		return (
-			<div className="panel bg-background flex h-full flex-col items-center justify-center overflow-hidden rounded-sm border">
-				<EmptyView />
-			</div>
-		);
+		return null;
 	}
 
 	if (selectedElements.length > 1) {
 		return (
-			<div className="panel bg-background flex h-full flex-col overflow-hidden rounded-sm border">
+			<PropertiesPanelFrame onCollapse={onCollapse}>
 				<InspectorAgentBar
 					label={`${selectedElements.length} ${propertiesCopy.selectedClips}`}
 					onAskAgent={() =>
@@ -96,7 +146,7 @@ export function PropertiesPanel() {
 						{selectedElements.length} {propertiesCopy.elementsSelected}
 					</p>
 				</div>
-			</div>
+			</PropertiesPanelFrame>
 		);
 	}
 
@@ -127,43 +177,117 @@ export function PropertiesPanel() {
 	if (!activeTab) return null;
 
 	return (
-		<div className="panel bg-background flex h-full overflow-hidden rounded-sm border">
-			<TooltipProvider delayDuration={0}>
-				<div className="flex shrink-0 flex-col gap-0.5 border-r p-1 scrollbar-hidden overflow-y-auto">
-					{visibleTabs.map((tab) => (
+		<PropertiesPanelFrame onCollapse={onCollapse}>
+			<InspectorTabMenu
+				activeTabId={activeTab.id}
+				tabs={visibleTabs}
+				onSelect={(tabId) =>
+					setActiveTab({
+						elementType: element.type,
+						tabId,
+					})
+				}
+			/>
+			<InspectorAgentBar label={element.name} onAskAgent={handleAskAgent} />
+			<ScrollArea className="min-h-0 flex-1 scrollbar-hidden">
+				{activeTab.content({ trackId: track.id })}
+			</ScrollArea>
+		</PropertiesPanelFrame>
+	);
+}
+
+function PropertiesPanelFrame({
+	children,
+	onCollapse,
+}: {
+	children: React.ReactNode;
+	onCollapse?: () => void;
+}) {
+	return (
+		<section className="panel relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-sm border border-border/80 bg-background/92 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur">
+			{onCollapse ? (
+				<button
+					type="button"
+					aria-label="Collapse properties panel"
+					onClick={onCollapse}
+					className="absolute right-2 top-2 z-20 flex size-7 items-center justify-center rounded-md border border-cyan-300/14 bg-background/72 text-muted-foreground shadow-sm transition-colors hover:border-cyan-300/35 hover:bg-cyan-300/10 hover:text-foreground"
+				>
+					<ChevronRight className="size-3.5" />
+				</button>
+			) : null}
+			{children}
+		</section>
+	);
+}
+
+export function CollapsedPropertiesPanel({
+	onExpand,
+}: {
+	onExpand: () => void;
+}) {
+	return (
+		<section className="panel flex h-full min-h-0 items-start justify-center overflow-hidden rounded-sm border border-border/80 bg-background/92 px-1.5 py-2 text-foreground backdrop-blur">
+			<TooltipProvider delayDuration={200}>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							aria-label="Expand properties panel"
+							className="size-8 rounded-md border border-cyan-300/14 text-muted-foreground hover:border-cyan-300/35 hover:bg-cyan-300/10 hover:text-foreground"
+							onClick={onExpand}
+						>
+							<ChevronLeft className="size-4" />
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent side="left">Properties</TooltipContent>
+				</Tooltip>
+			</TooltipProvider>
+		</section>
+	);
+}
+
+function InspectorTabMenu({
+	activeTabId,
+	tabs,
+	onSelect,
+}: {
+	activeTabId: string;
+	tabs: PropertiesTabDef[];
+	onSelect: (tabId: string) => void;
+}) {
+	return (
+		<TooltipProvider delayDuration={0}>
+			<div className="scrollbar-hidden flex min-h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-cyan-300/10 bg-background/45 px-2 py-1.5 pr-11">
+				{tabs.map((tab) => {
+					const active = tab.id === activeTabId;
+					return (
 						<Tooltip key={tab.id}>
 							<TooltipTrigger asChild>
 								<Button
-									variant={tab.id === activeTab.id ? "secondary" : "ghost"}
+									variant="ghost"
 									size="icon"
-									onClick={() =>
-										setActiveTab({
-											elementType: element.type,
-											tabId: tab.id,
-										})
-									}
+									onClick={() => onSelect(tab.id)}
 									aria-label={tab.label}
 									className={cn(
-										"shrink-0",
-										"h-8 w-8",
-										tab.id !== activeTab.id && "text-muted-foreground",
+										"size-8 shrink-0 rounded-md border transition-colors",
+										active
+											? "border-cyan-300/35 bg-cyan-300/10 text-cyan-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] hover:bg-cyan-300/15"
+											: "border-transparent text-muted-foreground hover:border-cyan-300/20 hover:bg-cyan-300/[0.06] hover:text-foreground",
 									)}
 								>
-									{tab.icon}
+									<span className="flex size-4 items-center justify-center">
+										{tab.icon}
+									</span>
 								</Button>
 							</TooltipTrigger>
-							<TooltipContent side="right">{tab.label}</TooltipContent>
+							<TooltipContent side="bottom">{tab.label}</TooltipContent>
 						</Tooltip>
-					))}
-				</div>
-			</TooltipProvider>
-			<div className="flex min-w-0 flex-1 flex-col">
-				<InspectorAgentBar label={element.name} onAskAgent={handleAskAgent} />
-				<ScrollArea className="min-h-0 flex-1 scrollbar-hidden">
-					{activeTab.content({ trackId: track.id })}
-				</ScrollArea>
+					);
+				})}
 			</div>
-		</div>
+		</TooltipProvider>
 	);
 }
 
@@ -175,7 +299,7 @@ function InspectorAgentBar({
 	onAskAgent: () => void;
 }) {
 	return (
-		<div className="flex min-h-12 shrink-0 items-center justify-between gap-2 border-b border-cyan-300/10 bg-cyan-300/[0.035] px-3 py-2">
+		<div className="flex min-h-12 shrink-0 items-center justify-between gap-2 border-b border-cyan-300/10 bg-cyan-300/[0.035] py-2 pl-3 pr-10">
 			<div className="min-w-0">
 				<p className="truncate text-xs font-medium text-foreground">{label}</p>
 				<p className="truncate text-[0.68rem] text-muted-foreground">

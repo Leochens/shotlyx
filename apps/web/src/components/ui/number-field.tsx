@@ -2,11 +2,18 @@
 
 import { cn } from "@/utils/ui";
 import { clamp } from "@/utils/math";
-import { useRef, useState, useLayoutEffect, type ComponentProps } from "react";
+import {
+	useCallback,
+	useRef,
+	useState,
+	useLayoutEffect,
+	type ComponentProps,
+} from "react";
 import { useFocusLock } from "@/hooks/use-focus-lock";
 import { Button } from "@/components/ui/button";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowTurnBackwardIcon } from "@hugeicons/core-free-icons";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 const SUFFIX_GAP_PX = 6;
 
@@ -97,8 +104,10 @@ function scrubAcrossRanges({
 	return clampScrubValue({ value: currentValue, min, max });
 }
 
-interface NumberFieldProps
-	extends Omit<ComponentProps<"input">, "size" | "type"> {
+interface NumberFieldProps extends Omit<
+	ComponentProps<"input">,
+	"size" | "type"
+> {
 	icon?: React.ReactNode;
 	suffix?: string;
 	suffixClassName?: string;
@@ -107,6 +116,7 @@ interface NumberFieldProps
 	scrubClamp?: ScrubClamp;
 	onScrub?: (value: number) => void;
 	onScrubEnd?: () => void;
+	onStep?: (direction: 1 | -1) => void;
 	allowExpressions?: boolean;
 	onReset?: () => void;
 	isDefault?: boolean;
@@ -123,6 +133,7 @@ function NumberField({
 	scrubClamp,
 	onScrub,
 	onScrubEnd,
+	onStep,
 	value,
 	allowExpressions = true,
 	onKeyDown,
@@ -141,21 +152,38 @@ function NumberField({
 	const cumulativeDeltaRef = useRef(0);
 	const [isInputFocused, setIsInputFocused] = useState(false);
 	const [suffixLeft, setSuffixLeft] = useState(0);
-	const ghostValue = Array.isArray(value) ? value.join(", ") : String(value ?? "");
+	const ghostValue = Array.isArray(value)
+		? value.join(", ")
+		: String(value ?? "");
 
 	useLayoutEffect(() => {
-		if (!suffix) {
-			setSuffixLeft(0);
-			return;
-		}
-		if (!ghostRef.current || !inputRef.current) return;
-		if (ghostRef.current.textContent !== ghostValue) {
-			ghostRef.current.textContent = ghostValue;
-		}
-		const paddingLeft =
-			parseFloat(getComputedStyle(inputRef.current).paddingLeft) || 0;
-		setSuffixLeft(paddingLeft + ghostRef.current.offsetWidth);
+		const frame = requestAnimationFrame(() => {
+			if (!suffix) {
+				setSuffixLeft(0);
+				return;
+			}
+			if (!ghostRef.current || !inputRef.current) return;
+			if (ghostRef.current.textContent !== ghostValue) {
+				ghostRef.current.textContent = ghostValue;
+			}
+			const paddingLeft =
+				parseFloat(getComputedStyle(inputRef.current).paddingLeft) || 0;
+			setSuffixLeft(paddingLeft + ghostRef.current.offsetWidth);
+		});
+		return () => cancelAnimationFrame(frame);
 	}, [ghostValue, suffix]);
+
+	const setInputRefs = useCallback(
+		(node: HTMLInputElement | null) => {
+			inputRef.current = node;
+			if (typeof ref === "function") {
+				ref(node);
+				return;
+			}
+			if (ref) ref.current = node;
+		},
+		[ref],
+	);
 
 	const { containerRef: wrapperRef } = useFocusLock<HTMLDivElement>({
 		isActive: isInputFocused,
@@ -209,7 +237,7 @@ function NumberField({
 		<input
 			type={allowExpressions ? "text" : "number"}
 			inputMode={allowExpressions ? "decimal" : undefined}
-			ref={inputRef}
+			ref={setInputRefs}
 			disabled={disabled}
 			value={value}
 			className="text-sm leading-none bg-transparent outline-none min-w-0 flex-1 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
@@ -230,6 +258,11 @@ function NumberField({
 				onFocus?.(event);
 			}}
 			onKeyDown={(event) => {
+				if (onStep && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+					event.preventDefault();
+					onStep(event.key === "ArrowUp" ? 1 : -1);
+					return;
+				}
 				const shouldBlurInput = event.key === "Enter" || event.key === "Escape";
 				if (shouldBlurInput) event.currentTarget.blur();
 				onKeyDown?.(event);
@@ -309,6 +342,30 @@ function NumberField({
 					>
 						<HugeiconsIcon icon={ArrowTurnBackwardIcon} className="size-3.5!" />
 					</Button>
+				</div>
+			)}
+			{onStep && (
+				<div className="flex h-full w-5 shrink-0 flex-col overflow-hidden border-l border-border/70">
+					<button
+						type="button"
+						aria-label="Increase value"
+						disabled={disabled}
+						className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground transition-colors hover:bg-cyan-300/10 hover:text-foreground disabled:pointer-events-none"
+						onMouseDown={(event) => event.preventDefault()}
+						onClick={() => onStep(1)}
+					>
+						<ChevronUp className="size-3" />
+					</button>
+					<button
+						type="button"
+						aria-label="Decrease value"
+						disabled={disabled}
+						className="flex min-h-0 flex-1 items-center justify-center border-t border-border/70 text-muted-foreground transition-colors hover:bg-cyan-300/10 hover:text-foreground disabled:pointer-events-none"
+						onMouseDown={(event) => event.preventDefault()}
+						onClick={() => onStep(-1)}
+					>
+						<ChevronDown className="size-3" />
+					</button>
 				</div>
 			)}
 		</div>

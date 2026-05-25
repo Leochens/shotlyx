@@ -201,7 +201,7 @@ export function SectionFields({
 	className?: string;
 }) {
 	return (
-		<div className={cn("flex flex-col gap-3.5", className)}>{children}</div>
+		<div className={cn("flex flex-col gap-2.5", className)}>{children}</div>
 	);
 }
 
@@ -217,12 +217,19 @@ export function SectionField({
 	className?: string;
 }) {
 	return (
-		<div className={cn("flex flex-col gap-2", className)}>
-			<div className="flex h-4 items-center gap-1.5">
+		<div
+			className={cn(
+				"grid grid-cols-[minmax(6.25rem,0.85fr)_minmax(0,1fr)] items-center gap-2",
+				className,
+			)}
+		>
+			<div className="flex min-w-0 items-center gap-1.5">
 				{beforeLabel}
-				<Label>{label}</Label>
+				<Label className="truncate text-xs text-muted-foreground">
+					{label}
+				</Label>
 			</div>
-			{children}
+			<div className="min-w-0">{children}</div>
 		</div>
 	);
 }
