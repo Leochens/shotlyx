@@ -193,11 +193,13 @@ bun run deploy
 
 ## 许可证
 
-Shotlyx Community Edition 使用 [AGPL-3.0-only](LICENSE) 授权。你可以将它用于商业用途，只要遵守 AGPL-3.0-only 的许可证条款。
+Shotlyx Community Edition 使用 [AGPL-3.0-only](LICENSE) 授权。商业使用只在遵守 AGPL-3.0-only 许可证条款的前提下被允许；这不是无条件商用授权。
 
 AGPL-3.0-only 是面向网络/服务端软件的强 copyleft 许可证：如果你运行公开的修改版网络服务，许可证要求你以同样条款开放对应源码。
 
-如果你希望在 proprietary license 下使用 Shotlyx，把它纳入闭源产品，获得私有集成支持，或讨论企业/私有化部署，可以从 [GuanTou Lab Personal Page](https://world.guantou.site/) 开始联系。
+这份 AGPL 授权不允许你把修改后的 covered code 闭源、不保留必要 notice、未经许可使用 Shotlyx 或 GuanTou Lab 品牌标识，或在不提供对应源码的情况下运行公开的修改版网络服务。
+
+如果你希望在 proprietary license 下使用 Shotlyx，把它纳入闭源产品，提供不承担 AGPL 源码义务的白标/托管部署，获得私有集成支持，或讨论企业/私有化部署，可以从 [GuanTou Lab Personal Page](https://world.guantou.site/) 开始联系。
 
 商业/专有授权只适用于 GuanTou Lab 具备足够授权权利的代码和资产。更多边界见 [NOTICE.md](NOTICE.md)、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、[COPYRIGHT.md](COPYRIGHT.md)、[TRADEMARK.md](TRADEMARK.md) 和 [CLA.md](CLA.md)。
 

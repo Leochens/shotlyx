@@ -69,9 +69,11 @@ Substantial external contributions may require acceptance of the [Shotlyx Contri
 
 ## Commercial Use
 
-The public code is available under AGPL-3.0-only. You may use Shotlyx commercially as long as you comply with the AGPL-3.0-only license terms.
+The public code is available under AGPL-3.0-only. Commercial use is permitted only under the AGPL-3.0-only license terms; it is not unconditional commercial permission.
 
-If you want to use Shotlyx under a proprietary license, include it in a closed-source product, receive private integration support, or discuss enterprise/private deployment, use the GuanTou Lab Personal Page:
+The AGPL permission does not allow you to keep modified covered code closed, remove required notices, use Shotlyx or GuanTou Lab marks without permission, or operate a modified public network service without providing corresponding source.
+
+If you want to use Shotlyx under a proprietary license, include it in a closed-source product, offer a white-label or hosted deployment without AGPL source obligations, receive private integration support, or discuss enterprise/private deployment, use the GuanTou Lab Personal Page:
 
 https://world.guantou.site/
 

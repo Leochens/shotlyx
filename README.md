@@ -193,11 +193,13 @@ Several Agent routes use Node runtime behavior, streaming, provider SDKs, and fi
 
 ## License
 
-Shotlyx Community Edition is licensed under [AGPL-3.0-only](LICENSE). You may use it commercially as long as you comply with the AGPL-3.0-only license terms.
+Shotlyx Community Edition is licensed under [AGPL-3.0-only](LICENSE). Commercial use is permitted only under the AGPL-3.0-only license terms; it is not unconditional commercial permission.
 
 AGPL-3.0-only is a strong copyleft license designed for network/server software: if you run a modified public network version, the license requires you to make the corresponding source available under the same terms.
 
-If you want to use Shotlyx under a proprietary license, include it in a closed-source product, receive private integration support, or discuss enterprise/private deployment, start from the [GuanTou Lab Personal Page](https://world.guantou.site/).
+This AGPL permission does not allow you to keep modified covered code closed, remove required notices, use Shotlyx or GuanTou Lab marks without permission, or operate a modified public network service without providing corresponding source.
+
+If you want to use Shotlyx under a proprietary license, include it in a closed-source product, offer a white-label or hosted deployment without AGPL source obligations, receive private integration support, or discuss enterprise/private deployment, start from the [GuanTou Lab Personal Page](https://world.guantou.site/).
 
 Commercial/proprietary licensing is available only for code and assets for which GuanTou Lab has sufficient licensing rights. See [NOTICE.md](NOTICE.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [COPYRIGHT.md](COPYRIGHT.md), [TRADEMARK.md](TRADEMARK.md), and [CLA.md](CLA.md).
 
