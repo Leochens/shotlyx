@@ -334,28 +334,31 @@ describe("subtitle tools", () => {
 			overlay: [subtitleTrack],
 			audio: [],
 		};
-		const fetchFn = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
-			expect(String(input)).toBe("/api/agent/subtitle-translation");
-			expect(JSON.parse(String(init?.body))).toMatchObject({
-				targetLanguage: "en",
-				sourceLanguage: "zh",
-				cues: [
-					{ index: 0, text: "我吃了一个苹果", startTime: 0, duration: 2 },
-					{ index: 1, text: "很好吃", startTime: 2, duration: 1 },
-				],
-			});
-			return new Response(
-				JSON.stringify({
-					provider: "mock",
+		const fetchFn = Object.assign(
+			mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe("/api/agent/subtitle-translation");
+				expect(JSON.parse(String(init?.body))).toMatchObject({
 					targetLanguage: "en",
-					translations: [
-						{ index: 0, text: "I ate an apple" },
-						{ index: 1, text: "It tasted good" },
+					sourceLanguage: "zh",
+					cues: [
+						{ index: 0, text: "我吃了一个苹果", startTime: 0, duration: 2 },
+						{ index: 1, text: "很好吃", startTime: 2, duration: 1 },
 					],
-				}),
-				{ status: 200, headers: { "Content-Type": "application/json" } },
-			);
-		});
+				});
+				return new Response(
+					JSON.stringify({
+						provider: "mock",
+						targetLanguage: "en",
+						translations: [
+							{ index: 0, text: "I ate an apple" },
+							{ index: 1, text: "It tasted good" },
+						],
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				);
+			}),
+			{ preconnect: mock(() => {}) },
+		);
 		const editor = createMockEditor({
 			updateElements,
 			getTrackById: mock(({ trackId }: { trackId: string }) =>
@@ -384,7 +387,18 @@ describe("subtitle tools", () => {
 			elementId: "subtitle-1",
 			cueCount: 2,
 		});
-		expect(updateElements.mock.calls[0]?.[0].updates[0]).toMatchObject({
+		const updateCalls = updateElements.mock.calls as unknown as Array<
+			[{ updates: unknown[] }]
+		>;
+		const updateCall = updateCalls.at(-1)?.[0];
+		if (!updateCall) {
+			throw new Error("Expected subtitles_translate to update the subtitle layer");
+		}
+		const update = updateCall.updates[0];
+		if (!update) {
+			throw new Error("Expected subtitles_translate to patch one subtitle layer");
+		}
+		expect(update).toMatchObject({
 			trackId: "track-sub",
 			elementId: "subtitle-1",
 			patch: {

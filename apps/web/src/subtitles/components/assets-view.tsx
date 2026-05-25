@@ -490,10 +490,11 @@ export function Captions() {
 						>
 							Generate transcript
 						</Button>
-						<div className="grid grid-cols-2 gap-2">
+						<div className="space-y-2">
 							<Button
 								type="button"
 								variant="outline"
+								className="w-full"
 								onClick={handleTranslateCurrentCaptions}
 								disabled={isProcessing}
 							>
@@ -502,6 +503,7 @@ export function Captions() {
 							<Button
 								type="button"
 								variant="outline"
+								className="w-full"
 								onClick={handleGenerateBilingualSubtitles}
 								disabled={isProcessing || activeDiagnostics.length > 0}
 							>
