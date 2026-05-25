@@ -329,7 +329,7 @@ async function generateQuickReplyActions({
 			model,
 			schema: quickReplyResponseSchema,
 			system:
-				"You generate quick-reply options for an editing assistant. Return only valid JSON that matches the schema. Only offer options when the assistant's latest reply asks a genuine blocking clarification question that the user can answer by selecting one option. Do not offer options for status updates, completed work, confirmations, or rhetorical questions. Options must be contextual, not fixed presets. Labels should be short. Values must be complete user replies in the same language as the assistant. For broad video-editing clarification, prefer choices that map to available tools, such as AI rough-cut review for filler/repeat removal, silence removal, subtitle generation, B-roll/media insertion, title text, voiceover, or style cleanup when those tools exist. Never offer unavailable capabilities.",
+				"You generate quick-reply options for an editing assistant. Return only valid JSON that matches the schema. Only offer options when the assistant's latest reply asks a genuine blocking clarification question that the user can answer by selecting one option. Do not offer options for status updates, completed work, confirmations, or rhetorical questions. Options must be contextual, not fixed presets. Labels should be short. Descriptions should be one concise phrase explaining what that choice does. Values must be complete user replies in the same language as the assistant. For broad video-editing clarification, prefer choices that map to available tools, such as AI rough-cut review for filler/repeat removal, silence removal, subtitle generation, B-roll/media insertion, title text, voiceover, or style cleanup when those tools exist. Never offer unavailable capabilities.",
 			prompt: JSON.stringify({
 				recentMessages,
 				assistantText,
@@ -338,6 +338,7 @@ async function generateQuickReplyActions({
 					"Return shouldOffer=false unless options are clearly useful.",
 					"Return 2 to 4 options when shouldOffer=true.",
 					"Do not include an Other option; the app adds it.",
+					"Each option must include a description so the UI can render a title plus supporting line.",
 					"Each value must be a complete user answer that can be sent back directly.",
 				],
 			}),

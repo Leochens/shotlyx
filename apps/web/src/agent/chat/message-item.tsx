@@ -11,6 +11,7 @@ import {
 import { OptionCard } from "./option-card";
 import { ReferenceChipList } from "./reference-chip";
 import { ClarificationCard } from "./clarification-card";
+import { ReactMarkdownWrapper } from "@/components/ui/react-markdown-wrapper";
 
 interface MessageItemProps {
 	message: ChatMessage;
@@ -79,11 +80,15 @@ export function MessageItem({
 				{/* Text Content Part */}
 				{(hasContent || isStreaming) && (
 					<div
-						className={`relative select-text rounded-2xl px-4 py-2.5 text-sm leading-relaxed [overflow-wrap:anywhere] ${
+						className={`relative max-w-full select-text rounded-2xl px-4 py-2.5 text-sm leading-relaxed [overflow-wrap:anywhere] ${
 							textBubbleClassName
 						}`}
 					>
-						{message.content || (isStreaming ? "..." : "")}
+						{hasContent && !isUser ? (
+							<ReactMarkdownWrapper>{message.content}</ReactMarkdownWrapper>
+						) : (
+							message.content || (isStreaming ? "..." : "")
+						)}
 						{isStreaming && hasContent && (
 							<span className="ml-1 inline-block h-2 w-2 animate-pulse rounded-full bg-blue-400" />
 						)}
@@ -138,7 +143,7 @@ export function MessageItem({
 				{hasActions && (
 					<div className="mt-2 w-full">
 						{isOptions ? (
-							<div className="flex flex-wrap gap-2">
+							<div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,13.5rem),1fr))] gap-2.5">
 								{message.actions!.map((action) => (
 									<OptionCard
 										key={action.id}

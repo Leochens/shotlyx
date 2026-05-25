@@ -50,7 +50,7 @@ export function OptionCard({
 		return (
 			<form
 				onSubmit={handleSubmit}
-				className="w-full max-w-[26rem] rounded-md border border-dashed border-cyan-400/35 bg-cyan-400/[0.045] p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+				className="w-full rounded-lg border border-dashed border-cyan-400/40 bg-cyan-400/[0.055] p-3 shadow-[0_12px_28px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.05)]"
 			>
 				<textarea
 					ref={inputRef}
@@ -62,21 +62,23 @@ export function OptionCard({
 						}
 					}}
 					rows={2}
-					placeholder={chinese ? "输入你的具体想法..." : "Type your custom answer..."}
-					className="min-h-16 w-full resize-none rounded-sm border border-border/70 bg-background/80 px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-cyan-400/60"
+					placeholder={
+						chinese ? "输入你的具体想法..." : "Type your custom answer..."
+					}
+					className="min-h-16 w-full resize-none rounded-md border border-border/70 bg-background/85 px-3 py-2 text-sm leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-cyan-400/65"
 				/>
 				<div className="mt-2 flex items-center justify-between gap-2">
 					<button
 						type="button"
 						onClick={() => setExpanded(false)}
-						className="rounded-sm px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+						className="rounded-md px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 					>
 						{chinese ? "收起" : "Collapse"}
 					</button>
 					<button
 						type="submit"
 						disabled={!customAnswer.trim()}
-						className="inline-flex items-center gap-1.5 rounded-sm bg-cyan-500/90 px-2.5 py-1.5 text-xs font-medium text-cyan-950 transition-colors hover:bg-cyan-400 disabled:pointer-events-none disabled:opacity-45"
+						className="inline-flex items-center gap-1.5 rounded-md bg-cyan-400 px-3 py-1.5 text-xs font-semibold text-cyan-950 transition-colors hover:bg-cyan-300 disabled:pointer-events-none disabled:opacity-45"
 					>
 						{chinese ? "发送" : "Send"}
 						<SendHorizontal size={13} />
@@ -92,24 +94,26 @@ export function OptionCard({
 			onClick={isCustom ? () => setExpanded(true) : onSelect}
 			data-testid={`action-${option.id}`}
 			className={cn(
-				"group relative inline-flex min-h-[4.25rem] min-w-[10rem] max-w-[22rem] flex-1 flex-col items-start overflow-hidden rounded-md border px-3.5 py-3 text-left transition-colors",
+				"group relative flex min-h-[5.7rem] w-full flex-col items-start overflow-hidden rounded-lg border px-4 py-3.5 text-left shadow-[0_10px_24px_rgba(0,0,0,0.14),inset_0_1px_0_rgba(255,255,255,0.045)] transition-[border-color,background-color,box-shadow,transform] duration-150 focus-visible:ring-2 focus-visible:ring-cyan-300/35 focus-visible:outline-none",
 				isSelected
-					? "border-cyan-400/45 bg-cyan-400/10 text-cyan-50"
-					: "border-border/70 bg-background/70 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] hover:border-cyan-400/35 hover:bg-cyan-400/[0.055]",
-				isCustom && "border-dashed",
+					? "border-cyan-300/60 bg-cyan-400/[0.11] text-cyan-50"
+					: "border-border/80 bg-background/80 text-foreground hover:-translate-y-0.5 hover:border-cyan-300/45 hover:bg-cyan-400/[0.055] hover:shadow-[0_14px_30px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.06)]",
+				isCustom && "border-dashed bg-background/60",
 			)}
 		>
 			<span
 				className={cn(
 					"absolute top-3 bottom-3 left-0 w-0.5 rounded-r-full transition-colors",
-					isSelected ? "bg-cyan-300" : "bg-cyan-400/30 group-hover:bg-cyan-300/70",
+					isSelected
+						? "bg-cyan-200"
+						: "bg-cyan-400/35 group-hover:bg-cyan-300/80",
 				)}
 			/>
-			<span className="block max-w-full text-sm leading-snug font-medium">
+			<span className="line-clamp-1 block max-w-full text-[15px] leading-snug font-semibold">
 				{option.label}
 			</span>
 			{option.description && (
-				<span className="mt-1 block max-w-full text-xs leading-snug text-muted-foreground">
+				<span className="mt-2 line-clamp-2 block max-w-full text-xs leading-relaxed text-muted-foreground">
 					{option.description}
 				</span>
 			)}

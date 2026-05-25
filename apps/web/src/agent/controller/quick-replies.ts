@@ -19,9 +19,58 @@ const QUESTION_MARK_PATTERN = /[?？]/;
 const CJK_PATTERN = /[\u3400-\u9fff]/;
 const COMPLETED_STATUS_PATTERN =
 	/(已完成|已找到|已添加|已生成|done|completed|finished)/i;
+const NUMBERED_CHOICE_PATTERN = /^\s*(?:\d+[.)]|[-*])\s+(.+?)\s*[：:]\s*(.+)$/;
+const MARKDOWN_MARKER_PATTERN = /[*`~[\]()]/g;
+const COMPACT_KEY_PATTERN = /[^a-z0-9\u3400-\u9fff]+/gi;
 
 function compactWhitespace(value: string): string {
 	return value.replace(/\s+/g, " ").trim();
+}
+
+function stripMarkdown(value: string): string {
+	return compactWhitespace(value.replace(MARKDOWN_MARKER_PATTERN, ""));
+}
+
+function makeMatchKey(value: string): string {
+	return stripMarkdown(value).toLowerCase().replace(COMPACT_KEY_PATTERN, "");
+}
+
+function parseAssistantOptionDescriptions({
+	assistantText,
+}: {
+	assistantText: string;
+}): Array<{ title: string; description: string }> {
+	return assistantText
+		.split(/\r?\n/)
+		.map((line) => {
+			const match = line.match(NUMBERED_CHOICE_PATTERN);
+			if (!match) return null;
+			const title = stripMarkdown(match[1] ?? "");
+			const description = stripMarkdown(match[2] ?? "");
+			if (!title || !description) return null;
+			return { title, description };
+		})
+		.filter((item): item is { title: string; description: string } =>
+			Boolean(item),
+		);
+}
+
+function findAssistantOptionDescription({
+	label,
+	index,
+	assistantChoices,
+}: {
+	label: string;
+	index: number;
+	assistantChoices: Array<{ title: string; description: string }>;
+}): string | undefined {
+	const labelKey = makeMatchKey(label);
+	const matchedChoice = assistantChoices.find((choice) => {
+		const titleKey = makeMatchKey(choice.title);
+		return titleKey.includes(labelKey) || labelKey.includes(titleKey);
+	});
+
+	return matchedChoice?.description ?? assistantChoices[index]?.description;
 }
 
 function makeOptionId({ label, index }: { label: string; index: number }) {
@@ -63,6 +112,7 @@ export function normalizeQuickReplyActions({
 
 	const seen = new Set<string>();
 	const actions: MessageAction[] = [];
+	const assistantChoices = parseAssistantOptionDescriptions({ assistantText });
 
 	for (const option of response.options) {
 		const label = compactWhitespace(option.label);
@@ -77,7 +127,11 @@ export function normalizeQuickReplyActions({
 			value,
 			description: option.description
 				? compactWhitespace(option.description)
-				: undefined,
+				: findAssistantOptionDescription({
+						label,
+						index: actions.length,
+						assistantChoices,
+					}),
 			variant: "secondary",
 			isOption: true,
 		});

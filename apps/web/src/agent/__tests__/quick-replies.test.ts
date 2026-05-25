@@ -57,6 +57,45 @@ describe("quick replies", () => {
 		});
 	});
 
+	test("backfills option descriptions from the assistant's numbered choices", () => {
+		const actions = normalizeQuickReplyActions({
+			assistantText: [
+				"你可以通过以下替代方案来实现类似效果：",
+				"1. **生成图片 + 动画化**：用 AI 生成一张黏土风花生苗破土而出的图片，然后插入时间线做缩放/位移动画。",
+				"2. **MG 动画**：用 `shotlyx_generate_mg_component` 生成黏土风格 MG 动画，表现花生苗破土过程。",
+				"3. **搜索素材**：搜索外部素材库中现成的植物破土或黏土风视频素材。",
+				"你更倾向哪种方案？",
+			].join("\n"),
+			response: {
+				shouldOffer: true,
+				options: [
+					{
+						label: "生成图片+动画",
+						value: "我想用生成图片再动画化的方案。",
+					},
+					{
+						label: "MG 动画",
+						value: "我想用 MG 动画方案。",
+					},
+					{
+						label: "搜索素材",
+						value: "我想先搜索素材。",
+					},
+				],
+			},
+		});
+
+		expect(actions[0]?.description).toBe(
+			"用 AI 生成一张黏土风花生苗破土而出的图片，然后插入时间线做缩放/位移动画。",
+		);
+		expect(actions[1]?.description).toBe(
+			"用 shotlyx_generate_mg_component 生成黏土风格 MG 动画，表现花生苗破土过程。",
+		);
+		expect(actions[2]?.description).toBe(
+			"搜索外部素材库中现成的植物破土或黏土风视频素材。",
+		);
+	});
+
 	test("does not expose option actions when the model declines", () => {
 		expect(
 			normalizeQuickReplyActions({
