@@ -1,5 +1,9 @@
 # Shotlyx
 
+<p align="center">
+  <img src="apps/web/public/logos/shotlyx/logo.png" alt="Shotlyx logo" width="160" />
+</p>
+
 [![GuanTou Lab](https://world.guantou.site/badge.svg?theme=dark&accent=red&lang=en&size=sm)](https://world.guantou.site/)
 
 Languages: English | [简体中文](README.zh-CN.md)
