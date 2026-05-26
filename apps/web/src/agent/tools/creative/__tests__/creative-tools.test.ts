@@ -3,6 +3,7 @@ import { clearShotlyxMGAssets } from "@/shotlyx/remotion-components";
 import { shotlyxBattleCardFixture } from "@/shotlyx/remotion-components/fixtures/battle-card";
 import type { EditorCore } from "@/core";
 import type { TimelineElement } from "@/timeline";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 import {
 	clearCreativeAssets,
 	registerCreativeAsset,
@@ -561,6 +562,195 @@ describe("buildCreativeTools", () => {
 		);
 	});
 
+	test("shotlyx_generate_mg_component appends after existing Shotlyx MG on the same track", async () => {
+		const existingDuration = 6 * MEDIA_TIME_TICKS_PER_SECOND;
+		const scene = {
+			tracks: {
+				main: { id: "main", type: "video", elements: [] },
+				overlay: [
+					{
+						id: "graphic-track",
+						type: "graphic",
+						// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- Test fixture constructs timeline element shape.
+						elements: [
+							{
+								id: "existing-mg",
+								type: "graphic",
+								name: "Existing MG",
+								definitionId: "shotlyx-remotion-component",
+								motionGraphicAssetId: "existing-asset",
+								startTime: 0,
+								duration: existingDuration,
+								trimStart: 0,
+								trimEnd: 0,
+								params: {},
+							},
+						] as TimelineElement[],
+					},
+				],
+				audio: [],
+			},
+		};
+		const insertElement = mock(
+			({
+				element,
+			}: {
+				element: Omit<TimelineElement, "id">;
+				placement: unknown;
+			}) => {
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				const insertedElement = {
+					...element,
+					id: "shotlyx-el-2",
+				} as unknown as TimelineElement;
+				scene.tracks.overlay[0]!.elements.push(insertedElement);
+			},
+		);
+		const generateShotlyxMGComponent = mock(async (_args: unknown) => ({
+			...shotlyxBattleCardFixture,
+			name: "第二个 MG",
+			durationSeconds: 4,
+			sourcePrompt: "生成第二个 MG",
+		}));
+
+		const tools = buildCreativeTools({
+			editor: asEditorCore({
+				project: {
+					getActiveOrNull: () => ({ metadata: { id: "project-1" } }),
+					upsertShotlyxMGAsset: mock(() => undefined),
+				},
+				scenes: {
+					getActiveSceneOrNull: () => scene,
+				},
+				selection: {
+					getSelectedElements: () => [],
+				},
+				playback: {
+					getCurrentTime: () => 0,
+				},
+				timeline: {
+					insertElement,
+				},
+			}),
+			deps: {
+				generateShotlyxMGComponentFn: generateShotlyxMGComponent,
+			},
+		});
+
+		const generateTool = tools.find(
+			(tool) => tool.name === "shotlyx_generate_mg_component",
+		);
+		await generateTool?.handler({
+			prompt: "生成第二个 MG",
+			durationSeconds: 4,
+			aspectRatio: "16:9",
+		});
+
+		expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
+			element: {
+				startTime: existingDuration,
+			},
+			placement: { mode: "explicit", trackId: "graphic-track" },
+		});
+	});
+
+	test("shotlyx_generate_mg_component starts at first subtitle cue when timeline has subtitles but no MG", async () => {
+		const subtitleStart = 5 * MEDIA_TIME_TICKS_PER_SECOND;
+		const scene = {
+			tracks: {
+				main: { id: "main", type: "video", elements: [] },
+				overlay: [
+					{
+						id: "subtitle-track",
+						type: "text",
+						// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- Test fixture constructs timeline element shape.
+						elements: [
+							{
+								id: "subtitles",
+								type: "subtitle",
+								name: "Subtitles",
+								startTime: 0,
+								duration: 10 * MEDIA_TIME_TICKS_PER_SECOND,
+								trimStart: 0,
+								trimEnd: 0,
+								params: {},
+								cues: [
+									{
+										text: "种子开始发芽",
+										startTime: 5,
+										duration: 2,
+									},
+								],
+							},
+						] as TimelineElement[],
+					},
+					{
+						id: "graphic-track",
+						type: "graphic",
+						elements: [] as TimelineElement[],
+					},
+				],
+				audio: [],
+			},
+		};
+		const insertElement = mock(
+			({ element }: { element: Omit<TimelineElement, "id"> }) => {
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				const insertedElement = {
+					...element,
+					id: "shotlyx-el-1",
+				} as unknown as TimelineElement;
+				scene.tracks.overlay[1]!.elements.push(insertedElement);
+			},
+		);
+		const generateShotlyxMGComponent = mock(async (_args: unknown) => ({
+			...shotlyxBattleCardFixture,
+			name: "种子发芽 MG",
+			durationSeconds: 2,
+			sourcePrompt: "生成种子发芽 MG",
+		}));
+
+		const tools = buildCreativeTools({
+			editor: asEditorCore({
+				project: {
+					getActiveOrNull: () => ({ metadata: { id: "project-1" } }),
+					upsertShotlyxMGAsset: mock(() => undefined),
+				},
+				scenes: {
+					getActiveSceneOrNull: () => scene,
+				},
+				selection: {
+					getSelectedElements: () => [],
+				},
+				playback: {
+					getCurrentTime: () => 0,
+				},
+				timeline: {
+					insertElement,
+				},
+			}),
+			deps: {
+				generateShotlyxMGComponentFn: generateShotlyxMGComponent,
+			},
+		});
+
+		const generateTool = tools.find(
+			(tool) => tool.name === "shotlyx_generate_mg_component",
+		);
+		await generateTool?.handler({
+			prompt: "生成种子发芽 MG",
+			durationSeconds: 2,
+			aspectRatio: "16:9",
+		});
+
+		expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
+			element: {
+				startTime: subtitleStart,
+			},
+			placement: { mode: "explicit", trackId: "graphic-track" },
+		});
+	});
+
 	test("shotlyx_generate_mg_component starts a backend job and saves streamed component results", async () => {
 		let selectedElements: Array<{ trackId: string; elementId: string }> = [];
 		const scene = {
@@ -711,6 +901,143 @@ describe("buildCreativeTools", () => {
 		expect(
 			progressEvents.some((event) => event.label === "MG 子智能体已完成"),
 		).toBe(true);
+	});
+
+	test("shotlyx_generate_mg_component waits for the job barrier before saving streamed components", async () => {
+		const scene = {
+			tracks: {
+				main: { id: "main", type: "video", elements: [] },
+				overlay: [
+					{
+						id: "graphic-track",
+						type: "graphic",
+						elements: [] as TimelineElement[],
+					},
+				],
+				audio: [],
+			},
+		};
+		const insertElement = mock(
+			({ element }: { element: Omit<TimelineElement, "id"> }) => {
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				const insertedElement = {
+					...element,
+					id: "shotlyx-barrier-el-1",
+				} as TimelineElement;
+				scene.tracks.overlay[0]!.elements.push(insertedElement);
+			},
+		);
+		const upsertShotlyxMGAsset = mock(() => undefined);
+		const encoder = new TextEncoder();
+		let sendEvent!: (event: unknown) => void;
+		let closeEvents!: () => void;
+		const fetchMock = mock(
+			async (input: RequestInfo | URL, _init?: RequestInit) => {
+				if (String(input) === "/api/agent/creative/mg-jobs") {
+					return new Response(JSON.stringify({ jobId: "mg-job-barrier" }), {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					});
+				}
+				if (
+					String(input) === "/api/agent/creative/mg-jobs/mg-job-barrier/events"
+				) {
+					return new Response(
+						new ReadableStream({
+							start(controller) {
+								sendEvent = (event: unknown) => {
+									controller.enqueue(
+										encoder.encode(
+											`event: job-event\ndata: ${JSON.stringify(event)}\n\n`,
+										),
+									);
+								};
+								closeEvents = () => controller.close();
+							},
+						}),
+						{
+							status: 200,
+							headers: { "Content-Type": "text/event-stream" },
+						},
+					);
+				}
+				return new Response("not found", { status: 404 });
+			},
+		);
+
+		const tools = buildCreativeTools({
+			editor: asEditorCore({
+				project: {
+					getActiveOrNull: () => ({ metadata: { id: "project-1" } }),
+					upsertShotlyxMGAsset,
+				},
+				scenes: {
+					getActiveSceneOrNull: () => scene,
+				},
+				selection: {
+					getSelectedElements: () => [],
+				},
+				playback: {
+					getCurrentTime: () => 0,
+				},
+				timeline: {
+					insertElement,
+				},
+			}),
+			deps: {
+				fetchFn: fetchMock,
+			},
+		});
+		const generateTool = tools.find(
+			(tool) => tool.name === "shotlyx_generate_mg_component",
+		);
+		await generateTool?.handler({
+			prompt: "生成 barrier MG",
+			durationSeconds: 5,
+			aspectRatio: "16:9",
+		});
+
+		await waitForCondition({
+			condition: () => fetchMock.mock.calls.length === 2,
+		});
+		sendEvent({
+			type: "component-complete",
+			jobId: "mg-job-barrier",
+			index: 0,
+			total: 1,
+			label: "已生成 barrier MG",
+			document: {
+				...shotlyxBattleCardFixture,
+				name: "barrier MG",
+				durationSeconds: 5,
+			},
+		});
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(upsertShotlyxMGAsset).not.toHaveBeenCalled();
+		expect(insertElement).not.toHaveBeenCalled();
+
+		sendEvent({
+			type: "completed",
+			jobId: "mg-job-barrier",
+			label: "MG 子智能体已完成",
+			status: "success",
+			documents: [
+				{
+					...shotlyxBattleCardFixture,
+					name: "barrier MG",
+					durationSeconds: 5,
+				},
+			],
+		});
+		closeEvents();
+
+		await waitForCondition({
+			condition: () => upsertShotlyxMGAsset.mock.calls.length === 1,
+		});
+
+		expect(insertElement).toHaveBeenCalledTimes(1);
+		expect(scene.tracks.overlay[0]!.elements[0]?.name).toBe("barrier MG");
 	});
 
 	test("shotlyx_generate_mg_component does not duplicate timeline inserts when a job event is replayed", async () => {
@@ -1036,6 +1363,25 @@ describe("buildCreativeTools", () => {
 			progressEvents.some((event) => event.label === "已生成洞察标注层"),
 		).toBe(true);
 		expect(scene.tracks.overlay[0]!.elements).toHaveLength(3);
+		expect(
+			scene.tracks.overlay[0]!.elements.map((element) => element.startTime),
+		).toEqual([
+			0,
+			8 * MEDIA_TIME_TICKS_PER_SECOND,
+			16 * MEDIA_TIME_TICKS_PER_SECOND,
+		]);
+		expect(insertElement.mock.calls[0]?.[0].placement).toEqual({
+			mode: "explicit",
+			trackId: "graphic-track",
+		});
+		expect(insertElement.mock.calls[1]?.[0].placement).toEqual({
+			mode: "explicit",
+			trackId: "graphic-track",
+		});
+		expect(insertElement.mock.calls[2]?.[0].placement).toEqual({
+			mode: "explicit",
+			trackId: "graphic-track",
+		});
 	});
 
 	test("creative_update_mg_animation patches selected MG params", () => {

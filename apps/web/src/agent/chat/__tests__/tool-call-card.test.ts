@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ToolCallRecord } from "@/agent/controller/types";
 import {
+	getJobTaskProgressItems,
 	getStockLicenseDisplay,
 	getStockMediaCandidates,
 	getStockMediaCandidatesFromToolCalls,
@@ -9,6 +10,66 @@ import {
 } from "@/agent/chat/tool-call-card";
 
 describe("tool call card display helpers", () => {
+	test("groups MG background job progress by parallel task", () => {
+		const toolCall: ToolCallRecord = {
+			tool: "shotlyx_generate_mg_composition",
+			params: { prompt: "生成三层 MG" },
+			progress: [
+				{
+					stage: "generation",
+					label: "生成第 1/3 个 MG 组件",
+					status: "running",
+					taskId: "task-title",
+					taskLabel: "标题强调层",
+					taskIndex: 0,
+					current: 1,
+					total: 3,
+				},
+				{
+					stage: "generation",
+					label: "已生成标题强调层",
+					status: "success",
+					taskId: "task-title",
+					taskLabel: "标题强调层",
+					taskIndex: 0,
+					current: 1,
+					total: 3,
+				},
+				{
+					stage: "generation",
+					label: "生成第 2/3 个 MG 组件",
+					status: "running",
+					taskId: "task-data",
+					taskLabel: "数据主视觉",
+					taskIndex: 1,
+					current: 2,
+					total: 3,
+				},
+			],
+		};
+
+		expect(getJobTaskProgressItems(toolCall)).toEqual([
+			{
+				id: "task-title",
+				label: "标题强调层",
+				status: "success",
+				detail: "已生成标题强调层",
+				index: 0,
+				current: 1,
+				total: 3,
+			},
+			{
+				id: "task-data",
+				label: "数据主视觉",
+				status: "running",
+				detail: "生成第 2/3 个 MG 组件",
+				index: 1,
+				current: 2,
+				total: 3,
+			},
+		]);
+	});
+
 	test("renders a running Shotlyx MG background job as pending output", () => {
 		const toolCall: ToolCallRecord = {
 			tool: "shotlyx_generate_mg_component",

@@ -110,7 +110,10 @@ interface ShotlyxMGJobEvent {
 	detail?: string;
 	index?: number;
 	total?: number;
+	taskId?: string;
+	taskLabel?: string;
 	document?: ShotlyxRemotionComponentDocument;
+	documents?: ShotlyxRemotionComponentDocument[];
 	error?: string;
 }
 
@@ -369,6 +372,10 @@ function emitToolProgress({
 	detail,
 	current,
 	total,
+	jobId,
+	taskId,
+	taskLabel,
+	taskIndex,
 }: {
 	context?: ToolExecutionContext;
 	stage: string;
@@ -377,6 +384,10 @@ function emitToolProgress({
 	detail?: string;
 	current?: number;
 	total?: number;
+	jobId?: string;
+	taskId?: string;
+	taskLabel?: string;
+	taskIndex?: number;
 }): void {
 	context?.onProgress?.({
 		stage,
@@ -385,6 +396,10 @@ function emitToolProgress({
 		detail,
 		current,
 		total,
+		jobId,
+		taskId,
+		taskLabel,
+		taskIndex,
 	});
 }
 
@@ -460,6 +475,22 @@ function mediaTimeFromSecondsForCreative({
 	return Math.round(seconds * MEDIA_TIME_TICKS_PER_SECOND) as MediaTime;
 }
 
+function mediaTimeFromTicksForCreative({ ticks }: { ticks: number }): MediaTime {
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+	return Math.round(ticks) as MediaTime;
+}
+
+function getExplicitStartTime({
+	params,
+}: {
+	params: Record<string, unknown>;
+}): MediaTime | null {
+	const startTimeSeconds = optionalNumberParam(params, "startTimeSeconds");
+	return startTimeSeconds === undefined
+		? null
+		: mediaTimeFromSecondsForCreative({ seconds: startTimeSeconds });
+}
+
 function getStartTime({
 	editor,
 	params,
@@ -467,10 +498,8 @@ function getStartTime({
 	editor: EditorCore;
 	params: Record<string, unknown>;
 }): MediaTime {
-	const startTimeSeconds = optionalNumberParam(params, "startTimeSeconds");
-	if (startTimeSeconds !== undefined) {
-		return mediaTimeFromSecondsForCreative({ seconds: startTimeSeconds });
-	}
+	const explicitStartTime = getExplicitStartTime({ params });
+	if (explicitStartTime !== null) return explicitStartTime;
 
 	const currentTime = editor.playback.getCurrentTime();
 	return typeof currentTime === "number"
@@ -480,6 +509,7 @@ function getStartTime({
 
 function listTimelineElements({ editor }: { editor: EditorCore }): Array<{
 	trackId: string;
+	trackType: string;
 	element: TimelineElement;
 }> {
 	const scene = editor.scenes.getActiveSceneOrNull();
@@ -489,8 +519,159 @@ function listTimelineElements({ editor }: { editor: EditorCore }): Array<{
 		...scene.tracks.overlay,
 		...scene.tracks.audio,
 	].flatMap((track) =>
-		track.elements.map((element) => ({ trackId: track.id, element })),
+		track.elements.map((element) => ({
+			trackId: track.id,
+			trackType: track.type,
+			element,
+		})),
 	);
+}
+
+interface ShotlyxMGTimelinePlacementState {
+	trackId: string | null;
+	nextStartTime: MediaTime;
+}
+
+function isShotlyxMGTimelineElement({
+	element,
+}: {
+	element: TimelineElement;
+}): boolean {
+	return (
+		element.type === "graphic" &&
+		isShotlyxMGDefinitionId({ definitionId: element.definitionId })
+	);
+}
+
+function getTimelineElementEndTime({
+	element,
+}: {
+	element: TimelineElement | Omit<TimelineElement, "id">;
+}): number {
+	return Number(element.startTime) + Number(element.duration);
+}
+
+function findPreferredShotlyxMGTrackId({
+	editor,
+}: {
+	editor: EditorCore;
+}): string | null {
+	const scene = editor.scenes.getActiveSceneOrNull();
+	if (!scene) return null;
+	const existingMGTrack = scene.tracks.overlay.find(
+		(track) =>
+			track.type === "graphic" &&
+			track.elements.some((element) =>
+				isShotlyxMGTimelineElement({ element }),
+			),
+	);
+	if (existingMGTrack) return existingMGTrack.id;
+	const existingGraphicTrack = scene.tracks.overlay.find(
+		(track) => track.type === "graphic",
+	);
+	return existingGraphicTrack?.id ?? null;
+}
+
+function ensureShotlyxMGTimelineTrackId({
+	editor,
+}: {
+	editor: EditorCore;
+}): string | null {
+	const existingTrackId = findPreferredShotlyxMGTrackId({ editor });
+	if (existingTrackId) return existingTrackId;
+	if (!editor.scenes.getActiveSceneOrNull()) return null;
+	return editor.timeline.addTrack({ type: "graphic", index: 0 });
+}
+
+function getLatestTrackEndTime({
+	editor,
+	trackId,
+}: {
+	editor: EditorCore;
+	trackId: string | null;
+}): number {
+	if (!trackId) return 0;
+	return listTimelineElements({ editor }).reduce((latestEnd, item) => {
+		if (item.trackId !== trackId) return latestEnd;
+		return Math.max(
+			latestEnd,
+			getTimelineElementEndTime({ element: item.element }),
+		);
+	}, 0);
+}
+
+function findFirstSubtitleCueTime({ editor }: { editor: EditorCore }): number {
+	let earliest = Number.POSITIVE_INFINITY;
+	for (const { element } of listTimelineElements({ editor })) {
+		if (element.type !== "subtitle") continue;
+		for (const cue of element.cues) {
+			earliest = Math.min(
+				earliest,
+				Number(element.startTime) +
+					Math.round(cue.startTime * MEDIA_TIME_TICKS_PER_SECOND),
+			);
+		}
+	}
+	return Number.isFinite(earliest) ? earliest : 0;
+}
+
+function createShotlyxMGTimelinePlacementState({
+	editor,
+	params,
+	startTime,
+}: {
+	editor: EditorCore;
+	params?: Record<string, unknown>;
+	startTime?: MediaTime;
+}): ShotlyxMGTimelinePlacementState {
+	const trackId = ensureShotlyxMGTimelineTrackId({ editor });
+	const explicitStartTime = params ? getExplicitStartTime({ params }) : null;
+	if (explicitStartTime !== null || startTime !== undefined) {
+		return {
+			trackId,
+			nextStartTime: explicitStartTime ?? startTime ?? ZERO_CREATIVE_MEDIA_TIME,
+		};
+	}
+	const currentTime = editor.playback.getCurrentTime();
+	const playheadTime =
+		typeof currentTime === "number" ? currentTime : ZERO_CREATIVE_MEDIA_TIME;
+	return {
+		trackId,
+		nextStartTime: mediaTimeFromTicksForCreative({
+			ticks: Math.max(
+				Number(playheadTime),
+				findFirstSubtitleCueTime({ editor }),
+				getLatestTrackEndTime({ editor, trackId }),
+			),
+		}),
+	};
+}
+
+function getShotlyxMGInsertPlacement({
+	placement,
+}: {
+	placement: ShotlyxMGTimelinePlacementState;
+}) {
+	return placement.trackId
+		? ({ mode: "explicit", trackId: placement.trackId } as const)
+		: ({ mode: "auto", trackType: "graphic" } as const);
+}
+
+function buildNextShotlyxMGTimelineElement({
+	asset,
+	placement,
+}: {
+	asset: ShotlyxMGAsset;
+	placement: ShotlyxMGTimelinePlacementState;
+}) {
+	const element = buildShotlyxMGElementFromAsset({
+		asset,
+		startTime: placement.nextStartTime,
+	});
+	placement.nextStartTime = mediaTimeFromTicksForCreative({
+		ticks: getTimelineElementEndTime({ element }),
+	});
+	return element;
 }
 
 function findInsertedElement({
@@ -1277,6 +1458,7 @@ function parseShotlyxMGJobEvent(value: unknown): ShotlyxMGJobEvent | null {
 	}
 	const type = Reflect.get(value, "type");
 	const jobId = Reflect.get(value, "jobId");
+	const documents = Reflect.get(value, "documents");
 	if (
 		!(
 			type === "started" ||
@@ -1316,8 +1498,19 @@ function parseShotlyxMGJobEvent(value: unknown): ShotlyxMGJobEvent | null {
 			typeof Reflect.get(value, "total") === "number"
 				? Reflect.get(value, "total")
 				: undefined,
+		taskId:
+			typeof Reflect.get(value, "taskId") === "string"
+				? Reflect.get(value, "taskId")
+				: undefined,
+		taskLabel:
+			typeof Reflect.get(value, "taskLabel") === "string"
+				? Reflect.get(value, "taskLabel")
+				: undefined,
 		document: isShotlyxRemotionComponentDocument(document)
 			? document
+			: undefined,
+		documents: Array.isArray(documents)
+			? documents.filter(isShotlyxRemotionComponentDocument)
 			: undefined,
 		error:
 			typeof Reflect.get(value, "error") === "string"
@@ -1379,7 +1572,11 @@ async function followShotlyxMGJob({
 			const event = parseShotlyxMGJobEvent(parsed);
 			if (!event) continue;
 			onEvent(event);
-			if (event.type === "completed" || event.type === "error") {
+			if (
+				event.type === "completed" ||
+				event.type === "cancelled" ||
+				event.type === "error"
+			) {
 				return;
 			}
 		}
@@ -1412,6 +1609,7 @@ function saveShotlyxMGDocumentToProject({
 	document,
 	sourcePrompt,
 	startTime,
+	placementState,
 	insertToTimeline,
 	assetId,
 }: {
@@ -1419,6 +1617,7 @@ function saveShotlyxMGDocumentToProject({
 	document: ShotlyxRemotionComponentDocument;
 	sourcePrompt: string;
 	startTime: MediaTime;
+	placementState?: ShotlyxMGTimelinePlacementState;
 	insertToTimeline: boolean;
 	assetId?: string;
 }): { assetId: string; name: string; trackId?: string; elementId?: string } {
@@ -1456,14 +1655,14 @@ function saveShotlyxMGDocumentToProject({
 	const beforeIds = new Set(
 		listTimelineElements({ editor }).map((item) => item.element.id),
 	);
-	const element = buildShotlyxMGElementFromAsset({
-		asset,
-		startTime,
-	});
+	const placement =
+		placementState ??
+		createShotlyxMGTimelinePlacementState({ editor, startTime });
+	const element = buildNextShotlyxMGTimelineElement({ asset, placement });
 
 	editor.timeline.insertElement({
 		element,
-		placement: { mode: "auto", trackType: "graphic" },
+		placement: getShotlyxMGInsertPlacement({ placement }),
 	});
 
 	const inserted = findInsertedElement({ editor, beforeIds });
@@ -1481,6 +1680,7 @@ function followShotlyxMGJobInBackground({
 	jobId,
 	sourcePrompt,
 	startTime,
+	placementState,
 	insertToTimeline,
 	context,
 }: {
@@ -1489,10 +1689,57 @@ function followShotlyxMGJobInBackground({
 	jobId: string;
 	sourcePrompt: string;
 	startTime: MediaTime;
+	placementState?: ShotlyxMGTimelinePlacementState;
 	insertToTimeline: boolean;
 	context?: ToolExecutionContext;
 }): void {
-	const handledComponentKeys = new Set<string>();
+	const completedComponentDocuments = new Map<
+		number,
+		{
+			document: ShotlyxRemotionComponentDocument;
+			label?: string;
+			taskId?: string;
+			taskLabel?: string;
+		}
+	>();
+	const savedComponentIndexes = new Set<number>();
+	const saveCompletedDocuments = ({
+		documents,
+		total,
+	}: {
+		documents: ShotlyxRemotionComponentDocument[];
+		total?: number;
+	}) => {
+		for (const [index, document] of documents.entries()) {
+			if (savedComponentIndexes.has(index)) continue;
+			savedComponentIndexes.add(index);
+			const componentMeta = completedComponentDocuments.get(index);
+			const saved = saveShotlyxMGDocumentToProject({
+				editor,
+				document,
+				sourcePrompt,
+				startTime,
+				placementState,
+				insertToTimeline,
+				assetId: buildShotlyxMGJobComponentAssetId({
+					jobId,
+					index,
+				}),
+			});
+			emitToolProgress({
+				context,
+				stage: "generation",
+				label: componentMeta?.label ?? `已生成${saved.name}`,
+				status: "success",
+				current: index + 1,
+				total: total ?? documents.length,
+				jobId,
+				taskId: componentMeta?.taskId,
+				taskLabel: componentMeta?.taskLabel,
+				taskIndex: index,
+			});
+		}
+	};
 	const handleAbort = () => {
 		void cancelShotlyxMGJobViaRoute({ jobId, fetchFn }).catch((error) => {
 			emitToolProgress({
@@ -1516,29 +1763,48 @@ function followShotlyxMGJobInBackground({
 		onEvent: (event) => {
 			if (event.type === "component-complete" && event.document) {
 				const componentIndex = event.index ?? 0;
-				const componentKey = `${event.jobId}:${componentIndex}`;
-				if (handledComponentKeys.has(componentKey)) {
-					return;
+				if (!completedComponentDocuments.has(componentIndex)) {
+					completedComponentDocuments.set(componentIndex, {
+						document: event.document,
+						label: event.label,
+						taskId: event.taskId,
+						taskLabel: event.taskLabel,
+					});
 				}
-				handledComponentKeys.add(componentKey);
-				const saved = saveShotlyxMGDocumentToProject({
-					editor,
-					document: event.document,
-					sourcePrompt,
-					startTime,
-					insertToTimeline,
-					assetId: buildShotlyxMGJobComponentAssetId({
-						jobId: event.jobId,
-						index: componentIndex,
-					}),
-				});
 				emitToolProgress({
 					context,
 					stage: "generation",
-					label: event.label ?? `已生成${saved.name}`,
+					label: event.label ?? `已生成${event.document.name}`,
 					status: "success",
 					current: event.index === undefined ? undefined : event.index + 1,
 					total: event.total,
+					jobId: event.jobId,
+					taskId: event.taskId,
+					taskLabel: event.taskLabel,
+					taskIndex: componentIndex,
+				});
+				return;
+			}
+			if (event.type === "completed") {
+				const documents =
+					event.documents && event.documents.length > 0
+						? event.documents
+						: [...completedComponentDocuments.entries()]
+								.sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
+								.map(([, item]) => item.document);
+				saveCompletedDocuments({
+					documents,
+					total: event.total,
+				});
+				emitToolProgress({
+					context,
+					stage: event.type,
+					label: event.label ?? "MG 子智能体已完成",
+					status: event.status ?? "success",
+					detail: event.detail,
+					current: event.index,
+					total: event.total,
+					jobId: event.jobId,
 				});
 				return;
 			}
@@ -1549,6 +1815,7 @@ function followShotlyxMGJobInBackground({
 					label: event.label ?? "MG 子智能体失败",
 					status: "error",
 					detail: event.error,
+					jobId: event.jobId,
 				});
 				return;
 			}
@@ -1557,14 +1824,18 @@ function followShotlyxMGJobInBackground({
 				stage: event.type,
 				label:
 					event.label ??
-					(event.type === "completed"
-						? "MG 子智能体已完成"
+					(event.type === "cancelled"
+						? "MG 子智能体已停止"
 						: "MG 子智能体运行中"),
 				status:
-					event.status ?? (event.type === "completed" ? "success" : "running"),
+					event.status ?? (event.type === "cancelled" ? "error" : "running"),
 				detail: event.detail,
 				current: event.index === undefined ? undefined : event.index + 1,
 				total: event.total,
+				jobId: event.jobId,
+				taskId: event.taskId,
+				taskLabel: event.taskLabel,
+				taskIndex: event.index,
 			});
 		},
 	})
@@ -1602,12 +1873,16 @@ export function resumeShotlyxMGJobInBackground({
 	signal?: AbortSignal;
 	onProgress?: ToolExecutionContext["onProgress"];
 }): void {
+	const startTime = mediaTimeFromSecondsForCreative({ seconds: startTimeSeconds });
 	followShotlyxMGJobInBackground({
 		editor,
 		fetchFn,
 		jobId,
 		sourcePrompt,
-		startTime: mediaTimeFromSecondsForCreative({ seconds: startTimeSeconds }),
+		startTime,
+		placementState: insertToTimeline
+			? createShotlyxMGTimelinePlacementState({ editor, startTime })
+			: undefined,
 		insertToTimeline,
 		context: { signal, onProgress },
 	});
@@ -2137,7 +2412,8 @@ export function buildCreativeTools({
 				},
 				startTimeSeconds: {
 					type: "number",
-					description: "插入时间线的开始时间。省略时使用当前播放头",
+					description:
+						"插入时间线的开始时间。省略时会分析现有 MG/字幕/播放头并自动排队",
 					optional: true,
 				},
 				transparentBackground: {
@@ -2187,7 +2463,11 @@ export function buildCreativeTools({
 				if (insertToTimeline && !editor.scenes.getActiveSceneOrNull()) {
 					throw new Error("状态错误：未加载场景，无法插入 Shotlyx MG 动画");
 				}
-				const startTime = getStartTime({ editor, params });
+				const placementState = insertToTimeline
+					? createShotlyxMGTimelinePlacementState({ editor, params })
+					: undefined;
+				const startTime =
+					placementState?.nextStartTime ?? getStartTime({ editor, params });
 				const remotionSkill = buildRemotionSkillContextSummary({
 					prompt,
 					styleGuide,
@@ -2244,6 +2524,7 @@ export function buildCreativeTools({
 						jobId,
 						sourcePrompt: prompt,
 						startTime,
+						placementState,
 						insertToTimeline,
 						context,
 					});
@@ -2335,17 +2616,22 @@ export function buildCreativeTools({
 
 					let inserted: { trackId: string; elementId: string } | null = null;
 					if (insertToTimeline) {
+						if (!placementState) {
+							throw new Error("状态错误：无法确定 MG 插入轨道");
+						}
 						const beforeIds = new Set(
 							listTimelineElements({ editor }).map((item) => item.element.id),
 						);
-						const element = buildShotlyxMGElementFromAsset({
+						const element = buildNextShotlyxMGTimelineElement({
 							asset,
-							startTime,
+							placement: placementState,
 						});
 
 						editor.timeline.insertElement({
 							element,
-							placement: { mode: "auto", trackType: "graphic" },
+							placement: getShotlyxMGInsertPlacement({
+								placement: placementState,
+							}),
 						});
 
 						inserted = findInsertedElement({ editor, beforeIds });
@@ -2440,7 +2726,8 @@ export function buildCreativeTools({
 				},
 				startTimeSeconds: {
 					type: "number",
-					description: "插入时间线的开始时间。省略时使用当前播放头",
+					description:
+						"插入时间线的开始时间。省略时会分析现有 MG/字幕/播放头并自动排队",
 					optional: true,
 				},
 				transparentBackground: {
@@ -2481,7 +2768,11 @@ export function buildCreativeTools({
 				if (insertToTimeline && !editor.scenes.getActiveSceneOrNull()) {
 					throw new Error("状态错误：未加载场景，无法插入 Shotlyx MG 动画");
 				}
-				const startTime = getStartTime({ editor, params });
+				const placementState = insertToTimeline
+					? createShotlyxMGTimelinePlacementState({ editor, params })
+					: undefined;
+				const startTime =
+					placementState?.nextStartTime ?? getStartTime({ editor, params });
 
 				if (!creativeDeps.generateShotlyxMGComponentFn) {
 					const { jobId } = await startShotlyxMGJobViaRoute({
@@ -2513,6 +2804,7 @@ export function buildCreativeTools({
 						jobId,
 						sourcePrompt: prompt,
 						startTime,
+						placementState,
 						insertToTimeline,
 						context,
 					});
@@ -2575,14 +2867,17 @@ export function buildCreativeTools({
 				const beforeIds = new Set(
 					listTimelineElements({ editor }).map((item) => item.element.id),
 				);
-				const element = buildShotlyxMGElementFromAsset({
+				if (!placementState) {
+					throw new Error("状态错误：无法确定 MG 插入轨道");
+				}
+				const element = buildNextShotlyxMGTimelineElement({
 					asset,
-					startTime,
+					placement: placementState,
 				});
 
 				editor.timeline.insertElement({
 					element,
-					placement: { mode: "auto", trackType: "graphic" },
+					placement: getShotlyxMGInsertPlacement({ placement: placementState }),
 				});
 
 				const inserted = findInsertedElement({ editor, beforeIds });

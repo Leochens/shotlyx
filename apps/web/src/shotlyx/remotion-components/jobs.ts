@@ -31,6 +31,9 @@ export type ShotlyxMGJobEvent =
 			detail?: string;
 			index?: number;
 			total?: number;
+			taskId?: string;
+			taskLabel?: string;
+			documents?: ShotlyxRemotionComponentDocument[];
 	  }
 	| {
 			type: "component-complete";
@@ -39,6 +42,8 @@ export type ShotlyxMGJobEvent =
 			status: "success";
 			index: number;
 			total: number;
+			taskId?: string;
+			taskLabel?: string;
 			document: ShotlyxRemotionComponentDocument;
 	  }
 	| {
@@ -187,6 +192,7 @@ function logJobEvent({ event }: { event: ShotlyxMGJobEvent }): void {
 		status: event.status,
 		index: "index" in event ? event.index : undefined,
 		total: "total" in event ? event.total : undefined,
+		taskId: "taskId" in event ? event.taskId : undefined,
 		detail: "detail" in event ? event.detail : undefined,
 		error: "error" in event ? event.error : undefined,
 	};
@@ -239,7 +245,11 @@ function emitRemotionSkillContext({
 }
 
 function shouldCancelJob({ job }: { job: ShotlyxMGJob }): boolean {
-	return job.abortController.signal.aborted || job.status === "cancelled";
+	return (
+		job.abortController.signal.aborted ||
+		job.status === "cancelled" ||
+		job.status === "failed"
+	);
 }
 
 async function generateDocumentWithTimeout({
@@ -303,6 +313,158 @@ async function generateDocumentWithTimeout({
 	}
 }
 
+async function generateMGComponentForJob({
+	job,
+	generateDocumentFn,
+	componentIndex,
+	componentCount,
+	componentTimeoutMs,
+	componentRetryAttempts,
+	taskId,
+	taskLabel,
+}: {
+	job: ShotlyxMGJob;
+	generateDocumentFn: GenerateShotlyxMGJobDocumentFn;
+	componentIndex: number;
+	componentCount: number;
+	componentTimeoutMs: number;
+	componentRetryAttempts: number;
+	taskId: string;
+	taskLabel: string;
+}): Promise<ShotlyxRemotionComponentDocument> {
+	if (shouldCancelJob({ job })) {
+		throw new Error("Shotlyx MG job cancelled");
+	}
+
+	emit({
+		job,
+		event: {
+			type: "progress",
+			jobId: job.id,
+			label: `生成第 ${componentIndex + 1}/${componentCount} 个 MG 组件`,
+			status: "running",
+			index: componentIndex,
+			total: componentCount,
+			taskId,
+			taskLabel,
+		},
+	});
+
+	const basePrompt = buildComponentPrompt({
+		input: job.input,
+		index: componentIndex,
+		total: componentCount,
+	});
+	let document: ShotlyxRemotionComponentDocument | null = null;
+	let lastErrorMessage = "";
+	let totalAttempt = 0;
+	let unclearRetryCount = 0;
+	let repairRetryCount = 0;
+
+	while (true) {
+		try {
+			document = await generateDocumentWithTimeout({
+				job,
+				generateDocumentFn,
+				componentIndex,
+				componentCount,
+				timeoutMs: componentTimeoutMs,
+				args: {
+					...job.input,
+					prompt:
+						totalAttempt === 0
+							? basePrompt
+							: buildFallbackComponentPrompt({
+									prompt: basePrompt,
+									error: lastErrorMessage,
+									attempt: totalAttempt,
+								}),
+					repairAttempts: Math.max(job.input.repairAttempts ?? 0, 1),
+					preferPlainJson: job.input.preferPlainJson ?? false,
+					maxOutputTokens: Math.max(
+						job.input.maxOutputTokens ?? 0,
+						DEFAULT_COMPONENT_MAX_OUTPUT_TOKENS,
+					),
+				},
+			});
+			break;
+		} catch (error) {
+			if (shouldCancelJob({ job })) {
+				throw error;
+			}
+			lastErrorMessage = getErrorMessage(error);
+			const canRepairSpecificError =
+				isSpecificRepairableMGError(lastErrorMessage) &&
+				repairRetryCount < DEFAULT_COMPONENT_REPAIR_ATTEMPTS;
+			const canRetryUnclearError =
+				!isSpecificRepairableMGError(lastErrorMessage) &&
+				unclearRetryCount < componentRetryAttempts;
+			if (!canRepairSpecificError && !canRetryUnclearError) {
+				throw error;
+			}
+			totalAttempt += 1;
+			if (canRepairSpecificError) {
+				repairRetryCount += 1;
+			} else {
+				unclearRetryCount += 1;
+			}
+			emit({
+				job,
+				event: {
+					type: "progress",
+					jobId: job.id,
+					label: canRepairSpecificError
+						? `第 ${componentIndex + 1}/${componentCount} 个 MG 组件生成失败，正在修复具体错误（第 ${repairRetryCount} 次）`
+						: `第 ${componentIndex + 1}/${componentCount} 个 MG 组件生成失败，正在第 ${unclearRetryCount} 次重试`,
+					status: "running",
+					detail: lastErrorMessage,
+					index: componentIndex,
+					total: componentCount,
+					taskId,
+					taskLabel,
+				},
+			});
+		}
+	}
+
+	if (!document) {
+		throw new Error(lastErrorMessage || "MG 子智能体没有返回可用的组件结果");
+	}
+	if (shouldCancelJob({ job })) {
+		throw new Error("Shotlyx MG job cancelled");
+	}
+
+	emit({
+		job,
+		event: {
+			type: "component-complete",
+			jobId: job.id,
+			label: `已生成${document.name}`,
+			status: "success",
+			index: componentIndex,
+			total: componentCount,
+			taskId,
+			taskLabel,
+			document,
+		},
+	});
+	return document;
+}
+
+async function runParallelJobTasks<T>({
+	tasks,
+}: {
+	tasks: Array<() => Promise<T>>;
+}): Promise<T[]> {
+	const results = new Array<T>(tasks.length);
+	await Promise.all(
+		tasks.map(async (task, index) => {
+			results[index] = await task();
+		}),
+	);
+	return results;
+}
+
 async function runShotlyxMGJob({
 	job,
 	generateDocumentFn,
@@ -364,118 +526,22 @@ async function runShotlyxMGJob({
 	});
 
 	try {
-		for (let index = 0; index < componentCount; index += 1) {
-			if (shouldCancelJob({ job })) {
-				markJobCancelled({ job });
-				return;
-			}
-			emit({
-				job,
-				event: {
-					type: "progress",
-					jobId: job.id,
-					label: `生成第 ${index + 1}/${componentCount} 个 MG 组件`,
-					status: "running",
-					index,
-					total: componentCount,
-				},
-			});
-			const basePrompt = buildComponentPrompt({
-				input: job.input,
-				index,
-				total: componentCount,
-			});
-			let document: ShotlyxRemotionComponentDocument | null = null;
-			let lastErrorMessage = "";
-			let totalAttempt = 0;
-			let unclearRetryCount = 0;
-			let repairRetryCount = 0;
-			while (true) {
-				try {
-					document = await generateDocumentWithTimeout({
-						job,
-						generateDocumentFn,
-						componentIndex: index,
-						componentCount,
-						timeoutMs: componentTimeoutMs,
-						args: {
-							...job.input,
-							prompt:
-								totalAttempt === 0
-									? basePrompt
-									: buildFallbackComponentPrompt({
-											prompt: basePrompt,
-											error: lastErrorMessage,
-											attempt: totalAttempt,
-										}),
-							repairAttempts: Math.max(job.input.repairAttempts ?? 0, 1),
-							preferPlainJson: job.input.preferPlainJson ?? false,
-							maxOutputTokens: Math.max(
-								job.input.maxOutputTokens ?? 0,
-								DEFAULT_COMPONENT_MAX_OUTPUT_TOKENS,
-							),
-						},
-					});
-					break;
-				} catch (error) {
-					if (shouldCancelJob({ job })) {
-						markJobCancelled({ job });
-						return;
-					}
-					lastErrorMessage = getErrorMessage(error);
-					const canRepairSpecificError =
-						isSpecificRepairableMGError(lastErrorMessage) &&
-						repairRetryCount < DEFAULT_COMPONENT_REPAIR_ATTEMPTS;
-					const canRetryUnclearError =
-						!isSpecificRepairableMGError(lastErrorMessage) &&
-						unclearRetryCount < componentRetryAttempts;
-					if (!canRepairSpecificError && !canRetryUnclearError) {
-						throw error;
-					}
-					totalAttempt += 1;
-					if (canRepairSpecificError) {
-						repairRetryCount += 1;
-					} else {
-						unclearRetryCount += 1;
-					}
-					emit({
-						job,
-						event: {
-							type: "progress",
-							jobId: job.id,
-							label: canRepairSpecificError
-								? `第 ${index + 1}/${componentCount} 个 MG 组件生成失败，正在修复具体错误（第 ${repairRetryCount} 次）`
-								: `第 ${index + 1}/${componentCount} 个 MG 组件生成失败，正在第 ${unclearRetryCount} 次重试`,
-							status: "running",
-							detail: lastErrorMessage,
-							index,
-							total: componentCount,
-						},
-					});
-				}
-			}
-			if (!document) {
-				throw new Error(
-					lastErrorMessage || "MG 子智能体没有返回可用的组件结果",
-				);
-			}
-			if (shouldCancelJob({ job })) {
-				markJobCancelled({ job });
-				return;
-			}
-			emit({
-				job,
-				event: {
-					type: "component-complete",
-					jobId: job.id,
-					label: `已生成${document.name}`,
-					status: "success",
-					index,
-					total: componentCount,
-					document,
-				},
-			});
-		}
+		const documents = await runParallelJobTasks({
+			tasks: directorPlan.components.slice(0, componentCount).map(
+				(component, index) =>
+					() =>
+						generateMGComponentForJob({
+							job,
+							generateDocumentFn,
+							componentIndex: index,
+							componentCount,
+							componentTimeoutMs,
+							componentRetryAttempts,
+							taskId: component.id,
+							taskLabel: component.label,
+						}),
+			),
+		});
 		if (shouldCancelJob({ job })) {
 			markJobCancelled({ job });
 			return;
@@ -490,6 +556,7 @@ async function runShotlyxMGJob({
 				status: "success",
 				index: componentCount,
 				total: componentCount,
+				documents,
 			},
 		});
 	} catch (error) {
@@ -498,6 +565,7 @@ async function runShotlyxMGJob({
 			return;
 		}
 		job.status = "failed";
+		job.abortController.abort();
 		emit({
 			job,
 			event: {

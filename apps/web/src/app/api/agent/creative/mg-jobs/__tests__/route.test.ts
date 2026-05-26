@@ -10,6 +10,57 @@ import { GET } from "../[jobId]/events/route";
 import { DELETE } from "../[jobId]/route";
 import { POST } from "../route";
 
+function createDeferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (error: Error) => void;
+	const promise = new Promise<T>((promiseResolve, promiseReject) => {
+		resolve = promiseResolve;
+		reject = promiseReject;
+	});
+	return { promise, resolve, reject };
+}
+
+async function flushMicrotasks(): Promise<void> {
+	await Promise.resolve();
+	await Promise.resolve();
+}
+
+async function waitForCondition({
+	condition,
+	timeoutMs = 2000,
+}: {
+	condition: () => boolean;
+	timeoutMs?: number;
+}): Promise<void> {
+	const startedAt = Date.now();
+	while (!condition()) {
+		if (Date.now() - startedAt > timeoutMs) {
+			throw new Error("Timed out waiting for condition");
+		}
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
+}
+
+function getCompletedDocumentNames({ events }: { events: unknown[] }): string[] {
+	const completed = events.find(
+		(event) =>
+			typeof event === "object" &&
+			event !== null &&
+			"type" in event &&
+			event.type === "completed",
+	);
+	if (typeof completed !== "object" || completed === null) return [];
+	const documents = Reflect.get(completed, "documents");
+	if (!Array.isArray(documents)) return [];
+	return documents
+		.map((document) =>
+			typeof document === "object" && document !== null
+				? Reflect.get(document, "name")
+				: null,
+		)
+		.filter((name): name is string => typeof name === "string");
+}
+
 describe("Shotlyx MG job routes", () => {
 	beforeEach(() => {
 		clearShotlyxMGJobs();
@@ -83,6 +134,68 @@ describe("Shotlyx MG job routes", () => {
 			events.some((event) => event.detail?.includes("remotion-dev/skills")),
 		).toBe(true);
 		await response.body?.cancel();
+	});
+
+	test("MG composition jobs start component work in parallel and publish a completed result barrier", async () => {
+		const deferreds = [0, 1, 2].map(() =>
+			createDeferred<typeof shotlyxBattleCardFixture>(),
+		);
+		const startedIndexes: number[] = [];
+		const events: unknown[] = [];
+		const { jobId } = createShotlyxMGJob({
+			input: {
+				prompt: "并行生成三个品牌讲解 MG 层",
+				durationSeconds: 5,
+				aspectRatio: "16:9",
+				componentCount: 3,
+			},
+			generateDocumentFn: async () => {
+				const index = startedIndexes.length;
+				startedIndexes.push(index);
+				return deferreds[index]!.promise;
+			},
+		});
+		const unsubscribe = subscribeShotlyxMGJob({
+			jobId,
+			onEvent: (event) => {
+				events.push(event);
+			},
+		});
+
+		await flushMicrotasks();
+
+		expect(startedIndexes).toEqual([0, 1, 2]);
+
+		deferreds[2]!.resolve({
+			...shotlyxBattleCardFixture,
+			name: "组件 3",
+		});
+		deferreds[0]!.resolve({
+			...shotlyxBattleCardFixture,
+			name: "组件 1",
+		});
+		deferreds[1]!.resolve({
+			...shotlyxBattleCardFixture,
+			name: "组件 2",
+		});
+
+		await waitForCondition({
+			condition: () =>
+				events.some(
+					(event) =>
+						typeof event === "object" &&
+						event !== null &&
+						"type" in event &&
+						event.type === "completed",
+				),
+		});
+		unsubscribe();
+
+		expect(getCompletedDocumentNames({ events })).toEqual([
+			"组件 1",
+			"组件 2",
+			"组件 3",
+		]);
 	});
 
 	test("DELETE returns 404 for an unknown job", async () => {

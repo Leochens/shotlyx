@@ -11,6 +11,10 @@ export interface ToolProgressRecord {
 	detail?: string;
 	current?: number;
 	total?: number;
+	jobId?: string;
+	taskId?: string;
+	taskLabel?: string;
+	taskIndex?: number;
 	timestamp?: number;
 }
 

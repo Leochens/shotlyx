@@ -78,6 +78,38 @@ function getLatestProgress(toolCall: ToolCallRecord) {
 	return progress[progress.length - 1];
 }
 
+export interface JobTaskProgressItem {
+	id: string;
+	label: string;
+	status: "running" | "success" | "error";
+	detail: string;
+	index?: number;
+	current?: number;
+	total?: number;
+}
+
+export function getJobTaskProgressItems(
+	toolCall: ToolCallRecord,
+): JobTaskProgressItem[] {
+	const taskItems = new Map<string, JobTaskProgressItem>();
+	for (const event of toolCall.progress ?? []) {
+		if (!event.taskId && event.taskIndex === undefined) continue;
+		const id = event.taskId ?? `task-${event.taskIndex}`;
+		taskItems.set(id, {
+			id,
+			label: event.taskLabel ?? event.label,
+			status: event.status,
+			detail: event.label,
+			index: event.taskIndex,
+			current: event.current,
+			total: event.total,
+		});
+	}
+	return [...taskItems.values()].sort(
+		(left, right) => (left.index ?? 0) - (right.index ?? 0),
+	);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -418,9 +450,13 @@ function ToolCallRow({
 function ToolCallDetails({ toolCall }: { toolCall: ToolCallRecord }) {
 	const progress = toolCall.progress ?? [];
 	const output = getToolOutputDisplay(toolCall);
+	const taskProgress = getJobTaskProgressItems(toolCall);
 
 	return (
 		<div className="space-y-2">
+			{taskProgress.length > 0 && (
+				<JobTaskProgressList items={taskProgress} />
+			)}
 			{progress.length > 0 && (
 				<div>
 					<div className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-neutral-600">
@@ -490,6 +526,58 @@ function ToolCallDetails({ toolCall }: { toolCall: ToolCallRecord }) {
 					>
 						{output.text}
 					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function JobTaskProgressList({ items }: { items: JobTaskProgressItem[] }) {
+	return (
+		<div>
+			<div className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-neutral-600">
+				<Grid2X2 size={10} />
+				并行任务
+			</div>
+			<div className="rounded bg-neutral-950/80 p-2">
+				<div className="grid gap-1 md:grid-cols-2">
+					{items.map((item) => (
+						<div
+							key={item.id}
+							className="flex min-w-0 items-center gap-2 rounded-sm border border-neutral-800/70 px-2 py-1.5"
+						>
+							<span
+								className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+									item.status === "error"
+										? "bg-red-400"
+										: item.status === "success"
+											? "bg-emerald-400"
+											: "bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.6)]"
+								}`}
+							/>
+							<div className="min-w-0 flex-1">
+								<div className="truncate text-[10px] font-medium text-neutral-300">
+									{item.label}
+								</div>
+								<div
+									className={`truncate text-[10px] ${
+										item.status === "error"
+											? "text-red-300"
+											: item.status === "success"
+												? "text-emerald-300"
+												: "text-blue-300"
+									}`}
+								>
+									{item.detail}
+								</div>
+							</div>
+							{item.total !== undefined && item.current !== undefined && (
+								<span className="shrink-0 tabular-nums text-[10px] text-neutral-600">
+									{item.current}/{item.total}
+								</span>
+							)}
+						</div>
+					))}
 				</div>
 			</div>
 		</div>
