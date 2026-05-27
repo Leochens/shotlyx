@@ -1,5 +1,6 @@
 import { graphicsRegistry } from "../registry";
 import { shotlyxMGGraphicDefinition } from "@/shotlyx/remotion-components/graphic-definition";
+import { calloutGraphicDefinitions } from "./callouts";
 import { ellipseGraphicDefinition } from "./ellipse";
 import { motionGraphicDefinitions } from "./motion-graphics";
 import { polygonGraphicDefinition } from "./polygon";
@@ -11,6 +12,7 @@ const defaultGraphicDefinitions = [
 	ellipseGraphicDefinition,
 	polygonGraphicDefinition,
 	starGraphicDefinition,
+	...calloutGraphicDefinitions,
 	shotlyxMGGraphicDefinition,
 	...motionGraphicDefinitions,
 ];
@@ -29,6 +31,7 @@ export function registerDefaultGraphics(): void {
 
 export {
 	ellipseGraphicDefinition,
+	calloutGraphicDefinitions,
 	motionGraphicDefinitions,
 	polygonGraphicDefinition,
 	rectangleGraphicDefinition,

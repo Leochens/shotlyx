@@ -12,12 +12,25 @@ import {
 } from "./validation";
 import type { AnimationInterpolation } from "@/animation/types";
 import { motionGraphicDefinitions } from "@/graphics/definitions/motion-graphics";
+import {
+	buildCalloutGraphicElement,
+	buildMosaicEffectElement,
+} from "@/callouts/presets";
 
 const TRACK_TYPES = ["video", "text", "audio", "graphic", "effect"] as const;
 type TrackType = (typeof TRACK_TYPES)[number];
+const VISUAL_EFFECT_KINDS = ["arrow", "box", "circle", "mosaic"] as const;
+type VisualEffectKind = (typeof VISUAL_EFFECT_KINDS)[number];
 
 function isTrackType(value: unknown): value is TrackType {
 	return typeof value === "string" && TRACK_TYPES.some((t) => t === value);
+}
+
+function isVisualEffectKind(value: unknown): value is VisualEffectKind {
+	return (
+		typeof value === "string" &&
+		VISUAL_EFFECT_KINDS.some((kind) => kind === value)
+	);
 }
 
 function isElementRefArray(value: unknown): value is Array<{
@@ -814,6 +827,155 @@ export function buildTimelineTools({
 					scaleX,
 					scaleY,
 					rotate,
+				};
+			},
+		},
+		{
+			name: "timeline_insert_visual_effect",
+			description:
+				"Insert a timed visual effect preset on the timeline. Use this for subtitle-timed arrows, highlight boxes, highlight circles, or a full-frame mosaic/pixelate effect. For arrow/box/circle, this creates editable graphic elements with built-in pop/fade animation. For mosaic, this creates an effect-track element.",
+			parameters: {
+				kind: {
+					type: "string",
+					description: "Effect preset: arrow, box, circle, or mosaic",
+				},
+				trackId: {
+					type: "string",
+					description:
+						"Optional target track ID. Use a graphic track for arrow/box/circle, or an effect track for mosaic.",
+					optional: true,
+				},
+				startTimeSeconds: {
+					type: "number",
+					description:
+						"Timeline start time in seconds. Use the matched subtitle cue/token start time when available.",
+				},
+				durationSeconds: {
+					type: "number",
+					description:
+						"Optional duration in seconds. Defaults to a short callout duration.",
+					optional: true,
+				},
+				color: {
+					type: "string",
+					description: "Optional callout stroke/fill color, e.g. #facc15",
+					optional: true,
+				},
+				fill: {
+					type: "string",
+					description:
+						"Optional callout fill color. Omit for transparent yellow highlight fill.",
+					optional: true,
+				},
+				positionX: {
+					type: "number",
+					description: "Optional canvas X offset for arrow/box/circle",
+					optional: true,
+				},
+				positionY: {
+					type: "number",
+					description: "Optional canvas Y offset for arrow/box/circle",
+					optional: true,
+				},
+				scaleX: {
+					type: "number",
+					description: "Optional horizontal scale for arrow/box/circle",
+					optional: true,
+				},
+				scaleY: {
+					type: "number",
+					description: "Optional vertical scale for arrow/box/circle",
+					optional: true,
+				},
+				rotate: {
+					type: "number",
+					description: "Optional rotation in degrees for arrow/box/circle",
+					optional: true,
+				},
+				strokeWidth: {
+					type: "number",
+					description: "Optional stroke width for arrow/box/circle",
+					optional: true,
+				},
+				blockSize: {
+					type: "number",
+					description: "Optional mosaic block size for kind=mosaic",
+					optional: true,
+				},
+			},
+			mutating: true,
+			handler: (params) => {
+				const kindValue = requireStringParam(params, "kind");
+				if (!isVisualEffectKind(kindValue)) {
+					throw new Error(
+						`类型不匹配：kind 必须是 ${VISUAL_EFFECT_KINDS.join("、")} 之一`,
+					);
+				}
+
+				const trackId = optionalStringParam(params, "trackId");
+				const startTimeSeconds = requireNumberParam(params, "startTimeSeconds");
+				const durationSeconds = optionalNumberParam(params, "durationSeconds");
+				const color = optionalStringParam(params, "color");
+				const fill = optionalStringParam(params, "fill");
+				const positionX = optionalNumberParam(params, "positionX");
+				const positionY = optionalNumberParam(params, "positionY");
+				const scaleX = optionalNumberParam(params, "scaleX");
+				const scaleY = optionalNumberParam(params, "scaleY");
+				const rotate = optionalNumberParam(params, "rotate");
+				const strokeWidth = optionalNumberParam(params, "strokeWidth");
+				const blockSize = optionalNumberParam(params, "blockSize");
+
+				if (trackId) {
+					const track = editor.timeline.getTrackById({ trackId });
+					if (!track) {
+						throw new Error(`轨道不存在：找不到轨道 "${trackId}"`);
+					}
+					const expectedTrackType =
+						kindValue === "mosaic" ? "effect" : "graphic";
+					if (track.type !== expectedTrackType) {
+						throw new Error(
+							`类型不匹配：${kindValue} 需要插入 ${expectedTrackType} 轨道，当前是 ${track.type} 轨道`,
+						);
+					}
+				}
+
+				const element =
+					kindValue === "mosaic"
+						? buildMosaicEffectElement({
+								startTimeSeconds,
+								durationSeconds,
+								blockSize,
+							})
+						: buildCalloutGraphicElement({
+								kind: kindValue,
+								startTimeSeconds,
+								durationSeconds,
+								...(color !== undefined ? { color } : {}),
+								...(fill !== undefined ? { fill } : {}),
+								...(positionX !== undefined ? { positionX } : {}),
+								...(positionY !== undefined ? { positionY } : {}),
+								...(scaleX !== undefined ? { scaleX } : {}),
+								...(scaleY !== undefined ? { scaleY } : {}),
+								...(rotate !== undefined ? { rotate } : {}),
+								...(strokeWidth !== undefined ? { strokeWidth } : {}),
+							});
+				const insertion = editor.timeline.insertElement({
+					element,
+					placement: trackId
+						? { mode: "explicit", trackId }
+						: {
+								mode: "auto",
+								trackType: kindValue === "mosaic" ? "effect" : "graphic",
+							},
+				});
+
+				return {
+					inserted: true,
+					kind: kindValue,
+					trackId: insertion.trackId ?? trackId,
+					elementId: insertion.elementId,
+					startTime: startTimeSeconds,
+					duration: durationSeconds,
 				};
 			},
 		},

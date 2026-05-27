@@ -6,6 +6,7 @@ import { graphicsRegistry } from "./registry";
 import {
 	registerDefaultGraphics,
 	ellipseGraphicDefinition,
+	calloutGraphicDefinitions,
 	motionGraphicDefinitions,
 	polygonGraphicDefinition,
 	rectangleGraphicDefinition,
@@ -146,6 +147,7 @@ export function buildGraphicPreviewUrl({
 
 export {
 	DEFAULT_GRAPHIC_SOURCE_SIZE,
+	calloutGraphicDefinitions,
 	ellipseGraphicDefinition,
 	graphicsRegistry,
 	motionGraphicDefinitions,
