@@ -11,6 +11,11 @@ import {
 	type ShotlyxMGCompositionDirectorPlan,
 } from "@/shotlyx/remotion-components/composition-director";
 import { registerShotlyxMGAsset } from "@/shotlyx/remotion-components/asset-store";
+import {
+	rebuildShotlyxHyperFramesDocument,
+	type GenerateShotlyxHyperFramesDocumentOptions,
+} from "@/shotlyx/hyperframes/generator";
+import { listShotlyxHyperFramesTemplates } from "@/shotlyx/hyperframes/templates";
 import type { GenerateShotlyxMGComponentOptions } from "@/shotlyx/remotion-components/generator";
 import {
 	SHOTLYX_MG_GRAPHIC_DEFINITION_ID,
@@ -23,9 +28,13 @@ import {
 } from "@/shotlyx/remotion-components/skill-context";
 import {
 	SHOTLYX_REMOTION_COMPONENT_RUNTIME,
+	SHOTLYX_HYPERFRAMES_RUNTIME,
+	type ShotlyxHyperFramesTemplateId,
 	type ShotlyxMGAsset,
+	type ShotlyxMGDocument,
 	type ShotlyxMGPropDefinition,
 	type ShotlyxMGPropValue,
+	type ShotlyxHyperFramesDocument,
 	type ShotlyxRemotionComponentDocument,
 } from "@/shotlyx/remotion-components/types";
 import type { EditorCore } from "@/core";
@@ -45,7 +54,13 @@ import type { CreativeAsset } from "./types";
 
 const ORIENTATIONS = ["landscape", "portrait", "square"] as const;
 const ASPECT_RATIOS = ["1:1", "16:9", "9:16"] as const;
-const SEEDANCE_VIDEO_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"] as const;
+const SEEDANCE_VIDEO_ASPECT_RATIOS = [
+	"16:9",
+	"9:16",
+	"1:1",
+	"4:3",
+	"3:4",
+] as const;
 const SEEDANCE_VIDEO_DURATIONS = [5, 8, 10, 12] as const;
 const IMAGE_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as const;
 // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
@@ -94,6 +109,9 @@ interface CreativeToolDeps {
 	generateShotlyxMGComponentFn?: (
 		args: GenerateShotlyxMGComponentOptions,
 	) => Promise<ShotlyxRemotionComponentDocument>;
+	generateShotlyxHyperFramesFn?: (
+		args: GenerateShotlyxHyperFramesDocumentOptions,
+	) => Promise<ShotlyxHyperFramesDocument>;
 }
 
 interface ShotlyxMGJobEvent {
@@ -138,7 +156,9 @@ function isSeedanceVideoAspectRatio(
 	return SEEDANCE_VIDEO_ASPECT_RATIOS.some((item) => item === value);
 }
 
-function isSeedanceVideoDuration(value: number): value is SeedanceVideoDuration {
+function isSeedanceVideoDuration(
+	value: number,
+): value is SeedanceVideoDuration {
 	return SEEDANCE_VIDEO_DURATIONS.some((item) => item === value);
 }
 
@@ -185,6 +205,22 @@ function optionalAspectRatioParam(
 		);
 	}
 	return value;
+}
+
+function optionalHyperFramesTemplateIdParam(
+	params: Record<string, unknown>,
+): ShotlyxHyperFramesTemplateId | undefined {
+	const value = optionalStringParam(params, "templateId");
+	if (value === undefined) return undefined;
+	const templates = listShotlyxHyperFramesTemplates();
+	const template = templates.find((item) => item.id === value);
+	if (!template) {
+		const templateIds = templates.map((item) => item.id);
+		throw new Error(
+			`类型不匹配："templateId" 必须为以下之一：${templateIds.join(", ")}`,
+		);
+	}
+	return template.id;
 }
 
 function optionalSeedanceVideoAspectRatioParam(
@@ -475,7 +511,11 @@ function mediaTimeFromSecondsForCreative({
 	return Math.round(seconds * MEDIA_TIME_TICKS_PER_SECOND) as MediaTime;
 }
 
-function mediaTimeFromTicksForCreative({ ticks }: { ticks: number }): MediaTime {
+function mediaTimeFromTicksForCreative({
+	ticks,
+}: {
+	ticks: number;
+}): MediaTime {
 	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 	return Math.round(ticks) as MediaTime;
 }
@@ -561,9 +601,7 @@ function findPreferredShotlyxMGTrackId({
 	const existingMGTrack = scene.tracks.overlay.find(
 		(track) =>
 			track.type === "graphic" &&
-			track.elements.some((element) =>
-				isShotlyxMGTimelineElement({ element }),
-			),
+			track.elements.some((element) => isShotlyxMGTimelineElement({ element })),
 	);
 	if (existingMGTrack) return existingMGTrack.id;
 	const existingGraphicTrack = scene.tracks.overlay.find(
@@ -810,7 +848,10 @@ function solidBackgroundFallbackForProp({
 	prop: ShotlyxMGPropDefinition;
 	currentValue: unknown;
 }): string {
-	if (typeof currentValue === "string" && !isTransparentColorValue(currentValue)) {
+	if (
+		typeof currentValue === "string" &&
+		!isTransparentColorValue(currentValue)
+	) {
 		return currentValue;
 	}
 	if (
@@ -846,7 +887,8 @@ function buildShotlyxMGBackgroundPropUpdates({
 			? "transparent"
 			: solidBackgroundFallbackForProp({
 					prop,
-					currentValue: currentProps?.[prop.key] ?? asset.document.defaultProps[prop.key],
+					currentValue:
+						currentProps?.[prop.key] ?? asset.document.defaultProps[prop.key],
 				});
 	}
 	return {
@@ -1086,6 +1128,11 @@ function getShotlyxMGEditableProps({ asset }: { asset: ShotlyxMGAsset }) {
 }
 
 function buildShotlyxMGSchemaResult({ asset }: { asset: ShotlyxMGAsset }) {
+	const manifest =
+		asset.runtime === SHOTLYX_REMOTION_COMPONENT_RUNTIME
+			? (asset.document.manifest ?? null)
+			: null;
+
 	return {
 		shotlyxMGAssetId: asset.id,
 		motionGraphicAssetId: asset.id,
@@ -1095,9 +1142,9 @@ function buildShotlyxMGSchemaResult({ asset }: { asset: ShotlyxMGAsset }) {
 		transparentBackground: asset.document.transparentBackground ?? false,
 		backgroundPropKeys: getShotlyxMGBackgroundPropKeys({ asset }),
 		params: asset.document.defaultProps,
-		manifest: asset.document.manifest ?? null,
+		manifest,
 		editableProps: getShotlyxMGEditableProps({ asset }),
-		renderer: "shotlyx-remotion-component-v1",
+		renderer: asset.runtime,
 	};
 }
 
@@ -1207,7 +1254,9 @@ async function referenceImageUrlFromMediaAsset({
 	mediaAssetId?: string;
 }): Promise<string | undefined> {
 	if (!mediaAssetId) return undefined;
-	const asset = editor.media.getAssets().find((item) => item.id === mediaAssetId);
+	const asset = editor.media
+		.getAssets()
+		.find((item) => item.id === mediaAssetId);
 	if (!asset) {
 		throw new Error(`资源不存在：找不到参考图 "${mediaAssetId}"`);
 	}
@@ -1377,6 +1426,45 @@ function isShotlyxRemotionComponentDocument(
 	);
 }
 
+function isShotlyxHyperFramesDocument(
+	value: unknown,
+): value is ShotlyxHyperFramesDocument {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return false;
+	}
+	const version: unknown = Reflect.get(value, "version");
+	const runtime: unknown = Reflect.get(value, "runtime");
+	const name: unknown = Reflect.get(value, "name");
+	const durationSeconds: unknown = Reflect.get(value, "durationSeconds");
+	const fps: unknown = Reflect.get(value, "fps");
+	const width: unknown = Reflect.get(value, "width");
+	const height: unknown = Reflect.get(value, "height");
+	const aspectRatio: unknown = Reflect.get(value, "aspectRatio");
+	const templateId: unknown = Reflect.get(value, "templateId");
+	const htmlSource: unknown = Reflect.get(value, "htmlSource");
+	const propsSchema: unknown = Reflect.get(value, "propsSchema");
+	const defaultProps: unknown = Reflect.get(value, "defaultProps");
+	const render: unknown = Reflect.get(value, "render");
+	return (
+		version === 1 &&
+		runtime === SHOTLYX_HYPERFRAMES_RUNTIME &&
+		typeof name === "string" &&
+		typeof durationSeconds === "number" &&
+		typeof fps === "number" &&
+		typeof width === "number" &&
+		typeof height === "number" &&
+		typeof aspectRatio === "string" &&
+		typeof templateId === "string" &&
+		typeof htmlSource === "string" &&
+		Array.isArray(propsSchema) &&
+		typeof defaultProps === "object" &&
+		defaultProps !== null &&
+		!Array.isArray(defaultProps) &&
+		typeof render === "object" &&
+		render !== null
+	);
+}
+
 async function parseShotlyxMGJobStartResponse(response: Response): Promise<{
 	jobId: string;
 }> {
@@ -1450,6 +1538,52 @@ async function startShotlyxMGJobViaRoute({
 	}
 
 	return parseShotlyxMGJobStartResponse(response);
+}
+
+async function generateShotlyxHyperFramesViaRoute({
+	args,
+	fetchFn,
+}: {
+	args: GenerateShotlyxHyperFramesDocumentOptions & {
+		abortSignal?: AbortSignal;
+	};
+	fetchFn: CreativeFetchFn;
+}): Promise<ShotlyxHyperFramesDocument> {
+	let response: Response;
+	try {
+		response = await fetchFn("/api/agent/creative/hyperframes", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				prompt: args.prompt,
+				durationSeconds: args.durationSeconds,
+				aspectRatio: args.aspectRatio,
+				templateId: args.templateId,
+				transparentBackground: args.transparentBackground,
+			}),
+			signal: args.abortSignal,
+		});
+	} catch {
+		throw new Error("provider_error: HyperFrames generation request failed");
+	}
+
+	if (!response.ok) {
+		throw new Error(await readRouteError(response));
+	}
+
+	const payload: unknown = await response.json();
+	const document =
+		typeof payload === "object" && payload !== null
+			? Reflect.get(payload, "document")
+			: null;
+	if (!isShotlyxHyperFramesDocument(document)) {
+		throw new Error(
+			"provider_error: HyperFrames route returned invalid document",
+		);
+	}
+	return document;
 }
 
 function parseShotlyxMGJobEvent(value: unknown): ShotlyxMGJobEvent | null {
@@ -1614,7 +1748,7 @@ function saveShotlyxMGDocumentToProject({
 	assetId,
 }: {
 	editor: EditorCore;
-	document: ShotlyxRemotionComponentDocument;
+	document: ShotlyxMGDocument;
 	sourcePrompt: string;
 	startTime: MediaTime;
 	placementState?: ShotlyxMGTimelinePlacementState;
@@ -1873,7 +2007,9 @@ export function resumeShotlyxMGJobInBackground({
 	signal?: AbortSignal;
 	onProgress?: ToolExecutionContext["onProgress"];
 }): void {
-	const startTime = mediaTimeFromSecondsForCreative({ seconds: startTimeSeconds });
+	const startTime = mediaTimeFromSecondsForCreative({
+		seconds: startTimeSeconds,
+	});
 	followShotlyxMGJobInBackground({
 		editor,
 		fetchFn,
@@ -1983,6 +2119,7 @@ export function buildCreativeTools({
 		processMediaAssetsFn:
 			deps?.processMediaAssetsFn ?? defaultProcessMediaAssetsFn,
 		generateShotlyxMGComponentFn: deps?.generateShotlyxMGComponentFn,
+		generateShotlyxHyperFramesFn: deps?.generateShotlyxHyperFramesFn,
 	};
 	return [
 		{
@@ -2206,8 +2343,7 @@ export function buildCreativeTools({
 				const prompt = requireStringParam(params, "prompt");
 				const aspectRatio =
 					optionalSeedanceVideoAspectRatioParam(params) ?? "16:9";
-				const durationSeconds =
-					optionalSeedanceVideoDurationParam(params) ?? 5;
+				const durationSeconds = optionalSeedanceVideoDurationParam(params) ?? 5;
 				const referenceMediaAssetId = optionalNonEmptyStringParam({
 					params,
 					key: "referenceMediaAssetId",
@@ -2272,10 +2408,11 @@ export function buildCreativeTools({
 
 				const startedAt = Date.now();
 				const timeoutMs = 10 * 60 * 1000;
-				let currentTask: Awaited<ReturnType<typeof parseSeedanceTaskResponse>> = {
-					id: task.id,
-					status: "queued",
-				};
+				let currentTask: Awaited<ReturnType<typeof parseSeedanceTaskResponse>> =
+					{
+						id: task.id,
+						status: "queued",
+					};
 				while (Date.now() - startedAt < timeoutMs) {
 					emitToolProgress({
 						context,
@@ -2375,6 +2512,164 @@ export function buildCreativeTools({
 							imported: true,
 						},
 					],
+				};
+			},
+		},
+		{
+			name: "shotlyx_list_hyperframes_templates",
+			description:
+				"列出 Shotlyx HyperFrames 高质量 MG 风格模板。用于让用户在生成标题、箭头、框选、圆圈、字幕强调等设计感动画前选择风格。",
+			parameters: {},
+			mutating: false,
+			handler: async () => ({
+				templates: listShotlyxHyperFramesTemplates().map((template) => ({
+					id: template.id,
+					label: template.label,
+					description: template.description,
+					bestFor: template.bestFor,
+					colors: template.colors,
+					principles: template.principles,
+					constraints: template.constraints,
+				})),
+			}),
+		},
+		{
+			name: "shotlyx_generate_hyperframes_overlay",
+			description:
+				"生成一个可编辑的 Shotlyx HyperFrames MG 覆盖层资产，保存 HTML/CSS/GSAP、可编辑参数、模板风格和模拟渲染快照，并可插入时间线。优先用于更有设计感的一致性标题、箭头、框框、圆圈、字幕强调和 callout 动画。",
+			parameters: {
+				prompt: {
+					type: "string",
+					description:
+						"HyperFrames MG 需求描述，包含要强调的内容、画面位置、箭头/框选/字幕强调等",
+				},
+				templateId: {
+					type: "string",
+					description:
+						"风格模板：swiss-pulse-explainer、kinetic-launch-type、data-drift-ai、editorial-spotlight。省略时默认 Swiss Pulse Explainer。",
+					optional: true,
+				},
+				durationSeconds: {
+					type: "number",
+					description: "动画时长秒数，默认 5，最大 30",
+					optional: true,
+				},
+				aspectRatio: {
+					type: "string",
+					description: "画幅比例：16:9、9:16、1:1，默认 16:9",
+					optional: true,
+				},
+				startTimeSeconds: {
+					type: "number",
+					description:
+						"插入时间线的开始时间。省略时会分析现有 MG/字幕/播放头并自动排队",
+					optional: true,
+				},
+				transparentBackground: {
+					type: "boolean",
+					description:
+						"是否生成透明背景覆盖层，默认 true。用于叠加到视频素材上。",
+					optional: true,
+				},
+				insertToTimeline: {
+					type: "boolean",
+					description: "是否自动插入时间线，默认 true",
+					optional: true,
+				},
+			},
+			mutating: true,
+			// Tool handlers use the MCP runtime signature.
+			// eslint-disable-next-line shotlyx/prefer-object-params
+			handler: async (params, context) => {
+				const prompt = requireStringParam(params, "prompt");
+				if (!editor.project.getActiveOrNull()) {
+					throw new Error("状态错误：未加载项目，无法保存 HyperFrames MG 资产");
+				}
+				const durationSeconds = optionalNumberParam(params, "durationSeconds");
+				if (
+					durationSeconds !== undefined &&
+					(durationSeconds <= 0 || durationSeconds > 30)
+				) {
+					throw new Error("类型不匹配：durationSeconds 必须大于 0 且不超过 30");
+				}
+				const templateId = optionalHyperFramesTemplateIdParam(params);
+				const aspectRatio = optionalAspectRatioParam(params) ?? "16:9";
+				const transparentBackground =
+					optionalBooleanParam(params, "transparentBackground") ?? true;
+				const insertToTimeline =
+					optionalBooleanParam(params, "insertToTimeline") ?? true;
+				if (insertToTimeline && !editor.scenes.getActiveSceneOrNull()) {
+					throw new Error("状态错误：未加载场景，无法插入 HyperFrames MG 动画");
+				}
+				const placementState = insertToTimeline
+					? createShotlyxMGTimelinePlacementState({ editor, params })
+					: undefined;
+				const startTime =
+					placementState?.nextStartTime ?? getStartTime({ editor, params });
+
+				emitToolProgress({
+					context,
+					stage: "generation",
+					label: "生成 HyperFrames 模板覆盖层",
+					status: "running",
+					detail: templateId ?? "swiss-pulse-explainer",
+				});
+
+				const generationArgs = {
+					prompt,
+					durationSeconds,
+					aspectRatio,
+					templateId,
+					transparentBackground,
+					abortSignal: context?.signal,
+				};
+				const document = creativeDeps.generateShotlyxHyperFramesFn
+					? await creativeDeps.generateShotlyxHyperFramesFn(generationArgs)
+					: await generateShotlyxHyperFramesViaRoute({
+							args: generationArgs,
+							fetchFn: creativeDeps.fetchFn,
+						});
+				const saved = saveShotlyxMGDocumentToProject({
+					editor,
+					document,
+					sourcePrompt: prompt,
+					startTime,
+					placementState,
+					insertToTimeline,
+				});
+
+				emitToolProgress({
+					context,
+					stage: "complete",
+					label: "HyperFrames MG 已保存",
+					status: "success",
+					detail: `${document.templateId} · ${document.render.status}`,
+				});
+
+				return {
+					shotlyxMGAssetId: saved.assetId,
+					name: saved.name,
+					runtime: "shotlyx-hyperframes-overlay-v1",
+					templateId: document.templateId,
+					inserted: insertToTimeline,
+					trackId: saved.trackId,
+					elementId: saved.elementId,
+					durationSeconds: document.durationSeconds,
+					aspectRatio: document.aspectRatio,
+					transparentBackground:
+						document.transparentBackground ?? transparentBackground,
+					render: document.render,
+					editableProps: document.propsSchema.map((prop) => ({
+						key: prop.key,
+						label: prop.label,
+						type: prop.type,
+						role: prop.role,
+					})),
+					validationReport: {
+						status: "simulated",
+						renderer: "shotlyx-hyperframes-overlay-v1",
+						diagnostics: document.render.diagnostics,
+					},
 				};
 			},
 		},
@@ -2961,9 +3256,7 @@ export function buildCreativeTools({
 						params.props === undefined &&
 						transparentBackground === undefined
 					) {
-						throw new Error(
-							"参数缺失：请提供 props 或 transparentBackground",
-						);
+						throw new Error("参数缺失：请提供 props 或 transparentBackground");
 					}
 					const backgroundUpdate = buildShotlyxMGBackgroundPropUpdates({
 						asset,
@@ -3137,33 +3430,52 @@ export function buildCreativeTools({
 					const nextDuration =
 						durationSeconds ?? shotlyxAsset.document.durationSeconds;
 					const nextTransparentBackground =
-						transparentBackground ?? shotlyxAsset.document.transparentBackground;
-					const nextAsset: ShotlyxMGAsset = {
-						...shotlyxAsset,
-						name: nextName,
-						document: {
-							...shotlyxAsset.document,
-							name: nextName,
-							durationSeconds: nextDuration,
-							transparentBackground: nextTransparentBackground,
-							defaultProps: {
-								...shotlyxAsset.document.defaultProps,
-								...props,
-							},
-							manifest: shotlyxAsset.document.manifest
-								? {
-										...shotlyxAsset.document.manifest,
+						transparentBackground ??
+						shotlyxAsset.document.transparentBackground;
+					const nextDefaultProps = {
+						...shotlyxAsset.document.defaultProps,
+						...props,
+					};
+					const updatedAt = new Date().toISOString();
+					const nextAsset: ShotlyxMGAsset =
+						shotlyxAsset.runtime === SHOTLYX_HYPERFRAMES_RUNTIME
+							? {
+									...shotlyxAsset,
+									name: nextName,
+									document: rebuildShotlyxHyperFramesDocument({
+										document: {
+											...shotlyxAsset.document,
+											name: nextName,
+											durationSeconds: nextDuration,
+											transparentBackground: nextTransparentBackground,
+										},
+										props: nextDefaultProps,
+									}),
+									updatedAt,
+								}
+							: {
+									...shotlyxAsset,
+									name: nextName,
+									document: {
+										...shotlyxAsset.document,
 										name: nextName,
 										durationSeconds: nextDuration,
 										transparentBackground: nextTransparentBackground,
-										durationInFrames: Math.round(
-											nextDuration * shotlyxAsset.document.fps,
-										),
-									}
-								: undefined,
-						},
-						updatedAt: new Date().toISOString(),
-					};
+										defaultProps: nextDefaultProps,
+										manifest: shotlyxAsset.document.manifest
+											? {
+													...shotlyxAsset.document.manifest,
+													name: nextName,
+													durationSeconds: nextDuration,
+													transparentBackground: nextTransparentBackground,
+													durationInFrames: Math.round(
+														nextDuration * shotlyxAsset.document.fps,
+													),
+												}
+											: undefined,
+									},
+									updatedAt,
+								};
 					editor.project.upsertShotlyxMGAsset({ asset: nextAsset });
 					return {
 						updated: true,

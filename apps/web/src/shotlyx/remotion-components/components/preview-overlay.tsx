@@ -16,7 +16,7 @@ import {
 } from "../preview-overlay-helpers";
 import { SHOTLYX_MG_GRAPHIC_DEFINITION_ID } from "../project-assets";
 import type { ShotlyxMGAsset } from "../types";
-import { ShotlyxRemotionComponentPlayer } from "./remotion-component-player";
+import { ShotlyxMGPlayer } from "./shotlyx-mg-player";
 
 export function ShotlyxRemotionPreviewOverlay({
 	tracks,
@@ -117,7 +117,7 @@ export function ShotlyxRemotionPreviewOverlay({
 							transformOrigin: "center",
 						}}
 					>
-						<ShotlyxRemotionComponentPlayer
+						<ShotlyxMGPlayer
 							asset={asset}
 							controls={false}
 							currentFrame={currentFrame}

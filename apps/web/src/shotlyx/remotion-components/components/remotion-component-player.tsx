@@ -14,7 +14,7 @@ import {
 	useCurrentFrame,
 	useVideoConfig,
 } from "remotion";
-import type { ShotlyxMGAsset } from "../types";
+import type { ShotlyxRemotionMGAsset } from "../types";
 
 type RemotionRuntime = {
 	React: typeof import("react");
@@ -62,7 +62,7 @@ function withRemotionBareBindings({ moduleSource }: { moduleSource: string }) {
 function useCompiledRemotionComponent({
 	asset,
 }: {
-	asset: ShotlyxMGAsset;
+	asset: ShotlyxRemotionMGAsset;
 }): ComponentType<Record<string, unknown>> | null {
 	const [component, setComponent] = useState<ComponentType<
 		Record<string, unknown>
@@ -134,7 +134,7 @@ export function ShotlyxRemotionComponentPlayer({
 	inputProps,
 	background,
 }: {
-	asset: ShotlyxMGAsset;
+	asset: ShotlyxRemotionMGAsset;
 	controls?: boolean;
 	currentFrame?: number;
 	inputProps?: Record<string, unknown>;
@@ -151,7 +151,9 @@ export function ShotlyxRemotionComponentPlayer({
 			: Math.max(0, Math.min(durationInFrames - 1, Math.floor(currentFrame)));
 	const playerBackground =
 		background ??
-		(asset.document.transparentBackground === false ? "#050505" : "transparent");
+		(asset.document.transparentBackground === false
+			? "#050505"
+			: "transparent");
 
 	useEffect(() => {
 		if (normalizedFrame === undefined) return;

@@ -1,8 +1,13 @@
 import { generateUUID } from "@/utils/id";
+import { rebuildShotlyxHyperFramesDocument } from "@/shotlyx/hyperframes/generator";
+import { assertValidShotlyxHyperFramesDocument } from "@/shotlyx/hyperframes/validator";
 import {
+	SHOTLYX_HYPERFRAMES_RUNTIME,
 	SHOTLYX_REMOTION_COMPONENT_RUNTIME,
 	type ShotlyxMGAsset,
+	type ShotlyxMGDocument,
 	type ShotlyxMGPropValue,
+	type ShotlyxHyperFramesDocument,
 	type ShotlyxRemotionComponentDocument,
 } from "./types";
 import { assertValidShotlyxRemotionComponentAssetDocument } from "./validator";
@@ -11,7 +16,7 @@ export type { ShotlyxMGAsset } from "./types";
 
 export interface RegisterShotlyxMGAssetInput {
 	id?: string;
-	document: ShotlyxRemotionComponentDocument;
+	document: ShotlyxMGDocument;
 	sourcePrompt: string;
 }
 
@@ -36,7 +41,9 @@ export function buildShotlyxMGAssetWithProps({
 	asset: ShotlyxMGAsset;
 	props: Record<string, ShotlyxMGPropValue>;
 }): ShotlyxMGAsset {
-	const allowedProps = new Set(asset.document.propsSchema.map((prop) => prop.key));
+	const allowedProps = new Set(
+		asset.document.propsSchema.map((prop) => prop.key),
+	);
 	for (const key of Object.keys(props)) {
 		if (!allowedProps.has(key)) {
 			throw new Error(`参数不存在：Shotlyx MG 不包含属性 "${key}"`);
@@ -44,6 +51,16 @@ export function buildShotlyxMGAssetWithProps({
 	}
 
 	const updatedAt = new Date().toISOString();
+	if (asset.runtime === SHOTLYX_HYPERFRAMES_RUNTIME) {
+		return {
+			...asset,
+			document: rebuildShotlyxHyperFramesDocument({
+				document: asset.document,
+				props,
+			}),
+			updatedAt,
+		};
+	}
 	return {
 		...asset,
 		document: {
@@ -57,28 +74,50 @@ export function buildShotlyxMGAssetWithProps({
 	};
 }
 
+function assertValidShotlyxMGDocument(
+	document: ShotlyxMGDocument,
+): asserts document is ShotlyxMGDocument {
+	if (document.runtime === SHOTLYX_HYPERFRAMES_RUNTIME) {
+		assertValidShotlyxHyperFramesDocument(document);
+		return;
+	}
+	assertValidShotlyxRemotionComponentAssetDocument(document);
+}
+
 export function createShotlyxMGAssetStore(): ShotlyxMGAssetStore {
 	const assets = new Map<string, ShotlyxMGAsset>();
 
 	return {
 		register({ id, document, sourcePrompt }) {
-			assertValidShotlyxRemotionComponentAssetDocument(document);
+			assertValidShotlyxMGDocument(document);
 			const now = new Date().toISOString();
-			const asset: ShotlyxMGAsset = {
-				id: id ?? generateUUID(),
-				type: "shotlyx-remotion-component",
-				name: document.name,
-				runtime: SHOTLYX_REMOTION_COMPONENT_RUNTIME,
-				document,
-				sourcePrompt,
-				createdAt: now,
-				updatedAt: now,
-			};
+			const asset: ShotlyxMGAsset =
+				document.runtime === SHOTLYX_HYPERFRAMES_RUNTIME
+					? {
+							id: id ?? generateUUID(),
+							type: "shotlyx-hyperframes-overlay",
+							name: document.name,
+							runtime: SHOTLYX_HYPERFRAMES_RUNTIME,
+							document: document as ShotlyxHyperFramesDocument,
+							sourcePrompt,
+							createdAt: now,
+							updatedAt: now,
+						}
+					: {
+							id: id ?? generateUUID(),
+							type: "shotlyx-remotion-component",
+							name: document.name,
+							runtime: SHOTLYX_REMOTION_COMPONENT_RUNTIME,
+							document: document as ShotlyxRemotionComponentDocument,
+							sourcePrompt,
+							createdAt: now,
+							updatedAt: now,
+						};
 			assets.set(asset.id, asset);
 			return asset;
 		},
 		upsert(asset) {
-			assertValidShotlyxRemotionComponentAssetDocument(asset.document);
+			assertValidShotlyxMGDocument(asset.document);
 			assets.set(asset.id, asset);
 			return asset;
 		},

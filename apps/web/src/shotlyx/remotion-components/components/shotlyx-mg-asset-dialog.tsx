@@ -24,6 +24,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useEditor } from "@/editor/use-editor";
+import { rebuildShotlyxHyperFramesDocument } from "@/shotlyx/hyperframes/generator";
 import {
 	buildShotlyxMediaAssetRef,
 	parseShotlyxMediaAssetRef,
@@ -37,12 +38,13 @@ import {
 	removeShotlyxMGTableRow,
 	updateShotlyxMGTableCell,
 } from "../table-props";
+import { isShotlyxHyperFramesAsset } from "../types";
 import type {
 	ShotlyxMGAsset,
 	ShotlyxMGPropDefinition,
 	ShotlyxMGPropValue,
 } from "../types";
-import { ShotlyxRemotionComponentPlayer } from "./remotion-component-player";
+import { ShotlyxMGPlayer } from "./shotlyx-mg-player";
 
 function normalizeColor(value: string): string {
 	const cleaned = value.replace(/^#/, "").trim();
@@ -96,8 +98,22 @@ export function ShotlyxMGAssetDialog({
 		}),
 	);
 
-	const draftAsset = useMemo<ShotlyxMGAsset>(
-		() => ({
+	const draftAsset = useMemo<ShotlyxMGAsset>(() => {
+		if (isShotlyxHyperFramesAsset(asset)) {
+			return {
+				...asset,
+				name: name.trim() || asset.name,
+				document: rebuildShotlyxHyperFramesDocument({
+					document: {
+						...asset.document,
+						name: name.trim() || asset.document.name,
+						durationSeconds: Math.max(0.1, durationSeconds),
+					},
+					props,
+				}),
+			};
+		}
+		return {
 			...asset,
 			name: name.trim() || asset.name,
 			document: {
@@ -106,9 +122,8 @@ export function ShotlyxMGAssetDialog({
 				durationSeconds: Math.max(0.1, durationSeconds),
 				defaultProps: props,
 			},
-		}),
-		[asset, durationSeconds, name, props],
-	);
+		};
+	}, [asset, durationSeconds, name, props]);
 
 	const setProp = ({
 		key,
@@ -146,7 +161,7 @@ export function ShotlyxMGAssetDialog({
 					<div className="flex min-w-0 flex-col gap-3">
 						<div className="overflow-hidden rounded-md border border-neutral-800 bg-black">
 							<div className="aspect-video">
-								<ShotlyxRemotionComponentPlayer
+								<ShotlyxMGPlayer
 									asset={draftAsset}
 									controls
 									inputProps={resolveShotlyxMGInputProps({
@@ -159,7 +174,9 @@ export function ShotlyxMGAssetDialog({
 						</div>
 						<div className="rounded-md border border-neutral-800 bg-neutral-900/70 p-3">
 							<p className="text-xs font-medium text-neutral-300">
-								Shotlyx Remotion Component
+								{isShotlyxHyperFramesAsset(asset)
+									? "Shotlyx HyperFrames Overlay"
+									: "Shotlyx Remotion Component"}
 							</p>
 							<p className="mt-1 text-xs text-neutral-500">
 								{asset.document.runtime} · {asset.document.width}x
@@ -352,11 +369,7 @@ export function ShotlyxMGPropInput({
 
 	if (prop.type === "table") {
 		return (
-			<ShotlyxMGTablePropInput
-				prop={prop}
-				value={value}
-				onChange={onChange}
-			/>
+			<ShotlyxMGTablePropInput prop={prop} value={value} onChange={onChange} />
 		);
 	}
 

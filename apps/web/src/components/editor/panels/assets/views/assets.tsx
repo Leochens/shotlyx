@@ -12,7 +12,7 @@ import {
 	buildShotlyxMGGraphicParams,
 	buildDefaultShotlyxMGElementParams,
 } from "@/shotlyx/remotion-components/project-assets";
-import { ShotlyxRemotionComponentPlayer } from "@/shotlyx/remotion-components/components/remotion-component-player";
+import { ShotlyxMGPlayer } from "@/shotlyx/remotion-components/components/shotlyx-mg-player";
 import { resolveShotlyxMGInputProps } from "@/shotlyx/remotion-components/media-props";
 import { getShotlyxMGThumbnailFrame } from "@/shotlyx/remotion-components/preview";
 import { PanelView } from "@/components/editor/panels/assets/views/base-panel";
@@ -451,7 +451,7 @@ function ShotlyxMGPreview({
 	return (
 		<div className="relative flex size-full items-center justify-center overflow-hidden rounded bg-neutral-950">
 			<div className="pointer-events-none size-full" aria-label={name}>
-				<ShotlyxRemotionComponentPlayer
+				<ShotlyxMGPlayer
 					asset={asset}
 					controls={false}
 					currentFrame={getShotlyxMGThumbnailFrame({ asset })}
@@ -486,7 +486,7 @@ function ShotlyxMGPreviewDialog({
 				</DialogHeader>
 				<DialogBody>
 					<div className="aspect-video overflow-hidden rounded border bg-neutral-950">
-						<ShotlyxRemotionComponentPlayer
+						<ShotlyxMGPlayer
 							asset={asset}
 							controls={true}
 							inputProps={resolveShotlyxMGInputProps({

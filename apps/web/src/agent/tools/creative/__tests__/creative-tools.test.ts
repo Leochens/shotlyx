@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { clearShotlyxMGAssets } from "@/shotlyx/remotion-components";
+import { generateShotlyxHyperFramesDocument } from "@/shotlyx/hyperframes/generator";
 import { shotlyxBattleCardFixture } from "@/shotlyx/remotion-components/fixtures/battle-card";
 import type { EditorCore } from "@/core";
 import type { TimelineElement } from "@/timeline";
@@ -279,8 +280,8 @@ describe("buildCreativeTools", () => {
 			optional: true,
 		});
 		expect(
-			tools.find((tool) => tool.name === "creative_update_mg_asset")
-				?.parameters.transparentBackground,
+			tools.find((tool) => tool.name === "creative_update_mg_asset")?.parameters
+				.transparentBackground,
 		).toMatchObject({
 			type: "boolean",
 			optional: true,
@@ -557,9 +558,99 @@ describe("buildCreativeTools", () => {
 			  })
 			| undefined;
 		expect(insertedGraphic?.definitionId).toBe("shotlyx-remotion-component");
-		expect(insertedGraphic?.motionGraphicAssetId).toBe(
-			result.shotlyxMGAssetId,
+		expect(insertedGraphic?.motionGraphicAssetId).toBe(result.shotlyxMGAssetId);
+	});
+
+	test("shotlyx_generate_hyperframes_overlay saves a template asset and inserts it", async () => {
+		let selectedElements: Array<{ trackId: string; elementId: string }> = [];
+		const scene = {
+			tracks: {
+				main: { id: "main", type: "video", elements: [] },
+				overlay: [
+					{
+						id: "graphic-track",
+						type: "graphic",
+						elements: [] as TimelineElement[],
+					},
+				],
+				audio: [],
+			},
+		};
+		const insertElement = mock(
+			({ element }: { element: Omit<TimelineElement, "id"> }) => {
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				const insertedElement = {
+					...element,
+					id: "hyperframes-el-1",
+				} as unknown as TimelineElement;
+				scene.tracks.overlay[0]!.elements.push(insertedElement);
+				selectedElements = [
+					{ trackId: "graphic-track", elementId: "hyperframes-el-1" },
+				];
+			},
 		);
+		const upsertShotlyxMGAsset = mock(() => undefined);
+		const generateHyperFrames = mock(generateShotlyxHyperFramesDocument);
+
+		const tools = buildCreativeTools({
+			editor: asEditorCore({
+				project: {
+					getActiveOrNull: () => ({ metadata: { id: "project-1" } }),
+					upsertShotlyxMGAsset,
+				},
+				scenes: {
+					getActiveSceneOrNull: () => scene,
+				},
+				selection: {
+					getSelectedElements: () => selectedElements,
+				},
+				playback: {
+					getCurrentTime: () => 0,
+				},
+				timeline: {
+					insertElement,
+				},
+			}),
+			deps: {
+				generateShotlyxHyperFramesFn: generateHyperFrames,
+			},
+		});
+
+		const generateTool = tools.find(
+			(tool) => tool.name === "shotlyx_generate_hyperframes_overlay",
+		);
+		const result = requireShotlyxMGComponentResult(
+			await generateTool?.handler({
+				prompt: "给人物右侧加一个数据流箭头提示关键步骤",
+				durationSeconds: 5,
+				aspectRatio: "16:9",
+				templateId: "data-drift-ai",
+			}),
+		);
+
+		expect(generateHyperFrames).toHaveBeenCalledTimes(1);
+		expect(generateHyperFrames.mock.calls[0]?.[0]).toMatchObject({
+			prompt: "给人物右侧加一个数据流箭头提示关键步骤",
+			durationSeconds: 5,
+			aspectRatio: "16:9",
+			templateId: "data-drift-ai",
+			transparentBackground: true,
+		});
+		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(1);
+		expect(insertElement).toHaveBeenCalledTimes(1);
+		expect(result.runtime).toBe("shotlyx-hyperframes-overlay-v1");
+		expect(result.inserted).toBe(true);
+		expect(
+			result.editableProps.some((prop) => prop.key === "accentColor"),
+		).toBe(true);
+		const insertedGraphic = scene.tracks.overlay[0]!.elements[0] as
+			| (TimelineElement & {
+					definitionId?: string;
+					motionGraphicAssetId?: string;
+			  })
+			| undefined;
+		expect(insertedGraphic?.definitionId).toBe("shotlyx-remotion-component");
+		expect(insertedGraphic?.motionGraphicAssetId).toBe(result.shotlyxMGAssetId);
 	});
 
 	test("shotlyx_generate_mg_component appends after existing Shotlyx MG on the same track", async () => {
@@ -1991,7 +2082,7 @@ describe("buildCreativeTools", () => {
 			engine: "opencut-graphic-v1",
 			definitionId: "mg-battle-card",
 			kind: "battle-card",
-				duration: 1_200_000,
+			duration: 1_200_000,
 			sourcePrompt: "NVIDIA vs AMD",
 			params: {
 				title: "Old title",
@@ -2035,7 +2126,7 @@ describe("buildCreativeTools", () => {
 			props: { title: "New title", rightColor: "#76b900" },
 		});
 		expect(asset.name).toBe("Updated Battle");
-			expect(asset.duration).toBe(480_000);
+		expect(asset.duration).toBe(480_000);
 		expect(asset.params.title).toBe("New title");
 		expect(asset.params.rightColor).toBe("#76b900");
 		expect(asset.params.progress).toBe(1);
@@ -2055,7 +2146,7 @@ describe("buildCreativeTools", () => {
 			engine: "opencut-graphic-v1",
 			definitionId: "mg-battle-card",
 			kind: "battle-card",
-				duration: 1_200_000,
+			duration: 1_200_000,
 			sourcePrompt: "NVIDIA vs AMD",
 			params: {
 				title: "NVIDIA vs AMD",

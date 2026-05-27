@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { ShotlyxMGAsset } from "@/shotlyx/remotion-components/asset-store";
+import { isShotlyxHyperFramesAsset } from "@/shotlyx/remotion-components/types";
 import { createMediaAssetReference } from "@/agent/context/resolve-references";
 import { useAgentContextStore } from "@/agent/context/store";
 import type { SelectedAssetRef } from "@/components/editor/panels/assets/assets-panel-store";
@@ -42,7 +43,9 @@ export function ResourcePropertiesPanel({
 	selectedAssetRefs: SelectedAssetRef[];
 }) {
 	const mediaAssets = useEditor((editor) => editor.media.getAssets());
-	const shotlyxMGAssets = useEditor((editor) => editor.project.getShotlyxMGAssets());
+	const shotlyxMGAssets = useEditor((editor) =>
+		editor.project.getShotlyxMGAssets(),
+	);
 
 	const resources = useMemo(
 		() =>
@@ -88,7 +91,9 @@ function MultipleResourceProperties({
 	const counts = resources.reduce(
 		(acc, resource) => {
 			const key =
-				resource.kind === "shotlyx-mg" ? "MG 动画" : getMediaTypeLabel(resource.asset.type);
+				resource.kind === "shotlyx-mg"
+					? `MG 动画 · ${getShotlyxMGRendererLabel({ asset: resource.asset })}`
+					: getMediaTypeLabel(resource.asset.type);
 			acc[key] = (acc[key] ?? 0) + 1;
 			return acc;
 		},
@@ -97,7 +102,9 @@ function MultipleResourceProperties({
 
 	return (
 		<div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
-			<p className="text-lg font-medium">{resources.length} resources selected</p>
+			<p className="text-lg font-medium">
+				{resources.length} resources selected
+			</p>
 			<div className="flex flex-wrap justify-center gap-2 text-xs text-muted-foreground">
 				{Object.entries(counts).map(([type, count]) => (
 					<span key={type} className="rounded border bg-muted/30 px-2 py-1">
@@ -111,7 +118,9 @@ function MultipleResourceProperties({
 
 function MediaResourceProperties({ asset }: { asset: MediaAsset }) {
 	const editor = useEditor();
-	const activeProject = useEditor((nextEditor) => nextEditor.project.getActiveOrNull());
+	const activeProject = useEditor((nextEditor) =>
+		nextEditor.project.getActiveOrNull(),
+	);
 	const addReference = useAgentContextStore((state) => state.addReference);
 	const setAgentPanelOpen = usePanelStore((state) => state.setAgentPanelOpen);
 
@@ -187,10 +196,19 @@ function MediaResourceProperties({ asset }: { asset: MediaAsset }) {
 									: "-"
 							}
 						/>
-						<ReadonlyField label="FPS" value={asset.fps ? `${asset.fps}` : "-"} />
+						<ReadonlyField
+							label="FPS"
+							value={asset.fps ? `${asset.fps}` : "-"}
+						/>
 						<ReadonlyField
 							label="Audio"
-							value={asset.hasAudio === undefined ? "-" : asset.hasAudio ? "Yes" : "No"}
+							value={
+								asset.hasAudio === undefined
+									? "-"
+									: asset.hasAudio
+										? "Yes"
+										: "No"
+							}
 						/>
 						{asset.file.type ? (
 							<ReadonlyField label="MIME" value={asset.file.type} />
@@ -218,7 +236,10 @@ function MediaResourceProperties({ asset }: { asset: MediaAsset }) {
 					</SectionHeader>
 					<SectionContent>
 						<SectionFields>
-							<ReadonlyField label="Provider" value={asset.externalSource.provider} />
+							<ReadonlyField
+								label="Provider"
+								value={asset.externalSource.provider}
+							/>
 							<ReadonlyField
 								label="Author"
 								value={asset.externalSource.author?.name ?? "-"}
@@ -243,20 +264,49 @@ function MediaResourceProperties({ asset }: { asset: MediaAsset }) {
 	);
 }
 
+function getShotlyxMGRendererLabel({
+	asset,
+}: {
+	asset: ShotlyxMGAsset;
+}): "HyperFrames" | "Remotion" {
+	return isShotlyxHyperFramesAsset(asset) ? "HyperFrames" : "Remotion";
+}
+
+function getShotlyxMGRendererDescription({
+	asset,
+}: {
+	asset: ShotlyxMGAsset;
+}): string {
+	return isShotlyxHyperFramesAsset(asset)
+		? "HyperFrames HTML overlay"
+		: "Remotion React component";
+}
+
 function ShotlyxMGResourceProperties({ asset }: { asset: ShotlyxMGAsset }) {
 	const editor = useEditor();
+	const rendererLabel = getShotlyxMGRendererLabel({ asset });
 	const handleNameCommit = useCallback(
 		(name: string) => {
 			const nextName = name.trim() || asset.name;
-			editor.project.upsertShotlyxMGAsset({
-				asset: {
-					...asset,
-					name: nextName,
-					document: {
-						...asset.document,
+			const nextAsset: ShotlyxMGAsset = isShotlyxHyperFramesAsset(asset)
+				? {
+						...asset,
 						name: nextName,
-					},
-				},
+						document: {
+							...asset.document,
+							name: nextName,
+						},
+					}
+				: {
+						...asset,
+						name: nextName,
+						document: {
+							...asset.document,
+							name: nextName,
+						},
+					};
+			editor.project.upsertShotlyxMGAsset({
+				asset: nextAsset,
 			});
 		},
 		[asset, editor],
@@ -267,7 +317,8 @@ function ShotlyxMGResourceProperties({ asset }: { asset: ShotlyxMGAsset }) {
 			<ResourceHeader
 				icon={<LayoutTemplate className="size-5" />}
 				title={asset.name}
-				subtitle="MG 动画"
+				subtitle={`MG 动画 · ${rendererLabel}`}
+				action={<RendererBadge label={rendererLabel} />}
 			/>
 			<Section sectionKey={`resource:${asset.id}:basic`}>
 				<SectionHeader>
@@ -282,7 +333,17 @@ function ShotlyxMGResourceProperties({ asset }: { asset: ShotlyxMGAsset }) {
 								onCommit={handleNameCommit}
 							/>
 						</SectionField>
-						<ReadonlyField label="Runtime" value={asset.runtime} />
+						<ReadonlyField
+							label="Renderer"
+							value={getShotlyxMGRendererDescription({ asset })}
+						/>
+						<ReadonlyField label="Runtime ID" value={asset.runtime} />
+						{isShotlyxHyperFramesAsset(asset) ? (
+							<ReadonlyField
+								label="Template"
+								value={asset.document.templateId}
+							/>
+						) : null}
 						<ReadonlyField
 							label="Duration"
 							value={formatDuration(asset.document.durationSeconds)}
@@ -312,6 +373,21 @@ function ShotlyxMGResourceProperties({ asset }: { asset: ShotlyxMGAsset }) {
 				</SectionContent>
 			</Section>
 		</div>
+	);
+}
+
+function RendererBadge({ label }: { label: "HyperFrames" | "Remotion" }) {
+	const className =
+		label === "HyperFrames"
+			? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100"
+			: "border-violet-300/30 bg-violet-300/10 text-violet-100";
+
+	return (
+		<span
+			className={`inline-flex h-7 shrink-0 items-center rounded-sm border px-2 text-xs font-medium ${className}`}
+		>
+			{label}
+		</span>
 	);
 }
 
@@ -453,7 +529,11 @@ function DocumentResourcePreview({ asset }: { asset: MediaAsset }) {
 				<SectionTitle>Content</SectionTitle>
 			</SectionHeader>
 			<SectionContent>
-				<Textarea value={text} readOnly className="min-h-48 font-mono text-xs" />
+				<Textarea
+					value={text}
+					readOnly
+					className="min-h-48 font-mono text-xs"
+				/>
 			</SectionContent>
 		</Section>
 	);

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { generateShotlyxHyperFramesDocument } from "@/shotlyx/hyperframes/generator";
 import {
 	buildShotlyxMGAssetWithProps,
 	createShotlyxMGAssetStore,
@@ -78,5 +79,33 @@ describe("Shotlyx Remotion component asset store", () => {
 				},
 			}),
 		).toThrow('属性 "missing"');
+	});
+
+	test("registers and rebuilds HyperFrames overlay assets", async () => {
+		const store = createShotlyxMGAssetStore();
+		const document = await generateShotlyxHyperFramesDocument({
+			prompt: "做一个箭头标注：这里是关键步骤",
+			templateId: "swiss-pulse-explainer",
+		});
+		const asset = store.register({
+			document,
+			sourcePrompt: document.sourcePrompt,
+		});
+
+		expect(asset.type).toBe("shotlyx-hyperframes-overlay");
+		expect(asset.runtime).toBe("shotlyx-hyperframes-overlay-v1");
+
+		const updated = buildShotlyxMGAssetWithProps({
+			asset,
+			props: {
+				title: "关键步骤",
+				callout: "点击这里",
+			},
+		});
+		if (updated.runtime !== "shotlyx-hyperframes-overlay-v1") {
+			throw new Error("Expected HyperFrames asset");
+		}
+		expect(updated.document.defaultProps.title).toBe("关键步骤");
+		expect(updated.document.htmlSource).toContain("点击这里");
 	});
 });

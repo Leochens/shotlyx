@@ -4,6 +4,7 @@ import {
 	hydrateShotlyxMGAssets,
 	type ShotlyxMGAsset,
 } from "@/shotlyx/remotion-components/asset-store";
+import { isShotlyxHyperFramesAsset } from "@/shotlyx/remotion-components/types";
 import {
 	SHOTLYX_MG_GRAPHIC_DEFINITION_ID,
 	shotlyxMediaTimeFromSeconds,
@@ -749,16 +750,27 @@ export class ProjectManager {
 		if (!this.active) return;
 		const existing = this.active.shotlyxMGAssets ?? [];
 		const now = new Date().toISOString();
-		const nextAsset: ShotlyxMGAsset = {
-			...asset,
-			name: asset.name.trim() || asset.document.name,
-			createdAt: asset.createdAt || now,
-			updatedAt: now,
-			document: {
-				...asset.document,
-				name: asset.document.name.trim() || asset.name,
-			},
-		};
+		const nextAsset: ShotlyxMGAsset = isShotlyxHyperFramesAsset(asset)
+			? {
+					...asset,
+					name: asset.name.trim() || asset.document.name,
+					createdAt: asset.createdAt || now,
+					updatedAt: now,
+					document: {
+						...asset.document,
+						name: asset.document.name.trim() || asset.name,
+					},
+				}
+			: {
+					...asset,
+					name: asset.name.trim() || asset.document.name,
+					createdAt: asset.createdAt || now,
+					updatedAt: now,
+					document: {
+						...asset.document,
+						name: asset.document.name.trim() || asset.name,
+					},
+				};
 		const hasExisting = existing.some((item) => item.id === asset.id);
 		const shotlyxMGAssets = hasExisting
 			? existing.map((item) => (item.id === asset.id ? nextAsset : item))

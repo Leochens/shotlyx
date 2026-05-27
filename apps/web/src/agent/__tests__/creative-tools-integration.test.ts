@@ -173,11 +173,13 @@ describe("creative tools integration", () => {
 		expect(names).not.toContain("creative_generate_mg_animation");
 		expect(names).toContain("shotlyx_generate_mg_component");
 		expect(names).toContain("shotlyx_generate_mg_composition");
+		expect(names).toContain("shotlyx_list_hyperframes_templates");
+		expect(names).toContain("shotlyx_generate_hyperframes_overlay");
 		expect(names).toContain("creative_update_mg_animation");
 		expect(names).toContain("creative_update_mg_asset");
-			expect(names).toContain("creative_get_mg_asset_schema");
-			expect(names).toContain("creative_get_mg_animation_schema");
-			expect(names).toContain("creative_import_asset");
-			expect(names).toContain("agent_generate_voiceover");
-		});
+		expect(names).toContain("creative_get_mg_asset_schema");
+		expect(names).toContain("creative_get_mg_animation_schema");
+		expect(names).toContain("creative_import_asset");
+		expect(names).toContain("agent_generate_voiceover");
 	});
+});
