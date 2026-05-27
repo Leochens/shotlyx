@@ -5,6 +5,7 @@ import {
 	DragDropController,
 	type DragDropConfig,
 } from "@/timeline/controllers/drag-drop-controller";
+import { usePropertiesStore } from "@/components/editor/panels/properties/stores/properties-store";
 
 interface UseTimelineDragDropProps {
 	containerRef: RefObject<HTMLDivElement | null>;
@@ -37,6 +38,12 @@ export function useTimelineDragDrop({
 		executeCommand: (command) => editor.command.execute({ command }),
 		insertElement: (args) => editor.timeline.insertElement(args),
 		addClipEffect: (args) => editor.timeline.addClipEffect(args),
+		seekToTime: ({ time }) => editor.playback.seek({ time }),
+		selectElements: (args) => editor.selection.setSelectedElements(args),
+		openElementEffectsPanel: ({ elementType }) =>
+			usePropertiesStore
+				.getState()
+				.setActiveTab({ elementType, tabId: "effects" }),
 	};
 	const configRef = useCommittedRef(config);
 	const [controller] = useState(() => new DragDropController({ configRef }));

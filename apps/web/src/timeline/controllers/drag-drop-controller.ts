@@ -14,8 +14,9 @@ import {
 	buildElementFromMedia,
 	buildEffectElement,
 } from "@/timeline/element-utils";
-import { AddTrackCommand, InsertElementCommand } from "@/commands/timeline";
-import { BatchCommand } from "@/commands";
+import { AddTrackCommand } from "@/commands/timeline/track/add-track";
+import { InsertElementCommand } from "@/commands/timeline/element/insert-element";
+import { BatchCommand } from "@/commands/batch-command";
 import { buildMotionGraphicElementFromAsset } from "@/motion-graphics/project-assets";
 import type { Command } from "@/commands/base-command";
 import { computeDropTarget } from "@/timeline/components/drop-target";
@@ -27,6 +28,8 @@ import type {
 	SceneTracks,
 	TimelineTrack,
 	CreateTimelineElement,
+	ElementRef,
+	TimelineElement,
 } from "@/timeline";
 import type { TimelineDragData } from "@/timeline/drag";
 import type { MediaAsset } from "@/media/types";
@@ -61,6 +64,9 @@ export interface DragDropConfig {
 		elementId: string;
 		effectType: string;
 	}) => void;
+	seekToTime: (args: { time: MediaTime }) => void;
+	selectElements: (args: { elements: ElementRef[] }) => void;
+	openElementEffectsPanel: (args: { elementType: ElementType }) => void;
 }
 
 export interface DragDropConfigRef {
@@ -134,6 +140,19 @@ function orderedTracks({
 	sceneTracks: SceneTracks;
 }): TimelineTrack[] {
 	return [...sceneTracks.overlay, sceneTracks.main, ...sceneTracks.audio];
+}
+
+function findElementByRef({
+	sceneTracks,
+	ref,
+}: {
+	sceneTracks: SceneTracks;
+	ref: ElementRef;
+}): TimelineElement | null {
+	const track = orderedTracks({ sceneTracks }).find(
+		(candidate) => candidate.id === ref.trackId,
+	);
+	return track?.elements.find((element) => element.id === ref.elementId) ?? null;
 }
 
 // --- Controller ---
@@ -489,6 +508,10 @@ export class DragDropController {
 				elementId: target.targetElement.elementId,
 				effectType: dragData.effectType,
 			});
+			this.focusDroppedEffectTarget({
+				ref: target.targetElement,
+				time: target.xPosition,
+			});
 			return;
 		}
 
@@ -506,10 +529,35 @@ export class DragDropController {
 				placement: { mode: "explicit", trackId: existingEffectTrack.id },
 				element,
 			});
+			this.focusDroppedStandaloneEffect({ time: target.xPosition });
 			return;
 		}
 
 		this.insertAtTarget({ element, target, trackType: "effect" });
+		this.focusDroppedStandaloneEffect({ time: target.xPosition });
+	}
+
+	private focusDroppedEffectTarget({
+		ref,
+		time,
+	}: {
+		ref: ElementRef;
+		time: MediaTime;
+	}): void {
+		const element = findElementByRef({
+			sceneTracks: this.config.getSceneTracks(),
+			ref,
+		});
+		if (!element) return;
+
+		this.config.seekToTime({ time });
+		this.config.selectElements({ elements: [ref] });
+		this.config.openElementEffectsPanel({ elementType: element.type });
+	}
+
+	private focusDroppedStandaloneEffect({ time }: { time: MediaTime }): void {
+		this.config.seekToTime({ time });
+		this.config.openElementEffectsPanel({ elementType: "effect" });
 	}
 
 	private async executeFileDrop({
