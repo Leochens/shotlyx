@@ -10,7 +10,11 @@ import { LanguageSelector } from "../language-selector";
 import { toast } from "sonner";
 import { useEditor } from "@/editor/use-editor";
 import { Bot, KeyRound, Settings, SlidersHorizontal } from "lucide-react";
-import { CommandIcon, Logout05Icon } from "@hugeicons/core-free-icons";
+import {
+	CommandIcon,
+	Logout05Icon,
+	PlusSignIcon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ShortcutsDialog } from "@/actions/components/shortcuts-dialog";
 import { CommandPaletteButton } from "@/actions/components/command-palette";
@@ -40,18 +44,6 @@ import { OcVideoIcon } from "@/components/icons";
 import type { TProjectMetadata } from "@/project/types";
 import { formatDate } from "@/utils/date";
 import { formatTimecode, mediaTimeToSeconds } from "opencut-wasm";
-
-const DEFAULT_EDITOR_PROJECT_TITLES = new Set([
-	"",
-	"New project",
-	"New Project",
-	"新建项目",
-	"新建绘画",
-]);
-
-function getEditorProjectTitle(name: string): string {
-	return DEFAULT_EDITOR_PROJECT_TITLES.has(name.trim()) ? "Agent" : name;
-}
 
 export function EditorHeader() {
 	const isDesktop = process.env.NEXT_PUBLIC_SHOTLYX_DESKTOP === "1";
@@ -208,6 +200,7 @@ function ProjectSwitcher() {
 	const [isProjectDialogOpen, setProjectDialogOpen] = useState(false);
 	const [isShortcutsOpen, setShortcutsOpen] = useState(false);
 	const [isExiting, setIsExiting] = useState(false);
+	const [isCreatingProject, setIsCreatingProject] = useState(false);
 	const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
 	const router = useRouter();
 	const editor = useEditor();
@@ -263,6 +256,27 @@ function ProjectSwitcher() {
 		}
 	};
 
+	const handleCreateProject = async () => {
+		if (openingProjectId || isCreatingProject) return;
+
+		setIsCreatingProject(true);
+		try {
+			await editor.project.prepareExit();
+			const projectId = await editor.project.createNewProject({
+				name: "New project",
+			});
+			setProjectDialogOpen(false);
+			router.push(`/editor/${projectId}`);
+		} catch (error) {
+			toast.error(copy.editor.projectSwitcher.failedCreate, {
+				description:
+					error instanceof Error ? error.message : copy.editor.tryAgain,
+			});
+		} finally {
+			setIsCreatingProject(false);
+		}
+	};
+
 	return (
 		<>
 			<Button
@@ -280,10 +294,12 @@ function ProjectSwitcher() {
 			</Button>
 			<ProjectSwitcherDialog
 				activeProjectId={activeProject?.metadata.id ?? null}
+				isCreatingProject={isCreatingProject}
 				isLoading={isProjectsLoading && projects.length === 0}
 				open={isProjectDialogOpen}
 				openingProjectId={openingProjectId}
 				projects={projects}
+				onCreateProject={handleCreateProject}
 				onExit={handleExit}
 				onOpenChange={setProjectDialogOpen}
 				onOpenProject={handleOpenProject}
@@ -323,10 +339,12 @@ function getProjectDialogItems({
 
 function ProjectSwitcherDialog({
 	activeProjectId,
+	isCreatingProject,
 	isLoading,
 	open,
 	openingProjectId,
 	projects,
+	onCreateProject,
 	onExit,
 	onOpenChange,
 	onOpenProject,
@@ -334,10 +352,12 @@ function ProjectSwitcherDialog({
 	onOpenShortcuts,
 }: {
 	activeProjectId: string | null;
+	isCreatingProject: boolean;
 	isLoading: boolean;
 	open: boolean;
 	openingProjectId: string | null;
 	projects: TProjectMetadata[];
+	onCreateProject: () => void;
 	onExit: () => void;
 	onOpenChange: (open: boolean) => void;
 	onOpenProject: (projectId: string) => void;
@@ -382,6 +402,17 @@ function ProjectSwitcherDialog({
 				</DialogBody>
 				<DialogFooter className="items-center justify-between gap-2 sm:flex-row">
 					<div className="flex items-center gap-2">
+						<Button
+							type="button"
+							size="sm"
+							disabled={isCreatingProject || openingProjectId !== null}
+							onClick={onCreateProject}
+						>
+							<HugeiconsIcon icon={PlusSignIcon} />
+							{isCreatingProject
+								? switcherCopy.creatingProject
+								: switcherCopy.newProject}
+						</Button>
 						<Button
 							type="button"
 							variant="outline"
@@ -495,11 +526,10 @@ function EditableProjectName() {
 	const originalNameRef = useRef("");
 
 	const projectName = activeProject?.metadata.name || "";
-	const displayProjectName = getEditorProjectTitle(projectName);
 
 	const startEditing = () => {
 		if (isEditing) return;
-		originalNameRef.current = displayProjectName;
+		originalNameRef.current = projectName;
 		setIsEditing(true);
 
 		requestAnimationFrame(() => {
@@ -551,8 +581,8 @@ function EditableProjectName() {
 		<input
 			ref={inputRef}
 			type="text"
-			key={activeProject?.metadata.id ?? "agent-title"}
-			defaultValue={displayProjectName}
+			key={activeProject?.metadata.id ?? "project-title"}
+			defaultValue={projectName}
 			readOnly={!isEditing}
 			onClick={startEditing}
 			onBlur={saveEdit}

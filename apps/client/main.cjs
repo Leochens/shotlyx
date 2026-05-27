@@ -1,6 +1,6 @@
 const { app, BrowserWindow, shell } = require("electron");
 
-const DEFAULT_URL = "http://127.0.0.1:3100/settings/api";
+const DEFAULT_URL = "http://127.0.0.1:3100/desktop";
 
 function getStartUrl() {
 	return process.env.SHOTLYX_WEB_URL || DEFAULT_URL;

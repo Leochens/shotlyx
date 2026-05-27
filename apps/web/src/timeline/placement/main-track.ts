@@ -1,5 +1,8 @@
 import type { SceneTracks, TimelineElement, VideoTrack } from "@/timeline";
-import { type MediaTime, ZERO_MEDIA_TIME } from "@/wasm";
+import type { MediaTime } from "@/wasm/media-time";
+
+// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- Zero is the MediaTime tick origin; importing ZERO_MEDIA_TIME from wasm initializes opencut-wasm in pure placement tests.
+const ZERO_MEDIA_TIME = 0 as MediaTime;
 
 export const MAIN_TRACK_NAME = "Main Track";
 

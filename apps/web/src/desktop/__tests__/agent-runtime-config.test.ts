@@ -5,6 +5,7 @@ import path from "node:path";
 import {
 	desktopValuesToEnv,
 	getDesktopConfigStatus,
+	hasRequiredDesktopConfig,
 	mergeDesktopApiConfig,
 	readDesktopApiConfig,
 	writeDesktopApiConfig,
@@ -48,6 +49,7 @@ test("desktop config can select local CLI runtime without requiring an API key",
 	});
 
 	const status = getDesktopConfigStatus(readDesktopApiConfig().values);
+	expect(hasRequiredDesktopConfig(readDesktopApiConfig().values)).toBe(true);
 	expect(status.find((group) => group.id === "agent-runtime")).toMatchObject({
 		configured: true,
 		required: true,
@@ -111,4 +113,15 @@ test("desktop config preserves API keys when switching to and from local CLI", (
 			}),
 		]),
 	);
+	expect(hasRequiredDesktopConfig(values)).toBe(true);
+});
+
+test("desktop launch gate stays on setup until API mode has its required key", () => {
+	expect(hasRequiredDesktopConfig({})).toBe(false);
+	expect(
+		hasRequiredDesktopConfig({
+			AGENT_RUNTIME: "api",
+			AGENT_LLM_KEY: "api-key",
+		}),
+	).toBe(true);
 });

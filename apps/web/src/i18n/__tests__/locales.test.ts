@@ -12,6 +12,12 @@ describe("editor locale coverage", () => {
 	test("covers visible editor chrome that previously stayed hardcoded", () => {
 		expect(getSiteCopy("en").editor.projectSwitcher.title).toBe("Projects");
 		expect(getSiteCopy("zh-CN").editor.projectSwitcher.title).toBe("项目");
+		expect(getSiteCopy("en").editor.projectSwitcher.newProject).toBe(
+			"New project",
+		);
+		expect(getSiteCopy("zh-CN").editor.projectSwitcher.newProject).toBe(
+			"新建项目",
+		);
 		expect(getSiteCopy("en").editor.assets.import).toBe("Import");
 		expect(getSiteCopy("zh-CN").editor.assets.import).toBe("导入");
 		expect(getSiteCopy("en").editor.assets.tabs.media).toBe("Media");

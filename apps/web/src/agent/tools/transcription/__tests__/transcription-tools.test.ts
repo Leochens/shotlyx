@@ -31,6 +31,7 @@ describe("transcription tools", () => {
 			lineBreakMode: { type: "string", optional: true },
 			maxCharsPerLine: { type: "number", optional: true },
 			highlightColor: { type: "string", optional: true },
+			saveAsset: { type: "boolean", optional: true },
 		});
 	});
 
@@ -66,6 +67,7 @@ describe("transcription tools", () => {
 				lineBreakMode: "page",
 				maxCharsPerLine: 12,
 				highlightColor: "#ffcc00",
+				saveAsset: false,
 			}),
 		);
 		expect(result).toMatchObject({
@@ -200,6 +202,81 @@ describe("transcription tools", () => {
 				}),
 			}),
 		);
+		expect(addMediaAsset).not.toHaveBeenCalled();
+		expect(result).toMatchObject({
+			imported: true,
+			provider: "tencent",
+			cueCount: 1,
+			groupId: "subtitle-group",
+		});
+		expect(result.subtitleAssetId).toBeUndefined();
+		expect(progressEvents).toMatchObject([
+			{ stage: "audio-extract", status: "running" },
+			{ stage: "audio-extract", status: "success" },
+			{ stage: "asr-provider", status: "running" },
+			{ stage: "asr-provider", status: "success" },
+			{ stage: "subtitle-import", status: "running" },
+			{ stage: "subtitle-import", status: "success" },
+		]);
+	});
+
+	test("client deps only save an SRT asset when requested", async () => {
+		const addMediaAsset = mock(async ({ asset }: { asset: { name: string } }) => ({
+			id: "subtitle-asset",
+			name: asset.name,
+		}));
+		const execute = mock(async () => ({
+			status: "success" as const,
+			data: { imported: true, cueCount: 1 },
+		}));
+		const editor = {
+			scenes: {
+				getActiveScene: () => ({
+					tracks: { main: { id: "main", elements: [] }, overlay: [], audio: [] },
+				}),
+			},
+			project: { getActive: () => ({ metadata: { id: "project-1" } }) },
+			media: {
+				getAssets: () => [],
+				addMediaAsset,
+			},
+			timeline: { getTotalDuration: () => MEDIA_TIME_TICKS_PER_SECOND },
+			mcp: { execute },
+		} as unknown as EditorCore;
+		const fetchFn = mock(async () => {
+			return new Response(
+				JSON.stringify({
+					text: "你好",
+					provider: "tencent",
+					cues: [
+						{
+							text: "你好",
+							startTimeSeconds: 0,
+							durationSeconds: 0.5,
+							tokens: [
+								{ text: "你", startTime: 0, duration: 0.25 },
+								{ text: "好", startTime: 0.25, duration: 0.25 },
+							],
+						},
+					],
+				}),
+				{ headers: { "Content-Type": "application/json" } },
+			);
+		});
+		const deps = createTranscriptionToolDeps({
+			editor,
+			fetchFn: fetchFn as unknown as typeof fetch,
+			extractTimelineAudioFn: mock(async () => {
+				return new Blob([new Uint8Array([1, 2, 3])], { type: "audio/wav" });
+			}),
+		});
+
+		const result = await deps.generateSubtitlesFromVideo({
+			source: "timeline",
+			provider: "tencent",
+			saveAsset: true,
+		});
+
 		expect(addMediaAsset).toHaveBeenCalledTimes(1);
 		const addMediaCall = addMediaAsset.mock.calls[0]?.[0] as {
 			asset: { name: string; type: string; file: File };
@@ -220,28 +297,12 @@ describe("transcription tools", () => {
 				"00:00:00,250 --> 00:00:00,500",
 				"好",
 				"",
-				"3",
-				"00:00:00,750 --> 00:00:01,450",
-				"Shotlyx",
-				"",
 			].join("\n"),
 		);
 		expect(result).toMatchObject({
 			imported: true,
 			provider: "tencent",
-			cueCount: 1,
-			groupId: "subtitle-group",
 			subtitleAssetId: "subtitle-asset",
 		});
-		expect(progressEvents).toMatchObject([
-			{ stage: "audio-extract", status: "running" },
-			{ stage: "audio-extract", status: "success" },
-			{ stage: "asr-provider", status: "running" },
-			{ stage: "asr-provider", status: "success" },
-			{ stage: "subtitle-asset", status: "running" },
-			{ stage: "subtitle-asset", status: "success" },
-			{ stage: "subtitle-import", status: "running" },
-			{ stage: "subtitle-import", status: "success" },
-		]);
 	});
 });

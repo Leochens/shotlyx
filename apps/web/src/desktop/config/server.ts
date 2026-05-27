@@ -247,3 +247,15 @@ export function getDesktopConfigStatus(
 		};
 	});
 }
+
+export function hasRequiredDesktopConfig(
+	values: DesktopApiValues = readDesktopApiConfig().values,
+): boolean {
+	const requiredGroups = getDesktopConfigStatus(values).filter(
+		(group) => group.required,
+	);
+	return (
+		requiredGroups.length > 0 &&
+		requiredGroups.every((group) => group.configured)
+	);
+}

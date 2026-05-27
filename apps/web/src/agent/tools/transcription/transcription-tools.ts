@@ -1,5 +1,6 @@
 import type { Tool } from "@/agent/mcp/types";
 import {
+	optionalBooleanParam,
 	optionalNumberParam,
 	optionalStringParam,
 } from "@/agent/mcp/validation";
@@ -515,34 +516,36 @@ export function createTranscriptionToolDeps({
 				throw new Error("字幕为空：ASR 没有返回有效字幕 cue");
 			}
 
-			input.onProgress?.({
-				stage: "subtitle-asset",
-				label: "正在保存字幕文件到资源库",
-				status: "running",
-			});
 			let subtitleAsset: { subtitleAssetId?: string; subtitleAssetName?: string } =
 				{};
-			try {
-				subtitleAsset = await saveTranscriptionSubtitleAsset({
-					editor,
-					transcription,
-				});
+			if (input.saveAsset) {
 				input.onProgress?.({
 					stage: "subtitle-asset",
-					label: subtitleAsset.subtitleAssetName
-						? "字幕文件已保存到资源库"
-						: "字幕文件未保存",
-					status: subtitleAsset.subtitleAssetName ? "success" : "error",
-					detail: subtitleAsset.subtitleAssetName,
+					label: "正在保存字幕文件到资源库",
+					status: "running",
 				});
-			} catch (error) {
-				console.warn("Failed to save transcription subtitle asset:", error);
-				input.onProgress?.({
-					stage: "subtitle-asset",
-					label: "字幕文件保存失败",
-					status: "error",
-					detail: error instanceof Error ? error.message : undefined,
-				});
+				try {
+					subtitleAsset = await saveTranscriptionSubtitleAsset({
+						editor,
+						transcription,
+					});
+					input.onProgress?.({
+						stage: "subtitle-asset",
+						label: subtitleAsset.subtitleAssetName
+							? "字幕文件已保存到资源库"
+							: "字幕文件未保存",
+						status: subtitleAsset.subtitleAssetName ? "success" : "error",
+						detail: subtitleAsset.subtitleAssetName,
+					});
+				} catch (error) {
+					console.warn("Failed to save transcription subtitle asset:", error);
+					input.onProgress?.({
+						stage: "subtitle-asset",
+						label: "字幕文件保存失败",
+						status: "error",
+						detail: error instanceof Error ? error.message : undefined,
+					});
+				}
 			}
 
 			input.onProgress?.({
@@ -667,6 +670,12 @@ export function buildTranscriptionTools({
 					description: "karaoke 高亮颜色，例如 #22d3ee。",
 					optional: true,
 				},
+				saveAsset: {
+					type: "boolean",
+					description:
+						"是否额外保存一份 SRT 字幕文件到资源库。默认 false，避免重复生成字幕素材。",
+					optional: true,
+				},
 			},
 			mutating: true,
 			// Tool handlers use the MCP Tool interface's positional signature.
@@ -705,6 +714,7 @@ export function buildTranscriptionTools({
 						params,
 						key: "highlightColor",
 					}),
+					saveAsset: optionalBooleanParam(params, "saveAsset") ?? false,
 					abortSignal: context?.signal,
 					onProgress: context?.onProgress,
 				});

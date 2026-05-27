@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-type-assertion -- This pure placement test stubs MediaTime ticks without loading opencut-wasm. */
 import { describe, expect, test } from "bun:test";
 import type {
 	AudioElement,
@@ -12,17 +13,13 @@ import type {
 	VideoElement,
 	VideoTrack,
 } from "@/timeline";
-import type { Transform } from "@/rendering";
 import { resolveTrackPlacement } from "@/timeline/placement";
-import { mediaTime, ZERO_MEDIA_TIME } from "@/wasm";
+import type { MediaTime } from "@/wasm/media-time";
 
-function buildTransform(): Transform {
-	return {
-		scaleX: 1,
-		scaleY: 1,
-		position: { x: 0, y: 0 },
-		rotate: 0,
-	};
+const ZERO_MEDIA_TIME = 0 as MediaTime;
+
+function mediaTime({ ticks }: { ticks: number }): MediaTime {
+	return ticks as MediaTime;
 }
 
 type TestElement = AudioElement | GraphicElement | TextElement | VideoElement;
@@ -311,6 +308,35 @@ describe("resolveTrackPlacement", () => {
 				strategy: { type: "explicit", trackId: "video-1" },
 			}),
 		).toBeNull();
+	});
+
+	test("explicit creates a new track above the target when the time span overlaps", () => {
+		const tracks = buildSceneTracks({
+			overlay: [
+				buildTrack({ id: "text-top", type: "text" }),
+				buildTrack({
+					id: "text-target",
+					type: "text",
+					elements: [
+						buildElement({ id: "a", type: "text", startTime: 0, duration: 5 }),
+					],
+				}),
+			],
+		});
+
+		expect(
+			resolveTrackPlacement({
+				tracks,
+				elementType: "text",
+				timeSpans: [buildTimeSpan({ startTime: 2, duration: 1 })],
+				strategy: { type: "explicit", trackId: "text-target" },
+			}),
+		).toEqual({
+			kind: "newTrack",
+			trackType: "text",
+			insertIndex: 1,
+			insertPosition: "above",
+		});
 	});
 
 	test("firstAvailable picks the first compatible track without overlap", () => {

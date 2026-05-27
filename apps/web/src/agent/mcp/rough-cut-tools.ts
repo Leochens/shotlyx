@@ -10,6 +10,7 @@ const MAX_REVIEW_AGE_MS = 30 * 60 * 1000;
 const MAX_STORED_REVIEWS = 8;
 const DEFAULT_MERGE_GAP_SECONDS = 0.25;
 const DEFAULT_PADDING_SECONDS = 0;
+const MAX_SILENCE_BOUNDARY_EXTENSION_SECONDS = 0.35;
 
 const FILLER_WORDS = new Set([
 	"嗯",
@@ -34,6 +35,8 @@ export interface RoughCutReviewToken {
 	tokenIndex: number;
 	startTimeSeconds: number;
 	endTimeSeconds: number;
+	cueTimelineStartSeconds: number;
+	cueTimelineEndSeconds: number;
 	timelineStartSeconds: number;
 	timelineEndSeconds: number;
 	selected: boolean;
@@ -191,13 +194,11 @@ export function buildRoughCutTools({
 				const paddingSeconds =
 					(optionalNumberParam(params, "paddingMs") ?? 0) / 1000;
 				const ranges = mergeRanges({
-					ranges: selectedTokens.map((token) => ({
-						startSeconds: Math.max(
-							0,
-							token.timelineStartSeconds - paddingSeconds,
-						),
-						endSeconds: token.timelineEndSeconds + paddingSeconds,
-					})),
+					ranges: buildSilenceAlignedCutRanges({
+						tokens: review.tokens,
+						selectedTokenIds,
+						paddingSeconds,
+					}),
 					mergeGapSeconds: DEFAULT_MERGE_GAP_SECONDS,
 				});
 
@@ -377,6 +378,14 @@ function flattenSubtitleTokens({
 		(cue.tokens ?? []).map((token, tokenIndex) => {
 			const startTimeSeconds = resolveAbsoluteTokenStartTime({ cue, token });
 			const endTimeSeconds = startTimeSeconds + token.duration;
+			const cueTimelineStartSeconds = subtitleSourceSecondsToTimelineSeconds({
+				element,
+				sourceSeconds: cue.startTime,
+			});
+			const cueTimelineEndSeconds = subtitleSourceSecondsToTimelineSeconds({
+				element,
+				sourceSeconds: cue.startTime + cue.duration,
+			});
 			const timelineStartSeconds = subtitleSourceSecondsToTimelineSeconds({
 				element,
 				sourceSeconds: startTimeSeconds,
@@ -392,6 +401,8 @@ function flattenSubtitleTokens({
 				tokenIndex,
 				startTimeSeconds,
 				endTimeSeconds,
+				cueTimelineStartSeconds,
+				cueTimelineEndSeconds,
 				timelineStartSeconds,
 				timelineEndSeconds,
 				selected: false,
@@ -678,6 +689,114 @@ function mergeRanges({
 		merged.push({ ...range });
 	}
 	return merged;
+}
+
+function buildSilenceAlignedCutRanges({
+	tokens,
+	selectedTokenIds,
+	paddingSeconds,
+}: {
+	tokens: RoughCutReviewToken[];
+	selectedTokenIds: string[];
+	paddingSeconds: number;
+}): CutRangeSeconds[] {
+	if (selectedTokenIds.length === 0) return [];
+	const selected = new Set(selectedTokenIds);
+	const ranges: CutRangeSeconds[] = [];
+	const orderedTokens = [...tokens].sort((left, right) => {
+		if (left.timelineStartSeconds !== right.timelineStartSeconds) {
+			return left.timelineStartSeconds - right.timelineStartSeconds;
+		}
+		return left.timelineEndSeconds - right.timelineEndSeconds;
+	});
+	let index = 0;
+	while (index < orderedTokens.length) {
+		if (!selected.has(orderedTokens[index]?.id ?? "")) {
+			index += 1;
+			continue;
+		}
+
+		const startIndex = index;
+		let endIndex = index;
+		while (
+			endIndex + 1 < orderedTokens.length &&
+			selected.has(orderedTokens[endIndex + 1]?.id ?? "")
+		) {
+			endIndex += 1;
+		}
+
+		const firstToken = orderedTokens[startIndex];
+		const lastToken = orderedTokens[endIndex];
+		if (!firstToken || !lastToken) break;
+		const previousToken = orderedTokens[startIndex - 1];
+		const nextToken = orderedTokens[endIndex + 1];
+		const selectedStart = firstToken.timelineStartSeconds;
+		const selectedEnd = lastToken.timelineEndSeconds;
+		const startBoundary = resolveCutStartBoundary({
+			selectedStart,
+			fallbackStart: firstToken.cueTimelineStartSeconds,
+			previousToken,
+		});
+		const endBoundary = resolveCutEndBoundary({
+			selectedEnd,
+			fallbackEnd: lastToken.cueTimelineEndSeconds,
+			nextToken,
+		});
+		ranges.push({
+			startSeconds: Math.max(0, startBoundary - paddingSeconds),
+			endSeconds: Math.max(startBoundary, endBoundary + paddingSeconds),
+		});
+		index = endIndex + 1;
+	}
+	return ranges;
+}
+
+function resolveCutStartBoundary({
+	selectedStart,
+	fallbackStart,
+	previousToken,
+}: {
+	selectedStart: number;
+	fallbackStart: number;
+	previousToken?: RoughCutReviewToken;
+}): number {
+	if (previousToken && previousToken.timelineEndSeconds > selectedStart) {
+		return Math.max(0, selectedStart);
+	}
+	const nearestSilenceStart = previousToken
+		? previousToken.timelineEndSeconds
+		: fallbackStart;
+	return Math.max(
+		0,
+		Math.max(
+			Math.min(nearestSilenceStart, selectedStart),
+			selectedStart - MAX_SILENCE_BOUNDARY_EXTENSION_SECONDS,
+		),
+	);
+}
+
+function resolveCutEndBoundary({
+	selectedEnd,
+	fallbackEnd,
+	nextToken,
+}: {
+	selectedEnd: number;
+	fallbackEnd: number;
+	nextToken?: RoughCutReviewToken;
+}): number {
+	if (nextToken && nextToken.timelineStartSeconds < selectedEnd) {
+		return selectedEnd;
+	}
+	const nearestSilenceEnd = nextToken
+		? nextToken.timelineStartSeconds
+		: fallbackEnd;
+	return Math.max(
+		selectedEnd,
+		Math.min(
+			Math.max(nearestSilenceEnd, selectedEnd),
+			selectedEnd + MAX_SILENCE_BOUNDARY_EXTENSION_SECONDS,
+		),
+	);
 }
 
 function buildTimelineTargetsForRanges({

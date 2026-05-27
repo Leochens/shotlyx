@@ -194,14 +194,14 @@ describe("rough cut tools", () => {
 					trackId: "main",
 					elementId: "clip-1",
 					ranges: [
-						{ startTime: seconds(0.2), endTime: seconds(0.8) },
+						{ startTime: seconds(0), endTime: seconds(1.1) },
 					],
 				},
 				{
 					trackId: "subtitles",
 					elementId: "subtitle-1",
 					ranges: [
-						{ startTime: seconds(0.2), endTime: seconds(0.8) },
+						{ startTime: seconds(0), endTime: seconds(1.1) },
 					],
 				},
 			],
