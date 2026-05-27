@@ -32,6 +32,7 @@ export const VISIBLE_TAB_KEYS = [
 	"media",
 	"sounds",
 	"text",
+	"stickers",
 	"effects",
 	"captions",
 	"settings",
