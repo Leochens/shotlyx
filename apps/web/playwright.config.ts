@@ -1,5 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const isDesktopE2E = process.env.SHOTLYX_DESKTOP === "1";
+const e2ePort = process.env.PLAYWRIGHT_PORT ?? "3000";
+const baseURL = `http://127.0.0.1:${e2ePort}`;
+const webServerCommand = `bun run dev -- --hostname 127.0.0.1 --port ${e2ePort}`;
+
 export default defineConfig({
 	testDir: "./e2e/specs",
 	fullyParallel: true,
@@ -7,7 +12,7 @@ export default defineConfig({
 	retries: process.env.CI ? 2 : 0,
 	reporter: "html",
 	use: {
-		baseURL: "http://localhost:3000",
+		baseURL,
 		trace: "on-first-retry",
 		screenshot: "only-on-failure",
 	},
@@ -18,9 +23,9 @@ export default defineConfig({
 		},
 	],
 	webServer: {
-		command: "bun run dev",
-		url: "http://localhost:3000",
-		reuseExistingServer: !process.env.CI,
+		command: webServerCommand,
+		url: baseURL,
+		reuseExistingServer: !process.env.CI && !isDesktopE2E,
 		timeout: 120_000,
 	},
 });

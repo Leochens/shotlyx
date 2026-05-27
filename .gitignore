@@ -54,6 +54,7 @@ target/
 
 .next
 **/.next/
+**/.next-desktop*/
 
 # deployment/local state
 .vercel/

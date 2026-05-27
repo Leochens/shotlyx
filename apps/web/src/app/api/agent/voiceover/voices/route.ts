@@ -6,6 +6,7 @@ import {
 	VOLCENGINE_PRESET_VOICES,
 	getDefaultVolcengineVoice,
 } from "@/agent/tools/voiceover/voices";
+import { getRuntimeEnv } from "@/desktop/config/server";
 
 export const runtime = "nodejs";
 
@@ -123,7 +124,7 @@ function stringField({
 }
 
 function parseConfiguredClonedVoices(): VoiceProfile[] {
-	const raw = process.env.VOLCENGINE_TTS_CLONED_VOICES;
+	const raw = getRuntimeEnv().VOLCENGINE_TTS_CLONED_VOICES;
 	if (!raw) return [];
 	try {
 		const parsed: unknown = JSON.parse(raw);
@@ -173,8 +174,9 @@ async function postVolcengineOpenApi({
 	action: string;
 	body: Record<string, unknown>;
 }): Promise<unknown> {
-	const accessKeyId = process.env.VOLCENGINE_ACCESS_KEY_ID;
-	const secretAccessKey = process.env.VOLCENGINE_SECRET_ACCESS_KEY;
+	const env = getRuntimeEnv();
+	const accessKeyId = env.VOLCENGINE_ACCESS_KEY_ID;
+	const secretAccessKey = env.VOLCENGINE_SECRET_ACCESS_KEY;
 	if (!accessKeyId || !secretAccessKey) return null;
 
 	const query = {
@@ -253,7 +255,7 @@ function normalizePresetVoice(
 			firstStringField({
 				value: item,
 				keys: ["ResourceID", "ResourceId", "resource_id"],
-			}) ?? process.env.VOLCENGINE_TTS_RESOURCE_ID,
+			}) ?? getRuntimeEnv().VOLCENGINE_TTS_RESOURCE_ID,
 		locale:
 			firstStringField({ value: item, keys: ["Locale", "Language"] }) ??
 			"zh-CN",
@@ -287,7 +289,7 @@ function collectRecordArrays(value: unknown): Array<Record<string, unknown>[]> {
 }
 
 async function fetchPresetVoicesFromVolcengine(): Promise<VoiceProfile[]> {
-	const appId = process.env.VOLCENGINE_TTS_APP_ID;
+	const appId = getRuntimeEnv().VOLCENGINE_TTS_APP_ID;
 	const body: Record<string, unknown> = appId ? { AppID: appId } : {};
 	const data = await postVolcengineOpenApi({ action: "ListSpeakers", body });
 	if (!data) return [];
@@ -304,7 +306,7 @@ async function fetchPresetVoicesFromVolcengine(): Promise<VoiceProfile[]> {
 }
 
 async function fetchClonedVoicesFromVolcengine(): Promise<VoiceProfile[]> {
-	const appId = process.env.VOLCENGINE_TTS_APP_ID;
+	const appId = getRuntimeEnv().VOLCENGINE_TTS_APP_ID;
 	if (!appId) return [];
 
 	const data = await postVolcengineOpenApi({
@@ -373,12 +375,12 @@ export async function GET() {
 	}
 
 	const voices = [...presetVoices, ...clonedVoices];
+	const env = getRuntimeEnv();
 	return NextResponse.json({
 		providerConfigured: Boolean(
-			process.env.VOLCENGINE_TTS_API_KEY ||
-			process.env.VOLCENGINE_API_KEY ||
-			(process.env.VOLCENGINE_TTS_APP_ID &&
-				process.env.VOLCENGINE_TTS_ACCESS_KEY),
+			env.VOLCENGINE_TTS_API_KEY ||
+			env.VOLCENGINE_API_KEY ||
+			(env.VOLCENGINE_TTS_APP_ID && env.VOLCENGINE_TTS_ACCESS_KEY),
 		),
 		defaultVoiceId:
 			voices.find((voice) => voice.id === getDefaultVolcengineVoice().id)?.id ??

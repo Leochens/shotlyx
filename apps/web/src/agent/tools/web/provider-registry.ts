@@ -9,6 +9,7 @@ import {
 	type WebSearchResult,
 	type WebSearchResultItem,
 } from "./types";
+import { getRuntimeEnv } from "@/desktop/config/server";
 
 export interface WebProviderApiKeys {
 	tavily?: string;
@@ -180,7 +181,9 @@ function stringValue(value: unknown): string | undefined {
 }
 
 function numberValue(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+	return typeof value === "number" && Number.isFinite(value)
+		? value
+		: undefined;
 }
 
 function parseResultArray(value: unknown): unknown[] {
@@ -215,7 +218,12 @@ function parseJinaReaderText(raw: string): { title?: string; content: string } {
 		line.toLowerCase().startsWith("markdown content:"),
 	);
 	const content =
-		contentStart >= 0 ? lines.slice(contentStart + 1).join("\n").trim() : raw;
+		contentStart >= 0
+			? lines
+					.slice(contentStart + 1)
+					.join("\n")
+					.trim()
+			: raw;
 	return { title: title || undefined, content };
 }
 
@@ -265,28 +273,28 @@ async function searchWithTavily({
 
 	const data: unknown = await response.json();
 	const record = isRecord(data) ? data : {};
-	const results: WebSearchResultItem[] = parseResultArray(record.results).flatMap(
-		(item): WebSearchResultItem[] => {
-			if (!isRecord(item)) return [];
-			const title = stringValue(item.title);
-			const url = stringValue(item.url);
-			if (!title || !url) return [];
-			return [
-				{
-					title,
-					url,
-					snippet:
-						stringValue(item.content) ??
-						stringValue(item.raw_content) ??
-						stringValue(item.description),
-					publishedDate:
-						stringValue(item.published_date) ?? stringValue(item.publishedDate),
-					score: numberValue(item.score),
-					source: "tavily",
-				},
-			];
-		},
-	);
+	const results: WebSearchResultItem[] = parseResultArray(
+		record.results,
+	).flatMap((item): WebSearchResultItem[] => {
+		if (!isRecord(item)) return [];
+		const title = stringValue(item.title);
+		const url = stringValue(item.url);
+		if (!title || !url) return [];
+		return [
+			{
+				title,
+				url,
+				snippet:
+					stringValue(item.content) ??
+					stringValue(item.raw_content) ??
+					stringValue(item.description),
+				publishedDate:
+					stringValue(item.published_date) ?? stringValue(item.publishedDate),
+				score: numberValue(item.score),
+				source: "tavily",
+			},
+		];
+	});
 
 	return {
 		provider: "tavily",
@@ -527,7 +535,7 @@ export async function searchWeb({
 	input: WebSearchInput;
 	deps?: WebProviderRegistryDeps;
 }): Promise<WebSearchResult> {
-	const env = deps.env ?? process.env;
+	const env = deps.env ?? getRuntimeEnv();
 	const apiKeys = mergeApiKeys({ env, apiKeys: deps.apiKeys });
 	const fetchFn = deps.fetchFn ?? fetch;
 	const provider = resolveSearchProvider({ input, env });
@@ -563,7 +571,9 @@ export async function searchWeb({
 		});
 	}
 
-	throw new Error(`provider_unsupported: unknown web search provider "${provider}"`);
+	throw new Error(
+		`provider_unsupported: unknown web search provider "${provider}"`,
+	);
 }
 
 export async function fetchWebPage({
@@ -573,7 +583,7 @@ export async function fetchWebPage({
 	input: WebFetchInput;
 	deps?: WebProviderRegistryDeps;
 }): Promise<WebFetchResult> {
-	const env = deps.env ?? process.env;
+	const env = deps.env ?? getRuntimeEnv();
 	const apiKeys = mergeApiKeys({ env, apiKeys: deps.apiKeys });
 	const fetchFn = deps.fetchFn ?? fetch;
 	const provider = resolveFetchProvider({ input, env });
@@ -596,5 +606,7 @@ export async function fetchWebPage({
 		});
 	}
 
-	throw new Error(`provider_unsupported: unknown web fetch provider "${provider}"`);
+	throw new Error(
+		`provider_unsupported: unknown web fetch provider "${provider}"`,
+	);
 }

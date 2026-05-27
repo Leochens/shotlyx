@@ -5,7 +5,7 @@ import { Toaster } from "../components/ui/sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
 import { baseMetaData } from "./metadata";
 import { BotIdClient } from "botid/client";
-import { webEnv } from "@/env/web";
+import { isDesktopMode } from "@/desktop/config/server";
 
 const enableReactScan = process.env.NEXT_PUBLIC_REACT_SCAN === "true";
 
@@ -53,7 +53,9 @@ export default function RootLayout({
 					strategy="afterInteractive"
 					async
 					data-client-id="UP-Wcoy5arxFeK7oyjMMZ"
-					data-disabled={webEnv.NODE_ENV === "development"}
+					data-disabled={
+						process.env.NODE_ENV === "development" || isDesktopMode()
+					}
 					data-track-attributes={false}
 					data-track-errors={true}
 					data-track-outgoing-links={false}

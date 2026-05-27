@@ -1,3 +1,5 @@
+import { getRuntimeEnv } from "@/desktop/config/server";
+
 interface GenerateImageInput {
 	prompt: string;
 	size?: string;
@@ -23,7 +25,7 @@ export interface GenerateImageResult {
 }
 
 function requireEnv(name: string): string {
-	const value = process.env[name];
+	const value = getRuntimeEnv()[name];
 	if (!value) {
 		throw new Error(`configuration_error: missing ${name}`);
 	}
@@ -85,7 +87,9 @@ async function postImageGenerationRequest({
 	}
 }
 
-async function parseProviderResponse(response: Response): Promise<ProviderResponse> {
+async function parseProviderResponse(
+	response: Response,
+): Promise<ProviderResponse> {
 	try {
 		return readProviderResponse(await response.json());
 	} catch {

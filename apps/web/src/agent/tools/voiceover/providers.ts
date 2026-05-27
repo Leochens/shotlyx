@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { getRuntimeEnv } from "@/desktop/config/server";
 import { EdgeTTS } from "node-edge-tts";
 import type {
 	SynthesizeVoiceoverInput,
@@ -306,7 +307,7 @@ export class EdgeTtsProvider implements VoiceoverProvider {
 	constructor(private deps: EdgeTtsProviderDeps = {}) {}
 
 	async synthesize(input: SynthesizeVoiceoverInput): Promise<VoiceoverAudio> {
-		const env = this.deps.env ?? process.env;
+		const env = this.deps.env ?? getRuntimeEnv();
 		const format = normalizeFormat(input.format);
 		const dir = await (this.deps.mkdtemp ?? mkdtemp)(
 			path.join((this.deps.tmpdir ?? tmpdir)(), "shotlyx-voiceover-"),
@@ -375,7 +376,7 @@ export class OpenAICompatibleTtsProvider implements VoiceoverProvider {
 	constructor(private deps: OpenAITtsProviderDeps = {}) {}
 
 	async synthesize(input: SynthesizeVoiceoverInput): Promise<VoiceoverAudio> {
-		const env = this.deps.env ?? process.env;
+		const env = this.deps.env ?? getRuntimeEnv();
 		const baseUrl = normalizeBaseUrl(
 			env.TTS_GENERATION_BASE_URL ?? "https://api.openai.com/v1",
 		);
@@ -424,7 +425,7 @@ export class VolcengineTtsProvider implements VoiceoverProvider {
 	constructor(private deps: VolcengineTtsProviderDeps = {}) {}
 
 	async synthesize(input: SynthesizeVoiceoverInput): Promise<VoiceoverAudio> {
-		const env = this.deps.env ?? process.env;
+		const env = this.deps.env ?? getRuntimeEnv();
 		const apiKey = optionalEnv({
 			env,
 			names: [
@@ -515,7 +516,9 @@ export class VoiceoverProviderRegistry {
 
 	get(provider: string | undefined): VoiceoverProvider {
 		const id =
-			provider ?? process.env.VOICEOVER_PROVIDER ?? DEFAULT_VOICEOVER_PROVIDER;
+			provider ??
+			getRuntimeEnv().VOICEOVER_PROVIDER ??
+			DEFAULT_VOICEOVER_PROVIDER;
 		if (!isVoiceoverProviderId(id)) {
 			throw new Error(
 				`provider_unsupported: unknown voiceover provider "${id}"`,
@@ -543,10 +546,11 @@ export function createVoiceoverProviderRegistry({
 	openAIDeps?: OpenAITtsProviderDeps;
 	volcengineDeps?: VolcengineTtsProviderDeps;
 } = {}): VoiceoverProviderRegistry {
+	const env = getRuntimeEnv();
 	return new VoiceoverProviderRegistry({
-		"edge-tts": new EdgeTtsProvider(edgeTtsDeps),
-		openai: new OpenAICompatibleTtsProvider(openAIDeps),
-		volcengine: new VolcengineTtsProvider(volcengineDeps),
+		"edge-tts": new EdgeTtsProvider({ env, ...edgeTtsDeps }),
+		openai: new OpenAICompatibleTtsProvider({ env, ...openAIDeps }),
+		volcengine: new VolcengineTtsProvider({ env, ...volcengineDeps }),
 	});
 }
 

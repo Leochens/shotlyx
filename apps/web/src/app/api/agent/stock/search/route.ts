@@ -6,6 +6,7 @@ import {
 	STOCK_ORIENTATIONS,
 	STOCK_RESOLUTIONS,
 } from "@/agent/tools/stock-media/types";
+import { getRuntimeEnv } from "@/desktop/config/server";
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -29,7 +30,10 @@ const requestSchema = z.object({
 	providers: z.array(z.enum(STOCK_MEDIA_PROVIDERS)).min(1).optional(),
 });
 
-function normalizeStockError(error: unknown): { message: string; status: number } {
+function normalizeStockError(error: unknown): {
+	message: string;
+	status: number;
+} {
 	const message = error instanceof Error ? error.message : "provider_error";
 	if (message.startsWith("configuration_error")) {
 		return { message, status: 500 };
@@ -55,13 +59,14 @@ export async function POST(request: NextRequest) {
 	}
 
 	try {
+		const env = getRuntimeEnv();
 		const result = await searchStockMedia({
 			input: parsed.data,
 			deps: {
 				apiKeys: {
-					pexels: process.env.PEXELS_API_KEY,
-					pixabay: process.env.PIXABAY_API_KEY,
-					freesound: process.env.FREESOUND_API_KEY,
+					pexels: env.PEXELS_API_KEY,
+					pixabay: env.PIXABAY_API_KEY,
+					freesound: env.FREESOUND_API_KEY,
 				},
 			},
 		});

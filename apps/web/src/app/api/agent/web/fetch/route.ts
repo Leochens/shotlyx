@@ -1,5 +1,6 @@
 import { fetchWebPage } from "@/agent/tools/web/provider-registry";
 import { WEB_FETCH_PROVIDERS } from "@/agent/tools/web/types";
+import { getRuntimeEnv } from "@/desktop/config/server";
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -11,7 +12,10 @@ const requestSchema = z.object({
 	provider: z.enum(WEB_FETCH_PROVIDERS).optional(),
 });
 
-function normalizeWebError(error: unknown): { message: string; status: number } {
+function normalizeWebError(error: unknown): {
+	message: string;
+	status: number;
+} {
 	const message = error instanceof Error ? error.message : "provider_error";
 	if (message.startsWith("configuration_error")) {
 		return { message, status: 500 };
@@ -43,13 +47,15 @@ export async function POST(request: NextRequest) {
 	}
 
 	try {
+		const env = getRuntimeEnv();
 		const result = await fetchWebPage({
 			input: parsed.data,
 			deps: {
 				apiKeys: {
-					firecrawl: process.env.FIRECRAWL_API_KEY,
-					jina: process.env.JINA_API_KEY,
+					firecrawl: env.FIRECRAWL_API_KEY,
+					jina: env.JINA_API_KEY,
 				},
+				env,
 			},
 		});
 		return NextResponse.json(result);

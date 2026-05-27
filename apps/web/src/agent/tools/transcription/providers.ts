@@ -8,6 +8,7 @@ import type {
 } from "./types";
 import type { SubtitleToken } from "@/subtitles/types";
 import { randomUUID } from "node:crypto";
+import { getRuntimeEnv } from "@/desktop/config/server";
 
 const DEFAULT_ASR_PROVIDER: AsrProviderId = "volcengine";
 const DEFAULT_ASR_BASE_URL = "https://api.openai.com/v1";
@@ -127,7 +128,8 @@ function normalizeTokens({
 			optionalNumber(item.endTime) ??
 			optionalNumber(item.end);
 		if (!text || start === undefined) return [];
-		const resolvedDuration = duration ?? (end !== undefined ? end - start : NaN);
+		const resolvedDuration =
+			duration ?? (end !== undefined ? end - start : NaN);
 		if (!Number.isFinite(resolvedDuration) || resolvedDuration <= 0) return [];
 		return [
 			{
@@ -150,7 +152,9 @@ function normalizeCue({
 	index: number;
 }): TranscriptionCue {
 	if (!isRecord(value)) {
-		throw new Error(`provider_error: invalid transcription cue at index ${index}`);
+		throw new Error(
+			`provider_error: invalid transcription cue at index ${index}`,
+		);
 	}
 	const text = optionalString(value.text);
 	const start =
@@ -161,13 +165,16 @@ function normalizeCue({
 	const duration =
 		optionalNumber(value.durationSeconds) ??
 		optionalNumber(value.duration) ??
-		(optionalNumber(value.endTimeSeconds) ?? optionalNumber(value.end) ?? start) -
-			start;
+		(optionalNumber(value.endTimeSeconds) ??
+			optionalNumber(value.end) ??
+			start) - start;
 	if (!text) {
 		throw new Error(`provider_error: transcription cue ${index} has no text`);
 	}
 	if (!Number.isFinite(start) || !Number.isFinite(duration) || duration <= 0) {
-		throw new Error(`provider_error: transcription cue ${index} has invalid timing`);
+		throw new Error(
+			`provider_error: transcription cue ${index} has invalid timing`,
+		);
 	}
 	return {
 		text,
@@ -208,13 +215,16 @@ function normalizeOpenAICompatibleResponse({
 							text,
 							startTimeSeconds: 0,
 							durationSeconds:
-								optionalNumber(body.duration) ?? DEFAULT_TEXT_ONLY_DURATION_SECONDS,
+								optionalNumber(body.duration) ??
+								DEFAULT_TEXT_ONLY_DURATION_SECONDS,
 						},
 					]
 				: [];
 
 	if (cues.length === 0) {
-		throw new Error("provider_error: ASR response did not include timed captions");
+		throw new Error(
+			"provider_error: ASR response did not include timed captions",
+		);
 	}
 
 	return {
@@ -249,10 +259,15 @@ function volcengineHeaders({
 	return headers;
 }
 
-function normalizeVolcengineWord({ value }: { value: unknown }): SubtitleToken | null {
+function normalizeVolcengineWord({
+	value,
+}: {
+	value: unknown;
+}): SubtitleToken | null {
 	if (!isRecord(value)) return null;
 	const text = optionalString(value.text) ?? optionalString(value.word);
-	const start = optionalNumber(value.start_time) ?? optionalNumber(value.startTime);
+	const start =
+		optionalNumber(value.start_time) ?? optionalNumber(value.startTime);
 	const end = optionalNumber(value.end_time) ?? optionalNumber(value.endTime);
 	if (!text || start === undefined || end === undefined || end < start) {
 		return null;
@@ -278,7 +293,8 @@ function normalizeVolcengineUtterance({
 		throw new Error(`provider_error: invalid Volcengine utterance ${index}`);
 	}
 	const text = optionalString(value.text);
-	const start = optionalNumber(value.start_time) ?? optionalNumber(value.startTime);
+	const start =
+		optionalNumber(value.start_time) ?? optionalNumber(value.startTime);
 	const end = optionalNumber(value.end_time) ?? optionalNumber(value.endTime);
 	if (!text || start === undefined || end === undefined || end <= start) {
 		throw new Error(
@@ -363,8 +379,10 @@ export class OpenAICompatibleAsrProvider implements AsrProvider {
 
 	constructor(private deps: OpenAICompatibleAsrProviderDeps = {}) {}
 
-	async transcribe(input: TranscribeAudioInput): Promise<TranscribeAudioResult> {
-		const env = this.deps.env ?? process.env;
+	async transcribe(
+		input: TranscribeAudioInput,
+	): Promise<TranscribeAudioResult> {
+		const env = this.deps.env ?? getRuntimeEnv();
 		const baseUrl = normalizeBaseUrl(env.ASR_BASE_URL ?? DEFAULT_ASR_BASE_URL);
 		const apiKey = requireEnv({ env, name: "ASR_API_KEY" });
 		const model = input.model ?? requireEnv({ env, name: "ASR_MODEL" });
@@ -388,7 +406,9 @@ export class OpenAICompatibleAsrProvider implements AsrProvider {
 		);
 
 		if (!response.ok) {
-			throw new Error(`provider_error: ASR transcription failed with ${response.status}`);
+			throw new Error(
+				`provider_error: ASR transcription failed with ${response.status}`,
+			);
 		}
 
 		return normalizeOpenAICompatibleResponse({
@@ -404,8 +424,10 @@ export class VolcengineAsrProvider implements AsrProvider {
 
 	constructor(private deps: VolcengineAsrProviderDeps = {}) {}
 
-	async transcribe(input: TranscribeAudioInput): Promise<TranscribeAudioResult> {
-		const env = this.deps.env ?? process.env;
+	async transcribe(
+		input: TranscribeAudioInput,
+	): Promise<TranscribeAudioResult> {
+		const env = this.deps.env ?? getRuntimeEnv();
 		const requestId = randomUUID();
 		const audioData = Buffer.from(await input.audio.arrayBuffer()).toString(
 			"base64",
@@ -455,7 +477,7 @@ export class AsrProviderRegistry {
 
 	constructor({
 		providers,
-		env = process.env,
+		env = getRuntimeEnv(),
 	}: {
 		providers: Partial<Record<AsrProviderId, AsrProvider>>;
 		env?: Record<string, string | undefined>;
@@ -490,13 +512,17 @@ export function createAsrProviderRegistry({
 	env?: Record<string, string | undefined>;
 } = {}): AsrProviderRegistry {
 	const registryEnv =
-		env ?? openAICompatibleDeps?.env ?? volcengineDeps?.env ?? process.env;
+		env ?? openAICompatibleDeps?.env ?? volcengineDeps?.env ?? getRuntimeEnv();
 	return new AsrProviderRegistry({
 		providers: {
-			"openai-compatible": new OpenAICompatibleAsrProvider(
-				openAICompatibleDeps,
-			),
-			volcengine: new VolcengineAsrProvider(volcengineDeps),
+			"openai-compatible": new OpenAICompatibleAsrProvider({
+				env: registryEnv,
+				...openAICompatibleDeps,
+			}),
+			volcengine: new VolcengineAsrProvider({
+				env: registryEnv,
+				...volcengineDeps,
+			}),
 		},
 		env: registryEnv,
 	});

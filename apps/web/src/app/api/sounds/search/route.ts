@@ -2,6 +2,7 @@ import { webEnv } from "@/env/web";
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { checkRateLimit } from "@/auth/rate-limit";
+import { getRuntimeEnv } from "@/desktop/config/server";
 
 const searchParamsSchema = z.object({
 	q: z.string().max(500, "Query too long").optional(),
@@ -199,10 +200,11 @@ export async function GET(request: NextRequest) {
 		const baseUrl = "https://freesound.org/apiv2/search/text/";
 
 		const sortParam = buildSortParameter({ query, sort });
+		const env = getRuntimeEnv();
 
 		const params = new URLSearchParams({
 			query: query || "",
-			token: webEnv.FREESOUND_API_KEY,
+			token: env.FREESOUND_API_KEY ?? webEnv.FREESOUND_API_KEY,
 			page: page.toString(),
 			page_size: pageSize.toString(),
 			sort: sortParam,

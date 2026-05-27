@@ -1,9 +1,12 @@
 import type { LLMProviderConfig } from "./types";
 import type { LLMProviderId, LLMStructuredOutputMode } from "./types";
+import { getRuntimeEnv } from "@/desktop/config/server";
 
 type LLMConfigName = "default" | "mg" | "asr" | "vision";
 
-function normalizeProvider(value: string | undefined): LLMProviderId | undefined {
+function normalizeProvider(
+	value: string | undefined,
+): LLMProviderId | undefined {
 	if (!value) return undefined;
 	const normalized = value.toLowerCase().trim();
 	switch (normalized) {
@@ -82,25 +85,25 @@ function normalizeStructuredOutputMode(
 }
 
 function getScopedEnv(name: LLMConfigName) {
+	const env = getRuntimeEnv();
 	if (name === "default") {
 		return {
-			provider: process.env.AGENT_LLM_PROVIDER,
-			host: process.env.AGENT_LLM_HOST,
-			apiKey: process.env.AGENT_LLM_KEY,
-			model: process.env.AGENT_LLM_MODEL,
-			structuredOutputMode: process.env.AGENT_LLM_STRUCTURED_OUTPUT_MODE,
+			provider: env.AGENT_LLM_PROVIDER,
+			host: env.AGENT_LLM_HOST,
+			apiKey: env.AGENT_LLM_KEY,
+			model: env.AGENT_LLM_MODEL,
+			structuredOutputMode: env.AGENT_LLM_STRUCTURED_OUTPUT_MODE,
 		};
 	}
 	const prefix = `AGENT_${name.toUpperCase()}`;
 	return {
-		provider:
-			process.env[`${prefix}_PROVIDER`] ?? process.env.AGENT_LLM_PROVIDER,
-		host: process.env[`${prefix}_HOST`] ?? process.env.AGENT_LLM_HOST,
-		apiKey: process.env[`${prefix}_KEY`] ?? process.env.AGENT_LLM_KEY,
-		model: process.env[`${prefix}_MODEL`] ?? process.env.AGENT_LLM_MODEL,
+		provider: env[`${prefix}_PROVIDER`] ?? env.AGENT_LLM_PROVIDER,
+		host: env[`${prefix}_HOST`] ?? env.AGENT_LLM_HOST,
+		apiKey: env[`${prefix}_KEY`] ?? env.AGENT_LLM_KEY,
+		model: env[`${prefix}_MODEL`] ?? env.AGENT_LLM_MODEL,
 		structuredOutputMode:
-			process.env[`${prefix}_STRUCTURED_OUTPUT_MODE`] ??
-			process.env.AGENT_LLM_STRUCTURED_OUTPUT_MODE,
+			env[`${prefix}_STRUCTURED_OUTPUT_MODE`] ??
+			env.AGENT_LLM_STRUCTURED_OUTPUT_MODE,
 	};
 }
 

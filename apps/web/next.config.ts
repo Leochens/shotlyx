@@ -2,7 +2,10 @@ import type { NextConfig } from "next";
 import { withBotId } from "botid/next/config";
 import { withContentCollections } from "@content-collections/next";
 
+const desktopDistDir = process.env.SHOTLYX_DESKTOP_DIST_DIR;
+
 const nextConfig: NextConfig = {
+	...(desktopDistDir ? { distDir: desktopDistDir } : {}),
 	compiler: {
 		removeConsole: process.env.NODE_ENV === "production",
 	},

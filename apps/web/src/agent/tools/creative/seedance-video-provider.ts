@@ -1,3 +1,5 @@
+import { getRuntimeEnv } from "@/desktop/config/server";
+
 export interface SeedanceCreateVideoTaskInput {
 	prompt: string;
 	aspectRatio?: string;
@@ -39,22 +41,23 @@ function requireEnvValue({
 	names: string[];
 	label: string;
 }): string {
+	const env = getRuntimeEnv();
 	for (const name of names) {
-		const value = process.env[name];
+		const value = env[name];
 		if (value) return value;
 	}
 	throw new Error(`configuration_error: missing ${label}`);
 }
 
 function getSeedanceEnv(): SeedanceEnv {
+	const env = getRuntimeEnv();
 	return {
 		apiKey: requireEnvValue({
 			names: ["VOLCENGINE_ARK_API_KEY", "ARK_API_KEY", "VOLCENGINE_API_KEY"],
 			label: "VOLCENGINE_ARK_API_KEY",
 		}),
 		baseUrl: (
-			process.env.VOLCENGINE_ARK_BASE_URL ??
-			"https://ark.cn-beijing.volces.com/api/v3"
+			env.VOLCENGINE_ARK_BASE_URL ?? "https://ark.cn-beijing.volces.com/api/v3"
 		).replace(/\/$/, ""),
 		model: requireEnvValue({
 			names: ["SEEDANCE_VIDEO_MODEL"],

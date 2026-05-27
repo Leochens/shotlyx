@@ -33,7 +33,13 @@
 		"src/types/**/*.d.ts",
 		"../../use-frame-cache.ts",
 		"src/stores/timeline-store.ts",
-		".next/dev/types/**/*.ts"
+		".next/dev/types/**/*.ts",
+		".next-desktop/types/**/*.ts",
+		".next-desktop/dev/types/**/*.ts",
+		".next-desktop-e2e/types/**/*.ts",
+		".next-desktop-e2e/dev/types/**/*.ts",
+		".next-desktop-alt/types/**/*.ts",
+		".next-desktop-alt/dev/types/**/*.ts"
 	],
 	"exclude": ["node_modules"]
 }

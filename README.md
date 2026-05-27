@@ -37,7 +37,7 @@ The Agent layer that makes the editor operable through natural language is origi
 
 ## Project Status
 
-This repository is public-readiness work in progress. The web editor and Agent stack are the main active surfaces. The desktop app under `apps/desktop` is currently a small GPUI shell prototype, not a complete desktop editor.
+This repository is public-readiness work in progress. The web editor and Agent stack are the main active surfaces. The Electron client under `apps/client` wraps the local Next.js app in desktop API mode. The older `apps/desktop` directory is a small GPUI shell prototype, not the current desktop editor.
 
 ## Repository Structure
 
@@ -45,6 +45,7 @@ This repository is public-readiness work in progress. The web editor and Agent s
 .
 ├── apps/
 │   ├── web/          # Next.js editor app and Agent runtime
+│   ├── client/       # Electron desktop client for local API configuration
 │   └── desktop/      # Rust GPUI desktop shell prototype
 ├── rust/
 │   ├── crates/       # Shared Rust crates for time, audio, GPU, masks, effects
@@ -117,6 +118,20 @@ Open:
 ```text
 http://localhost:3000
 ```
+
+Run the Electron desktop client in local API mode:
+
+```bash
+bun run dev:client
+```
+
+The desktop client opens `/desktop` and enables `SHOTLYX_DESKTOP=1`, so users can
+configure their own Agent, video, image, TTS, ASR, web-search, and stock-media
+API keys from `/settings/api`. These values are stored in a local desktop config
+file and read by the local Next.js server, not by browser localStorage. By
+default the Electron client uses `http://127.0.0.1:3100` and a separate
+`.next-desktop` build directory so it can run alongside the web dev server on
+port 3000.
 
 ## Environment Variables
 
