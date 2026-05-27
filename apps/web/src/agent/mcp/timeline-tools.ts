@@ -317,8 +317,8 @@ export function buildTimelineTools({
 			},
 			mutating: true,
 			handler: (params) => {
-				const { trackId, elementId } = resolveElementFromParams(editor, params);
 				const seconds = requireNumberParam(params, "newStartTimeSeconds");
+				const { trackId, elementId } = resolveElementFromParams(editor, params);
 				const startTime = mediaTimeFromSeconds({ seconds });
 				editor.timeline.updateElements({
 					updates: [{ trackId, elementId, patch: { startTime } }],
@@ -351,9 +351,9 @@ export function buildTimelineTools({
 			},
 			mutating: true,
 			handler: (params) => {
-				const { elementId } = resolveElementFromParams(editor, params);
 				const trimStartSec = requireNumberParam(params, "trimStartSeconds");
 				const trimEndSec = requireNumberParam(params, "trimEndSeconds");
+				const { elementId } = resolveElementFromParams(editor, params);
 				const trimStart = mediaTimeFromSeconds({ seconds: trimStartSec });
 				const trimEnd = mediaTimeFromSeconds({ seconds: trimEndSec });
 				editor.timeline.updateElementTrim({
@@ -1416,7 +1416,12 @@ export function buildTimelineTools({
 			mutating: true,
 			handler: (params) => {
 				let refs: Array<{ trackId: string; elementId: string }>;
-				if (isElementRefArray(params.elementRefs)) {
+				if (params.elementRefs !== undefined) {
+					if (!isElementRefArray(params.elementRefs)) {
+						throw new Error(
+							"参数格式错误：elementRefs 必须为 { trackId, elementId } 数组",
+						);
+					}
 					refs = params.elementRefs;
 				} else {
 					const resolved = resolveElementFromParams(editor, params);
@@ -1458,7 +1463,12 @@ export function buildTimelineTools({
 			mutating: true,
 			handler: (params) => {
 				let refs: Array<{ trackId: string; elementId: string }>;
-				if (isElementRefArray(params.elementRefs)) {
+				if (params.elementRefs !== undefined) {
+					if (!isElementRefArray(params.elementRefs)) {
+						throw new Error(
+							"参数格式错误：elementRefs 必须为 { trackId, elementId } 数组",
+						);
+					}
 					refs = params.elementRefs;
 				} else {
 					const resolved = resolveElementFromParams(editor, params);

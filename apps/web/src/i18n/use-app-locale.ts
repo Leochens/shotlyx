@@ -70,12 +70,12 @@ export function useAppLocale() {
 	);
 
 	useEffect(() => {
-		if (hasHydratedLocale) {
+		const nextLocale = readStoredLocale();
+		if (hasHydratedLocale && currentLocale === nextLocale) {
 			applyDocumentLocale(currentLocale);
 			return;
 		}
 
-		const nextLocale = readStoredLocale();
 		currentLocale = nextLocale;
 		hasHydratedLocale = true;
 		applyDocumentLocale(nextLocale);

@@ -136,22 +136,70 @@ function validateTransparentBackgroundSource({
 	source: string;
 }): string[] {
 	const errors: string[] = [];
-	const absoluteFillStylePattern =
-		/<AbsoluteFill\b[^>]*style\s*=\s*\{\{([\s\S]{0,900}?)\}\}/g;
-	for (const match of source.matchAll(absoluteFillStylePattern)) {
-		const style = match[1] ?? "";
-		if (
-			/\bbackground(?:Color|Image)?\s*:\s*(?!["'`]transparent["'`])/.test(
-				style,
-			)
-		) {
-			errors.push(
-				"transparentBackground components must not paint a full-canvas background on AbsoluteFill",
-			);
-			break;
-		}
+	const styleObjectPattern =
+		/<([A-Za-z][\w.]*)\b[^>]*style\s*=\s*\{\{([\s\S]{0,1200}?)\}\}/g;
+	for (const match of source.matchAll(styleObjectPattern)) {
+		const tagName = match[1] ?? "";
+		const style = match[2] ?? "";
+		if (!styleHasNonTransparentBackground({ style })) continue;
+		if (!styleLooksFullCanvas({ tagName, style })) continue;
+		errors.push(
+			"transparentBackground components must not paint a full-canvas background layer",
+		);
+		break;
 	}
 	return errors;
+}
+
+function styleHasNonTransparentBackground({
+	style,
+}: {
+	style: string;
+}): boolean {
+	const backgroundPattern =
+		/\bbackground(?:Color|Image)?\s*:\s*([^,}\n]+)/g;
+	for (const match of style.matchAll(backgroundPattern)) {
+		if (!isTransparentBackgroundValue({ value: match[1] ?? "" })) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function isTransparentBackgroundValue({ value }: { value: string }): boolean {
+	const normalized = value.trim().replace(/;$/, "");
+	return (
+		/^["'`](?:transparent|none)["'`]$/i.test(normalized) ||
+		/^["'`]rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)["'`]$/i.test(
+			normalized,
+		) ||
+		/^["'`]#(?:[0-9a-f]{6}00|[0-9a-f]{3}0)["'`]$/i.test(normalized)
+	);
+}
+
+function styleLooksFullCanvas({
+	tagName,
+	style,
+}: {
+	tagName: string;
+	style: string;
+}): boolean {
+	if (tagName === "AbsoluteFill" || tagName.endsWith(".AbsoluteFill")) {
+		return true;
+	}
+	const hasAbsolutePosition =
+		/\bposition\s*:\s*["'`]?(?:absolute|fixed)["'`]?/.test(style);
+	const hasInsetZero = /\binset\s*:\s*(?:0|["'`]0(?:px|%)?["'`])/.test(
+		style,
+	);
+	const hasFullWidth = /\bwidth\s*:\s*["'`]100%["'`]/.test(style);
+	const hasFullHeight = /\bheight\s*:\s*["'`]100%["'`]/.test(style);
+	const hasLocalShape =
+		/\bborderRadius\s*:/.test(style) || /\bclipPath\s*:/.test(style);
+	return (
+		(hasAbsolutePosition && hasInsetZero && !hasLocalShape) ||
+		(hasAbsolutePosition && hasFullWidth && hasFullHeight)
+	);
 }
 
 export function validateShotlyxRemotionComponentSource({

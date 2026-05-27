@@ -48,6 +48,7 @@ import {
 import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
 import { mediaTimeFromSeconds, type MediaTime } from "@/wasm";
 import { useEditor } from "@/editor/use-editor";
+import { useAppLocale } from "@/i18n/use-app-locale";
 import { useFileUpload } from "@/media/use-file-upload";
 import { invokeAction } from "@/actions";
 import { processMediaAssets } from "@/media/processing";
@@ -88,13 +89,12 @@ type TimelineMediaAsset = MediaAsset & { type: TimelineMediaType };
 
 const MEDIA_ASSET_GROUPS: Array<{
 	type: MediaAsset["type"];
-	label: string;
 }> = [
-	{ type: "video", label: "视频" },
-	{ type: "image", label: "图片" },
-	{ type: "audio", label: "音频" },
-	{ type: "subtitle", label: "字幕文件" },
-	{ type: "text", label: "文本文件" },
+	{ type: "video" },
+	{ type: "image" },
+	{ type: "audio" },
+	{ type: "subtitle" },
+	{ type: "text" },
 ];
 
 function isTimelineMediaAsset(asset: MediaAsset): asset is TimelineMediaAsset {
@@ -109,6 +109,8 @@ function parseAssetSelectionId(id: string): SelectedAssetRef {
 }
 
 export function MediaView() {
+	const { copy } = useAppLocale();
+	const assetsCopy = copy.editor.assets;
 	const editor = useEditor();
 	const mediaFiles = useEditor((e) => e.media.getAssets());
 	const shotlyxMGAssets = useEditor((e) => e.project.getShotlyxMGAssets());
@@ -131,7 +133,7 @@ export function MediaView() {
 	const processFiles = async ({ files }: { files: File[] }) => {
 		if (!files || files.length === 0) return;
 		if (!activeProject) {
-			toast.error("No active project");
+			toast.error(assetsCopy.noActiveProject);
 			return;
 		}
 
@@ -251,7 +253,7 @@ export function MediaView() {
 			<input {...fileInputProps} />
 
 			<PanelView
-				title="Assets"
+				title={assetsCopy.title}
 				actions={
 					<MediaActions
 						mediaViewMode={mediaViewMode}
@@ -277,7 +279,7 @@ export function MediaView() {
 					/>
 				) : (
 					<SelectableSurface
-						ariaLabel="Assets"
+						ariaLabel={assetsCopy.title}
 						orderedIds={[
 							...shotlyxMGAssets.map((item) => `shotlyx-mg:${item.id}`),
 							...orderedMediaIds,
@@ -316,12 +318,15 @@ function ShotlyxMGAssetList({
 	items: ShotlyxMGAsset[];
 	mode: MediaViewMode;
 }) {
+	const { copy } = useAppLocale();
 	const editor = useEditor();
 	const isGrid = mode === "grid";
 	return (
 		<section className="flex flex-col gap-2">
 			<div className="flex items-center justify-between">
-				<p className="text-muted-foreground text-xs">MG 动画</p>
+				<p className="text-muted-foreground text-xs">
+					{copy.editor.assets.mgAnimations}
+				</p>
 				<span className="text-muted-foreground text-xs">{items.length}</span>
 			</div>
 			<div
@@ -357,6 +362,7 @@ function ShotlyxMGAssetItem({
 	item: ShotlyxMGAsset;
 	variant: "card" | "compact";
 }) {
+	const { copy } = useAppLocale();
 	const editor = useEditor();
 	const mediaAssets = useEditor((nextEditor) => nextEditor.media.getAssets());
 	const [isEditing, setIsEditing] = useState(false);
@@ -404,12 +410,15 @@ function ShotlyxMGAssetItem({
 			/>
 			<div className="absolute right-1.5 top-1.5 z-10 flex gap-1 opacity-0 transition group-hover:opacity-100">
 				<AssetIconButton
-					label="预览 MG 素材"
+					label={copy.editor.assets.context.previewMg}
 					onClick={() => setIsPreviewing(true)}
 				>
 					<Eye className="size-3.5" />
 				</AssetIconButton>
-				<AssetIconButton label="编辑 MG 素材" onClick={() => setIsEditing(true)}>
+				<AssetIconButton
+					label={copy.editor.assets.context.editMg}
+					onClick={() => setIsEditing(true)}
+				>
 					<Pencil className="size-3.5" />
 				</AssetIconButton>
 			</div>
@@ -596,7 +605,9 @@ function StaticMediaAssetItem({
 	if (variant === "compact") {
 		return (
 			<div className="flex h-8 w-full items-center gap-3 px-1">
-				<div className="size-6 shrink-0 overflow-hidden rounded-sm">{preview}</div>
+				<div className="size-6 shrink-0 overflow-hidden rounded-sm">
+					{preview}
+				</div>
 				<span className="w-full flex-1 truncate text-left text-sm">
 					{item.name}
 				</span>
@@ -641,17 +652,25 @@ function MediaItemWithContextMenu({
 		ids: string[];
 	}) => void;
 }) {
+	const { copy } = useAppLocale();
 	const { isSelected, selectedIds } = useSelection();
 	const idsToDelete = isSelected(item.id) ? selectedIds : [item.id];
 	const deleteLabel =
-		idsToDelete.length > 1 ? `Delete ${idsToDelete.length} items` : "Delete";
+		idsToDelete.length > 1
+			? copy.editor.assets.context.deleteItems.replace(
+					"{count}",
+					String(idsToDelete.length),
+				)
+			: copy.editor.assets.context.delete;
 
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
 			<ContextMenuContent>
 				{isTimelineMediaAsset(item) ? (
-					<ContextMenuItem>Export clips</ContextMenuItem>
+					<ContextMenuItem>
+						{copy.editor.assets.context.exportClips}
+					</ContextMenuItem>
 				) : null}
 				<ContextMenuItem
 					variant="destructive"
@@ -682,8 +701,11 @@ function GroupedMediaItemList({
 	}) => void;
 }) {
 	const isGrid = mode === "grid";
+	const { copy } = useAppLocale();
+	const assetGroups = copy.editor.assets.groups;
 	const groupedItems = MEDIA_ASSET_GROUPS.map((group) => ({
 		...group,
+		label: assetGroups[group.type],
 		items: items.filter((item) => item.type === group.type),
 	})).filter((group) => group.items.length > 0);
 
@@ -753,10 +775,7 @@ function MediaItemList({
 							);
 						}}
 					>
-						<MediaAssetItem
-							item={item}
-							variant={isGrid ? "card" : "compact"}
-						/>
+						<MediaAssetItem item={item} variant={isGrid ? "card" : "compact"} />
 					</SelectableItem>
 				</MediaItemWithContextMenu>
 			))}
@@ -773,7 +792,10 @@ function MediaAssetItem({
 }) {
 	const [isPreviewing, setIsPreviewing] = useState(false);
 	const preview = (
-		<MediaPreview item={item} variant={variant === "card" ? "grid" : "compact"} />
+		<MediaPreview
+			item={item}
+			variant={variant === "card" ? "grid" : "compact"}
+		/>
 	);
 
 	return (
@@ -894,6 +916,7 @@ function MediaPreview({
 	item: MediaAsset;
 	variant?: "grid" | "compact";
 }) {
+	const { copy } = useAppLocale();
 	const shouldShowDurationBadge = variant === "grid";
 
 	if (item.type === "image") {
@@ -937,7 +960,7 @@ function MediaPreview({
 		return (
 			<MediaTypePlaceholder
 				icon={Video01Icon}
-				label="Video"
+				label={copy.editor.assets.groups.video}
 				duration={item.duration}
 				variant="muted"
 				externalSource={item.externalSource}
@@ -949,7 +972,7 @@ function MediaPreview({
 		return (
 			<MediaTypePlaceholder
 				icon={MusicNote03Icon}
-				label="Audio"
+				label={copy.editor.assets.groups.audio}
 				duration={item.duration}
 				variant="bordered"
 				externalSource={item.externalSource}
@@ -961,7 +984,7 @@ function MediaPreview({
 		return (
 			<DocumentTypePlaceholder
 				icon={<Captions className="size-6" />}
-				label="Subtitle"
+				label={copy.editor.assets.groups.subtitle}
 			/>
 		);
 	}
@@ -970,13 +993,17 @@ function MediaPreview({
 		return (
 			<DocumentTypePlaceholder
 				icon={<FileText className="size-6" />}
-				label="Text"
+				label={copy.editor.assets.groups.text}
 			/>
 		);
 	}
 
 	return (
-		<MediaTypePlaceholder icon={Image02Icon} label="Unknown" variant="muted" />
+		<MediaTypePlaceholder
+			icon={Image02Icon}
+			label={copy.editor.assets.unknown}
+			variant="muted"
+		/>
 	);
 }
 
@@ -1025,6 +1052,7 @@ function MediaAssetPreviewContent({
 	item: MediaAsset;
 	open: boolean;
 }) {
+	const { copy } = useAppLocale();
 	const [textContent, setTextContent] = useState<string>("");
 
 	useEffect(() => {
@@ -1036,12 +1064,12 @@ function MediaAssetPreviewContent({
 				if (!disposed) setTextContent(content);
 			})
 			.catch(() => {
-				if (!disposed) setTextContent("无法读取文件内容");
+				if (!disposed) setTextContent(copy.editor.assets.preview.readFailed);
 			});
 		return () => {
 			disposed = true;
 		};
-	}, [item, open]);
+	}, [copy.editor.assets.preview.readFailed, item, open]);
 
 	if (item.type === "image") {
 		return (
@@ -1080,7 +1108,7 @@ function MediaAssetPreviewContent({
 
 	return (
 		<pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap rounded border bg-neutral-950 p-4 text-xs leading-relaxed text-neutral-200">
-			{textContent || "读取中..."}
+			{textContent || copy.editor.assets.preview.loading}
 		</pre>
 	);
 }
@@ -1102,6 +1130,12 @@ function MediaActions({
 	onSort: ({ key }: { key: MediaSortKey }) => void;
 	onImport: () => void;
 }) {
+	const { copy } = useAppLocale();
+	const assetsCopy = copy.editor.assets;
+	const sortOrderLabel =
+		sortOrder === "asc"
+			? assetsCopy.actions.ascending
+			: assetsCopy.actions.descending;
 	return (
 		<div className="flex gap-1.5">
 			<TooltipProvider>
@@ -1126,8 +1160,8 @@ function MediaActions({
 					<TooltipContent>
 						<p>
 							{mediaViewMode === "grid"
-								? "Switch to list view"
-								: "Switch to grid view"}
+								? assetsCopy.actions.switchToList
+								: assetsCopy.actions.switchToGrid}
 						</p>
 					</TooltipContent>
 				</Tooltip>
@@ -1147,28 +1181,28 @@ function MediaActions({
 						</TooltipTrigger>
 						<DropdownMenuContent align="end">
 							<SortMenuItem
-								label="Name"
+								label={assetsCopy.actions.sortLabels.name}
 								sortKey="name"
 								currentSortBy={sortBy}
 								currentSortOrder={sortOrder}
 								onSort={onSort}
 							/>
 							<SortMenuItem
-								label="Type"
+								label={assetsCopy.actions.sortLabels.type}
 								sortKey="type"
 								currentSortBy={sortBy}
 								currentSortOrder={sortOrder}
 								onSort={onSort}
 							/>
 							<SortMenuItem
-								label="Duration"
+								label={assetsCopy.actions.sortLabels.duration}
 								sortKey="duration"
 								currentSortBy={sortBy}
 								currentSortOrder={sortOrder}
 								onSort={onSort}
 							/>
 							<SortMenuItem
-								label="File size"
+								label={assetsCopy.actions.sortLabels.size}
 								sortKey="size"
 								currentSortBy={sortBy}
 								currentSortOrder={sortOrder}
@@ -1178,8 +1212,9 @@ function MediaActions({
 					</DropdownMenu>
 					<TooltipContent>
 						<p>
-							Sort by {sortBy} (
-							{sortOrder === "asc" ? "ascending" : "descending"})
+							{assetsCopy.actions.sortBy
+								.replace("{key}", assetsCopy.actions.sortLabels[sortBy])
+								.replace("{order}", sortOrderLabel)}
 						</p>
 					</TooltipContent>
 				</Tooltip>
@@ -1192,7 +1227,7 @@ function MediaActions({
 				className="items-center justify-center gap-1.5"
 			>
 				<HugeiconsIcon icon={CloudUploadIcon} />
-				Import
+				{assetsCopy.import}
 			</Button>
 		</div>
 	);

@@ -94,14 +94,18 @@ describe("subtitle tools", () => {
 			revealMode: "line",
 		});
 		expect(insertElement.mock.calls.length).toBe(1);
-			expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
-				element: {
-					type: "subtitle",
-					startTime: 0,
-					duration: Math.round(4.5 * MEDIA_TIME_TICKS_PER_SECOND),
+		expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
+			element: {
+				type: "subtitle",
+				startTime: 0,
+				duration: Math.round(4.5 * MEDIA_TIME_TICKS_PER_SECOND),
 				params: {
+					fontSize: 4,
+					color: "#ffffff",
+					"background.enabled": true,
+					"background.color": "#00000099",
 					"subtitle.role": "layer",
-					"subtitle.maxCharsPerLine": 18,
+					"subtitle.maxCharsPerLine": 30,
 					"subtitle.lineBreakMode": "wrap",
 				},
 				cues: [
@@ -164,7 +168,7 @@ describe("subtitle tools", () => {
 				params: {
 					"subtitle.maxCharsPerLine": 3,
 					"subtitle.lineBreakMode": "page",
-					"subtitle.highlightColor": "#22d3ee",
+					"subtitle.highlightColor": "#93c5fd",
 				},
 				cues: [
 					{

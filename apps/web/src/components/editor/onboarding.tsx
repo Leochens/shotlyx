@@ -3,8 +3,8 @@
 import { ArrowRightIcon, Bot, CircuitBoard, Sparkles } from "lucide-react";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { SOCIAL_LINKS } from "@/site/social";
 import { PRODUCT_NAME } from "@/site/brand";
+import { useAppLocale } from "@/i18n/use-app-locale";
 import { useLocalStorage } from "@/services/storage/use-local-storage";
 import { Button } from "../ui/button";
 import {
@@ -16,6 +16,8 @@ import {
 } from "../ui/dialog";
 
 export function Onboarding() {
+	const { copy } = useAppLocale();
+	const onboardingCopy = copy.editor.onboarding;
 	const [step, setStep] = useState(0);
 	const [hasSeenOnboarding, setHasSeenOnboarding] = useLocalStorage({
 		key: "hasSeenOnboarding",
@@ -33,55 +35,59 @@ export function Onboarding() {
 	};
 
 	const getStepTitle = () => {
-		switch (step) {
-			case 0:
-				return `${PRODUCT_NAME} Command Layer`;
-			case 1:
-				return "Beta control room";
-			case 2:
-				return "Start the first cut";
-			default:
-				return `${PRODUCT_NAME} Onboarding`;
-		}
+		return (
+			onboardingCopy.steps[step]?.title ??
+			onboardingCopy.fallbackTitle.replace("Shotlyx", PRODUCT_NAME)
+		);
 	};
 
 	const renderStepContent = () => {
+		const currentStep = onboardingCopy.steps[step];
+		if (!currentStep) return null;
+		const body =
+			typeof currentStep.body === "string"
+				? [currentStep.body]
+				: currentStep.body;
+
 		switch (step) {
 			case 0:
 				return (
 					<div className="space-y-5">
 						<div className="space-y-3">
-							<StepSignal label="AI Native Workspace" />
-							<Title title="把想法交给时间线" />
-							<Description description="Agent 会围绕成片目标组织计划、调用工具，并把执行过程留在左侧指挥区。" />
-							<SignalGrid />
+							<StepSignal label={currentStep.signal} />
+							<Title title={currentStep.title} />
+							{body.map((description) => (
+								<Description key={description} description={description} />
+							))}
+							<SignalGrid items={onboardingCopy.signals} />
 						</div>
-						<NextButton onClick={handleNext}>继续</NextButton>
+						<NextButton onClick={handleNext}>{currentStep.button}</NextButton>
 					</div>
 				);
 			case 1:
 				return (
 					<div className="space-y-5">
 						<div className="space-y-3">
-							<StepSignal label="Beta Lab" />
-							<Title title={getStepTitle()} />
-							<Description description="这里会优先验证 AI 剪辑、素材补位、字幕、旁白这些高频任务。" />
-							<Description description="遇到不确定的操作，Agent 会先给你选择，而不是直接改掉项目。" />
+							<StepSignal label={currentStep.signal} />
+							<Title title={currentStep.title} />
+							{body.map((description) => (
+								<Description key={description} description={description} />
+							))}
 						</div>
-						<NextButton onClick={handleNext}>继续</NextButton>
+						<NextButton onClick={handleNext}>{currentStep.button}</NextButton>
 					</div>
 				);
 			case 2:
 				return (
 					<div className="space-y-5">
 						<div className="space-y-3">
-							<StepSignal label="Feedback Loop" />
-							<Title title={getStepTitle()} />
-							<Description
-								description={`加入 [Discord](${SOCIAL_LINKS.discord})，把你真实的剪辑场景和不顺手的地方丢给我们。`}
-							/>
+							<StepSignal label={currentStep.signal} />
+							<Title title={currentStep.title} />
+							{body.map((description) => (
+								<Description key={description} description={description} />
+							))}
 						</div>
-						<NextButton onClick={handleClose}>进入编辑器</NextButton>
+						<NextButton onClick={handleClose}>{currentStep.button}</NextButton>
 					</div>
 				);
 			default:
@@ -97,7 +103,7 @@ export function Onboarding() {
 					<span className="sr-only">{getStepTitle()}</span>
 				</DialogTitle>
 				<DialogDescription className="sr-only">
-					{PRODUCT_NAME} AI-native editing workspace onboarding.
+					{onboardingCopy.description}
 				</DialogDescription>
 				<DialogBody className="p-6">{renderStepContent()}</DialogBody>
 			</DialogContent>
@@ -114,24 +120,23 @@ function StepSignal({ label }: { label: string }) {
 	);
 }
 
-function SignalGrid() {
-	const items = [
-		{ icon: Bot, label: "Agent" },
-		{ icon: CircuitBoard, label: "Tools" },
-		{ icon: Sparkles, label: "Preview" },
-	];
+function SignalGrid({ items }: { items: readonly string[] }) {
+	const icons = [Bot, CircuitBoard, Sparkles];
 
 	return (
 		<div className="grid grid-cols-3 gap-2 pt-1">
-			{items.map(({ icon: Icon, label }) => (
-				<div
-					key={label}
-					className="flex min-h-16 flex-col items-center justify-center gap-2 rounded-sm border border-white/10 bg-white/[0.03] text-slate-300"
-				>
-					<Icon className="size-4 text-cyan-200" />
-					<span className="text-xs font-medium">{label}</span>
-				</div>
-			))}
+			{items.map((label, index) => {
+				const Icon = icons[index] ?? Sparkles;
+				return (
+					<div
+						key={label}
+						className="flex min-h-16 flex-col items-center justify-center gap-2 rounded-sm border border-white/10 bg-white/[0.03] text-slate-300"
+					>
+						<Icon className="size-4 text-cyan-200" />
+						<span className="text-xs font-medium">{label}</span>
+					</div>
+				);
+			})}
 		</div>
 	);
 }

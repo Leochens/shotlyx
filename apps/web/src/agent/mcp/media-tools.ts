@@ -25,6 +25,18 @@ function isAllowedMediaType(value: string): value is AllowedMediaType {
 	return ALLOWED_MEDIA_TYPES.some((t) => t === value);
 }
 
+function parseAllowedMediaType(
+	value: string | undefined,
+): AllowedMediaType | undefined {
+	if (!value) return undefined;
+	if (!isAllowedMediaType(value)) {
+		throw new Error(
+			`类型不匹配：type 必须为 ${ALLOWED_MEDIA_TYPES.join("、")} 之一`,
+		);
+	}
+	return value;
+}
+
 export function buildMediaTools(editor: EditorCore): Tool[] {
 	return [
 		{
@@ -133,12 +145,7 @@ export function buildMediaTools(editor: EditorCore): Tool[] {
 			handler: async (params) => {
 				const source = requireStringParam(params, "source");
 				const typeHint = optionalStringParam(params, "type");
-
-				if (typeHint && !isAllowedMediaType(typeHint)) {
-					throw new Error(
-						`类型不匹配：type 必须为 ${ALLOWED_MEDIA_TYPES.join("、")} 之一`,
-					);
-				}
+				const allowedTypeHint = parseAllowedMediaType(typeHint);
 
 				const project = editor.project.getActiveOrNull();
 				if (!project) {
@@ -177,8 +184,8 @@ export function buildMediaTools(editor: EditorCore): Tool[] {
 				const asset = processed[0];
 
 				// Override type if user provided a valid hint
-				if (typeHint) {
-					asset.type = typeHint;
+				if (allowedTypeHint) {
+					asset.type = allowedTypeHint;
 				}
 
 				const result = await editor.media.addMediaAsset({

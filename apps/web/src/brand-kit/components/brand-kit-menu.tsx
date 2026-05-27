@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Palette, Plus } from "lucide-react";
+import { Check, Palette, Pencil, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -26,19 +26,28 @@ export function BrandKitMenu({ className }: { className?: string }) {
 	const activeBrandKit = useEditor((currentEditor) =>
 		currentEditor.project.getActiveBrandKit(),
 	);
+	const [menuOpen, setMenuOpen] = useState(false);
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [editingKit, setEditingKit] = useState<ProjectBrandKit | null>(null);
 	const [dialogVersion, setDialogVersion] = useState(0);
 
 	const openCreateDialog = () => {
+		setMenuOpen(false);
 		setEditingKit(null);
+		setDialogVersion((version) => version + 1);
+		setDialogOpen(true);
+	};
+
+	const openEditDialog = (kit: ProjectBrandKit) => {
+		setMenuOpen(false);
+		setEditingKit(kit);
 		setDialogVersion((version) => version + 1);
 		setDialogOpen(true);
 	};
 
 	return (
 		<>
-			<DropdownMenu>
+			<DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
 				<DropdownMenuTrigger asChild>
 					<Button
 						type="button"
@@ -69,12 +78,8 @@ export function BrandKitMenu({ className }: { className?: string }) {
 						<DropdownMenuItem
 							key={kit.id}
 							onClick={() => editor.project.setActiveBrandKit({ id: kit.id })}
-							onDoubleClick={() => {
-								setEditingKit(kit);
-								setDialogVersion((version) => version + 1);
-								setDialogOpen(true);
-							}}
-							className="h-9"
+							onDoubleClick={() => openEditDialog(kit)}
+							className="h-9 pr-1"
 						>
 							<span className="flex size-4 items-center justify-center">
 								{activeBrandKit?.id === kit.id ? <Check size={14} /> : null}
@@ -83,6 +88,19 @@ export function BrandKitMenu({ className }: { className?: string }) {
 							<span className="text-xs text-neutral-500">
 								{kit.colors.length} {brandKitCopy.colorUnit}
 							</span>
+							<button
+								type="button"
+								aria-label={`${brandKitCopy.edit} ${kit.name}`}
+								title={brandKitCopy.edit}
+								className="flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+								onClick={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+									openEditDialog(kit);
+								}}
+							>
+								<Pencil size={13} />
+							</button>
 						</DropdownMenuItem>
 					))}
 					<DropdownMenuSeparator />

@@ -1,6 +1,11 @@
+/* eslint-disable @typescript-eslint/no-unsafe-type-assertion -- Test fixture constructs a branded timeline element. */
 import { describe, expect, test } from "bun:test";
-import type { SceneTracks } from "@/timeline";
-import { getShotlyxMGTrackZIndexMap } from "../components/preview-overlay";
+import type { GraphicElement, SceneTracks } from "@/timeline/types";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
+import {
+	getShotlyxMGTrackZIndexMap,
+	resolveShotlyxMGPreviewOpacity,
+} from "../preview-overlay-helpers";
 import { getShotlyxMGThumbnailFrame } from "../preview";
 import { shotlyxBattleCardFixture } from "../fixtures/battle-card";
 import type { ShotlyxMGAsset } from "../types";
@@ -82,5 +87,46 @@ describe("Shotlyx MG preview helpers", () => {
 				asset: buildAsset({ thumbnailFrame: 999 }),
 			}),
 		).toBe(119);
+	});
+
+	test("resolves preview opacity from element params and keyframes", () => {
+		const element = {
+			id: "mg-element-1",
+			name: "MG",
+			type: "graphic",
+			definitionId: "shotlyx-mg",
+			startTime: 0,
+			duration: 2 * MEDIA_TIME_TICKS_PER_SECOND,
+			trimStart: 0,
+			trimEnd: 0,
+			params: { opacity: 1 },
+			animations: {
+				opacity: {
+					keys: [
+						{
+							id: "opacity-0",
+							time: 0,
+							value: 1,
+							segmentToNext: "linear",
+							tangentMode: "auto",
+						},
+						{
+							id: "opacity-1",
+							time: MEDIA_TIME_TICKS_PER_SECOND,
+							value: 0.25,
+							segmentToNext: "linear",
+							tangentMode: "auto",
+						},
+					],
+				},
+			},
+		} as unknown as GraphicElement;
+
+		expect(
+			resolveShotlyxMGPreviewOpacity({
+				element,
+				currentTime: MEDIA_TIME_TICKS_PER_SECOND,
+			}),
+		).toBeCloseTo(0.25);
 	});
 });

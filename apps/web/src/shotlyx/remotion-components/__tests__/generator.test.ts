@@ -91,6 +91,16 @@ describe("generateShotlyxMGComponentDocument", () => {
 				expect(system).toContain("Tailwind animation classes are forbidden");
 				expect(system).toContain("Do not add import statements");
 				expect(system).toContain("Transparent-background MG is the default");
+				expect(system).toContain(
+					"Do not create full-canvas or decorative backgrounds unless the user explicitly asks for one",
+				);
+				expect(system).toContain(
+					"If any background/backdrop/canvas layer is necessary, expose it as propsSchema controls",
+				);
+				expect(prompt).toContain("Default to no background");
+				expect(prompt).toContain(
+					"If you include any background/backdrop/canvas surface, make it editable",
+				);
 				return {
 					output: {
 						name: "Typewriter Title",

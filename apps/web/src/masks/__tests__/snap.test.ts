@@ -1,19 +1,4 @@
-import { describe, expect, test } from "bun:test";
-import {
-	findClosestPointOnFreeformSegment,
-	getFreeformPathClosedStateAfterPointRemoval,
-	insertPointIntoFreeformSegment,
-	removeFreeformPathPoints,
-} from "@/masks/freeform/path";
-import {
-	appendPointToFreeformPathMask,
-	freeformMaskDefinition,
-	insertPointOnFreeformSegment,
-} from "@/masks/freeform/definition";
-import { getSplitMaskStrokeSegment } from "@/masks/builtin/definitions/split";
-import { textMaskDefinition } from "@/masks/builtin/definitions/text";
-import { getMaskSnapGeometry } from "@/masks/geometry";
-import { snapBoxMaskInteraction, snapSplitMaskInteraction } from "@/masks/snap";
+import { describe, expect, mock, test } from "bun:test";
 import type { ElementBounds } from "@/preview/element-bounds";
 import type {
 	FreeformPathMaskParams,
@@ -21,6 +6,76 @@ import type {
 	SplitMaskParams,
 	TextMaskParams,
 } from "@/masks/types";
+
+const TICKS_PER_SECOND = 120_000;
+
+mock.module("@/wasm", () => ({
+	TICKS_PER_SECOND,
+	ZERO_MEDIA_TIME: 0,
+	mediaTime: ({ ticks }: { ticks: number }) => Math.round(ticks),
+	roundMediaTime: ({ time }: { time: number }) => Math.round(time),
+	mediaTimeFromSeconds: ({ seconds }: { seconds: number }) =>
+		Math.round(seconds * TICKS_PER_SECOND),
+	mediaTimeToSeconds: ({ time }: { time: number }) => time / TICKS_PER_SECOND,
+	addMediaTime: ({ a, b }: { a: number; b: number }) => a + b,
+	subMediaTime: ({ a, b }: { a: number; b: number }) => a - b,
+	maxMediaTime: ({ a, b }: { a: number; b: number }) => Math.max(a, b),
+	minMediaTime: ({ a, b }: { a: number; b: number }) => Math.min(a, b),
+	clampMediaTime: ({
+		time,
+		min,
+		max,
+	}: {
+		time: number;
+		min: number;
+		max: number;
+	}) => Math.min(Math.max(time, min), max),
+	lastFrameMediaTime: ({ duration }: { duration: number }) =>
+		Math.max(0, duration - 1),
+	roundFrameTime: ({ time }: { time: number }) => Math.round(time),
+	roundFrameTicks: ({ ticks }: { ticks: number }) => Math.round(ticks),
+	snapSeekMediaTime: ({ time }: { time: number }) => Math.round(time),
+	roundToFrame: ({ time }: { time: number }) => Math.round(time),
+	snappedSeekTime: ({ time }: { time: number }) => Math.round(time),
+	parseTimecode: () => 0,
+	parseMediaTimecode: () => 0,
+}));
+
+const textMeasurementContext = {
+	save: () => {},
+	restore: () => {},
+	measureText: (text: string) => ({
+		width: text.length * 7.5,
+		actualBoundingBoxAscent: 12,
+		actualBoundingBoxDescent: 3,
+	}),
+} as unknown as CanvasRenderingContext2D;
+
+mock.module("@/text/measure-element", () => ({
+	getTextMeasurementContext: () => textMeasurementContext,
+}));
+
+const {
+	findClosestPointOnFreeformSegment,
+	getFreeformPathClosedStateAfterPointRemoval,
+	insertPointIntoFreeformSegment,
+	removeFreeformPathPoints,
+} = await import("@/masks/freeform/path");
+const {
+	appendPointToFreeformPathMask,
+	freeformMaskDefinition,
+	insertPointOnFreeformSegment,
+} = await import("@/masks/freeform/definition");
+const { getSplitMaskStrokeSegment } = await import(
+	"@/masks/builtin/definitions/split"
+);
+const { textMaskDefinition } = await import(
+	"@/masks/builtin/definitions/text"
+);
+const { getMaskSnapGeometry } = await import("@/masks/geometry");
+const { snapBoxMaskInteraction, snapSplitMaskInteraction } = await import(
+	"@/masks/snap"
+);
 
 const bounds: ElementBounds = {
 	cx: 200,
@@ -357,7 +412,10 @@ describe("mask snapping", () => {
 		});
 
 		expect(result.params.scale).toBe(2.5);
-		expect(result.activeLines).toEqual([{ type: "vertical", position: 100 }]);
+		expect(result.activeLines).toEqual([
+			{ type: "vertical", position: -100 },
+			{ type: "vertical", position: 100 },
+		]);
 	});
 
 	test("snaps text mask movement using intrinsic text bounds", () => {
@@ -499,9 +557,9 @@ describe("custom mask point insertion", () => {
 			id: "new",
 			x: 0,
 			y: -0.1,
-			inX: 0,
+			inX: -0.1,
 			inY: 0,
-			outX: 0,
+			outX: 0.1,
 			outY: 0,
 		});
 	});

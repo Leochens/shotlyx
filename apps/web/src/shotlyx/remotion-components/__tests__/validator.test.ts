@@ -126,6 +126,30 @@ export default function ShotlyxComponent(props) {
 		).toThrow("transparentBackground");
 	});
 
+	test("rejects nested full-canvas background layers for transparent MG documents", () => {
+		expect(() =>
+			assertValidShotlyxRemotionComponentAssetDocument({
+				...validDocument,
+				transparentBackground: true,
+				componentSource: `
+type Props = { title: string; accentColor: string };
+
+export default function ShotlyxComponent(props: Props) {
+	const { AbsoluteFill, useCurrentFrame } = Remotion;
+	const frame = useCurrentFrame();
+	const opacity = Math.min(1, frame / 30);
+	return (
+		<AbsoluteFill style={{ color: props.accentColor, fontSize: 96 }}>
+			<div style={{ position: "absolute", inset: 0, backgroundColor: "#050505" }} />
+			<div style={{ position: "relative", opacity }}>{props.title}</div>
+		</AbsoluteFill>
+	);
+}
+`,
+			}),
+		).toThrow("transparentBackground");
+	});
+
 	test("accepts manual frame math without requiring interpolate spring or Sequence", () => {
 		const result = validateShotlyxRemotionComponentSource({
 			source: `

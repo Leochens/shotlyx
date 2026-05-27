@@ -43,6 +43,14 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain("subtitles_update_style");
 		expect(prompt).toContain("Use agent_generate_voiceover");
 		expect(prompt).toContain("自动配音");
+		expect(prompt).toContain(
+			"When one user request asks for subtitles, voiceover, and MG",
+		);
+		expect(prompt).toContain("generate subtitles first");
+		expect(prompt).toContain("then generate the voiceover");
+		expect(prompt).toContain("then create MG from the timed subtitle segments");
+		expect(prompt).toContain("If token timing exists");
+		expect(prompt).toContain("If only line timing exists");
 		expect(prompt).toContain("Use web_search");
 		expect(prompt).toContain("Use web_fetch");
 		expect(prompt).toContain("Search snippets are leads, not source text");

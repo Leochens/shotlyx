@@ -4,38 +4,19 @@ import { useMemo } from "react";
 import type { MediaAsset } from "@/media/types";
 import { getVisibleElementsWithBounds } from "@/preview/element-bounds";
 import type { TCanvasSize } from "@/project/types";
-import type { ParamValues } from "@/params";
-import type { SceneTracks } from "@/timeline";
-import { TICKS_PER_SECOND } from "@/wasm";
+import type { SceneTracks } from "@/timeline/types";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 import {
 	resolveShotlyxMGInputProps,
 	resolveShotlyxMGPlayerBackground,
 } from "../media-props";
+import {
+	getShotlyxMGTrackZIndexMap,
+	resolveShotlyxMGPreviewOpacity,
+} from "../preview-overlay-helpers";
 import { SHOTLYX_MG_GRAPHIC_DEFINITION_ID } from "../project-assets";
 import type { ShotlyxMGAsset } from "../types";
 import { ShotlyxRemotionComponentPlayer } from "./remotion-component-player";
-
-export function getShotlyxMGTrackZIndexMap({
-	tracks,
-}: {
-	tracks: SceneTracks;
-}): Map<string, number> {
-	const visibleTracksTopToBottom = [
-		...tracks.overlay.filter((track) => !("hidden" in track && track.hidden)),
-		...(!tracks.main.hidden ? [tracks.main] : []),
-	];
-	return new Map(
-		visibleTracksTopToBottom.map((track, index) => [
-			track.id,
-			visibleTracksTopToBottom.length - index,
-		]),
-	);
-}
-
-function readOpacity({ params }: { params: ParamValues }): number {
-	const value = params.opacity;
-	return typeof value === "number" ? value : 1;
-}
 
 export function ShotlyxRemotionPreviewOverlay({
 	tracks,
@@ -105,7 +86,7 @@ export function ShotlyxRemotionPreviewOverlay({
 					(Number(currentTime) -
 						Number(item.element.startTime) +
 						Number(item.element.trimStart)) /
-						TICKS_PER_SECOND,
+						MEDIA_TIME_TICKS_PER_SECOND,
 				);
 				const currentFrame = localSeconds * asset.document.fps;
 				const width = Math.abs(item.bounds.width) * scaleX;
@@ -128,7 +109,10 @@ export function ShotlyxRemotionPreviewOverlay({
 							width,
 							height,
 							zIndex: trackZIndexById.get(item.trackId) ?? 0,
-							opacity: readOpacity({ params: item.element.params }),
+							opacity: resolveShotlyxMGPreviewOpacity({
+								element: item.element,
+								currentTime,
+							}),
 							transform: `translate(-50%, -50%) rotate(${item.bounds.rotation}deg) scaleX(${flipX}) scaleY(${flipY})`,
 							transformOrigin: "center",
 						}}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, type ReactNode, type RefObject } from "react";
+import Image from "next/image";
 import { ImagePlus, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ColorPicker } from "@/components/ui/color-picker";
@@ -16,16 +17,19 @@ import { FontPicker } from "@/components/ui/font-picker";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useEditor } from "@/editor/use-editor";
+import { useAppLocale } from "@/i18n/use-app-locale";
 import { processMediaAssets } from "@/media/processing";
+import type { MediaAsset } from "@/media/types";
 import { generateUUID } from "@/utils/id";
 import { cn } from "@/utils/ui";
+import { resolveBrandKitMediaPreviewUrl } from "../media-preview";
 import type { BrandKitMediaAsset, ProjectBrandKit } from "../types";
 
-function createEmptyKit(): ProjectBrandKit {
+function createEmptyKit({ name }: { name: string }): ProjectBrandKit {
 	const now = new Date().toISOString();
 	return {
 		id: generateUUID(),
-		name: "未命名套件",
+		name,
 		colors: [],
 		fonts: [],
 		logos: [],
@@ -55,11 +59,16 @@ export function BrandKitDialog({
 	kit?: ProjectBrandKit | null;
 }) {
 	const editor = useEditor();
+	const { copy } = useAppLocale();
+	const dialogCopy = copy.editor.brandKit.dialog;
 	const activeProject = useEditor((currentEditor) =>
 		currentEditor.project.getActiveOrNull(),
 	);
+	const mediaAssets = useEditor((currentEditor) =>
+		currentEditor.media.getAssets(),
+	);
 	const [draft, setDraft] = useState<ProjectBrandKit>(() =>
-		kit ? { ...kit } : createEmptyKit(),
+		kit ? { ...kit } : createEmptyKit({ name: dialogCopy.untitled }),
 	);
 	const [isUploading, setIsUploading] = useState(false);
 	const logoInputRef = useRef<HTMLInputElement>(null);
@@ -68,10 +77,7 @@ export function BrandKitDialog({
 	const addColor = () => {
 		setDraft((current) => ({
 			...current,
-			colors: [
-				...current.colors,
-				{ id: generateUUID(), value: "#ffffff" },
-			],
+			colors: [...current.colors, { id: generateUUID(), value: "#ffffff" }],
 		}));
 	};
 
@@ -130,7 +136,7 @@ export function BrandKitDialog({
 	};
 
 	const handleSave = () => {
-		const name = draft.name.trim() || "未命名套件";
+		const name = draft.name.trim() || dialogCopy.untitled;
 		editor.project.upsertBrandKit({
 			kit: {
 				...draft,
@@ -146,11 +152,15 @@ export function BrandKitDialog({
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="max-h-[88vh] max-w-2xl overflow-hidden bg-neutral-950 text-neutral-100">
 				<DialogHeader className="border-neutral-800">
-					<DialogTitle className="text-2xl">{draft.name || "未命名套件"}</DialogTitle>
+					<DialogTitle className="text-2xl">
+						{draft.name || dialogCopy.untitled}
+					</DialogTitle>
 				</DialogHeader>
 				<DialogBody className="max-h-[68vh] overflow-y-auto">
 					<div className="flex flex-col gap-2">
-						<span className="text-sm font-medium text-neutral-300">名称</span>
+						<span className="text-sm font-medium text-neutral-300">
+							{dialogCopy.name}
+						</span>
 						<Input
 							value={draft.name}
 							onChange={(event) =>
@@ -163,7 +173,11 @@ export function BrandKitDialog({
 						/>
 					</div>
 
-					<BrandKitSection title="颜色" onAdd={addColor} addLabel="添加颜色">
+					<BrandKitSection
+						title={dialogCopy.colors}
+						onAdd={addColor}
+						addLabel={dialogCopy.addColor}
+					>
 						<div className="flex flex-col gap-2">
 							{draft.colors.map((color) => (
 								<div key={color.id} className="flex items-center gap-2">
@@ -182,7 +196,7 @@ export function BrandKitDialog({
 										className="max-w-44 bg-neutral-900"
 									/>
 									<IconRemoveButton
-										label="删除颜色"
+										label={dialogCopy.deleteColor}
 										onClick={() =>
 											setDraft((current) => ({
 												...current,
@@ -197,7 +211,11 @@ export function BrandKitDialog({
 						</div>
 					</BrandKitSection>
 
-					<BrandKitSection title="字体" onAdd={addFont} addLabel="添加字体">
+					<BrandKitSection
+						title={dialogCopy.fonts}
+						onAdd={addFont}
+						addLabel={dialogCopy.addFont}
+					>
 						<div className="flex flex-col gap-2">
 							{draft.fonts.map((font) => (
 								<div key={font.id} className="flex items-center gap-2">
@@ -214,7 +232,7 @@ export function BrandKitDialog({
 										className="max-w-64 bg-neutral-900"
 									/>
 									<IconRemoveButton
-										label="删除字体"
+										label={dialogCopy.deleteFont}
 										onClick={() =>
 											setDraft((current) => ({
 												...current,
@@ -230,10 +248,13 @@ export function BrandKitDialog({
 					</BrandKitSection>
 
 					<MediaUploadSection
-						title="LOGO"
+						title={dialogCopy.logo}
 						items={draft.logos}
+						mediaAssets={mediaAssets}
 						inputRef={logoInputRef}
 						isUploading={isUploading}
+						uploadLabel={dialogCopy.upload}
+						deleteLabelTemplate={dialogCopy.deleteAsset}
 						onUpload={(files) => uploadImages({ files, target: "logos" })}
 						onRemove={(id) =>
 							setDraft((current) => ({
@@ -244,10 +265,13 @@ export function BrandKitDialog({
 					/>
 
 					<MediaUploadSection
-						title="图片"
+						title={dialogCopy.images}
 						items={draft.images}
+						mediaAssets={mediaAssets}
 						inputRef={imageInputRef}
 						isUploading={isUploading}
+						uploadLabel={dialogCopy.upload}
+						deleteLabelTemplate={dialogCopy.deleteAsset}
 						onUpload={(files) => uploadImages({ files, target: "images" })}
 						onRemove={(id) =>
 							setDraft((current) => ({
@@ -259,7 +283,7 @@ export function BrandKitDialog({
 
 					<div className="flex flex-col gap-2">
 						<span className="text-sm font-medium text-neutral-300">
-							风格指南
+							{dialogCopy.styleGuide}
 						</span>
 						<Textarea
 							value={draft.styleGuide}
@@ -269,7 +293,7 @@ export function BrandKitDialog({
 									styleGuide: event.target.value,
 								}))
 							}
-							placeholder="一句话品牌调性（例如：现代、技术、克制）。不要描述颜色或字体，这些字段已经写明了。"
+							placeholder={dialogCopy.styleGuidePlaceholder}
 							className="min-h-28 bg-neutral-900"
 						/>
 					</div>
@@ -280,7 +304,7 @@ export function BrandKitDialog({
 						onClick={handleSave}
 						className="bg-amber-500 text-neutral-950 hover:bg-amber-400"
 					>
-						保存
+						{dialogCopy.save}
 					</Button>
 				</DialogFooter>
 			</DialogContent>
@@ -320,18 +344,26 @@ function BrandKitSection({
 function MediaUploadSection({
 	title,
 	items,
+	mediaAssets,
 	inputRef,
 	isUploading,
+	uploadLabel,
+	deleteLabelTemplate,
 	onUpload,
 	onRemove,
 }: {
 	title: string;
 	items: BrandKitMediaAsset[];
+	mediaAssets: MediaAsset[];
 	inputRef: RefObject<HTMLInputElement | null>;
 	isUploading: boolean;
+	uploadLabel: string;
+	deleteLabelTemplate: string;
 	onUpload: (files: FileList | null) => void;
 	onRemove: (id: string) => void;
 }) {
+	const deleteLabel = deleteLabelTemplate.replace("{title}", title);
+
 	return (
 		<section className="flex flex-col gap-3">
 			<h3 className="text-sm font-semibold text-neutral-300">{title}</h3>
@@ -354,28 +386,53 @@ function MediaUploadSection({
 					)}
 				>
 					<ImagePlus size={22} />
-					<span className="text-xs">上传</span>
+					<span className="text-xs">{uploadLabel}</span>
 				</button>
-				{items.map((item) => (
-					<div
-						key={item.id}
-						className="group relative flex h-24 w-36 flex-col justify-end overflow-hidden rounded-md border border-neutral-800 bg-neutral-900 p-2"
-					>
-						<span className="truncate text-xs text-neutral-300">
-							{item.name}
-						</span>
-						<span className="truncate text-[10px] text-neutral-500">
-							{item.width && item.height
-								? `${item.width}x${item.height}`
-								: item.mediaAssetId}
-						</span>
-						<IconRemoveButton
-							label={`删除${title}`}
-							onClick={() => onRemove(item.id)}
-							className="absolute right-1 top-1 opacity-0 group-hover:opacity-100"
-						/>
-					</div>
-				))}
+				{items.map((item) => {
+					const previewUrl = resolveBrandKitMediaPreviewUrl({
+						item,
+						mediaAssets,
+					});
+					return (
+						<div
+							key={item.id}
+							className="group relative flex h-24 w-36 flex-col justify-end overflow-hidden rounded-md border border-neutral-800 bg-neutral-900"
+						>
+							{previewUrl ? (
+								<Image
+									src={previewUrl}
+									alt={item.name}
+									fill
+									sizes="9rem"
+									className={cn(
+										"bg-neutral-950",
+										title === "LOGO" ? "object-contain p-2" : "object-cover",
+									)}
+									unoptimized
+								/>
+							) : (
+								<div className="absolute inset-0 flex items-center justify-center text-neutral-600">
+									<ImagePlus size={24} />
+								</div>
+							)}
+							<div className="relative z-10 bg-gradient-to-t from-black/80 via-black/55 to-transparent p-2 pt-5">
+								<span className="block truncate text-xs text-neutral-100">
+									{item.name}
+								</span>
+								<span className="block truncate text-[10px] text-neutral-400">
+									{item.width && item.height
+										? `${item.width}x${item.height}`
+										: item.mediaAssetId}
+								</span>
+							</div>
+							<IconRemoveButton
+								label={deleteLabel}
+								onClick={() => onRemove(item.id)}
+								className="absolute right-1 top-1 z-20 opacity-0 group-hover:opacity-100"
+							/>
+						</div>
+					);
+				})}
 			</div>
 		</section>
 	);

@@ -89,6 +89,41 @@ function createMockEditor(overrides: MockEditorOverrides = {}): EditorCore {
 	} as unknown as EditorCore;
 }
 
+function createSceneWithMainElement(elementId = "e1"): TScene {
+	return {
+		id: "scene-1",
+		name: "Scene 1",
+		isMain: true,
+		tracks: {
+			main: {
+				id: "t1",
+				name: "Main",
+				type: "video",
+				muted: false,
+				hidden: false,
+				elements: [
+					{
+						id: elementId,
+						type: "video",
+						name: "Clip 1",
+						mediaId: "media-1",
+						startTime: 0 as unknown as MediaTime,
+						duration: MEDIA_TIME_TICKS_PER_SECOND as unknown as MediaTime,
+						trimStart: 0 as unknown as MediaTime,
+						trimEnd: 0 as unknown as MediaTime,
+						params: {},
+					},
+				],
+			},
+			overlay: [],
+			audio: [],
+		},
+		bookmarks: [],
+		createdAt: new Date(0),
+		updatedAt: new Date(0),
+	} as unknown as TScene;
+}
+
 // ------------------------------------------------------------------
 // Phase 5 — Timeline insert/duplicate/remove
 // ------------------------------------------------------------------
@@ -281,6 +316,7 @@ describe("timeline_duplicate_clip", () => {
 		const duplicateElements = mock(() => [{ trackId: "t1", elementId: "e2" }]);
 		const editor = createMockEditor({
 			timeline: { duplicateElements },
+			scenes: { getActiveSceneOrNull: () => createSceneWithMainElement() },
 		});
 		const tools = buildTimelineTools({
 			editor,
@@ -301,9 +337,15 @@ describe("timeline_duplicate_clip", () => {
 		expect(duplicateElements.mock.calls.length).toBe(1);
 	});
 
-	test("error: missing trackId throws error", () => {
-		const { tool } = setup();
-		expect(() => tool?.handler({ elementId: "e1" })).toThrow("trackId");
+	test("positive path: resolves trackId from elementId when omitted", () => {
+		const { tool, duplicateElements } = setup();
+		expect(tool).toBeTruthy();
+
+		tool?.handler({ elementId: "e1" });
+
+		expect(duplicateElements.mock.calls[0]?.[0]).toEqual({
+			elements: [{ trackId: "t1", elementId: "e1" }],
+		});
 	});
 });
 

@@ -76,6 +76,41 @@ function createMockEditor(overrides: MockEditorOverrides = {}): EditorCore {
 	} as unknown as EditorCore;
 }
 
+function createSceneWithMainElement(elementId = "e1"): TScene {
+	return {
+		id: "scene-1",
+		name: "Scene 1",
+		isMain: true,
+		tracks: {
+			main: {
+				id: "t1",
+				name: "Main",
+				type: "video",
+				muted: false,
+				hidden: false,
+				elements: [
+					{
+						id: elementId,
+						type: "video",
+						name: "Clip 1",
+						mediaId: "media-1",
+						startTime: 0 as unknown as MediaTime,
+						duration: MEDIA_TIME_TICKS_PER_SECOND as unknown as MediaTime,
+						trimStart: 0 as unknown as MediaTime,
+						trimEnd: 0 as unknown as MediaTime,
+						params: {},
+					},
+				],
+			},
+			overlay: [],
+			audio: [],
+		},
+		bookmarks: [],
+		createdAt: new Date(0),
+		updatedAt: new Date(0),
+	} as unknown as TScene;
+}
+
 /**
  * MCPServer.init() registers selection/media/project tools synchronously,
  * but timeline/playback tools are registered asynchronously after WASM import.
@@ -288,6 +323,7 @@ describe("timeline_move_clip", () => {
 		const updateElements = mock(() => {});
 		const editor = createMockEditor({
 			timeline: { updateElements },
+			scenes: { getActiveSceneOrNull: () => createSceneWithMainElement() },
 		});
 		const tools = buildTimelineTools({
 			editor,
@@ -315,11 +351,31 @@ describe("timeline_move_clip", () => {
 		expect(updateElements.mock.calls.length).toBe(1);
 	});
 
-	test("parameter validation: missing trackId throws error", () => {
-		const { tool } = setup();
-		expect(() =>
-			tool?.handler({ elementId: "e1", newStartTimeSeconds: 1 }),
-		).toThrow('参数缺失："trackId" 为必填项，且必须为非空字符串');
+	test("positive path: resolves trackId from elementId when omitted", () => {
+		const { tool, updateElements } = setup();
+		expect(tool).toBeTruthy();
+
+		const result = tool?.handler({
+			elementId: "e1",
+			newStartTimeSeconds: 1,
+		});
+
+		expect(result).toEqual({
+			trackId: "t1",
+			elementId: "e1",
+			newStartTime: 1,
+		});
+		expect(updateElements.mock.calls[0]?.[0]).toEqual({
+			updates: [
+				{
+					trackId: "t1",
+					elementId: "e1",
+					patch: {
+						startTime: mockMediaTimeFromSeconds({ seconds: 1 }),
+					},
+				},
+			],
+		});
 	});
 
 	test("parameter validation: NaN newStartTimeSeconds throws error", () => {
@@ -343,6 +399,7 @@ describe("timeline_trim_clip", () => {
 		const updateElementTrim = mock(() => {});
 		const editor = createMockEditor({
 			timeline: { updateElementTrim },
+			scenes: { getActiveSceneOrNull: () => createSceneWithMainElement() },
 		});
 		const tools = buildTimelineTools({
 			editor,

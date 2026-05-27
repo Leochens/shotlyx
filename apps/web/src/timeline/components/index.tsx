@@ -20,7 +20,7 @@ import {
 	VolumeOffIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-import { Bot, ListChecks, Sparkles } from "lucide-react";
+import { ListChecks } from "lucide-react";
 import { OcShapesIcon, OcVideoIcon } from "@/components/icons";
 import {
 	ContextMenu,
@@ -95,8 +95,6 @@ import { DragLine } from "./drag-line";
 import { invokeAction } from "@/actions";
 import { resolveTimelineElementIntersections } from "./selection-hit-testing";
 import { cn } from "@/utils/ui";
-import { usePanelStore } from "@/editor/panel-store";
-import { useAppLocale } from "@/i18n/use-app-locale";
 
 const TRACKS_CONTAINER_MAX_HEIGHT = 800;
 const FALLBACK_CONTAINER_WIDTH = 1000;
@@ -438,7 +436,6 @@ export function Timeline() {
 
 	const timelineHeaderHeight =
 		timelineHeaderHeightValue + TIMELINE_CONTENT_TOP_PADDING_PX;
-	const hasTimelineElements = tracks.some((track) => track.elements.length > 0);
 
 	return (
 		<section
@@ -573,9 +570,6 @@ export function Timeline() {
 										dropTarget={dropTarget}
 									/>
 								)}
-								{tracks.length > 0 && !hasTimelineElements && (
-									<TimelineEmptyGuide />
-								)}
 							</div>
 							<TimelineGutter
 								onMouseDown={(event) => {
@@ -609,38 +603,6 @@ export function Timeline() {
 				/>
 			</div>
 		</section>
-	);
-}
-
-function TimelineEmptyGuide() {
-	const { copy } = useAppLocale();
-	const timelineCopy = copy.editor.timelineEmpty;
-	const setAgentPanelOpen = usePanelStore((state) => state.setAgentPanelOpen);
-
-	return (
-		<div className="pointer-events-none absolute left-8 top-14 z-10 w-[min(24rem,calc(100%-4rem))] rounded-sm border border-cyan-300/15 bg-background/92 p-3 shadow-[0_18px_60px_rgba(0,0,0,0.26)] backdrop-blur">
-			<div className="flex items-start gap-3">
-				<span className="flex size-8 shrink-0 items-center justify-center rounded-sm border border-cyan-300/20 bg-cyan-300/10 text-cyan-200">
-					<Sparkles className="size-4" />
-				</span>
-				<div className="min-w-0 flex-1">
-					<p className="text-sm font-medium text-foreground">
-						{timelineCopy.title}
-					</p>
-					<p className="mt-1 text-xs leading-5 text-muted-foreground">
-						{timelineCopy.body}
-					</p>
-					<button
-						type="button"
-						onClick={() => setAgentPanelOpen(true)}
-						className="pointer-events-auto mt-3 inline-flex h-8 items-center gap-2 rounded-sm border border-cyan-300/20 bg-cyan-300/10 px-2.5 text-xs font-medium text-cyan-100 transition-colors hover:bg-cyan-300/20"
-					>
-						<Bot className="size-3.5" />
-						{timelineCopy.openAgent}
-					</button>
-				</div>
-			</div>
-		</div>
 	);
 }
 

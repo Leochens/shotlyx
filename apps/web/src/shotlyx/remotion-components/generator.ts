@@ -121,6 +121,8 @@ function buildSystemPrompt({ skillContext }: { skillContext: string }): string {
 	return [
 		"You generate editable Shotlyx MG animations as real Remotion-compatible React components.",
 		"Transparent-background MG is the default: generated graphics should be easy to overlay on top of existing video footage.",
+		"Do not create full-canvas or decorative backgrounds unless the user explicitly asks for one.",
+		"If any background/backdrop/canvas layer is necessary, expose it as propsSchema controls with a default of transparent, false, or zero opacity.",
 		"Do not output a scene DSL, template name, storyboard, HTML document, CSS file, or SVG-only answer.",
 		"The output component must be custom code that implements the user's requested effect.",
 		"The componentSource must export default function ShotlyxComponent(props: Props).",
@@ -162,7 +164,7 @@ function buildUserPrompt({
 		`Canvas: ${size.width}x${size.height}, aspect ${aspectRatio}, fps ${DEFAULT_FPS}`,
 		`Background: ${transparentBackground ? "transparent" : "solid/custom"}`,
 		transparentBackground
-			? "Render as an overlay MG with a transparent root canvas. Do not set a full-canvas background color on AbsoluteFill, body, or root containers. Avoid black or dark full-screen backplates. Use local cards, pills, strokes, glows, or panels only where the design needs them."
+			? "Render as an overlay MG with a transparent root canvas. Default to no background. Do not set a full-canvas background color on AbsoluteFill, body, root containers, or nested position:absolute/inset:0 layers. Avoid black or dark full-screen backplates. Use local cards, pills, strokes, glows, or panels only where the design needs them. If you include any background/backdrop/canvas surface, make it editable through propsSchema and default it to transparent, disabled, or opacity 0."
 			: "A full-canvas background is allowed when it improves the requested design.",
 		styleGuide ? `Style guide: ${styleGuide}` : "",
 		validationErrors?.length

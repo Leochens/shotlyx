@@ -1,9 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { RiDiscordFill } from "react-icons/ri";
 import { PRODUCT_NAME } from "@/site/brand";
-import { SOCIAL_LINKS } from "@/site/social";
 import { useAppLocale } from "@/i18n/use-app-locale";
 import { ShotlyxLogo } from "@/components/brand-logo";
 
@@ -28,16 +26,6 @@ export function Footer() {
 						<p className="mb-5 text-sm text-slate-600 leading-6 dark:text-white/58 md:text-left">
 							{copy.footer.description}
 						</p>
-						<div className="flex justify-start gap-3">
-							<Link
-								href={SOCIAL_LINKS.discord}
-								className="text-slate-500 transition-colors hover:text-cyan-700 dark:text-white/45 dark:hover:text-cyan-200"
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								<RiDiscordFill className="size-5" />
-							</Link>
-						</div>
 					</div>
 
 					<div className="flex items-start justify-start gap-12 py-2">

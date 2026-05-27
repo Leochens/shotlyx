@@ -44,6 +44,11 @@ type UserSubtitleRevealMode = (typeof SUBTITLE_REVEAL_MODES)[number];
 const SUBTITLE_LINE_BREAK_MODES = ["wrap", "page"] as const;
 type SubtitleLineBreakMode = (typeof SUBTITLE_LINE_BREAK_MODES)[number];
 
+const DEFAULT_SUBTITLE_MAX_CHARS_PER_LINE = 30;
+const DEFAULT_SUBTITLE_FONT_SIZE = 4;
+const DEFAULT_SUBTITLE_BACKGROUND_COLOR = "#00000099";
+const DEFAULT_SUBTITLE_KARAOKE_HIGHLIGHT_COLOR = "#93c5fd";
+
 interface SubtitleLayerRef {
 	trackId: string;
 	elementId: string;
@@ -139,7 +144,7 @@ function buildSubtitleStyleParams({
 }): ParamValues {
 	const base: ParamValues = {
 		fontFamily: "Arial",
-		fontSize: 4.4,
+		fontSize: DEFAULT_SUBTITLE_FONT_SIZE,
 		color: "#ffffff",
 		textAlign: "center",
 		fontWeight: "bold",
@@ -147,8 +152,8 @@ function buildSubtitleStyleParams({
 		textDecoration: "none",
 		letterSpacing: 0,
 		lineHeight: 1.2,
-		"background.enabled": false,
-		"background.color": "#000000",
+		"background.enabled": true,
+		"background.color": DEFAULT_SUBTITLE_BACKGROUND_COLOR,
 		"background.cornerRadius": 8,
 		"background.paddingX": 22,
 		"background.paddingY": 24,
@@ -486,12 +491,8 @@ function buildLayerCues({
 	});
 }
 
-function resolveDefaultMaxCharsPerLine({
-	cues,
-}: {
-	cues: SubtitleLayerCue[];
-}): number {
-	return cues.some((cue) => hasCjk({ value: cue.text })) ? 18 : 42;
+function resolveDefaultMaxCharsPerLine(): number {
+	return DEFAULT_SUBTITLE_MAX_CHARS_PER_LINE;
 }
 
 export function buildSubtitleTools({
@@ -569,7 +570,7 @@ export function buildSubtitleTools({
 				},
 				highlightColor: {
 					type: "string",
-					description: "Karaoke highlight color, e.g. #22d3ee.",
+					description: "Karaoke highlight color, e.g. #93c5fd.",
 					optional: true,
 				},
 			},
@@ -628,7 +629,7 @@ export function buildSubtitleTools({
 				const canvasSize = getCanvasSize({ editor });
 				const maxCharsPerLine =
 					optionalNumberParam(params, "maxCharsPerLine") ??
-					resolveDefaultMaxCharsPerLine({ cues });
+					resolveDefaultMaxCharsPerLine();
 				const rawLineBreakMode = optionalStringParam(params, "lineBreakMode");
 				const lineBreakMode = rawLineBreakMode
 					? (requireEnumParam(
@@ -646,7 +647,8 @@ export function buildSubtitleTools({
 						) as UserSubtitleRevealMode)
 					: undefined;
 				const highlightColor =
-					optionalStringParam(params, "highlightColor") ?? "#22d3ee";
+					optionalStringParam(params, "highlightColor") ??
+					DEFAULT_SUBTITLE_KARAOKE_HIGHLIGHT_COLOR;
 				const styleParams = buildSubtitleStyleParams({
 					style,
 					placement,

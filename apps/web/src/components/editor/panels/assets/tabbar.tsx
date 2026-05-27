@@ -13,8 +13,10 @@ import {
 	useAssetsPanelStore,
 	VISIBLE_TAB_KEYS,
 } from "@/components/editor/panels/assets/assets-panel-store";
+import { useAppLocale } from "@/i18n/use-app-locale";
 
 export function TabBar() {
+	const { copy } = useAppLocale();
 	const { activeTab, setActiveTab } = useAssetsPanelStore();
 	const [showStartFade, setShowStartFade] = useState(false);
 	const [showEndFade, setShowEndFade] = useState(false);
@@ -53,13 +55,17 @@ export function TabBar() {
 			>
 				{VISIBLE_TAB_KEYS.map((tabKey) => {
 					const tab = tabs[tabKey];
+					const label =
+						copy.editor.assets.tabs[
+							tabKey as keyof typeof copy.editor.assets.tabs
+						] ?? tab.label;
 					return (
 						<Tooltip key={tabKey} delayDuration={10}>
 							<TooltipTrigger asChild>
 								<Button
 									variant="ghost"
 									size="icon"
-									aria-label={tab.label}
+									aria-label={label}
 									className={cn(
 										"size-8 shrink-0 rounded-md border transition-colors",
 										activeTab === tabKey
@@ -78,7 +84,7 @@ export function TabBar() {
 								sideOffset={6}
 							>
 								<div className="text-foreground text-sm leading-none font-medium">
-									{tab.label}
+									{label}
 								</div>
 							</TooltipContent>
 						</Tooltip>
