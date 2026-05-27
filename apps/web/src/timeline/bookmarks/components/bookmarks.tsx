@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { EditorCore } from "@/core";
 import { useEditor } from "@/editor/use-editor";
 import type { BookmarkDragState } from "../hooks/use-bookmark-drag";
@@ -86,21 +86,21 @@ export function TimelineBookmarksRow({
 			className="relative flex-1 overflow-hidden"
 			style={{ height: TIMELINE_BOOKMARK_ROW_HEIGHT_PX }}
 		>
-			<button
+			{/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- spatial timeline surface; keyboard access stays on the bookmark buttons themselves and the main ruler. */}
+			<div
 				className="relative w-full cursor-default select-none border-0 bg-transparent p-0"
 				style={{
 					height: TIMELINE_BOOKMARK_ROW_HEIGHT_PX,
 					width: `${dynamicTimelineWidth}px`,
 				}}
-				aria-label="Timeline ruler"
-				type="button"
+				aria-label="Timeline bookmarks"
 				onWheel={handleWheel}
 				onClick={(event) => {
-					if (!event.currentTarget.contains(event.target as Node)) return;
+					if (event.target !== event.currentTarget) return;
 					handleTimelineContentClick(event);
 				}}
 				onMouseDown={(event) => {
-					if (!event.currentTarget.contains(event.target as Node)) return;
+					if (event.target !== event.currentTarget) return;
 					handleRulerMouseDown(event);
 					handleRulerTrackingMouseDown(event);
 				}}
@@ -114,7 +114,7 @@ export function TimelineBookmarksRow({
 						onBookmarkMouseDown={onBookmarkMouseDown}
 					/>
 				))}
-			</button>
+			</div>
 		</div>
 	);
 }
@@ -276,6 +276,7 @@ function TimelineBookmark({
 				onOpenAutoFocus={(event) => event.preventDefault()}
 			>
 				<BookmarkPopoverContent
+					key={`${time}:${bookmark.color ?? "default"}`}
 					bookmark={bookmark}
 					time={time}
 					timelineDuration={duration}
@@ -298,19 +299,11 @@ function BookmarkPopoverContent({
 	onPopoverClose: () => void;
 }) {
 	const editor = useEditor();
-	const [draftColorHex, setDraftColorHex] = useState(
+	const [draftColorHex, setDraftColorHex] = useState(() =>
 		(bookmark.color ?? DEFAULT_TIMELINE_BOOKMARK_COLOR)
 			.replace("#", "")
 			.toUpperCase(),
 	);
-
-	useEffect(() => {
-		setDraftColorHex(
-			(bookmark.color ?? DEFAULT_TIMELINE_BOOKMARK_COLOR)
-				.replace("#", "")
-				.toUpperCase(),
-		);
-	}, [bookmark.color]);
 
 	const handleRemove = () => {
 		editor.scenes.removeBookmark({ time });
