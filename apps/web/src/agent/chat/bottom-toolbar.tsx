@@ -35,6 +35,11 @@ import type { TimelineTrack } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
 import { mediaTimeToSeconds } from "@/wasm";
 import { cn } from "@/utils/ui";
+import { listShotlyxHyperFramesTemplates } from "@/shotlyx/hyperframes/templates";
+import {
+	buildHyperFramesMGPrompt,
+	buildSeedanceMediaPrompt,
+} from "./prompt-builders";
 
 interface BottomToolbarProps {
 	input: string;
@@ -43,11 +48,20 @@ interface BottomToolbarProps {
 	onInputChange: (input: string) => void;
 	onSubmit: () => void;
 	onMediaSubmit?: (prompt: string) => void;
+	onMGSubmit?: (prompt: string) => void;
 	onStop?: () => void;
 }
 
 const MEDIA_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"] as const;
 const MEDIA_DURATIONS = [5, 8, 10, 12] as const;
+const MG_RATIOS = ["16:9", "9:16", "1:1"] as const;
+const MG_DURATIONS = [3, 5, 8, 10] as const;
+const MG_TEMPLATE_OPTIONS = listShotlyxHyperFramesTemplates().map(
+	(template) => ({
+		value: template.id,
+		label: template.label,
+	}),
+);
 
 function formatSeconds(seconds: number): string {
 	const min = Math.floor(seconds / 60);
@@ -85,6 +99,7 @@ export function BottomToolbar({
 	onInputChange,
 	onSubmit,
 	onMediaSubmit,
+	onMGSubmit,
 	onStop,
 }: BottomToolbarProps) {
 	const { copy } = useAppLocale();
@@ -108,7 +123,13 @@ export function BottomToolbar({
 	const [referenceOpen, setReferenceOpen] = useState(false);
 	const [mediaRatio, setMediaRatio] = useState("16:9");
 	const [mediaDuration, setMediaDuration] = useState(5);
+	const [mgTemplateId, setMGTemplateId] = useState<string>(
+		MG_TEMPLATE_OPTIONS[0]?.value ?? "swiss-pulse-explainer",
+	);
+	const [mgRatio, setMGRatio] = useState("16:9");
+	const [mgDuration, setMGDuration] = useState(5);
 	const isMediaMode = selectedAgent === "media";
+	const isMGMode = selectedAgent === "mg";
 
 	const timelineTracks = useMemo(
 		() => (scene ? getTrackItems(scene.tracks) : []),
@@ -137,15 +158,29 @@ export function BottomToolbar({
 		if (!description || disabled) return;
 		const hasReferences = draftReferences.length > 0;
 		onMediaSubmit?.(
-			[
-				"使用 Seedance 生成一段视频。",
-				`描述：${description}`,
-				`参数：视频比例 ${mediaRatio}，时长 ${mediaDuration}s。`,
-				"请调用 creative_generate_seedance_video，并将生成结果保存到媒体库。",
-				hasReferences
-					? "参考图：使用我附加的素材引用作为参考图。"
-					: "参考图：无，只根据描述生成。",
-			].join("\n"),
+			buildSeedanceMediaPrompt({
+				description,
+				aspectRatio: mediaRatio,
+				durationSeconds: mediaDuration,
+				hasReferences,
+			}),
+		);
+	};
+
+	const handleMGSubmit = () => {
+		const description = input.trim();
+		if (!description || disabled) return;
+		const template =
+			MG_TEMPLATE_OPTIONS.find((option) => option.value === mgTemplateId) ??
+			MG_TEMPLATE_OPTIONS[0];
+		onMGSubmit?.(
+			buildHyperFramesMGPrompt({
+				description,
+				templateId: template?.value ?? "swiss-pulse-explainer",
+				templateLabel: template?.label ?? "Swiss Pulse Explainer",
+				aspectRatio: mgRatio,
+				durationSeconds: mgDuration,
+			}),
 		);
 	};
 
@@ -187,6 +222,133 @@ export function BottomToolbar({
 		if (reference) addReference(reference);
 		setReferenceOpen(false);
 	};
+
+	if (isMGMode) {
+		return (
+			<form
+				onSubmit={(event) => {
+					event.preventDefault();
+					handleMGSubmit();
+				}}
+				className="border-t border-border/70 bg-background/95 p-2"
+			>
+				<div className="rounded-sm border border-cyan-300/15 bg-input/90 p-2 shadow-[0_14px_40px_rgba(0,0,0,0.22)]">
+					<textarea
+						value={input}
+						data-testid="chat-input"
+						onChange={(event) => {
+							const next = event.target.value;
+							onInputChange(next);
+							if (next.endsWith("@")) setReferenceOpen(true);
+						}}
+						onKeyDown={(event) => {
+							if (event.key !== "Enter" || event.shiftKey) return;
+							event.preventDefault();
+							handleMGSubmit();
+						}}
+						placeholder="描述你想生成的 MG 动画、箭头、框选、圆圈或字幕强调..."
+						rows={2}
+						className="max-h-28 min-h-14 w-full resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
+					/>
+
+					<ReferenceChipList
+						references={draftReferences}
+						primaryReferenceId={primaryReferenceId}
+						onRemove={removeReference}
+						onPrimaryChange={setPrimaryReference}
+						className="scrollbar-thin max-h-16 overflow-y-auto px-1 pb-1"
+					/>
+
+					<div className="flex min-w-0 items-center gap-1 pt-1">
+						<div className="scrollbar-thin flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-px">
+							<Popover open={referenceOpen} onOpenChange={setReferenceOpen}>
+								<PopoverTrigger asChild>
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										className="size-9 shrink-0 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+										aria-label={toolbarCopy.addReference}
+										title={toolbarCopy.addReferenceTitle}
+									>
+										<Plus size={20} />
+									</Button>
+								</PopoverTrigger>
+								<ReferencePopoverContent
+									mediaAssets={mediaAssets}
+									timelineElements={timelineElements}
+									timelineTracks={timelineTracks}
+									toolbarCopy={toolbarCopy}
+									onAddMedia={addMedia}
+									onAddTimelineElement={addTimelineElement}
+									onAddTrack={addTrack}
+								/>
+							</Popover>
+
+							<MediaInlineControl
+								icon={<Sparkles size={16} />}
+								label="MG 动画"
+								title="HyperFrames MG 模板"
+							/>
+
+							<SelectInlineControl
+								value={mgTemplateId}
+								ariaLabel="MG 模板"
+								onChange={setMGTemplateId}
+								options={MG_TEMPLATE_OPTIONS}
+							/>
+
+							<SelectInlineControl
+								value={mgRatio}
+								ariaLabel="MG 比例"
+								onChange={setMGRatio}
+								options={MG_RATIOS.map((ratio) => ({
+									value: ratio,
+									label: ratio,
+								}))}
+							/>
+
+							<SelectInlineControl
+								value={String(mgDuration)}
+								ariaLabel="MG 时长"
+								onChange={(value) => setMGDuration(Number(value))}
+								options={MG_DURATIONS.map((duration) => ({
+									value: String(duration),
+									label: `${duration}s`,
+								}))}
+							/>
+						</div>
+
+						<Button
+							type={disabled ? "button" : "submit"}
+							data-testid={disabled ? "chat-stop-button" : "chat-send-button"}
+							disabled={!input.trim() && !disabled}
+							onClick={disabled ? onStop : undefined}
+							className={cn(
+								"h-9 shrink-0 rounded-sm px-3 text-sm font-semibold",
+								disabled
+									? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+									: "bg-primary text-primary-foreground hover:bg-primary/90",
+							)}
+							aria-label={disabled ? toolbarCopy.stop : "生成 MG 动画"}
+						>
+							{disabled ? (
+								<>
+									<Square size={14} fill="currentColor" />
+									<span>{toolbarCopy.stop}</span>
+								</>
+							) : (
+								<>
+									<ArrowUp size={17} />
+									<span>MG</span>
+								</>
+							)}
+						</Button>
+					</div>
+				</div>
+			</form>
+		);
+	}
 
 	if (isMediaMode) {
 		return (
@@ -433,46 +595,53 @@ export function AgentModeSelect({
 	onAgentChange: (agent: string) => void;
 	compact?: boolean;
 }) {
-	const value = selectedAgent === "media" ? "media" : "editor";
-	const Icon = value === "media" ? Video : Bot;
+	const value =
+		selectedAgent === "media"
+			? "media"
+			: selectedAgent === "mg"
+				? "mg"
+				: "editor";
 	const options = [
-		{ value: "editor", label: "Editor" },
-		...(agents?.includes("media") ?? true
-			? [{ value: "media", label: "Media" }]
+		{ value: "editor", label: "Editor", icon: Bot },
+		...((agents?.includes("media") ?? true)
+			? [{ value: "media", label: "Media", icon: Video }]
+			: []),
+		...((agents?.includes("mg") ?? true)
+			? [{ value: "mg", label: "MG 动画", icon: Sparkles }]
 			: []),
 	];
 
 	return (
 		<div
 			className={cn(
-				"relative flex h-8 shrink-0 items-center rounded-sm border border-border/80 bg-muted/60 text-muted-foreground",
-				compact ? "w-12 px-1.5" : "w-[6.4rem] px-1.5",
+				"flex h-8 shrink-0 items-center gap-0.5 rounded-sm border border-border/80 bg-muted/60 p-0.5 text-muted-foreground",
+				compact ? "max-w-[8rem]" : "max-w-full",
 			)}
 		>
-			<Icon size={14} className="shrink-0" />
-			<select
-				value={value}
-				onChange={(event) => onAgentChange(event.target.value)}
-				aria-label="Agent mode"
-				className={cn(
-					"h-full min-w-0 flex-1 appearance-none truncate bg-transparent pl-1 pr-4 text-[0.82rem] font-medium text-foreground outline-none",
-					compact && "text-transparent",
-				)}
-			>
-				{options.map((option) => (
-					<option
+			{options.map((option) => {
+				const Icon = option.icon;
+				const isActive = value === option.value;
+				return (
+					<button
 						key={option.value}
-						value={option.value}
-						className="bg-background text-foreground"
+						type="button"
+						onClick={() => onAgentChange(option.value)}
+						className={cn(
+							"inline-flex h-7 min-w-0 shrink-0 items-center gap-1 rounded-[3px] px-2 text-xs font-medium transition-colors",
+							isActive
+								? "bg-background text-foreground shadow-sm"
+								: "text-muted-foreground hover:bg-accent hover:text-foreground",
+							compact && "px-1.5",
+						)}
+						aria-pressed={isActive}
 					>
-						{option.label}
-					</option>
-				))}
-			</select>
-			<ChevronDown
-				size={14}
-				className="pointer-events-none absolute right-2 text-muted-foreground"
-			/>
+						<Icon size={13} className="shrink-0" />
+						<span className={cn("whitespace-nowrap", compact && "sr-only")}>
+							{option.label}
+						</span>
+					</button>
+				);
+			})}
 		</div>
 	);
 }
@@ -548,10 +717,7 @@ function ReferencePopoverContent({
 	timelineTracks: TimelineTrack[];
 	toolbarCopy: ToolbarCopy;
 	onAddMedia: (mediaId: string) => void;
-	onAddTimelineElement: (args: {
-		trackId: string;
-		elementId: string;
-	}) => void;
+	onAddTimelineElement: (args: { trackId: string; elementId: string }) => void;
 	onAddTrack: (trackId: string) => void;
 }) {
 	return (
@@ -560,7 +726,9 @@ function ReferencePopoverContent({
 			side="top"
 			className="scrollbar-thin max-h-96 w-[min(40rem,calc(100vw-2rem))] overflow-y-auto p-3"
 		>
-			<ReferencePickerSection title={`${toolbarCopy.media} (${mediaAssets.length})`}>
+			<ReferencePickerSection
+				title={`${toolbarCopy.media} (${mediaAssets.length})`}
+			>
 				{mediaAssets
 					.filter((asset) => !asset.ephemeral)
 					.map((asset) => (

@@ -371,7 +371,8 @@ export function ChatPanel() {
 		(editor) => editor.project.getActiveOrNull()?.metadata.id ?? null,
 	);
 	const mediaAssetCount = useEditor(
-		(editor) => editor.media.getAssets().filter((asset) => !asset.ephemeral).length,
+		(editor) =>
+			editor.media.getAssets().filter((asset) => !asset.ephemeral).length,
 	);
 	const messages = getActiveMessages();
 	const visibleMessages = messages.filter((msg) => !msg.hidden);
@@ -1297,12 +1298,9 @@ export function ChatPanel() {
 			<div className="flex flex-1 flex-col overflow-hidden">
 				<div className="flex min-h-10 min-w-0 items-center justify-between gap-1.5 border-b border-border/60 bg-background/95 px-2 py-1.5">
 					<div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-						<span className="hidden shrink-0 text-sm font-medium text-foreground xl:inline">
-							Agent
-						</span>
 						<AgentModeSelect
 							selectedAgent={selectedAgent}
-							agents={["default", "editor", "media"]}
+							agents={["default", "editor", "media", "mg"]}
 							onAgentChange={setSelectedAgent}
 						/>
 						<Popover>
@@ -1456,6 +1454,9 @@ export function ChatPanel() {
 					onInputChange={setInput}
 					onSubmit={handleSubmit}
 					onMediaSubmit={(prompt) => {
+						void submitPrompt({ prompt, references: draftReferences });
+					}}
+					onMGSubmit={(prompt) => {
 						void submitPrompt({ prompt, references: draftReferences });
 					}}
 					onStop={handleStop}
