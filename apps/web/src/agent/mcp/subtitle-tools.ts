@@ -5,7 +5,9 @@ import type {
 	SubtitleElement,
 	TimelineTrack,
 } from "@/timeline";
+import type { MediaAsset } from "@/media/types";
 import type { MediaTime } from "@/wasm";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 import {
 	getSubtitleLayerDurationSeconds,
 	normalizeSubtitleLayerCues,
@@ -20,6 +22,7 @@ import { generateUUID } from "@/utils/id";
 import type { Tool } from "./types";
 import {
 	optionalNumberParam,
+	optionalBooleanParam,
 	optionalStringParam,
 	requireEnumParam,
 	requireStringParam,
@@ -44,6 +47,12 @@ type UserSubtitleRevealMode = (typeof SUBTITLE_REVEAL_MODES)[number];
 const SUBTITLE_LINE_BREAK_MODES = ["wrap", "page"] as const;
 type SubtitleLineBreakMode = (typeof SUBTITLE_LINE_BREAK_MODES)[number];
 
+const TRANSCRIPT_SOURCES = ["timeline", "asset"] as const;
+type TranscriptSource = (typeof TRANSCRIPT_SOURCES)[number];
+
+const TRANSCRIPT_MODES = ["plain", "anchored", "timed"] as const;
+type TranscriptMode = (typeof TRANSCRIPT_MODES)[number];
+
 const DEFAULT_SUBTITLE_MAX_CHARS_PER_LINE = 30;
 const DEFAULT_SUBTITLE_FONT_SIZE = 4;
 const DEFAULT_SUBTITLE_BACKGROUND_COLOR = "#00000099";
@@ -62,6 +71,27 @@ interface SubtitleTranslationResult {
 		index: number;
 		text: string;
 	}>;
+}
+
+interface TranscriptCueAnchor {
+	index: number;
+	text: string;
+	startTimeSeconds: number;
+	endTimeSeconds: number;
+	durationSeconds: number;
+	timelineStartTimeSeconds?: number;
+	timelineEndTimeSeconds?: number;
+}
+
+interface TranscriptCueSource {
+	cues: SubtitleLayerCue[];
+	source: TranscriptSource;
+	hasTiming: boolean;
+	assetId?: string;
+	assetName?: string;
+	trackId?: string;
+	elementId?: string;
+	element?: SubtitleElement;
 }
 
 function getCanvasSize({ editor }: { editor: EditorCore }): {
@@ -495,6 +525,229 @@ function resolveDefaultMaxCharsPerLine(): number {
 	return DEFAULT_SUBTITLE_MAX_CHARS_PER_LINE;
 }
 
+function normalizeTranscriptCueText({ text }: { text: string }): string {
+	return text.replace(/\s+/g, " ").trim();
+}
+
+function buildTranscriptText({ cues }: { cues: SubtitleLayerCue[] }): string {
+	return cues
+		.map((cue) => normalizeTranscriptCueText({ text: cue.text }))
+		.filter((text) => text.length > 0)
+		.join("\n");
+}
+
+function formatTranscriptTimestamp({ seconds }: { seconds: number }): string {
+	const safeMilliseconds = Math.max(0, Math.round(seconds * 1000));
+	const hours = Math.floor(safeMilliseconds / 3_600_000);
+	const minutes = Math.floor((safeMilliseconds % 3_600_000) / 60_000);
+	const wholeSeconds = Math.floor((safeMilliseconds % 60_000) / 1000);
+	const milliseconds = safeMilliseconds % 1000;
+	return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(
+		2,
+		"0",
+	)}:${String(wholeSeconds).padStart(2, "0")}.${String(
+		milliseconds,
+	).padStart(3, "0")}`;
+}
+
+function getSubtitleElementTimelineOffsetSeconds({
+	element,
+}: {
+	element?: SubtitleElement;
+}): number | undefined {
+	if (!element) return undefined;
+	return (element.startTime - element.trimStart) / MEDIA_TIME_TICKS_PER_SECOND;
+}
+
+function buildTranscriptAnchors({
+	cues,
+	element,
+}: {
+	cues: SubtitleLayerCue[];
+	element?: SubtitleElement;
+}): TranscriptCueAnchor[] {
+	const timelineOffset = getSubtitleElementTimelineOffsetSeconds({ element });
+	return cues
+		.map((cue, index) => {
+			const text = normalizeTranscriptCueText({ text: cue.text });
+			const startTimeSeconds = cue.startTime;
+			const endTimeSeconds = cue.startTime + cue.duration;
+			return {
+				index,
+				text,
+				startTimeSeconds,
+				endTimeSeconds,
+				durationSeconds: cue.duration,
+				...(timelineOffset !== undefined
+					? {
+							timelineStartTimeSeconds: timelineOffset + startTimeSeconds,
+							timelineEndTimeSeconds: timelineOffset + endTimeSeconds,
+						}
+					: {}),
+			};
+		})
+		.filter((anchor) => anchor.text.length > 0);
+}
+
+function buildTimedTranscriptText({
+	anchors,
+}: {
+	anchors: TranscriptCueAnchor[];
+}): string {
+	return anchors
+		.map((anchor) => {
+			const startSeconds =
+				anchor.timelineStartTimeSeconds ?? anchor.startTimeSeconds;
+			const endSeconds = anchor.timelineEndTimeSeconds ?? anchor.endTimeSeconds;
+			return `[${formatTranscriptTimestamp({
+				seconds: startSeconds,
+			})} -> ${formatTranscriptTimestamp({
+				seconds: endSeconds,
+			})}] ${anchor.text}`;
+		})
+		.join("\n");
+}
+
+function resolveTranscriptMode({
+	params,
+}: {
+	params: Record<string, unknown>;
+}): TranscriptMode {
+	const rawMode = optionalStringParam(params, "mode");
+	if (!rawMode) return "anchored";
+	return requireEnumParam({ mode: rawMode }, "mode", TRANSCRIPT_MODES);
+}
+
+function resolveTranscriptSource({
+	params,
+}: {
+	params: Record<string, unknown>;
+}): TranscriptSource {
+	const rawSource = optionalStringParam(params, "source");
+	if (!rawSource) {
+		return optionalStringParam(params, "assetId") ? "asset" : "timeline";
+	}
+	return requireEnumParam({ source: rawSource }, "source", TRANSCRIPT_SOURCES);
+}
+
+function getTranscriptCuesFromTextAsset({
+	text,
+}: {
+	text: string;
+}): SubtitleLayerCue[] {
+	return text
+		.split(/\n+/)
+		.map((line) => normalizeTranscriptCueText({ text: line }))
+		.filter((line) => line.length > 0)
+		.map((line, index) => ({
+			text: line,
+			startTime: index,
+			duration: 1,
+		}));
+}
+
+async function resolveTranscriptCueSourceFromAsset({
+	editor,
+	assetId,
+}: {
+	editor: EditorCore;
+	assetId: string;
+}): Promise<TranscriptCueSource> {
+	const asset = editor.media
+		.getAssets()
+		.find((item: MediaAsset) => item.id === assetId);
+	if (!asset) {
+		throw new Error(`未找到媒体资源：${assetId}`);
+	}
+	if (asset.type !== "subtitle" && asset.type !== "text") {
+		throw new Error("类型不匹配：只能从字幕或文本资源生成稿件");
+	}
+
+	const rawText = await asset.file.text();
+	const cues =
+		asset.type === "subtitle"
+			? parseSrt({ input: rawText }).captions
+			: getTranscriptCuesFromTextAsset({ text: rawText });
+	if (cues.length === 0) {
+		throw new Error("字幕为空：没有找到可生成稿件的文本内容");
+	}
+	return {
+		source: "asset",
+		hasTiming: asset.type === "subtitle",
+		assetId: asset.id,
+		assetName: asset.name,
+		cues: buildLayerCues({ cues }),
+	};
+}
+
+function resolveTranscriptCueSourceFromTimeline({
+	editor,
+	params,
+}: {
+	editor: EditorCore;
+	params: Record<string, unknown>;
+}): TranscriptCueSource {
+	const trackId =
+		optionalStringParam(params, "subtitleTrackId") ??
+		optionalStringParam(params, "trackId");
+	const elementId =
+		optionalStringParam(params, "subtitleElementId") ??
+		optionalStringParam(params, "elementId");
+	const layer = resolveSubtitleLayer({ editor, trackId, elementId });
+	return {
+		source: "timeline",
+		hasTiming: true,
+		trackId: layer.trackId,
+		elementId: layer.elementId,
+		element: layer.element,
+		cues: buildLayerCues({ cues: layer.element.cues }),
+	};
+}
+
+function getTranscriptAssetName({
+	source,
+}: {
+	source: TranscriptCueSource;
+}): string {
+	const baseName =
+		source.assetName?.replace(/\.[^.]+$/, "").trim() ||
+		(source.elementId ? `subtitle-${source.elementId}` : "subtitle");
+	return `${baseName}-transcript.txt`;
+}
+
+async function saveTranscriptTextAsset({
+	editor,
+	source,
+	text,
+}: {
+	editor: EditorCore;
+	source: TranscriptCueSource;
+	text: string;
+}): Promise<{ savedTextAssetId?: string; savedTextAssetName?: string }> {
+	const project = editor.project.getActive();
+	const fileName = getTranscriptAssetName({ source });
+	const file = new File([`${text}\n`], fileName, {
+		type: "text/plain;charset=utf-8",
+	});
+	const result = await editor.media.addMediaAsset({
+		projectId: project.metadata.id,
+		asset: {
+			name: file.name,
+			type: "text",
+			file,
+			url:
+				typeof URL !== "undefined" && "createObjectURL" in URL
+					? URL.createObjectURL(file)
+					: undefined,
+		},
+	});
+	if (!result) return {};
+	return {
+		savedTextAssetId: result.id,
+		savedTextAssetName: result.name,
+	};
+}
+
 export function buildSubtitleTools({
 	editor,
 	deps,
@@ -509,6 +762,100 @@ export function buildSubtitleTools({
 	const fetchFn = deps.fetchFn ?? globalThis.fetch.bind(globalThis);
 
 	return [
+		{
+			name: "subtitles_extract_transcript",
+			description:
+				"Convert an existing subtitle asset or timeline subtitle layer into an AI-readable transcript. Default output keeps clean text plus timing anchors so the model can understand the script and still map edits back to exact subtitle times.",
+			parameters: {
+				source: {
+					type: "string",
+					description:
+						"Transcript source: timeline for an existing subtitle layer, or asset for a subtitle/text media asset. Defaults to asset when assetId is provided, otherwise timeline.",
+					optional: true,
+				},
+				assetId: {
+					type: "string",
+					description: "Subtitle or text media asset ID when source is asset.",
+					optional: true,
+				},
+				subtitleTrackId: {
+					type: "string",
+					description:
+						"Optional subtitle track ID when source is timeline. Omit to use the first subtitle layer.",
+					optional: true,
+				},
+				subtitleElementId: {
+					type: "string",
+					description:
+						"Optional subtitle element ID when source is timeline. Omit to use the first subtitle layer.",
+					optional: true,
+				},
+				mode: {
+					type: "string",
+					description:
+						"Transcript view: plain returns only clean text; anchored returns clean text plus cue anchors; timed also includes human-readable timestamped lines.",
+					optional: true,
+				},
+				saveAsTextAsset: {
+					type: "boolean",
+					description:
+						"Save the clean transcript as a TXT media asset in the project library.",
+					optional: true,
+				},
+			},
+			handler: async (params) => {
+				const source = resolveTranscriptSource({ params });
+				const mode = resolveTranscriptMode({ params });
+				const cueSource =
+					source === "asset"
+						? await resolveTranscriptCueSourceFromAsset({
+								editor,
+								assetId: requireStringParam(params, "assetId"),
+							})
+						: resolveTranscriptCueSourceFromTimeline({ editor, params });
+				const text = buildTranscriptText({ cues: cueSource.cues });
+				if (mode === "timed" && !cueSource.hasTiming) {
+					throw new Error(
+						"文本资源没有时间戳：请使用 mode=plain，或选择字幕资产/时间线字幕层。",
+					);
+				}
+				const anchors = cueSource.hasTiming
+					? buildTranscriptAnchors({
+							cues: cueSource.cues,
+							element: cueSource.element,
+						})
+					: [];
+				const savedTextAsset = optionalBooleanParam(
+					params,
+					"saveAsTextAsset",
+				)
+					? await saveTranscriptTextAsset({
+							editor,
+							source: cueSource,
+							text,
+						})
+					: {};
+
+				return {
+					source: cueSource.source,
+					mode,
+					hasTiming: cueSource.hasTiming,
+					text,
+					cueCount: cueSource.cues.length,
+					...(cueSource.assetId
+						? { assetId: cueSource.assetId, assetName: cueSource.assetName }
+						: {}),
+					...(cueSource.trackId
+						? { trackId: cueSource.trackId, elementId: cueSource.elementId }
+						: {}),
+					...(mode !== "plain" ? { anchors } : {}),
+					...(mode === "timed"
+						? { timedText: buildTimedTranscriptText({ anchors }) }
+						: {}),
+					...savedTextAsset,
+				};
+			},
+		},
 		{
 			name: "subtitles_import",
 			description:

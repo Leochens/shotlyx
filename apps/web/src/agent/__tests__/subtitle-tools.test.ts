@@ -15,14 +15,18 @@ function createMockEditor({
 		trackId: "track-sub",
 	})),
 	addTrack = mock(() => "track-sub"),
+	addMediaAsset = mock(() => ({ id: "text-asset", name: "transcript.txt" })),
 	updateElements = mock(() => {}),
 	getTrackById = mock(() => null),
+	mediaAssets = [],
 	sceneTracks,
 }: {
 	insertElement?: ReturnType<typeof mock>;
 	addTrack?: ReturnType<typeof mock>;
+	addMediaAsset?: ReturnType<typeof mock>;
 	updateElements?: ReturnType<typeof mock>;
 	getTrackById?: ReturnType<typeof mock>;
+	mediaAssets?: unknown[];
 	sceneTracks?: unknown;
 } = {}): EditorCore {
 	return {
@@ -34,15 +38,25 @@ function createMockEditor({
 		},
 		project: {
 			getActiveOrNull: () => ({
+				metadata: {
+					id: "project-1",
+				},
 				settings: {
 					canvasSize: { width: 1024, height: 768 },
 				},
 			}),
 			getActive: () => ({
+				metadata: {
+					id: "project-1",
+				},
 				settings: {
 					canvasSize: { width: 1024, height: 768 },
 				},
 			}),
+		},
+		media: {
+			getAssets: () => mediaAssets,
+			addMediaAsset,
 		},
 		scenes: {
 			getActiveSceneOrNull: () =>
@@ -179,6 +193,258 @@ describe("subtitle tools", () => {
 				],
 			},
 		});
+	});
+
+	test("subtitles_extract_transcript returns readable text with timeline anchors from a subtitle layer", async () => {
+		const subtitleElement = {
+			id: "subtitle-1",
+			type: "subtitle",
+			startTime: mockMediaTimeFromSeconds({ seconds: 10 }),
+			trimStart: mockMediaTimeFromSeconds({ seconds: 2 }),
+			params: { "subtitle.groupId": "group-1" },
+			cues: [
+				{
+					text: "第一句保留语义",
+					startTime: 1,
+					duration: 2,
+				},
+				{
+					text: "第二句用于定位",
+					startTime: 3.5,
+					duration: 1.5,
+				},
+			],
+		};
+		const subtitleTrack = {
+			id: "track-sub",
+			type: "text",
+			elements: [subtitleElement],
+		};
+		const editor = createMockEditor({
+			getTrackById: mock(({ trackId }: { trackId: string }) =>
+				trackId === "track-sub" ? subtitleTrack : null,
+			),
+			sceneTracks: {
+				main: { id: "main", type: "video", elements: [] },
+				overlay: [subtitleTrack],
+				audio: [],
+			},
+		});
+		const tools = buildSubtitleTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find(
+			(item) => item.name === "subtitles_extract_transcript",
+		);
+
+		const result = await tool?.handler({
+			source: "timeline",
+			subtitleTrackId: "track-sub",
+			subtitleElementId: "subtitle-1",
+			mode: "anchored",
+		});
+
+		expect(result).toMatchObject({
+			source: "timeline",
+			mode: "anchored",
+			hasTiming: true,
+			text: "第一句保留语义\n第二句用于定位",
+			cueCount: 2,
+			trackId: "track-sub",
+			elementId: "subtitle-1",
+			anchors: [
+				{
+					index: 0,
+					text: "第一句保留语义",
+					startTimeSeconds: 1,
+					endTimeSeconds: 3,
+					timelineStartTimeSeconds: 9,
+					timelineEndTimeSeconds: 11,
+				},
+				{
+					index: 1,
+					text: "第二句用于定位",
+					startTimeSeconds: 3.5,
+					endTimeSeconds: 5,
+					timelineStartTimeSeconds: 11.5,
+					timelineEndTimeSeconds: 13,
+				},
+			],
+		});
+
+		const timedResult = await tool?.handler({
+			source: "timeline",
+			subtitleTrackId: "track-sub",
+			subtitleElementId: "subtitle-1",
+			mode: "timed",
+		});
+		expect(timedResult).toMatchObject({
+			mode: "timed",
+			timedText:
+				"[00:00:09.000 -> 00:00:11.000] 第一句保留语义\n[00:00:11.500 -> 00:00:13.000] 第二句用于定位",
+		});
+	});
+
+	test("subtitles_extract_transcript parses an SRT asset into timed transcript text", async () => {
+		const file = new File(
+			[
+				[
+					"1",
+					"00:00:00,000 --> 00:00:02,000",
+					"第一句",
+					"",
+					"2",
+					"00:00:02,500 --> 00:00:04,000",
+					"第二句",
+				].join("\n"),
+			],
+			"captions.srt",
+			{ type: "application/x-subrip" },
+		);
+		const editor = createMockEditor({
+			mediaAssets: [
+				{
+					id: "subtitle-asset",
+					name: "captions.srt",
+					type: "subtitle",
+					file,
+				},
+			],
+		});
+		const tools = buildSubtitleTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find(
+			(item) => item.name === "subtitles_extract_transcript",
+		);
+
+		const result = await tool?.handler({
+			source: "asset",
+			assetId: "subtitle-asset",
+			mode: "timed",
+		});
+
+		expect(result).toMatchObject({
+			source: "asset",
+			mode: "timed",
+			assetId: "subtitle-asset",
+			assetName: "captions.srt",
+			text: "第一句\n第二句",
+			timedText:
+				"[00:00:00.000 -> 00:00:02.000] 第一句\n[00:00:02.500 -> 00:00:04.000] 第二句",
+			cueCount: 2,
+			anchors: [
+				{
+					index: 0,
+					text: "第一句",
+					startTimeSeconds: 0,
+					endTimeSeconds: 2,
+				},
+				{
+					index: 1,
+					text: "第二句",
+					startTimeSeconds: 2.5,
+					endTimeSeconds: 4,
+				},
+			],
+		});
+	});
+
+	test("subtitles_extract_transcript can save the plain transcript as a text asset", async () => {
+		const addMediaAsset = mock(() => ({
+			id: "saved-transcript",
+			name: "captions-transcript.txt",
+		}));
+		const file = new File(
+			[
+				[
+					"1",
+					"00:00:00,000 --> 00:00:02,000",
+					"第一句",
+					"",
+					"2",
+					"00:00:02,000 --> 00:00:03,000",
+					"第二句",
+				].join("\n"),
+			],
+			"captions.srt",
+			{ type: "application/x-subrip" },
+		);
+		const editor = createMockEditor({
+			addMediaAsset,
+			mediaAssets: [
+				{
+					id: "subtitle-asset",
+					name: "captions.srt",
+					type: "subtitle",
+					file,
+				},
+			],
+		});
+		const tools = buildSubtitleTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find(
+			(item) => item.name === "subtitles_extract_transcript",
+		);
+
+		const result = await tool?.handler({
+			source: "asset",
+			assetId: "subtitle-asset",
+			mode: "plain",
+			saveAsTextAsset: true,
+		});
+
+		expect(result).toMatchObject({
+			source: "asset",
+			mode: "plain",
+			text: "第一句\n第二句",
+			savedTextAssetId: "saved-transcript",
+			savedTextAssetName: "captions-transcript.txt",
+		});
+		expect(addMediaAsset.mock.calls[0]?.[0]).toMatchObject({
+			projectId: "project-1",
+			asset: {
+				name: "captions-transcript.txt",
+				type: "text",
+			},
+		});
+		const savedFile = addMediaAsset.mock.calls[0]?.[0].asset.file;
+		expect(await savedFile.text()).toBe("第一句\n第二句\n");
+	});
+
+	test("subtitles_extract_transcript refuses timed output for untimed text assets", async () => {
+		const file = new File(["第一句\n第二句"], "script.txt", {
+			type: "text/plain",
+		});
+		const editor = createMockEditor({
+			mediaAssets: [
+				{
+					id: "text-asset",
+					name: "script.txt",
+					type: "text",
+					file,
+				},
+			],
+		});
+		const tools = buildSubtitleTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find(
+			(item) => item.name === "subtitles_extract_transcript",
+		);
+
+		expect(
+			tool?.handler({
+				source: "asset",
+				assetId: "text-asset",
+				mode: "timed",
+			}),
+		).rejects.toThrow("没有时间戳");
 	});
 
 	test("subtitles_import can still insert legacy text elements", () => {
