@@ -23,6 +23,7 @@ const DEFAULT_TRANSCRIPTION_SOURCE = "timeline";
 const DEFAULT_TRANSCRIPTION_PROVIDER = "volcengine";
 const DEFAULT_SUBTITLE_STYLE = "clean";
 const DEFAULT_SUBTITLE_PLACEMENT = "bottom";
+const DEFAULT_SUBTITLE_LINE_BREAK_MODE = "page";
 
 export interface BuildTranscriptionToolsOptions {
 	deps?: Partial<TranscriptionToolDeps>;
@@ -652,7 +653,8 @@ export function buildTranscriptionTools({
 				},
 				lineBreakMode: {
 					type: "string",
-					description: "换行展示模式：wrap 自动换行，page 按行分页显示。",
+					description:
+						"换行展示模式：wrap 自动换行，page 按行分页显示。默认 page。",
 					optional: true,
 				},
 				maxCharsPerLine: {
@@ -696,6 +698,7 @@ export function buildTranscriptionTools({
 					lineBreakMode: optionalTrimmedString({
 						params,
 						key: "lineBreakMode",
+						fallback: DEFAULT_SUBTITLE_LINE_BREAK_MODE,
 					}),
 					maxCharsPerLine: optionalNumberParam(params, "maxCharsPerLine"),
 					highlightColor: optionalTrimmedString({

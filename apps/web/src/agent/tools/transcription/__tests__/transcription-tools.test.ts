@@ -75,6 +75,25 @@ describe("transcription tools", () => {
 		});
 	});
 
+	test("defaults generated subtitles to one-line overflow", async () => {
+		const generateSubtitlesFromVideo = mock(async () => ({
+			imported: true,
+			provider: "volcengine",
+			cueCount: 1,
+		}));
+		const [tool] = buildTranscriptionTools({
+			deps: { generateSubtitlesFromVideo },
+		});
+
+		await tool?.handler({});
+
+		expect(generateSubtitlesFromVideo).toHaveBeenCalledWith(
+			expect.objectContaining({
+				lineBreakMode: "page",
+			}),
+		);
+	});
+
 	test("client deps extract timeline audio, call cloud ASR, and import cues", async () => {
 		const addMediaAsset = mock(async ({ asset }: { asset: { name: string } }) => ({
 			id: "subtitle-asset",

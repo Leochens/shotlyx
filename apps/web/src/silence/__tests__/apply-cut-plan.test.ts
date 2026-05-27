@@ -1,7 +1,14 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import type { MediaTime } from "@/wasm";
-import type { SceneTracks, VideoElement, VideoTrack } from "@/timeline";
+import type {
+	SceneTracks,
+	SubtitleElement,
+	TextElement,
+	TextTrack,
+	VideoElement,
+	VideoTrack,
+} from "@/timeline";
 
 mock.module("@/wasm", () => ({
 	ZERO_MEDIA_TIME: 0,
@@ -52,6 +59,70 @@ function videoElement({
 		trimEnd: mt(trimEnd),
 		params: {},
 		retime,
+	};
+}
+
+function subtitleElement({
+	id,
+	startTime,
+	duration,
+	trimStart = 0,
+	trimEnd = 0,
+}: {
+	id: string;
+	startTime: number;
+	duration: number;
+	trimStart?: number;
+	trimEnd?: number;
+}): SubtitleElement {
+	return {
+		id,
+		type: "subtitle",
+		name: id,
+		startTime: mt(startTime),
+		duration: mt(duration),
+		trimStart: mt(trimStart),
+		trimEnd: mt(trimEnd),
+		params: { "subtitle.groupId": "group-1" },
+		cues: [
+			{ id: `${id}-cue-a`, text: "before", startTime: 0, duration: 0.2 },
+			{ id: `${id}-cue-b`, text: "after", startTime: 0.55, duration: 0.2 },
+		],
+	};
+}
+
+function textElement({
+	id,
+	startTime,
+	duration,
+	isSubtitle = false,
+}: {
+	id: string;
+	startTime: number;
+	duration: number;
+	isSubtitle?: boolean;
+}): TextElement {
+	return {
+		id,
+		type: "text",
+		name: id,
+		startTime: mt(startTime),
+		duration: mt(duration),
+		trimStart: mt(0),
+		trimEnd: mt(0),
+		params: isSubtitle
+			? { text: id, "subtitle.groupId": "group-1" }
+			: { text: id },
+	};
+}
+
+function textTrack(elements: TextTrack["elements"]): TextTrack {
+	return {
+		id: "subtitles",
+		name: "Subtitles",
+		type: "text",
+		hidden: false,
+		elements,
 	};
 }
 
@@ -196,6 +267,99 @@ describe("buildSilenceCutTracks", () => {
 			duration: mt(600),
 			trimStart: mt(800),
 			trimEnd: mt(0),
+		});
+	});
+
+	test("cuts subtitle layers with the same timeline ranges as the silenced video clip", () => {
+		const tracks = {
+			...sceneWithMain([
+				videoElement({ id: "clip-a", startTime: 0, duration: 1000 }),
+			]),
+			overlay: [
+				textTrack([
+					subtitleElement({
+						id: "subtitle-layer",
+						startTime: 0,
+						duration: 1000,
+					}),
+				]),
+			],
+		} satisfies SceneTracks;
+
+		const result = buildSilenceCutTracks({
+			tracks,
+			targets: [
+				{
+					trackId: "main",
+					elementId: "clip-a",
+					ranges: [{ startTime: mt(300), endTime: mt(500) }],
+				},
+			],
+		});
+
+		const subtitleElements = result.overlay[0]?.elements ?? [];
+		expect(subtitleElements).toHaveLength(2);
+		expect(subtitleElements[0]).toMatchObject({
+			id: "subtitle-layer",
+			type: "subtitle",
+			startTime: mt(0),
+			duration: mt(300),
+			trimStart: mt(0),
+			trimEnd: mt(700),
+		});
+		expect(subtitleElements[1]).toMatchObject({
+			type: "subtitle",
+			startTime: mt(300),
+			duration: mt(500),
+			trimStart: mt(500),
+			trimEnd: mt(0),
+		});
+		expect(subtitleElements[1]?.id).not.toBe("subtitle-layer");
+	});
+
+	test("shifts legacy subtitle text cues after removed silence without moving ordinary text", () => {
+		const tracks = {
+			...sceneWithMain([
+				videoElement({ id: "clip-a", startTime: 0, duration: 1000 }),
+			]),
+			overlay: [
+				textTrack([
+					textElement({
+						id: "later-subtitle",
+						startTime: 1200,
+						duration: 200,
+						isSubtitle: true,
+					}),
+					textElement({
+						id: "title-card",
+						startTime: 1200,
+						duration: 200,
+					}),
+				]),
+			],
+		} satisfies SceneTracks;
+
+		const result = buildSilenceCutTracks({
+			tracks,
+			targets: [
+				{
+					trackId: "main",
+					elementId: "clip-a",
+					ranges: [{ startTime: mt(300), endTime: mt(500) }],
+				},
+			],
+		});
+
+		const [laterSubtitle, titleCard] = result.overlay[0]?.elements ?? [];
+		expect(laterSubtitle).toMatchObject({
+			id: "later-subtitle",
+			startTime: mt(1000),
+			duration: mt(200),
+		});
+		expect(titleCard).toMatchObject({
+			id: "title-card",
+			startTime: mt(1200),
+			duration: mt(200),
 		});
 	});
 });

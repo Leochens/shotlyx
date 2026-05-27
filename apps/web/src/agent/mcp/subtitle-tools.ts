@@ -56,6 +56,7 @@ type TranscriptMode = (typeof TRANSCRIPT_MODES)[number];
 const DEFAULT_SUBTITLE_MAX_CHARS_PER_LINE = 30;
 const DEFAULT_SUBTITLE_FONT_SIZE = 4;
 const DEFAULT_SUBTITLE_BACKGROUND_COLOR = "#00000099";
+const DEFAULT_SUBTITLE_LINE_BREAK_MODE: SubtitleLineBreakMode = "page";
 const DEFAULT_SUBTITLE_KARAOKE_HIGHLIGHT_COLOR = "#93c5fd";
 
 interface SubtitleLayerRef {
@@ -203,13 +204,13 @@ function buildSubtitleStyleParams({
 
 	if (style === "documentary") {
 		base["background.enabled"] = true;
-		base["background.color"] = "#0f172a";
+		base["background.color"] = DEFAULT_SUBTITLE_BACKGROUND_COLOR;
 		base["background.cornerRadius"] = 10;
 	}
 	if (style === "social") {
 		base.fontSize = 5.2;
 		base["background.enabled"] = true;
-		base["background.color"] = "#000000";
+		base["background.color"] = DEFAULT_SUBTITLE_BACKGROUND_COLOR;
 		base["background.cornerRadius"] = 18;
 		base["background.paddingX"] = 24;
 		base["background.paddingY"] = 26;
@@ -906,7 +907,7 @@ export function buildSubtitleTools({
 				lineBreakMode: {
 					type: "string",
 					description:
-						"Line overflow mode: wrap for automatic multi-line wrapping, or page to show one wrapped line at a time.",
+						"Line overflow mode: wrap for automatic multi-line wrapping, or page to show one wrapped line at a time. Defaults to page.",
 					optional: true,
 				},
 				revealMode: {
@@ -984,7 +985,7 @@ export function buildSubtitleTools({
 							"lineBreakMode",
 							SUBTITLE_LINE_BREAK_MODES,
 						) as SubtitleLineBreakMode)
-					: "wrap";
+					: DEFAULT_SUBTITLE_LINE_BREAK_MODE;
 				const rawRevealMode = optionalStringParam(params, "revealMode");
 				const explicitRevealMode = rawRevealMode
 					? (requireEnumParam(
@@ -1214,7 +1215,7 @@ export function buildSubtitleTools({
 								params: {
 									"subtitle.bilingual.enabled": true,
 									"subtitle.bilingual.targetLanguage": language,
-									"subtitle.lineBreakMode": "wrap",
+									"subtitle.lineBreakMode": DEFAULT_SUBTITLE_LINE_BREAK_MODE,
 								},
 							},
 						},

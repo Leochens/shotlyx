@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 
-export const DEFAULT_WEB_URL = "http://127.0.0.1:3100/desktop";
+export const DEFAULT_WEB_URL = "http://127.0.0.1:3100/settings/api";
 const DEFAULT_DESKTOP_PORT = new URL(DEFAULT_WEB_URL).port;
 
 export function getDesktopRuntime(

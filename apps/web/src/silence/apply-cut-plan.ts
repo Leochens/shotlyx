@@ -38,14 +38,19 @@ export function buildSilenceCutTracks({
 	if (targetMap.size === 0) {
 		return tracks;
 	}
+	const subtitleCutRanges = buildSubtitleCutRanges({ targetMap });
 
 	return {
 		overlay: tracks.overlay.map((track) =>
-			buildSilenceCutTrack({ track, targetMap }),
+			buildSilenceCutTrack({ track, targetMap, subtitleCutRanges }),
 		),
-		main: buildSilenceCutTrack({ track: tracks.main, targetMap }),
+		main: buildSilenceCutTrack({
+			track: tracks.main,
+			targetMap,
+			subtitleCutRanges,
+		}),
 		audio: tracks.audio.map((track) =>
-			buildSilenceCutTrack({ track, targetMap }),
+			buildSilenceCutTrack({ track, targetMap, subtitleCutRanges }),
 		),
 	};
 }
@@ -53,11 +58,13 @@ export function buildSilenceCutTracks({
 function buildSilenceCutTrack<TTrack extends TrackWithElements>({
 	track,
 	targetMap,
+	subtitleCutRanges,
 }: {
 	track: TTrack;
 	targetMap: Map<string, NormalizedCutRange[]>;
+	subtitleCutRanges: NormalizedCutRange[];
 }): TTrack {
-	const trackCutRanges = normalizeRanges({
+	const trackTargetCutRanges = normalizeRanges({
 		ranges: track.elements.flatMap(
 			(element) =>
 				targetMap.get(
@@ -66,34 +73,114 @@ function buildSilenceCutTrack<TTrack extends TrackWithElements>({
 		),
 	});
 
-	if (trackCutRanges.length === 0) {
+	if (
+		trackTargetCutRanges.length === 0 &&
+		!track.elements.some((element) => isSynchronizedSubtitleElement(element))
+	) {
 		return track;
 	}
 
-	const elements = track.elements
-		.flatMap((element) => {
-			const cutRanges =
-				targetMap.get(
-					targetKey({ trackId: track.id, elementId: element.id }),
-				) ?? [];
-			if (cutRanges.length === 0) {
-				return [
-					shiftElementStart({
-						element,
-						trackCutRanges,
-					}),
-				];
-			}
+	let didChange = false;
+	const elements = track.elements.flatMap((element) => {
+		const targetCutRanges =
+			targetMap.get(targetKey({ trackId: track.id, elementId: element.id })) ??
+			[];
+		const shouldSyncSubtitle =
+			trackTargetCutRanges.length === 0 &&
+			isSynchronizedSubtitleElement(element);
+		const cutRanges =
+			targetCutRanges.length > 0
+				? targetCutRanges
+				: shouldSyncSubtitle
+					? clipCutRangesToElement({
+							element,
+							cutRanges: subtitleCutRanges,
+						})
+					: [];
+		const trackCutRanges =
+			trackTargetCutRanges.length > 0
+				? trackTargetCutRanges
+				: shouldSyncSubtitle
+					? subtitleCutRanges
+					: [];
 
-			return cutElementByRanges({
+		if (cutRanges.length === 0) {
+			const shiftedElement = shiftElementStart({
 				element,
-				cutRanges,
 				trackCutRanges,
 			});
-		})
-		.sort((left, right) => left.startTime - right.startTime);
+			if (shiftedElement !== element) {
+				didChange = true;
+			}
+			return [shiftedElement];
+		}
 
-	return { ...track, elements } as TTrack;
+		const cutElements = cutElementByRanges({
+			element,
+			cutRanges,
+			trackCutRanges,
+		});
+		didChange =
+			didChange || cutElements.length !== 1 || cutElements[0] !== element;
+		return cutElements;
+	});
+
+	if (!didChange) {
+		return track;
+	}
+
+	return {
+		...track,
+		elements: elements.sort((left, right) => left.startTime - right.startTime),
+	} as TTrack;
+}
+
+function buildSubtitleCutRanges({
+	targetMap,
+}: {
+	targetMap: Map<string, NormalizedCutRange[]>;
+}): NormalizedCutRange[] {
+	return normalizeRanges({
+		ranges: Array.from(targetMap.values()).flat(),
+	});
+}
+
+function isSynchronizedSubtitleElement(element: TimelineElement): boolean {
+	if (element.type === "subtitle") {
+		return true;
+	}
+	if (element.type !== "text") {
+		return false;
+	}
+	const subtitleGroupId = element.params["subtitle.groupId"];
+	return typeof subtitleGroupId === "string" && subtitleGroupId.length > 0;
+}
+
+function clipCutRangesToElement({
+	element,
+	cutRanges,
+}: {
+	element: TimelineElement;
+	cutRanges: NormalizedCutRange[];
+}): NormalizedCutRange[] {
+	const elementStart = element.startTime;
+	const elementEnd = addMediaTime({
+		a: element.startTime,
+		b: element.duration,
+	});
+
+	return normalizeRanges({
+		ranges: cutRanges.map((range) => ({
+			startTime: maxMediaTime({
+				left: range.startTime,
+				right: elementStart,
+			}),
+			endTime: minMediaTime({
+				left: range.endTime,
+				right: elementEnd,
+			}),
+		})),
+	});
 }
 
 function buildTargetMap({
@@ -118,24 +205,9 @@ function buildTargetMap({
 				continue;
 			}
 
-			const elementStart = element.startTime;
-			const elementEnd = addMediaTime({
-				a: element.startTime,
-				b: element.duration,
-			});
-			const ranges = normalizeRanges({
-				ranges: matchingTargets.flatMap((target) =>
-					target.ranges.map((range) => ({
-						startTime: maxMediaTime({
-							left: range.startTime,
-							right: elementStart,
-						}),
-						endTime: minMediaTime({
-							left: range.endTime,
-							right: elementEnd,
-						}),
-					})),
-				),
+			const ranges = clipCutRangesToElement({
+				element,
+				cutRanges: matchingTargets.flatMap((target) => target.ranges),
 			});
 
 			if (ranges.length > 0) {

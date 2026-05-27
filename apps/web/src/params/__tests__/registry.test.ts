@@ -69,6 +69,7 @@ describe("element param registry", () => {
 		).toMatchObject({
 			label: "Line Overflow",
 			type: "select",
+			default: "page",
 		});
 	});
 });

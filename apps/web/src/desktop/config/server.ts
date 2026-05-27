@@ -161,18 +161,38 @@ export function desktopValuesToEnv(values: DesktopApiValues): DesktopApiValues {
 	return env;
 }
 
+function desktopSavedValuesToEnv(values: DesktopApiValues): DesktopApiValues {
+	const env: DesktopApiValues = {};
+	for (const field of DESKTOP_API_FIELDS) {
+		const value = values[field.key];
+		if (value) {
+			env[field.env] = value;
+		}
+	}
+	return env;
+}
+
 export function getRuntimeEnv(): NodeJS.ProcessEnv {
 	if (!isDesktopMode()) return process.env;
+	const values = readDesktopApiConfig().values;
 	return {
+		...desktopValuesToEnv(values),
 		...process.env,
-		...desktopValuesToEnv(readDesktopApiConfig().values),
+		...desktopSavedValuesToEnv(values),
 	};
 }
 
 export function applyDesktopConfigToProcessEnv(): void {
 	if (!isDesktopMode()) return;
-	const env = desktopValuesToEnv(readDesktopApiConfig().values);
-	for (const [key, value] of Object.entries(env)) {
+	const values = readDesktopApiConfig().values;
+	const defaults = desktopValuesToEnv(values);
+	for (const [key, value] of Object.entries(defaults)) {
+		if (value && process.env[key] === undefined) {
+			process.env[key] = value;
+		}
+	}
+	const saved = desktopSavedValuesToEnv(values);
+	for (const [key, value] of Object.entries(saved)) {
 		if (value) {
 			process.env[key] = value;
 		}
@@ -192,6 +212,8 @@ export function getDesktopConfigStatus(
 	values: DesktopApiValues = readDesktopApiConfig().values,
 ): DesktopConfigStatusGroup[] {
 	const envValues = desktopValuesToEnv(values);
+	const agentRuntime =
+		envValues.AGENT_RUNTIME === "local-cli" ? "local-cli" : "api";
 
 	return DESKTOP_API_GROUPS.map((group) => {
 		const fields = group.fields.map((field) => {
@@ -203,10 +225,19 @@ export function getDesktopConfigStatus(
 				secret: Boolean(field.secret),
 			};
 		});
-		const required = group.id === "agent-llm";
-		const configured = required
-			? Boolean(envValues.AGENT_LLM_KEY)
-			: fields.some((field) => field.configured);
+		const required =
+			group.id === "agent-runtime" ||
+			(group.id === "agent-llm" && agentRuntime !== "local-cli");
+		const configured =
+			group.id === "agent-runtime"
+				? agentRuntime === "local-cli"
+					? Boolean(envValues.AGENT_CLI_ID)
+					: true
+				: group.id === "agent-llm"
+					? agentRuntime === "local-cli"
+						? false
+						: Boolean(envValues.AGENT_LLM_KEY)
+					: fields.some((field) => field.configured);
 		return {
 			id: group.id,
 			title: group.title,

@@ -4,19 +4,25 @@ import { useState, useRef, useEffect } from "react";
 import { useChatStore } from "./store";
 import { MessageItem } from "./message-item";
 import type { ToolActionResult, ToolCallActionRequest } from "./tool-call-card";
-import { BottomToolbar } from "./bottom-toolbar";
+import { AgentModeSelect, BottomToolbar } from "./bottom-toolbar";
 import { useEditor } from "@/editor/use-editor";
 import { parseSSEStream } from "./sse-parser";
 import type { SSEEvent } from "./sse-parser";
 import {
-	Captions,
+	BarChart3,
+	BookOpenText,
 	Check,
 	Copy,
+	Gamepad2,
+	Lightbulb,
+	LineChart,
 	Loader2,
-	Mic2,
+	Megaphone,
 	Scissors,
-	Search,
+	SlidersHorizontal,
+	Sparkles,
 	Trash2,
+	Zap,
 	type LucideIcon,
 } from "lucide-react";
 import type {
@@ -44,6 +50,21 @@ import {
 	RoughCutReviewDialog,
 } from "./rough-cut-review-dialog";
 import type { RoughCutReviewResult } from "@/agent/mcp/rough-cut-tools";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/ui/popover";
+import type { ExecutionMode } from "./types";
+
+const MODE_CONFIG: Array<{
+	mode: ExecutionMode;
+	icon: typeof Zap;
+}> = [
+	{ mode: "auto", icon: Zap },
+	{ mode: "suggest", icon: Lightbulb },
+	{ mode: "manual", icon: Gamepad2 },
+];
 
 function formatElapsed(ms: number): string {
 	const totalSec = ms / 1000;
@@ -86,23 +107,27 @@ const STARTER_PROMPT_STYLES: Array<{
 }> = [
 	{
 		icon: Scissors,
-		iconClassName: "border-border bg-muted/50 text-muted-foreground",
+		iconClassName: "border-cyan-300/25 bg-cyan-300/10 text-cyan-300",
 	},
 	{
-		icon: Trash2,
-		iconClassName: "border-border bg-muted/50 text-muted-foreground",
+		icon: Sparkles,
+		iconClassName: "border-amber-300/25 bg-amber-300/10 text-amber-200",
 	},
 	{
-		icon: Captions,
-		iconClassName: "border-border bg-muted/50 text-muted-foreground",
+		icon: BarChart3,
+		iconClassName: "border-emerald-300/25 bg-emerald-300/10 text-emerald-300",
 	},
 	{
-		icon: Search,
-		iconClassName: "border-border bg-muted/50 text-muted-foreground",
+		icon: LineChart,
+		iconClassName: "border-blue-300/25 bg-blue-300/10 text-blue-300",
 	},
 	{
-		icon: Mic2,
-		iconClassName: "border-border bg-muted/50 text-muted-foreground",
+		icon: Megaphone,
+		iconClassName: "border-rose-300/25 bg-rose-300/10 text-rose-300",
+	},
+	{
+		icon: BookOpenText,
+		iconClassName: "border-violet-300/25 bg-violet-300/10 text-violet-300",
 	},
 ];
 
@@ -344,6 +369,9 @@ export function ChatPanel() {
 	const editor = useEditor();
 	const projectId = useEditor(
 		(editor) => editor.project.getActiveOrNull()?.metadata.id ?? null,
+	);
+	const mediaAssetCount = useEditor(
+		(editor) => editor.media.getAssets().filter((asset) => !asset.ephemeral).length,
 	);
 	const messages = getActiveMessages();
 	const visibleMessages = messages.filter((msg) => !msg.hidden);
@@ -1267,28 +1295,62 @@ export function ChatPanel() {
 		>
 			{/* Multi-session UI is intentionally disabled for the compact Agent surface. */}
 			<div className="flex flex-1 flex-col overflow-hidden">
-				<div className="flex items-center justify-between border-b border-border/70 bg-background/95 px-3 py-2">
-					<div className="flex items-center gap-2">
-						<span className="text-sm font-medium text-foreground">Agent</span>
+				<div className="flex min-h-10 min-w-0 items-center justify-between gap-1.5 border-b border-border/60 bg-background/95 px-2 py-1.5">
+					<div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+						<span className="hidden shrink-0 text-sm font-medium text-foreground xl:inline">
+							Agent
+						</span>
+						<AgentModeSelect
+							selectedAgent={selectedAgent}
+							agents={["default", "editor", "media"]}
+							onAgentChange={setSelectedAgent}
+						/>
+						<Popover>
+							<PopoverTrigger asChild>
+								<button
+									type="button"
+									className="flex size-8 shrink-0 items-center justify-center rounded-sm border border-border/80 bg-muted/60 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+									aria-label={copy.editor.toolbar.executionMode}
+									title={`${copy.editor.toolbar.executionMode}: ${copy.editor.toolbar.modes[mode]}`}
+								>
+									<SlidersHorizontal size={14} />
+								</button>
+							</PopoverTrigger>
+							<PopoverContent align="start" side="bottom" className="w-48 p-1">
+								{MODE_CONFIG.map(({ mode: value, icon: Icon }) => (
+									<button
+										key={value}
+										type="button"
+										onClick={() => setMode(value)}
+										className={`flex h-9 w-full items-center gap-2 rounded-sm px-2 text-left text-sm hover:bg-accent ${
+											mode === value ? "bg-accent text-foreground" : ""
+										}`}
+									>
+										<Icon size={15} />
+										{copy.editor.toolbar.modes[value]}
+									</button>
+								))}
+							</PopoverContent>
+						</Popover>
 					</div>
-					<div className="flex items-center gap-2">
+					<div className="flex min-w-0 shrink-0 items-center gap-1">
 						{showClearConfirm ? (
-							<div className="flex items-center gap-1.5">
-								<span className="text-xs text-muted-foreground">
+							<div className="flex min-w-0 items-center gap-1">
+								<span className="hidden text-xs text-muted-foreground min-[420px]:inline">
 									{copy.editor.chat.confirmClear}
 								</span>
 								<button
 									type="button"
 									data-testid="clear-confirm-button"
 									onClick={handleClearConfirm}
-									className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-500"
+									className="rounded-sm bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-500"
 								>
 									{copy.editor.chat.confirm}
 								</button>
 								<button
 									type="button"
 									onClick={() => setShowClearConfirm(false)}
-									className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+									className="rounded-sm bg-muted px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
 								>
 									{copy.editor.chat.cancel}
 								</button>
@@ -1298,21 +1360,21 @@ export function ChatPanel() {
 								<button
 									type="button"
 									onClick={handleCopyChat}
-									className="rounded-sm p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+									className="flex size-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 									aria-label={copy.editor.chat.copyChat}
 									title={copy.editor.chat.copyChat}
 								>
-									{copied ? <Check size={14} /> : <Copy size={14} />}
+									{copied ? <Check size={13} /> : <Copy size={13} />}
 								</button>
 								<button
 									type="button"
 									data-testid="clear-session-button"
 									onClick={() => setShowClearConfirm(true)}
-									className="rounded-sm p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-red-400"
+									className="flex size-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-red-400"
 									aria-label={copy.editor.chat.clearChat}
 									title={copy.editor.chat.clearChat}
 								>
-									<Trash2 size={14} />
+									<Trash2 size={13} />
 								</button>
 							</>
 						)}
@@ -1323,6 +1385,7 @@ export function ChatPanel() {
 					{visibleMessages.length === 0 && !isLoading ? (
 						<AgentEmptyState
 							disabled={isLoading || !editor}
+							hasMedia={mediaAssetCount > 0}
 							onPromptSelect={handleStarterPrompt}
 						/>
 					) : null}
@@ -1388,9 +1451,7 @@ export function ChatPanel() {
 				)}
 				<BottomToolbar
 					input={input}
-					mode={mode}
 					selectedAgent={selectedAgent}
-					agents={["default", "editor", "media"]}
 					disabled={isLoading}
 					onInputChange={setInput}
 					onSubmit={handleSubmit}
@@ -1398,8 +1459,6 @@ export function ChatPanel() {
 						void submitPrompt({ prompt, references: draftReferences });
 					}}
 					onStop={handleStop}
-					onModeChange={setMode}
-					onAgentChange={setSelectedAgent}
 				/>
 				<RoughCutReviewDialog
 					key={roughCutReview?.reviewId ?? "rough-cut-empty"}
@@ -1414,17 +1473,42 @@ export function ChatPanel() {
 
 function AgentEmptyState({
 	disabled,
+	hasMedia,
 	onPromptSelect,
 }: {
 	disabled: boolean;
+	hasMedia: boolean;
 	onPromptSelect: (prompt: string) => void;
 }) {
 	const { copy } = useAppLocale();
 	const starters = copy.editor.chat.starters;
 
 	return (
-		<div className="flex min-h-full flex-col justify-end py-2">
-			<div className="grid gap-2">
+		<div className="flex min-h-full flex-col justify-center gap-4 py-4">
+			<div className="mx-auto max-w-md text-center">
+				<div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-cyan-300/80">
+					{copy.editor.chat.emptyKicker}
+				</div>
+				<h2 className="mt-2 text-xl font-semibold tracking-normal text-foreground">
+					{copy.editor.chat.emptyTitle}
+				</h2>
+				<p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
+					{copy.editor.chat.emptyBody}
+				</p>
+			</div>
+
+			{!hasMedia && (
+				<div className="rounded-sm border border-cyan-300/20 bg-cyan-300/5 px-3 py-2 text-sm">
+					<div className="font-medium text-cyan-200">
+						{copy.editor.chat.emptyNoMediaTitle}
+					</div>
+					<p className="mt-1 leading-5 text-muted-foreground">
+						{copy.editor.chat.emptyNoMediaBody}
+					</p>
+				</div>
+			)}
+
+			<div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(9rem,1fr))]">
 				{starters.map(({ label, hint, prompt }, index) => {
 					const { icon: Icon, iconClassName } =
 						STARTER_PROMPT_STYLES[index] ?? STARTER_PROMPT_STYLES[0];
@@ -1434,15 +1518,15 @@ function AgentEmptyState({
 							type="button"
 							disabled={disabled}
 							onClick={() => onPromptSelect(prompt)}
-							className="group flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-sm border border-border/70 bg-background px-3 py-2 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+							className="group flex min-h-[4.8rem] w-full cursor-pointer items-center gap-3 rounded-md border border-border/70 bg-muted/35 px-3 py-2.5 text-left transition-colors hover:border-cyan-300/30 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
 						>
 							<span
-								className={`flex size-7 shrink-0 items-center justify-center rounded-sm border ${iconClassName} group-hover:text-foreground`}
+								className={`flex size-10 shrink-0 items-center justify-center rounded-md border shadow-[0_10px_24px_rgba(0,0,0,0.16)] ${iconClassName} group-hover:text-foreground`}
 							>
-								<Icon size={15} />
+								<Icon size={19} />
 							</span>
 							<span className="min-w-0 flex-1">
-								<span className="block truncate text-sm font-medium text-foreground">
+								<span className="block truncate text-sm font-semibold text-foreground">
 									{label}
 								</span>
 								<span className="mt-0.5 block truncate text-xs text-muted-foreground">

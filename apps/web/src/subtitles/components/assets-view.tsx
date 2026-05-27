@@ -237,7 +237,7 @@ export function Captions() {
 					style: "clean",
 					placement: "bottom",
 					revealMode: "line",
-					lineBreakMode: "wrap",
+					lineBreakMode: "page",
 				},
 				onProgress: (event) => {
 					if (event.status === "running") {

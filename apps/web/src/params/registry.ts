@@ -371,7 +371,7 @@ const subtitleElementParams: ElementParamDefinition[] = [
 		key: "subtitle.lineBreakMode",
 		label: "Line Overflow",
 		type: "select",
-		default: "wrap",
+		default: "page",
 		keyframable: false,
 		options: [
 			{ value: "wrap", label: "Auto Wrap" },

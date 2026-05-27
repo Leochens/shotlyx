@@ -6,6 +6,7 @@ export type DesktopApiField = {
 	required?: boolean;
 	placeholder?: string;
 	defaultValue?: string;
+	options?: Array<{ label: string; value: string }>;
 	help: string;
 	applyUrl: string;
 	docsUrl?: string;
@@ -21,6 +22,58 @@ export type DesktopApiGroup = {
 };
 
 export const DESKTOP_API_GROUPS: DesktopApiGroup[] = [
+	{
+		id: "agent-runtime",
+		title: "Agent runtime",
+		purpose:
+			"Choose whether Shotlyx Agent talks to a provider API directly or delegates reasoning to a local coding CLI.",
+		requiredFor: "Agent chat, planning, and editor tool orchestration",
+		recommendedProvider:
+			"API mode for hosted usage; local CLI mode for desktop demos",
+		fields: [
+			{
+				key: "AGENT_RUNTIME",
+				label: "Runtime",
+				env: "AGENT_RUNTIME",
+				defaultValue: "api",
+				options: [
+					{ label: "Provider API", value: "api" },
+					{ label: "Local CLI", value: "local-cli" },
+				],
+				help: "Use local-cli to run Agent reasoning through Claude Code or Codex CLI installed on this computer.",
+				applyUrl: "https://docs.anthropic.com/en/docs/claude-code",
+			},
+			{
+				key: "AGENT_CLI_ID",
+				label: "CLI",
+				env: "AGENT_CLI_ID",
+				defaultValue: "claude",
+				options: [
+					{ label: "Claude Code", value: "claude" },
+					{ label: "Codex CLI", value: "codex" },
+				],
+				help: "The local CLI used for planning and ReAct tool calls when runtime is local-cli.",
+				applyUrl: "https://docs.anthropic.com/en/docs/claude-code",
+			},
+			{
+				key: "AGENT_CLI_MODEL",
+				label: "CLI model",
+				env: "AGENT_CLI_MODEL",
+				defaultValue: "default",
+				placeholder: "default, sonnet, gpt-5-codex",
+				help: "Leave default to use the CLI's own configured model, or set an alias/model accepted by the selected CLI.",
+				applyUrl: "https://docs.anthropic.com/en/docs/claude-code",
+			},
+			{
+				key: "AGENT_CLI_PATH",
+				label: "CLI path",
+				env: "AGENT_CLI_PATH",
+				placeholder: "/opt/homebrew/bin/claude",
+				help: "Optional absolute path when the CLI is not discoverable from PATH.",
+				applyUrl: "https://docs.anthropic.com/en/docs/claude-code",
+			},
+		],
+	},
 	{
 		id: "agent-llm",
 		title: "Agent LLM",
@@ -239,6 +292,15 @@ export const DESKTOP_API_GROUPS: DesktopApiGroup[] = [
 				help: "Used when VOICEOVER_PROVIDER=volcengine.",
 				applyUrl: "https://console.volcengine.com/speech",
 			},
+			{
+				key: "VOLCENGINE_TTS_RESOURCE_ID",
+				label: "Volcengine TTS model",
+				env: "VOLCENGINE_TTS_RESOURCE_ID",
+				defaultValue: "seed-tts-2.0",
+				placeholder: "seed-tts-2.0",
+				help: "Speech resource/model identifier used by Volcengine TTS.",
+				applyUrl: "https://console.volcengine.com/speech",
+			},
 		],
 	},
 	{
@@ -264,6 +326,15 @@ export const DESKTOP_API_GROUPS: DesktopApiGroup[] = [
 				secret: true,
 				placeholder: "volcengine speech key",
 				help: "Recommended key for Chinese ASR workflows.",
+				applyUrl: "https://console.volcengine.com/speech",
+			},
+			{
+				key: "VOLCENGINE_ASR_RESOURCE_ID",
+				label: "Volcengine ASR model",
+				env: "VOLCENGINE_ASR_RESOURCE_ID",
+				defaultValue: "volc.bigasr.auc_turbo",
+				placeholder: "volc.bigasr.auc_turbo",
+				help: "ASR resource/model identifier used by Volcengine.",
 				applyUrl: "https://console.volcengine.com/speech",
 			},
 			{

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { formatDeepSeekSyntheticContentChunk } from "@/agent/ai-sdk/providers";
+import {
+	formatDeepSeekSyntheticContentChunk,
+	normalizeOpenAICompatibleReasoningRequestBody,
+} from "@/agent/ai-sdk/providers";
 
 function parseSSEDataLine(line: string): unknown {
 	const trimmed = line.trim();
@@ -25,6 +28,42 @@ describe("DeepSeek provider compatibility", () => {
 					finish_reason: "tool_calls",
 				},
 			],
+		});
+	});
+
+	test("adds empty reasoning_content to assistant tool-call history", () => {
+		const request = normalizeOpenAICompatibleReasoningRequestBody({
+			method: "POST",
+			body: JSON.stringify({
+				messages: [
+					{ role: "user", content: "Add title" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: {
+									name: "timeline_add_text",
+									arguments: "{}",
+								},
+							},
+						],
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_1",
+						content: "{}",
+					},
+				],
+			}),
+		});
+
+		const body = JSON.parse(String(request?.body));
+		expect(body.messages[1]).toMatchObject({
+			role: "assistant",
+			reasoning_content: "",
 		});
 	});
 });

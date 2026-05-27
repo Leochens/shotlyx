@@ -313,7 +313,7 @@ function EditorWorkspace({
 
 function AgentPanelFrame() {
 	return (
-		<section className="panel agent-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-border/80 bg-background text-foreground">
+		<section className="panel agent-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background text-foreground">
 			<div className="min-h-0 flex-1 overflow-hidden">
 				<ChatPanel />
 			</div>

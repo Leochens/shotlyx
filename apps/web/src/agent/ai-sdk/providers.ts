@@ -45,7 +45,9 @@ export function formatDeepSeekSyntheticContentChunk({
 	);
 }
 
-function normalizeDeepSeekRequestBody(options?: RequestInit): RequestInit | undefined {
+export function normalizeOpenAICompatibleReasoningRequestBody(
+	options?: RequestInit,
+): RequestInit | undefined {
 	if (typeof options?.body !== "string") return options;
 	try {
 		const body: DeepSeekRequestBody = JSON.parse(options.body);
@@ -217,7 +219,10 @@ function createDeepSeekFetch(): typeof fetch {
 					isStreamingRequest = false;
 				}
 			}
-			const res = await fetch(url, normalizeDeepSeekRequestBody(options));
+			const res = await fetch(
+				url,
+				normalizeOpenAICompatibleReasoningRequestBody(options),
+			);
 			if (!res.ok) {
 				const text = await res.text();
 				console.error(`[agent-ds-res] HTTP ${res.status}:`, text.slice(0, 500));
@@ -238,7 +243,11 @@ function createOpenAICompatibleModel(config: LLMProviderConfig): LanguageModel {
 	const provider = createOpenAI({
 		baseURL: config.host,
 		apiKey: config.apiKey,
-		fetch: config.host.includes("deepseek.com") ? createDeepSeekFetch() : undefined,
+		fetch:
+			config.provider === "openai-compatible" ||
+			config.host.includes("deepseek.com")
+				? createDeepSeekFetch()
+				: undefined,
 	});
 	return provider.chat(config.model);
 }

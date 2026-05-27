@@ -1,12 +1,27 @@
 const { app, BrowserWindow, shell } = require("electron");
 
-const DEFAULT_URL = "http://127.0.0.1:3100/desktop";
+const DEFAULT_URL = "http://127.0.0.1:3100/settings/api";
 
 function getStartUrl() {
 	return process.env.SHOTLYX_WEB_URL || DEFAULT_URL;
 }
 
+function syncWindowState(win) {
+	const state = win.isFullScreen() || win.isMaximized() ? "full" : "windowed";
+	if (win.webContents.isDestroyed()) return;
+	win.webContents
+		.executeJavaScript(
+			`document.documentElement.dataset.shotlyxWindowState = ${JSON.stringify(
+				state,
+			)};`,
+		)
+		.catch(() => {
+			// The page can be between navigations while the native window is changing.
+		});
+}
+
 function createWindow() {
+	const isMac = process.platform === "darwin";
 	const win = new BrowserWindow({
 		width: 1440,
 		height: 920,
@@ -14,6 +29,8 @@ function createWindow() {
 		minHeight: 760,
 		backgroundColor: "#050607",
 		title: "Shotlyx",
+		titleBarStyle: isMac ? "hiddenInset" : undefined,
+		trafficLightPosition: isMac ? { x: 12, y: 11 } : undefined,
 		webPreferences: {
 			contextIsolation: true,
 			nodeIntegration: false,
@@ -28,6 +45,17 @@ function createWindow() {
 		}
 		return { action: "allow" };
 	});
+
+	win.webContents.on("dom-ready", () => syncWindowState(win));
+	for (const eventName of [
+		"enter-full-screen",
+		"leave-full-screen",
+		"maximize",
+		"unmaximize",
+		"resize",
+	]) {
+		win.on(eventName, () => syncWindowState(win));
+	}
 
 	win.loadURL(getStartUrl());
 }

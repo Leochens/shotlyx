@@ -129,6 +129,23 @@
 	--ring: hsl(188 82% 40%);
 }
 
+.electron-drag-region {
+	-webkit-app-region: drag;
+}
+
+.electron-no-drag,
+.electron-drag-region :is(button, a, input, select, textarea, [role="button"]) {
+	-webkit-app-region: no-drag;
+}
+
+.electron-window-left-slot--desktop {
+	margin-left: 5.25rem;
+}
+
+html[data-shotlyx-window-state="full"] .electron-window-left-slot--desktop {
+	margin-left: 0;
+}
+
 .dark .editor-workbench {
 	--background: hsl(150 14% 4%);
 	--foreground: hsl(150 14% 90%);

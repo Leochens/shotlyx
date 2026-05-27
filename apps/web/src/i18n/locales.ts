@@ -264,40 +264,49 @@ timeline.patch committed`,
 				renameSession: "Rename conversation",
 				deleteSession: "Delete conversation",
 				newSession: "New conversation",
-				emptyKicker: "AI Command Layer",
-				emptyTitle: "Tell it the cut goal",
+				emptyKicker: "Starter workflows",
+				emptyTitle: "What do you want to create today?",
 				emptyBody:
-					"Editing, captions, assets, and voiceover can all start from one instruction.",
+					"Pick a workflow. The Agent will ask for missing material, goals, and format details before it edits.",
+				emptyNoMediaTitle: "No source media yet",
+				emptyNoMediaBody:
+					"For talking-head or gameplay cuts, the Agent will first guide you to upload video or audio before planning edits.",
 				starters: [
 					{
-						label: "Cut a 30s hook",
-						hint: "intro / rhythm / close",
+						label: "Talking-head cut",
+						hint: "upload / hook / captions",
 						prompt:
-							"Analyze the current media and timeline, then cut a 30-second short video: the first 3 seconds need a strong hook, the middle should stay fast, and the ending should be clean. Give me the plan before executing.",
+							"I want to cut a talking-head short video. First inspect whether this project already has video or audio media. If there is no usable source media, do not run editing tools yet: guide me to upload the footage and ask for the platform, target duration, opening hook style, parts to keep/remove, caption style, and whether to remove filler words or repeated phrases. After I answer and the media exists, propose the edit plan and then execute it.",
 					},
 					{
-						label: "AI rough-cut review",
-						hint: "fillers / repeats / confirm",
+						label: "MG animation",
+						hint: "topic / data / style",
 						prompt:
-							"Run an AI rough-cut review for the current timeline: generate timed captions if needed, identify filler words, breath sounds, and repeated redundant phrases, then open the interactive review so I can confirm before any cut is applied.",
+							"I want to create a motion-graphics animation. First ask me for the topic, use case, target duration, aspect ratio, key copy/data points, brand style, and whether it should be a performance comparison, workflow explainer, or report-style visual. After the answers are clear, generate a concise storyboard and execute the MG/timeline creation.",
 					},
 					{
-						label: "Improve captions",
-						hint: "speech / breaks / readability",
+						label: "Work report",
+						hint: "outline / metrics / charts",
 						prompt:
-							"Generate or improve captions for the current project. Make the line breaks feel like short-form spoken video and make key words stand out. Check timeline state first, then give an executable plan.",
+							"I want to create a work-report video. Ask me for the audience, report period, 3-5 key achievements, metric comparisons, risks/blockers, desired tone, and target duration. If I have source slides, screen recordings, or voiceover, guide me to upload or reference them. Then turn the answers into a structured short video plan and execute the needed text, captions, MG, and timeline steps.",
 					},
 					{
-						label: "Add B-roll",
-						hint: "search / import / insert",
+						label: "Game short",
+						hint: "clip / highlight / pace",
 						prompt:
-							"Based on the current timeline, identify weak or empty visual moments, search for suitable B-roll, import it, and insert it where it improves the cut.",
+							"I want to make a game short video. First check whether I have uploaded gameplay footage. If not, guide me to upload it. Ask for the game, target platform, highlight moment, desired pace, meme/commentary style, caption language, and target duration. Then propose a cut structure and execute after the source material is available.",
 					},
 					{
-						label: "Generate voiceover",
-						hint: "script / TTS / audio",
+						label: "App promo",
+						hint: "link / features / CTA",
 						prompt:
-							"Create a concise voiceover script for the current project and generate a voiceover track. Before executing, tell me the structure and approximate duration.",
+							"I want to create an app promotional video. Ask me for the app name or link, target user, core pain point, top 3 features, visual assets available, platform, aspect ratio, CTA, and desired duration. If I only provide a link, fetch/read it first, summarize the selling points, then propose and execute the video structure.",
+					},
+					{
+						label: "Explainer video",
+						hint: "concept / script / visuals",
+						prompt:
+							"I want to create an explainer video. Ask me for the topic, target audience, what viewers should understand after watching, preferred format, examples/references, and target duration. If no source media exists, suggest whether to use text/MG, generated visuals, B-roll, or voiceover. Then build the script and execute the timeline plan.",
 					},
 				],
 			},
@@ -678,39 +687,49 @@ timeline.patch 已提交`,
 				renameSession: "重命名会话",
 				deleteSession: "删除会话",
 				newSession: "新建会话",
-				emptyKicker: "AI Command Layer",
-				emptyTitle: "告诉它成片目标",
-				emptyBody: "剪辑、字幕、素材和旁白都可以从一个指令开始。",
+				emptyKicker: "Starter workflows",
+				emptyTitle: "今天想创作什么？",
+				emptyBody:
+					"选择一个方向，子 Agent 会先补齐素材、目标和格式信息，再进入执行。",
+				emptyNoMediaTitle: "项目里还没有素材",
+				emptyNoMediaBody:
+					"如果要剪口播或游戏视频，子 Agent 会先引导你上传视频/音频素材，再开始规划剪辑。",
 				starters: [
 					{
-						label: "剪 30 秒强钩子",
-						hint: "开头 / 节奏 / 收束",
+						label: "口播剪辑",
+						hint: "上传 / 钩子 / 字幕",
 						prompt:
-							"请分析当前素材和时间线，帮我剪出一个 30 秒短视频：开头 3 秒要有钩子，中间保持快节奏，结尾干净收束。先给计划，再执行。",
+							"我想剪一条口播短视频。请先检查当前项目里是否已经有可用的视频或音频素材。如果没有素材，不要直接执行剪辑工具，先引导我上传口播素材，并询问我：发布平台、目标时长、开头钩子方向、哪些内容必须保留/删除、字幕风格、是否要去口误/重复/停顿。等我回答并且素材准备好之后，再给出剪辑计划并执行。",
 					},
 					{
-						label: "AI 粗剪审核",
-						hint: "口气词 / 重复 / 确认",
+						label: "MG 动画",
+						hint: "主题 / 数据 / 风格",
 						prompt:
-							"请对当前时间线做 AI 粗剪审核：如果还没有逐字字幕，先生成字幕；然后识别口气词、气声和重复冗余片段，打开交互审核弹窗让我确认后再真正剪辑。",
+							"我想生成一个 MG 动画。请先问我：主题、用途、目标时长、画幅、关键文案/数据、品牌风格，以及它更像业绩对比、流程讲解还是工作汇报。信息明确后，先给出简短分镜和动画结构，再执行 MG 和时间线生成。",
 					},
 					{
-						label: "优化字幕节奏",
-						hint: "口播 / 断句 / 可读性",
+						label: "工作汇报",
+						hint: "结构 / 指标 / 图表",
 						prompt:
-							"请为当前项目生成或优化字幕，让断句更像短视频口播节奏，重点词更醒目。先检查时间线状态，再给出可执行计划。",
+							"我想做一个工作汇报视频。请先问我：汇报对象、时间范围、3-5 个核心成果、关键指标对比、风险/阻塞、希望的语气和目标时长。如果我有 PPT、录屏、口播或图片素材，请引导我上传或引用。然后把这些信息整理成短视频结构，并执行需要的文字、字幕、MG 和时间线操作。",
 					},
 					{
-						label: "补 B-roll 素材",
-						hint: "搜索 / 导入 / 插入",
+						label: "游戏短视频",
+						hint: "素材 / 高光 / 节奏",
 						prompt:
-							"请根据当前时间线内容，找出适合补 B-roll 的位置，搜索并导入合适素材，再插入到画面空白或节奏薄弱的位置。",
+							"我想做一个游戏短视频。请先检查项目里是否已经上传了游戏录屏素材。如果没有，请先引导我上传。然后问我：游戏名、发布平台、想突出的高光时刻、节奏风格、是否要梗图/解说/字幕、目标时长。素材和信息齐了之后，再给出剪辑结构并执行。",
 					},
 					{
-						label: "生成旁白版本",
-						hint: "文案 / TTS / 音轨",
+						label: "App 宣传",
+						hint: "链接 / 卖点 / CTA",
 						prompt:
-							"请基于当前项目生成一版简洁旁白文案，并制作配音音轨。执行前先告诉我旁白结构和大概时长。",
+							"我想做一个 App 宣传视频。请先问我：App 名称或链接、目标用户、核心痛点、3 个主要卖点、已有素材、发布平台、画幅、CTA 和目标时长。如果我只给链接，请先读取链接并总结卖点，再给出视频结构并执行。",
+					},
+					{
+						label: "讲解视频",
+						hint: "概念 / 脚本 / 画面",
+						prompt:
+							"我想做一个讲解视频。请先问我：主题、目标观众、看完后要理解什么、希望的视频形式、参考案例和目标时长。如果当前没有素材，请建议使用文字/MG、生成画面、B-roll 或旁白中的哪种方式。然后生成脚本和执行计划，并在确认后操作时间线。",
 					},
 				],
 			},

@@ -120,7 +120,7 @@ describe("subtitle tools", () => {
 					"background.color": "#00000099",
 					"subtitle.role": "layer",
 					"subtitle.maxCharsPerLine": 30,
-					"subtitle.lineBreakMode": "wrap",
+					"subtitle.lineBreakMode": "page",
 				},
 				cues: [
 					{
@@ -568,6 +568,7 @@ describe("subtitle tools", () => {
 					color: "#f8fafc",
 					fontWeight: "bold",
 					"background.enabled": true,
+					"background.color": "#00000099",
 				},
 			},
 		});
@@ -676,7 +677,7 @@ describe("subtitle tools", () => {
 				params: {
 					"subtitle.bilingual.enabled": true,
 					"subtitle.bilingual.targetLanguage": "en",
-					"subtitle.lineBreakMode": "wrap",
+					"subtitle.lineBreakMode": "page",
 				},
 				cues: [
 					{

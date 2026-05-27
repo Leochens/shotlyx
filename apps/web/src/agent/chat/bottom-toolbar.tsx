@@ -6,18 +6,14 @@ import {
 	Bot,
 	Clapperboard,
 	ChevronDown,
-	Gamepad2,
 	Image as ImageIcon,
 	ImagePlus,
-	Lightbulb,
 	MousePointer2,
 	Plus,
 	Send,
-	SlidersHorizontal,
 	Sparkles,
 	Square,
 	Video,
-	Zap,
 } from "lucide-react";
 import { BrandKitMenu } from "@/brand-kit/components/brand-kit-menu";
 import { Button } from "@/components/ui/button";
@@ -35,7 +31,6 @@ import {
 import { useAgentContextStore } from "@/agent/context/store";
 import { useAppLocale } from "@/i18n/use-app-locale";
 import { ReferenceChipList } from "./reference-chip";
-import type { ExecutionMode } from "./types";
 import type { TimelineTrack } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
 import { mediaTimeToSeconds } from "@/wasm";
@@ -43,26 +38,13 @@ import { cn } from "@/utils/ui";
 
 interface BottomToolbarProps {
 	input: string;
-	mode: ExecutionMode;
 	selectedAgent: string;
-	agents: string[];
 	disabled?: boolean;
 	onInputChange: (input: string) => void;
 	onSubmit: () => void;
 	onMediaSubmit?: (prompt: string) => void;
 	onStop?: () => void;
-	onModeChange: (mode: ExecutionMode) => void;
-	onAgentChange: (agent: string) => void;
 }
-
-const MODE_CONFIG: Array<{
-	mode: ExecutionMode;
-	icon: typeof Zap;
-}> = [
-	{ mode: "auto", icon: Zap },
-	{ mode: "suggest", icon: Lightbulb },
-	{ mode: "manual", icon: Gamepad2 },
-];
 
 const MEDIA_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"] as const;
 const MEDIA_DURATIONS = [5, 8, 10, 12] as const;
@@ -98,16 +80,12 @@ type TimelineReferenceItem = {
 
 export function BottomToolbar({
 	input,
-	mode,
 	selectedAgent,
-	agents,
 	disabled,
 	onInputChange,
 	onSubmit,
 	onMediaSubmit,
 	onStop,
-	onModeChange,
-	onAgentChange,
 }: BottomToolbarProps) {
 	const { copy } = useAppLocale();
 	const toolbarCopy = copy.editor.toolbar;
@@ -277,12 +255,6 @@ export function BottomToolbar({
 
 					<div className="flex min-w-0 items-center gap-1 pt-2">
 						<div className="scrollbar-thin flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pb-px">
-							<AgentModeSelect
-								selectedAgent={selectedAgent}
-								onAgentChange={onAgentChange}
-								compact
-							/>
-
 							<MediaInlineControl
 								icon={<ImageIcon size={16} />}
 								label="参考图"
@@ -377,43 +349,6 @@ export function BottomToolbar({
 				/>
 
 				<div className="flex items-center gap-1 pt-1">
-					<AgentModeSelect
-						selectedAgent={selectedAgent}
-						agents={agents}
-						onAgentChange={onAgentChange}
-					/>
-
-					<Popover>
-						<PopoverTrigger asChild>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon"
-								className="size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-								aria-label={toolbarCopy.executionMode}
-								title={toolbarCopy.executionMode}
-							>
-								<SlidersHorizontal size={18} />
-							</Button>
-						</PopoverTrigger>
-						<PopoverContent align="start" side="top" className="w-48 p-1">
-							{MODE_CONFIG.map(({ mode: value, icon: Icon }) => (
-								<button
-									key={value}
-									type="button"
-									onClick={() => onModeChange(value)}
-									className={cn(
-										"flex h-9 w-full items-center gap-2 rounded-sm px-2 text-left text-sm hover:bg-accent",
-										mode === value && "bg-accent text-foreground",
-									)}
-								>
-									<Icon size={15} />
-									{toolbarCopy.modes[value]}
-								</button>
-							))}
-						</PopoverContent>
-					</Popover>
-
 					<Popover open={referenceOpen} onOpenChange={setReferenceOpen}>
 						<PopoverTrigger asChild>
 							<Button
@@ -487,7 +422,7 @@ export function BottomToolbar({
 	);
 }
 
-function AgentModeSelect({
+export function AgentModeSelect({
 	selectedAgent,
 	agents,
 	onAgentChange,
@@ -510,17 +445,17 @@ function AgentModeSelect({
 	return (
 		<div
 			className={cn(
-				"relative flex h-9 shrink-0 items-center rounded-sm border border-border bg-muted/70 text-muted-foreground",
-				compact ? "w-14 px-2" : "min-w-28 px-2",
+				"relative flex h-8 shrink-0 items-center rounded-sm border border-border/80 bg-muted/60 text-muted-foreground",
+				compact ? "w-12 px-1.5" : "w-[6.4rem] px-1.5",
 			)}
 		>
-			<Icon size={16} className="shrink-0" />
+			<Icon size={14} className="shrink-0" />
 			<select
 				value={value}
 				onChange={(event) => onAgentChange(event.target.value)}
 				aria-label="Agent mode"
 				className={cn(
-					"h-full min-w-0 flex-1 appearance-none bg-transparent pl-1 pr-4 text-sm font-medium text-foreground outline-none",
+					"h-full min-w-0 flex-1 appearance-none truncate bg-transparent pl-1 pr-4 text-[0.82rem] font-medium text-foreground outline-none",
 					compact && "text-transparent",
 				)}
 			>
@@ -592,7 +527,7 @@ function SelectInlineControl({
 				))}
 			</select>
 			<ChevronDown
-				size={14}
+				size={12}
 				className="pointer-events-none absolute right-1 text-muted-foreground"
 			/>
 		</div>

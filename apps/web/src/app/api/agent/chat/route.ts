@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-type-assertion, shotlyx/prefer-object-params -- This route bridges AI SDK stream parts, parsed request schemas, and SSE helper closures where the existing APIs expose positional callbacks and narrowed route data. */
 import { type NextRequest } from "next/server";
 import { generateObject, streamText, stepCountIs } from "ai";
 import { z } from "zod";
@@ -28,6 +29,13 @@ import {
 	quickReplyResponseSchema,
 	shouldRequestQuickReplies,
 } from "@/agent/controller/quick-replies";
+import {
+	generatePlanWithLocalCli,
+	isLocalCliRuntimeEnabled,
+	resolveLocalCliRuntimeConfig,
+	runLocalCliReactLoop,
+	type LocalCliEvent,
+} from "@/agent/local-cli/runtime";
 import { registerPendingCall } from "./resolve";
 
 export const runtime = "nodejs";
@@ -148,6 +156,25 @@ async function generatePlanFromLLM(
 			steps: [],
 			needsConfirmation: true,
 		};
+	}
+
+	if (isLocalCliRuntimeEnabled()) {
+		try {
+			return await generatePlanWithLocalCli({
+				systemPrompt,
+				messages,
+				toolSchemas,
+				signal: abortSignal,
+			});
+		} catch (err) {
+			logger.error(err);
+			return {
+				complexity: "medium",
+				reasoning: `本地 CLI 计划生成失败: ${String(err)}`,
+				steps: [],
+				needsConfirmation: true,
+			};
+		}
 	}
 
 	const model = getDefaultModel();
@@ -303,6 +330,10 @@ async function generateQuickReplyActions({
 	logger: AgentLogger;
 	abortSignal?: AbortSignal;
 }): Promise<MessageAction[]> {
+	if (isLocalCliRuntimeEnabled()) {
+		return [];
+	}
+
 	if (
 		!shouldRequestQuickReplies({
 			assistantText,
@@ -563,7 +594,9 @@ export async function POST(request: NextRequest) {
 					onToolCall: proxyOnToolCall,
 				});
 
-			async function runProxyLoop(messagesForLLM: ModelMessage[]): Promise<void> {
+			async function runApiProxyLoop(
+				messagesForLLM: ModelMessage[],
+			): Promise<void> {
 				const model = getDefaultModel();
 				const proxyTools = makeProxyTools();
 
@@ -739,6 +772,110 @@ export async function POST(request: NextRequest) {
 				}
 			}
 
+			async function runLocalCliProxyLoop(
+				messagesForLLM: ModelMessage[],
+			): Promise<void> {
+				const config = resolveLocalCliRuntimeConfig();
+				if (!config.binPath) {
+					throw new Error(
+						`configuration_error: ${config.agentId} CLI is not available`,
+					);
+				}
+
+				console.log(
+					"[agent] runLocalCliProxyLoop start, messages=" +
+						messagesForLLM.length,
+				);
+
+				let hasTextStarted = false;
+				let hasReasoningStarted = false;
+				let assistantText = "";
+				let toolCallCount = 0;
+
+				function sendTextDelta(text: string) {
+					if (!text) return;
+					if (!hasTextStarted) {
+						hasTextStarted = true;
+						sseSend("text-start", { timestamp: Date.now() });
+					}
+					assistantText += text;
+					logger.textDelta(text);
+					sseSend("text-delta", { text, timestamp: Date.now() });
+				}
+
+				function sendReasoningDelta(text: string) {
+					if (!text) return;
+					if (!hasReasoningStarted) {
+						hasReasoningStarted = true;
+						sseSend("reasoning-start", { timestamp: Date.now() });
+					}
+					logger.reasoningDelta(text);
+					sseSend("reasoning-delta", { text, timestamp: Date.now() });
+				}
+
+				function handleCliEvent(event: LocalCliEvent) {
+					if (event.type === "reasoning") {
+						sendReasoningDelta(event.text);
+					} else if (event.type === "text" || event.type === "final") {
+						sendTextDelta(event.text);
+					} else if (event.type === "plan" && event.reasoning) {
+						sendReasoningDelta(event.reasoning);
+					} else if (event.type === "error") {
+						throw new Error(event.message);
+					}
+				}
+
+				await runLocalCliReactLoop({
+					agentId: config.agentId,
+					binPath: config.binPath,
+					model: config.model,
+					systemPrompt,
+					messages: messagesForLLM,
+					toolSchemas: toolSchemas as FunctionSchema[],
+					onEvent: handleCliEvent,
+					onToolCall: async ({ callId, tool, params }) => {
+						toolCallCount += 1;
+						const result = await proxyOnToolCall(callId, tool, params);
+						sseSend("tool-result", { callId, timestamp: Date.now() });
+						return result;
+					},
+					env: config.env,
+					signal: request.signal,
+				});
+
+				if (hasTextStarted) {
+					sseSend("text-end", { timestamp: Date.now() });
+				}
+				if (hasReasoningStarted) {
+					sseSend("reasoning-end", { timestamp: Date.now() });
+				}
+
+				logger.request({
+					type: "runLocalCliProxyLoop:done",
+					toolCallCount,
+				});
+
+				const actions = await generateQuickReplyActions({
+					assistantText,
+					messages: messagesForLLM,
+					toolCallCount,
+					toolSchemas: toolSchemas as FunctionSchema[],
+					logger,
+					abortSignal: request.signal,
+				});
+				if (actions.length > 0) {
+					sseSend("message-actions", { actions, timestamp: Date.now() });
+				}
+			}
+
+			async function runProxyLoop(messagesForLLM: ModelMessage[]): Promise<void> {
+				if (isLocalCliRuntimeEnabled()) {
+					await runLocalCliProxyLoop(messagesForLLM);
+					return;
+				}
+				await runApiProxyLoop(messagesForLLM);
+			}
+
 			function makeCoreMessages(): ModelMessage[] {
 				const coreMessages: ModelMessage[] = messages.map((m) => ({
 					role: m.role as "user" | "assistant",
@@ -878,7 +1015,17 @@ export async function POST(request: NextRequest) {
 			}
 
 			try {
-				sseSend("init", { sessionId });
+				const runtimeConfig = resolveLocalCliRuntimeConfig();
+				sseSend("init", {
+					sessionId,
+					runtime: runtimeConfig.enabled
+						? {
+								type: "local-cli",
+								agentId: runtimeConfig.agentId,
+								model: runtimeConfig.model ?? "default",
+							}
+						: { type: "api" },
+				});
 
 				if (action === "confirm" && existingPlan) {
 					const observationLines: string[] = [];
