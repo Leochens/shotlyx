@@ -29,6 +29,7 @@ import { MasksTab } from "@/masks/components/masks-tab";
 import { SpeedTab } from "@/speed/components/speed-tab";
 import { GraphicTab } from "@/graphics/components/graphic-tab";
 import { OcShapesIcon } from "@/components/icons";
+import { SubtitleCuesEditor } from "./components/subtitle-cues-editor";
 
 const TRANSFORM_PARAM_KEYS = [
 	"transform.positionX",
@@ -196,16 +197,21 @@ function buildTextTab({
 		label: element.type === "subtitle" ? "Subtitle" : "Text",
 		icon: <HugeiconsIcon icon={TextFontIcon} size={16} />,
 		content: ({ trackId }) => (
-			<ElementParamsTab
-				element={element}
-				trackId={trackId}
-				paramKeys={
-					element.type === "subtitle"
-						? [...SUBTITLE_DISPLAY_PARAM_KEYS, ...SUBTITLE_PARAM_KEYS]
-						: TEXT_PARAM_KEYS
-				}
-				sectionKey="text"
-			/>
+			<>
+				{element.type === "subtitle" ? (
+					<SubtitleCuesEditor element={element} trackId={trackId} />
+				) : null}
+				<ElementParamsTab
+					element={element}
+					trackId={trackId}
+					paramKeys={
+						element.type === "subtitle"
+							? [...SUBTITLE_DISPLAY_PARAM_KEYS, ...SUBTITLE_PARAM_KEYS]
+							: TEXT_PARAM_KEYS
+					}
+					sectionKey="text"
+				/>
+			</>
 		),
 	};
 }
