@@ -21,6 +21,7 @@ const LOCAL_PROTOCOL_HOST = "shotlyx";
 const LOCAL_RENDERER_URL = "app://shotlyx/desktop";
 const RENDERER_EXIT_TIMEOUT_MS = 8_000;
 let apiHandlerPromise = null;
+let isQuitting = false;
 
 protocol.registerSchemesAsPrivileged([
 	{
@@ -331,6 +332,10 @@ function configureAutoUpdater() {
 
 configureAppIdentity();
 
+app.on("before-quit", () => {
+	isQuitting = true;
+});
+
 const shouldUseSingleInstanceLock =
 	process.env.SHOTLYX_DISABLE_SINGLE_INSTANCE_LOCK !== "1";
 const hasSingleInstanceLock =
@@ -366,6 +371,7 @@ if (!hasSingleInstanceLock) {
 		configureAutoUpdater();
 
 		app.on("activate", () => {
+			if (isQuitting) return;
 			if (BrowserWindow.getAllWindows().length === 0) {
 				createWindow();
 			}
@@ -374,7 +380,7 @@ if (!hasSingleInstanceLock) {
 }
 
 app.on("window-all-closed", () => {
-	if (process.platform !== "darwin") {
+	if (isQuitting || process.platform !== "darwin") {
 		app.quit();
 	}
 });
