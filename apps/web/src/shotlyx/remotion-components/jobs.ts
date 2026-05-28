@@ -183,8 +183,9 @@ function buildFallbackComponentPrompt({
 	const jsonRepairGuidance = isJsonParseLikeMGError(error)
 		? [
 				"这次失败是 JSON 解析失败。必须输出严格 JSON 对象，不要输出 JavaScript object literal、Markdown、注释或解释。",
-				"componentSource 必须是一个合法 JSON 字符串。请按 JSON.stringify 的语义转义：换行写成 \\n，双引号写成 \\\"，反斜杠写成 \\\\。",
-				"如果 componentSource 太长导致输出截断，请简化代码和 propsSchema，先保证 JSON 完整闭合。",
+				"优先使用 componentSourceLines 字符串数组逐行输出 TSX，每一项都是合法 JSON 字符串；不要把多行 JSX 直接塞进 componentSource。",
+				"如果必须使用 componentSource，它必须是一个合法 JSON 字符串。请按 JSON.stringify 的语义转义：换行写成 \\n，双引号写成 \\\"，反斜杠写成 \\\\。",
+				"如果源码太长导致输出截断，请简化代码和 propsSchema，先保证 JSON 完整闭合。",
 			]
 		: [];
 	return [

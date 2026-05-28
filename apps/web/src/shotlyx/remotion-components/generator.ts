@@ -40,6 +40,20 @@ const DEFAULT_DURATION_SECONDS = 6;
 const MAX_OUTPUT_TOKENS = 12000;
 const RENDER_VALIDATION_FRAME_COUNT = 4;
 let renderValidationQueue: Promise<void> = Promise.resolve();
+const RUNTIME_REMOTION_BINDING_NAMES = [
+	"AbsoluteFill",
+	"Sequence",
+	"useCurrentFrame",
+	"useVideoConfig",
+	"interpolate",
+	"spring",
+	"Easing",
+	"Img",
+	"Video",
+] as const;
+const RUNTIME_REMOTION_BINDING_NAME_SET = new Set<string>(
+	RUNTIME_REMOTION_BINDING_NAMES,
+);
 const GENERATED_PROP_TYPE_ALIASES: Record<string, ShotlyxMGPropType> = {
 	array: "table",
 	asset: "image",
@@ -252,9 +266,9 @@ function buildSystemPrompt({ skillContext }: { skillContext: string }): string {
 		"Do not output a scene DSL, template name, storyboard, HTML document, CSS file, or SVG-only answer.",
 		"The output component must be custom code that implements the user's requested effect.",
 		"The componentSource must export default function ShotlyxComponent(props: Props).",
-		"Do not include import statements. Use the provided global Remotion object instead.",
-		"Allowed Remotion APIs are available both as Remotion.AbsoluteFill / Remotion.useCurrentFrame and as bare bindings: AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video.",
-		"Prefer destructuring them at the top of ShotlyxComponent: const { AbsoluteFill, useCurrentFrame, useVideoConfig, interpolate, spring } = Remotion.",
+		"Do not include import statements. Do not redeclare or destructure Remotion APIs at module scope.",
+		"Allowed Remotion APIs are injected by the Shotlyx runtime as bare bindings: AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video.",
+		"Use those bare bindings directly, or call Remotion.AbsoluteFill / Remotion.useCurrentFrame inside ShotlyxComponent when needed.",
 		"Use React JSX normally. React is available globally during compilation/runtime.",
 		"Every user-editable text, color, font, number, boolean, data array, and media reference must be declared in propsSchema with a useful default value.",
 		"For image props, declare type image and render via props. Never invent relative filenames like 4-3.png or /image.png. Use an empty string default and render a designed fallback when the image prop is empty.",
@@ -301,10 +315,10 @@ function buildUserPrompt({
 			? `Previous output failed validation. Fix these errors:\n${validationErrors.join("\n")}`
 			: "",
 		plainJson
-			? "Return only one valid JSON object. Do not use markdown fences, comments, or prose. To avoid multiline string escaping failures, prefer componentSourceLines: an array of code lines, instead of componentSource. If you use componentSource, it must be a valid JSON string with escaped newlines and quotes."
+			? "Return only one valid JSON object. Do not use markdown fences, comments, or prose. For custom TSX effects, use componentSourceLines: an array of code lines, instead of componentSource. Do not put raw multiline TSX inside componentSource."
 			: "Return one structured object with name, durationSeconds, fps, width, height, aspectRatio, thumbnailFrame, componentSource, propsSchema.",
 		plainJson
-			? "Plain JSON may include either componentSourceLines or componentSource. componentSourceLines is safer for TSX; every item must be one valid JSON string line, and the server will join the lines with newline characters."
+			? "Plain JSON may include either componentSourceLines or componentSource, but componentSourceLines is required for long or complex TSX. Every componentSourceLines item must be one valid JSON string line, and the server will join the lines with newline characters."
 			: "",
 		"Always include durationSeconds, fps, width, height, aspectRatio, and thumbnailFrame. Use null if a value should use the requested default.",
 		"Choose thumbnailFrame as the representative frame for the asset cover: pick a frame where the animation content is visible and characteristic, not an empty intro frame.",
@@ -329,16 +343,126 @@ function stripDefaultExport({ source }: { source: string }): string {
 	);
 }
 
+function updateSourceBraceDepth({
+	depth,
+	line,
+}: {
+	depth: number;
+	line: string;
+}): number {
+	let nextDepth = depth;
+	for (const char of line) {
+		if (char === "{") {
+			nextDepth += 1;
+		} else if (char === "}") {
+			nextDepth = Math.max(0, nextDepth - 1);
+		}
+	}
+	return nextDepth;
+}
+
+function normalizeTopLevelRemotionDestructuring({
+	line,
+}: {
+	line: string;
+}): string | null {
+	const match = line.match(
+		/^(\s*)(?:const|let|var)\s*\{\s*([^}]+)\s*\}\s*=\s*Remotion\s*;?\s*$/,
+	);
+	if (!match) return null;
+	const indent = match[1] ?? "";
+	const members = (match[2] ?? "")
+		.split(",")
+		.map((member) => member.trim())
+		.filter(Boolean);
+	if (!members.length) return null;
+	const keptMembers: string[] = [];
+	let removedRuntimeBinding = false;
+	for (const member of members) {
+		if (member.startsWith("...") || member.includes(":")) {
+			keptMembers.push(member);
+			continue;
+		}
+		const bindingName = member.replace(/\s*=.*$/, "").trim();
+		if (
+			RUNTIME_REMOTION_BINDING_NAME_SET.has(bindingName) &&
+			/^[A-Za-z_$][\w$]*$/.test(bindingName)
+		) {
+			removedRuntimeBinding = true;
+			continue;
+		}
+		keptMembers.push(member);
+	}
+	if (!removedRuntimeBinding) return line;
+	if (!keptMembers.length) return "";
+	return `${indent}const { ${keptMembers.join(", ")} } = Remotion;`;
+}
+
+function isTopLevelDuplicateRemotionAlias({ line }: { line: string }): boolean {
+	const match = line.match(
+		/^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*Remotion\.([A-Za-z_$][\w$]*)\s*;?\s*$/,
+	);
+	if (!match) return false;
+	const localName = match[1];
+	const remotionName = match[2];
+	return (
+		localName === remotionName &&
+		RUNTIME_REMOTION_BINDING_NAME_SET.has(localName)
+	);
+}
+
+function normalizeGeneratedComponentSource({ source }: { source: string }): string {
+	const normalizedLines: string[] = [];
+	let braceDepth = 0;
+	let skippingImportDeclaration = false;
+	for (const line of source.split("\n")) {
+		const trimmedLine = line.trim();
+		if (skippingImportDeclaration) {
+			if (trimmedLine.endsWith(";")) {
+				skippingImportDeclaration = false;
+			}
+			continue;
+		}
+		if (braceDepth === 0 && /^\s*import\b/.test(line)) {
+			if (!trimmedLine.endsWith(";")) {
+				skippingImportDeclaration = true;
+			}
+			continue;
+		}
+		if (braceDepth === 0) {
+			const normalizedDestructuringLine =
+				normalizeTopLevelRemotionDestructuring({ line });
+			if (normalizedDestructuringLine !== null) {
+				if (normalizedDestructuringLine) {
+					normalizedLines.push(normalizedDestructuringLine);
+					braceDepth = updateSourceBraceDepth({
+						depth: braceDepth,
+						line: normalizedDestructuringLine,
+					});
+				}
+				continue;
+			}
+			if (isTopLevelDuplicateRemotionAlias({ line })) {
+				continue;
+			}
+		}
+		normalizedLines.push(line);
+		braceDepth = updateSourceBraceDepth({ depth: braceDepth, line });
+	}
+	return normalizedLines.join("\n").trim();
+}
+
 async function compileRemotionComponentModule({
 	source,
 }: {
 	source: string;
 }): Promise<string> {
+	const normalizedSource = normalizeGeneratedComponentSource({ source });
 	const wrappedSource = [
 		"const React = globalThis.__SHOTLYX_REMOTION_RUNTIME__.React;",
 		"const Remotion = globalThis.__SHOTLYX_REMOTION_RUNTIME__.Remotion;",
 		"const { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video } = Remotion;",
-		stripDefaultExport({ source }),
+		stripDefaultExport({ source: normalizedSource }),
 		"export default ShotlyxComponent;",
 	].join("\n");
 	const result = await transform(wrappedSource, {
@@ -678,8 +802,11 @@ export async function createShotlyxRemotionComponentDocument({
 	const defaultProps = buildDefaultPropsFromSchema({
 		propsSchema,
 	});
-	const compiledModule = await compileRemotionComponentModule({
+	const normalizedComponentSource = normalizeGeneratedComponentSource({
 		source: componentSource,
+	});
+	const compiledModule = await compileRemotionComponentModule({
+		source: normalizedComponentSource,
 	});
 	const withoutManifest = {
 		version: 1 as const,
@@ -691,7 +818,7 @@ export async function createShotlyxRemotionComponentDocument({
 		height: resolvedHeight,
 		aspectRatio,
 		transparentBackground,
-		componentSource,
+		componentSource: normalizedComponentSource,
 		compiledModule,
 		propsSchema,
 		defaultProps,
@@ -1208,7 +1335,7 @@ function buildPlainJsonParseErrorMessage({
 	return [
 		`模型返回的 Remotion JSON 解析失败：${rawMessage}。`,
 		"常见原因是 componentSource 里的 JSX、换行或双引号没有按 JSON 字符串转义，或者模型输出被截断。",
-		"请按 JSON.stringify 的语义输出 componentSource：换行写成 \\n，双引号写成 \\\"，不要把多行代码直接粘进 JSON 字符串。",
+		"优先使用 componentSourceLines 字符串数组逐行输出 TSX；如果必须使用 componentSource，请按 JSON.stringify 的语义转义：换行写成 \\n，双引号写成 \\\"，不要把多行代码直接粘进 JSON 字符串。",
 		`JSON 输出长度：${jsonText.length}。`,
 		`错误附近片段：${excerpt}`,
 	].join(" ");

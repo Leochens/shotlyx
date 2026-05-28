@@ -42,6 +42,20 @@ export default function ShotlyxComponent(props: Props) {
 }
 `;
 
+const topLevelRemotionBindingSource = `
+import { AbsoluteFill, interpolate, useCurrentFrame } from "remotion";
+
+type Props = { title: string };
+
+const { AbsoluteFill, interpolate, useCurrentFrame } = Remotion;
+
+export default function ShotlyxComponent(props: Props) {
+	const frame = useCurrentFrame();
+	const opacity = interpolate(frame, [0, 20], [0, 1], { extrapolateRight: "clamp" });
+	return <AbsoluteFill style={{ opacity }}>{props.title}</AbsoluteFill>;
+}
+`;
+
 const runtimeThrowSource = `
 type Props = { title: string };
 
@@ -1114,6 +1128,54 @@ export default function ShotlyxComponent(props: Props) {
 		expect(document.compiledModule).toContain("useCurrentFrame");
 		expect(document.compiledModule).toContain("useVideoConfig");
 		expect(document.compiledModule).toContain("AbsoluteFill");
+	});
+
+	test("normalizes top-level Remotion imports and bindings before compiling", async () => {
+		const generateTextMock = mock(async () => ({
+			output: {
+				name: "Top-level Remotion Bindings",
+				durationSeconds: 5,
+				fps: 30,
+				width: 1920,
+				height: 1080,
+				aspectRatio: "16:9",
+				thumbnailFrame: null,
+				componentSource: topLevelRemotionBindingSource,
+				propsSchema: [
+					{
+						key: "title",
+						label: "Title",
+						type: "text",
+						role: "content",
+						default: "Hello MG",
+						min: null,
+						max: null,
+						step: null,
+						options: null,
+						columns: null,
+					},
+				],
+			},
+		}));
+
+		const document = await generateShotlyxMGComponentDocument({
+			model: fakeModel(),
+			generateTextFn:
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				generateTextMock as unknown as NonNullable<
+					GenerateShotlyxMGComponentOptions["generateTextFn"]
+				>,
+			prompt: "做一个会重复声明 Remotion binding 的 MG",
+			durationSeconds: 5,
+			aspectRatio: "16:9",
+			repairAttempts: 0,
+		});
+
+		expect(document.componentSource).not.toContain("from \"remotion\"");
+		expect(document.componentSource).not.toContain(
+			"const { AbsoluteFill, interpolate, useCurrentFrame } = Remotion;",
+		);
+		expect(document.compiledModule).toContain("ShotlyxComponent");
 	});
 
 	test("rejects unsafe generated component source", async () => {
