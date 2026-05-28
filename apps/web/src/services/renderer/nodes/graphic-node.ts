@@ -10,6 +10,7 @@ import {
 	type ResolvedVisualNodeState,
 	type VisualNodeParams,
 } from "./visual-node";
+import { SHOTLYX_MG_GRAPHIC_DEFINITION_ID } from "@/shotlyx/remotion-components/project-assets";
 
 export interface GraphicNodeParams extends VisualNodeParams {
 	definitionId: string;
@@ -33,11 +34,20 @@ export class GraphicNode extends VisualNode<
 		registerDefaultGraphics();
 	}
 
-	getSource({
+	async getSource({
 		resolvedParams,
+		renderShotlyxMG,
 	}: {
 		resolvedParams: ParamValues;
-	}): OffscreenCanvas {
+		renderShotlyxMG: boolean;
+	}): Promise<OffscreenCanvas | null> {
+		if (
+			this.params.definitionId === SHOTLYX_MG_GRAPHIC_DEFINITION_ID &&
+			!renderShotlyxMG
+		) {
+			return null;
+		}
+
 		const definition = getGraphicDefinition({
 			definitionId: this.params.definitionId,
 		});
@@ -54,7 +64,7 @@ export class GraphicNode extends VisualNode<
 			height: DEFAULT_GRAPHIC_SOURCE_SIZE,
 		});
 
-		definition.render({
+		await definition.render({
 			ctx: context,
 			params: resolvedParams,
 			width: DEFAULT_GRAPHIC_SOURCE_SIZE,

@@ -34,6 +34,10 @@ export interface ShotlyxMGAssetStore {
 	clear(): void;
 }
 
+declare global {
+	var __SHOTLYX_MG_ASSET_STORE__: ShotlyxMGAssetStore | undefined;
+}
+
 export function buildShotlyxMGAssetWithProps({
 	asset,
 	props,
@@ -139,7 +143,9 @@ export function createShotlyxMGAssetStore(): ShotlyxMGAssetStore {
 	};
 }
 
-export const defaultShotlyxMGAssetStore = createShotlyxMGAssetStore();
+export const defaultShotlyxMGAssetStore =
+	globalThis.__SHOTLYX_MG_ASSET_STORE__ ??
+	(globalThis.__SHOTLYX_MG_ASSET_STORE__ = createShotlyxMGAssetStore());
 
 export function registerShotlyxMGAsset(
 	input: RegisterShotlyxMGAssetInput,

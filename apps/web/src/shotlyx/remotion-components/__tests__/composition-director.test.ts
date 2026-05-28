@@ -66,7 +66,7 @@ describe("Shotlyx MG composition director", () => {
 			prompt: "数据表格图：列出 2024、2025、2026 三行数据和增长率",
 			expectedId: "data-table",
 		},
-	])("plans exact builtin template requests as $expectedId", ({ prompt, expectedId }) => {
+	])("plans exact focused layout requests as $expectedId", ({ prompt, expectedId }) => {
 		const plan = createShotlyxMGCompositionPlan({
 			prompt,
 			componentCount: 1,
@@ -117,7 +117,12 @@ describe("Shotlyx MG composition director", () => {
 		},
 		{
 			prompt: "做一个三个步骤流程：上传、AI 分析、导出成片，用动态图形表现流程",
-			expectedIds: ["concept", "main-mechanism", "callouts", "final-summary"],
+			expectedIds: [
+				"opening-visual",
+				"main-visual",
+				"detail-accent",
+				"closing-visual",
+			],
 		},
 		{
 			prompt: "Stable Diffusion 风格的星光粒子动画，透明背景，不出现文字",
@@ -147,9 +152,9 @@ describe("Shotlyx MG composition director", () => {
 		});
 
 		expect(plan.components).toHaveLength(8);
-		expect(plan.components[0]?.id).toBe("concept");
-		expect(plan.components[4]?.id).toBe("concept-2");
-		expect(plan.components[7]?.id).toBe("final-summary-2");
-		expect(plan.components[4]?.label).toContain("扩展 2");
+		expect(plan.components[0]?.id).toBe("opening-visual");
+		expect(plan.components[4]?.id).toBe("opening-visual-2");
+		expect(plan.components[7]?.id).toBe("closing-visual-2");
+		expect(plan.components[4]?.label).toBe("开场视觉 5");
 	});
 });

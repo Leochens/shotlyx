@@ -167,6 +167,7 @@ function PreviewCanvas({
 			width: nativeWidth,
 			height: nativeHeight,
 			fps: activeProject.settings.fps,
+			renderShotlyxMG: false,
 		});
 	}, [nativeWidth, nativeHeight, activeProject.settings.fps]);
 
@@ -189,7 +190,7 @@ function PreviewCanvas({
 	}, [renderer]);
 
 	const render = useCallback(() => {
-		if (!renderTree || renderingRef.current) return;
+		if (!renderTree) return;
 
 		const renderTime = Math.min(
 			editor.playback.getCurrentTime(),
@@ -198,10 +199,12 @@ function PreviewCanvas({
 		const ticksPerFrame = Math.round(
 			(TICKS_PER_SECOND * renderer.fps.denominator) / renderer.fps.numerator,
 		);
-			const frame = Math.floor(renderTime / ticksPerFrame);
-			setRemotionPreviewTime((current) =>
-				current === renderTime ? current : renderTime,
-			);
+		const frame = Math.floor(renderTime / ticksPerFrame);
+		setRemotionPreviewTime((current) =>
+			current === renderTime ? current : renderTime,
+		);
+
+		if (renderingRef.current) return;
 
 		if (
 			frame === lastFrameRef.current &&
@@ -215,7 +218,10 @@ function PreviewCanvas({
 		lastFrameRef.current = frame;
 		renderer
 			.render({ node: renderTree, time: renderTime })
-			.then(() => {
+			.catch((error: unknown) => {
+				console.error("Failed to render preview frame:", error);
+			})
+			.finally(() => {
 				renderingRef.current = false;
 			});
 		}, [renderer, renderTree, editor.playback, editor.timeline]);

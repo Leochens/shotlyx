@@ -537,7 +537,6 @@ describe("buildCreativeTools", () => {
 			durationSeconds: 6,
 			aspectRatio: "16:9",
 			transparentBackground: true,
-			preferPlainJson: false,
 			maxOutputTokens: 12_000,
 		});
 		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(1);
@@ -880,11 +879,10 @@ describe("buildCreativeTools", () => {
 			aspectRatio: "16:9",
 			transparentBackground: true,
 			componentCount: 1,
-			preferPlainJson: false,
 			maxOutputTokens: 12_000,
 		});
 
-		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(1);
+		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(2);
 		expect(insertElement).toHaveBeenCalledTimes(1);
 		expect(scene.tracks.overlay[0]!.elements[0]?.name).toBe("后端生成 MG");
 		expect(
@@ -898,7 +896,7 @@ describe("buildCreativeTools", () => {
 		).toBe(true);
 	});
 
-	test("shotlyx_generate_mg_component waits for the job barrier before saving streamed components", async () => {
+	test("shotlyx_generate_mg_component saves streamed components before the job barrier", async () => {
 		const scene = {
 			tracks: {
 				main: { id: "main", type: "video", elements: [] },
@@ -1016,7 +1014,7 @@ describe("buildCreativeTools", () => {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 
 		expect(handlerResolved).toBe(false);
-		expect(upsertShotlyxMGAsset).not.toHaveBeenCalled();
+		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(1);
 		expect(insertElement).not.toHaveBeenCalled();
 
 		sendEvent({
@@ -1041,7 +1039,7 @@ describe("buildCreativeTools", () => {
 			status: "completed",
 			inserted: true,
 		});
-		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(1);
+		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(2);
 		expect(insertElement).toHaveBeenCalledTimes(1);
 		expect(scene.tracks.overlay[0]!.elements[0]?.name).toBe("barrier MG");
 	});
@@ -1372,7 +1370,7 @@ describe("buildCreativeTools", () => {
 			aspectRatio: "16:9",
 		});
 
-		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(1);
+		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(2);
 		expect(insertElement).toHaveBeenCalledTimes(1);
 		expect(scene.tracks.overlay[0]!.elements).toHaveLength(1);
 	});
@@ -1622,10 +1620,10 @@ describe("buildCreativeTools", () => {
 			),
 		).toEqual([2.8, 2.4, 1.8]);
 		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(3);
-		expect(insertElement).toHaveBeenCalledTimes(3);
+		expect(insertElement).toHaveBeenCalledTimes(0);
 		expect(result).toMatchObject({
 			runtime: "shotlyx-mg-composition-v1",
-			inserted: true,
+			inserted: false,
 			remotionSkill: {
 				source: {
 					repository: "https://github.com/remotion-dev/skills",
@@ -1674,26 +1672,8 @@ describe("buildCreativeTools", () => {
 		expect(
 			progressEvents.some((event) => event.label === "已生成洞察标注层"),
 		).toBe(true);
-		expect(scene.tracks.overlay[0]!.elements).toHaveLength(3);
-		expect(
-			scene.tracks.overlay[0]!.elements.map((element) => element.startTime),
-		).toEqual([
-			0,
-			Math.round(2.8 * MEDIA_TIME_TICKS_PER_SECOND),
-			Math.round(5.2 * MEDIA_TIME_TICKS_PER_SECOND),
-		]);
-		expect(insertElement.mock.calls[0]?.[0].placement).toEqual({
-			mode: "explicit",
-			trackId: "graphic-track",
-		});
-		expect(insertElement.mock.calls[1]?.[0].placement).toEqual({
-			mode: "explicit",
-			trackId: "graphic-track",
-		});
-		expect(insertElement.mock.calls[2]?.[0].placement).toEqual({
-			mode: "explicit",
-			trackId: "graphic-track",
-		});
+		expect(scene.tracks.overlay[0]!.elements).toHaveLength(0);
+		expect(insertElement).not.toHaveBeenCalled();
 	});
 
 	test("creative_update_mg_animation patches selected MG params", () => {

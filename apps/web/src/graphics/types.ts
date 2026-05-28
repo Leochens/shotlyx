@@ -17,7 +17,7 @@ export interface GraphicDefinition {
 	category?: GraphicCategory;
 	keywords: string[];
 	params: ParamDefinition[];
-	render(context: GraphicRenderContext): void;
+	render(context: GraphicRenderContext): void | Promise<void>;
 }
 
 export interface GraphicInstance {

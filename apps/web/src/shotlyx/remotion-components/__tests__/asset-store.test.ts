@@ -3,6 +3,9 @@ import { generateShotlyxHyperFramesDocument } from "@/shotlyx/hyperframes/genera
 import {
 	buildShotlyxMGAssetWithProps,
 	createShotlyxMGAssetStore,
+	defaultShotlyxMGAssetStore,
+	getShotlyxMGAsset,
+	hydrateShotlyxMGAsset,
 } from "../asset-store";
 import type { ShotlyxMGAsset } from "../types";
 
@@ -47,6 +50,20 @@ function buildAsset(): ShotlyxMGAsset {
 }
 
 describe("Shotlyx Remotion component asset store", () => {
+	test("keeps the default store on globalThis for Vite module variants", () => {
+		defaultShotlyxMGAssetStore.clear();
+		const asset = buildAsset();
+
+		hydrateShotlyxMGAsset({ asset });
+
+		expect(globalThis.__SHOTLYX_MG_ASSET_STORE__).toBe(
+			defaultShotlyxMGAssetStore,
+		);
+		expect(getShotlyxMGAsset({ id: asset.id })?.name).toBe("Typewriter Title");
+
+		defaultShotlyxMGAssetStore.clear();
+	});
+
 	test("registers and isolates Remotion component assets", () => {
 		const first = createShotlyxMGAssetStore();
 		const second = createShotlyxMGAssetStore();

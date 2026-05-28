@@ -1,6 +1,7 @@
 import type { ParamDefinition, ParamValues } from "@/params";
 import type { GraphicDefinition } from "@/graphics/types";
-import { getShotlyxMGAsset } from "./asset-store";
+import { renderShotlyxMGAssetToCanvas } from "./canvas-renderer";
+import { getShotlyxMGAsset } from "@/shotlyx/remotion-components/asset-store";
 import {
 	SHOTLYX_MG_BACKGROUND_COLOR_PARAM_KEY,
 	SHOTLYX_MG_BACKGROUND_OPACITY_PARAM_KEY,
@@ -65,31 +66,6 @@ function getStringParam({
 		: fallback;
 }
 
-function drawFallback({
-	ctx,
-	width,
-	height,
-	label,
-}: {
-	ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
-	width: number;
-	height: number;
-	label: string;
-}): void {
-	ctx.save();
-	ctx.fillStyle = "#0d1117";
-	ctx.fillRect(0, 0, width, height);
-	ctx.strokeStyle = "rgba(56,189,248,0.65)";
-	ctx.lineWidth = Math.max(3, width * 0.012);
-	ctx.strokeRect(width * 0.08, height * 0.22, width * 0.84, height * 0.56);
-	ctx.fillStyle = "rgba(248,250,252,0.88)";
-	ctx.font = `700 ${Math.max(18, width * 0.055)}px sans-serif`;
-	ctx.textAlign = "center";
-	ctx.textBaseline = "middle";
-	ctx.fillText(label, width / 2, height / 2, width * 0.78);
-	ctx.restore();
-}
-
 export const shotlyxMGGraphicDefinition: GraphicDefinition = {
 	id: SHOTLYX_MG_GRAPHIC_DEFINITION_ID,
 	name: "Shotlyx Remotion MG",
@@ -109,20 +85,19 @@ export const shotlyxMGGraphicDefinition: GraphicDefinition = {
 		SHOTLYX_BACKGROUND_COLOR_PARAM,
 		SHOTLYX_ASSET_ID_PARAM,
 	],
-	render({ ctx, params, width, height }) {
+	async render({ ctx, params, width, height }) {
 		const assetId = getStringParam({
 			params,
 			key: "shotlyxMGAssetId",
 			fallback: "",
 		});
 		const asset = assetId ? getShotlyxMGAsset({ id: assetId }) : null;
-		if (!asset) {
-			drawFallback({
-				ctx,
-				width,
-				height,
-				label: "Shotlyx MG",
-			});
-		}
+		await renderShotlyxMGAssetToCanvas({
+			asset,
+			ctx,
+			width,
+			height,
+			params,
+		});
 	},
 };

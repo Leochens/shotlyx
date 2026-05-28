@@ -152,13 +152,21 @@ export interface ShotlyxHyperFramesAsset {
 export type ShotlyxMGAsset = ShotlyxRemotionMGAsset | ShotlyxHyperFramesAsset;
 
 export function isShotlyxRemotionMGAsset(
-	asset: ShotlyxMGAsset,
+	asset: unknown,
 ): asset is ShotlyxRemotionMGAsset {
-	return asset.runtime === SHOTLYX_REMOTION_COMPONENT_RUNTIME;
+	return (
+		typeof asset === "object" &&
+		asset !== null &&
+		Reflect.get(asset, "runtime") === SHOTLYX_REMOTION_COMPONENT_RUNTIME
+	);
 }
 
 export function isShotlyxHyperFramesAsset(
-	asset: ShotlyxMGAsset,
+	asset: unknown,
 ): asset is ShotlyxHyperFramesAsset {
-	return asset.runtime === SHOTLYX_HYPERFRAMES_RUNTIME;
+	return (
+		typeof asset === "object" &&
+		asset !== null &&
+		Reflect.get(asset, "runtime") === SHOTLYX_HYPERFRAMES_RUNTIME
+	);
 }

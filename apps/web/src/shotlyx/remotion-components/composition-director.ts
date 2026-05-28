@@ -126,10 +126,10 @@ function expandComponents({
 		return {
 			...component,
 			id: `${component.id}-${cycle}`,
-			label: `${component.label} 扩展 ${cycle}`,
+			label: `${component.label} ${index + 1}`,
 			focus: `${component.focus} 这是第 ${index + 1}/${componentCount} 个扩展 MG 组件，必须换用新的文字、数据、位置或强调对象，避免和前序组件重复。`,
-			visualRole: `${component.visualRole} 扩展层 ${cycle}，位置和节奏要与同类组件错开。`,
-			qualityBar: `${component.qualityBar} 扩展组件仍需独立成片，不要复制前一层的占位内容。`,
+			visualRole: `${component.visualRole} 第 ${index + 1} 个同类片段，位置和节奏要与前序组件错开。`,
+			qualityBar: `${component.qualityBar} 扩展组件仍需独立成片，不要复制前一段的占位内容。`,
 		};
 	});
 }
@@ -242,7 +242,7 @@ function createFocusedTemplatePlan({
 	> = {
 		"title-reveal": {
 			title: "标题大字展示 Remotion MG",
-			narrativeArc: "用一个明确标题模板完成标题、副标题和装饰线入场。",
+			narrativeArc: "用一个自定义标题结构完成标题、副标题和装饰线入场。",
 			component: {
 				id: "title-reveal",
 				label: "标题大字展示",
@@ -256,7 +256,7 @@ function createFocusedTemplatePlan({
 		},
 		"metric-emphasis": {
 			title: "重点指标突出 Remotion MG",
-			narrativeArc: "用一个指标模板突出关键数字、标签和说明文字。",
+			narrativeArc: "用一个自定义指标结构突出关键数字、标签和说明文字。",
 			component: {
 				id: "metric-emphasis",
 				label: "重点指标突出",
@@ -270,7 +270,7 @@ function createFocusedTemplatePlan({
 		},
 		"annotation-callout": {
 			title: "圆圈方框标注 Remotion MG",
-			narrativeArc: "用一个标注模板突出目标文字、圈选/框选和 callout。",
+			narrativeArc: "用一个自定义标注结构突出目标文字、圈选/框选和 callout。",
 			component: {
 				id: "annotation-callout",
 				label: "圆圈方框标注",
@@ -284,7 +284,7 @@ function createFocusedTemplatePlan({
 		},
 		"data-table": {
 			title: "数据表格图 Remotion MG",
-			narrativeArc: "用一个表格模板展示列标题、数据行和重点行。",
+			narrativeArc: "用一个自定义数据结构展示列标题、数据行和重点行。",
 			component: {
 				id: "data-table",
 				label: "数据表格图",
@@ -393,46 +393,46 @@ function createDefaultPlan({
 	return {
 		title: "组合式 MG 动画",
 		visualStyle: styleGuide?.trim() || "现代科普视觉，清晰层级，克制动效",
-		narrativeArc: `围绕“${prompt.slice(0, 48)}”建立概念、展示主体、强调重点并总结。`,
+		narrativeArc: `围绕“${prompt.slice(0, 48)}”自动拆分为若干可独立保存的自定义 MG 片段。`,
 		components: sliceComponents({
 			componentCount,
 			durationSeconds,
 			components: [
 				{
-					id: "concept",
-					label: "概念建立层",
-					focus: "用简短标题和核心视觉建立主题，不展开全部细节。",
-					visualRole: "首屏主体、标题、基础场景。",
+					id: "opening-visual",
+					label: "开场视觉",
+					focus: "用需求中的主题、核心视觉或场景元素完成开场，不展开全部细节。",
+					visualRole: "首屏主体、核心图形、必要标题或基础场景。",
 					durationSeconds: 2.8,
 					screenTiming: "",
 					animationDirection: "主体淡入，标题短促入场。",
 					qualityBar: "一屏只表达一个主概念。",
 				},
 				{
-					id: "main-mechanism",
-					label: "主体机制层",
-					focus: "展示主要流程、结构、数据或机制，是动画信息核心。",
-					visualRole: "最大的图形主体和核心步骤。",
+					id: "main-visual",
+					label: "主体视觉",
+					focus: "展示主要流程、结构、数据或运动变化，是动画信息核心。",
+					visualRole: "最大的图形主体、关键步骤或动态结构。",
 					durationSeconds: 3.6,
 					screenTiming: "",
 					animationDirection: "按逻辑顺序展开，避免同时出现所有信息。",
 					qualityBar: "必须有明确视觉主体。",
 				},
 				{
-					id: "callouts",
-					label: "重点标注层",
-					focus: "补充关键标注、数字、短句解释和强调符号。",
-					visualRole: "短文字、箭头、标注框、强调线。",
+					id: "detail-accent",
+					label: "细节强调",
+					focus: "补充关键标注、数字、短句解释、运动轨迹或强调符号。",
+					visualRole: "短文字、箭头、标注框、强调线或局部高亮。",
 					durationSeconds: 2,
 					screenTiming: "",
 					animationDirection: "跟随主体节奏分批出现。",
 					qualityBar: "标注不超过 3 个重点。",
 				},
 				{
-					id: "final-summary",
-					label: "总结收束层",
-					focus: "用一句结论或最终状态完成收束。",
-					visualRole: "结论文字和最终画面状态。",
+					id: "closing-visual",
+					label: "收束视觉",
+					focus: "用最终形态、余韵、结论短句或完成态完成收束。",
+					visualRole: "最终画面状态、结论文字或残留动效。",
 					durationSeconds: 2.4,
 					screenTiming: "",
 					animationDirection: "前景稳定，结论清晰出现。",
@@ -461,7 +461,7 @@ function createPureVisualEffectPlan({
 			components: [
 				{
 					id: "star-charge",
-					label: "能量聚集层",
+					label: "能量聚集",
 					focus: "只表现光点向中心汇聚、旋转加速和亮度抬升，不出现任何文字或标题。",
 					visualRole: "外圈星点、中心能量核、轻微旋转和聚集轨迹。",
 					durationSeconds: 2.2,
@@ -471,7 +471,7 @@ function createPureVisualEffectPlan({
 				},
 				{
 					id: "star-burst",
-					label: "星核爆发层",
+					label: "星核爆发",
 					focus: "表现中心瞬间爆发、白热星核、多层冲击波和径向光线。",
 					visualRole: "中心强光、同心冲击波、径向射线和高亮粒子。",
 					durationSeconds: 1.8,
@@ -481,7 +481,7 @@ function createPureVisualEffectPlan({
 				},
 				{
 					id: "star-scatter",
-					label: "星尘扩散层",
+					label: "星尘扩散",
 					focus: "表现粒子带拖尾向四周飞散，速度逐渐减弱，形成星尘轨迹。",
 					visualRole: "多尺寸粒子、拖尾线、冷暖色过渡和速度层次。",
 					durationSeconds: 2.6,
@@ -491,7 +491,7 @@ function createPureVisualEffectPlan({
 				},
 				{
 					id: "star-afterglow",
-					label: "余韵消散层",
+					label: "余韵消散",
 					focus: "表现爆炸后的余光、少量闪烁星点和最终透明淡出。",
 					visualRole: "低透明辉光、稀疏星点、渐弱冲击波和空间留白。",
 					durationSeconds: 2.2,

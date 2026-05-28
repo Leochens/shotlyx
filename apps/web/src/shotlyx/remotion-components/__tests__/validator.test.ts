@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
 	assertValidShotlyxRemotionComponentAssetDocument,
-	validateShotlyxRemotionComponentDataContract,
 	validateShotlyxRemotionComponentSource,
 } from "../validator";
 
@@ -170,6 +169,26 @@ export default function ShotlyxComponent(props) {
 		expect(result.valid).toBe(true);
 	});
 
+	test("rejects double-applied coordinate transforms that can move visuals off canvas", () => {
+		const result = validateShotlyxRemotionComponentSource({
+			source: `
+export default function ShotlyxComponent() {
+	const { AbsoluteFill, useCurrentFrame } = Remotion;
+	const frame = useCurrentFrame();
+	const y = -300 + frame * 2;
+	return (
+		<AbsoluteFill>
+			<span style={{ position: "absolute", top: y, transform: \`translateY(\${y}px)\` }}>1</span>
+		</AbsoluteFill>
+	);
+}
+`,
+		});
+
+		expect(result.valid).toBe(false);
+		expect(result.errors.join("\n")).toContain("double-applies top");
+	});
+
 	test("rejects official full-project APIs that are not exposed in Shotlyx runtime", () => {
 		const result = validateShotlyxRemotionComponentSource({
 			source: `
@@ -213,52 +232,26 @@ export default function ShotlyxComponent() {
 		).toThrow('defaultProps missing key "accentColor"');
 	});
 
-	test("rejects table props when source does not read declared column keys", () => {
-		const result = validateShotlyxRemotionComponentDataContract({
-			source: `
-export default function ShotlyxComponent(props) {
-	const { AbsoluteFill, useCurrentFrame } = Remotion;
-	useCurrentFrame();
-	return <AbsoluteFill>{props.diseases.map((row) => <div>{row.symptom}</div>)}</AbsoluteFill>;
-}
-`,
-			propsSchema: [
-				{
-					key: "diseases",
-					label: "病害数据",
-					type: "table",
-					role: "data",
-					default: [{ 病害名称: "疫病", 核心症状: "高湿环境" }],
-					columns: ["病害名称", "核心症状"],
+	test("accepts unused editable props so schema can be derived conservatively", () => {
+		expect(() =>
+			assertValidShotlyxRemotionComponentAssetDocument({
+				...validDocument,
+				propsSchema: [
+					...validDocument.propsSchema,
+					{
+						key: "items",
+						label: "Data items",
+						type: "table",
+						role: "data",
+						default: [{ label: "A", value: 1, note: "primary" }],
+						columns: ["label", "value", "note"],
+					},
+				],
+				defaultProps: {
+					...validDocument.defaultProps,
+					items: [{ label: "A", value: 1, note: "primary" }],
 				},
-			],
-		});
-
-		expect(result.valid).toBe(false);
-		expect(result.errors.join("\n")).toContain("核心症状");
-	});
-
-	test("accepts table props when source reads declared column keys exactly", () => {
-		const result = validateShotlyxRemotionComponentDataContract({
-			source: `
-export default function ShotlyxComponent(props) {
-	const { AbsoluteFill, useCurrentFrame } = Remotion;
-	useCurrentFrame();
-	return <AbsoluteFill>{props.diseases.map((row) => <div>{row["病害名称"]}{row["核心症状"]}</div>)}</AbsoluteFill>;
-}
-`,
-			propsSchema: [
-				{
-					key: "diseases",
-					label: "病害数据",
-					type: "table",
-					role: "data",
-					default: [{ 病害名称: "疫病", 核心症状: "高湿环境" }],
-					columns: ["病害名称", "核心症状"],
-				},
-			],
-		});
-
-		expect(result.valid).toBe(true);
+			}),
+		).not.toThrow();
 	});
 });

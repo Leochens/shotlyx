@@ -224,7 +224,10 @@ async function collectVisualSourceNode({
 
 	const source =
 		node instanceof GraphicNode
-			? node.getSource({ resolvedParams: node.resolved.resolvedParams })
+			? await node.getSource({
+					resolvedParams: node.resolved.resolvedParams,
+					renderShotlyxMG: renderer.renderShotlyxMG,
+				})
 			: node.resolved.source;
 	if (!source) {
 		return;

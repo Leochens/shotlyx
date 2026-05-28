@@ -108,7 +108,7 @@ export function normalizeShotlyxMGTemplateSelection({
 	templateMode: ShotlyxMGTemplateMode;
 	templateId?: ShotlyxMGTemplateId;
 } {
-	if (templateId) {
+	if (templateMode === "force" && templateId) {
 		return {
 			templateMode: "force",
 			templateId,

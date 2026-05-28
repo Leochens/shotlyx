@@ -9,10 +9,6 @@ import {
 } from "./composition-prompt";
 import type { GenerateShotlyxMGComponentOptions } from "./generator";
 import {
-	createShotlyxStarExplosionEffectDocument,
-	isStarExplosionEffectRequest,
-} from "./procedural-effects";
-import {
 	buildRemotionSkillContextSummary,
 	formatRemotionSkillSummary,
 	type RemotionSkillContextSummary,
@@ -20,7 +16,6 @@ import {
 import {
 	createShotlyxMGTemplateDocument,
 	normalizeShotlyxMGTemplateSelection,
-	resolveShotlyxMGTemplateForTask,
 	type ShotlyxMGTemplateId,
 	type ShotlyxMGTemplateMode,
 } from "./template-library";
@@ -122,6 +117,12 @@ function buildComponentPrompt({
 	const component = directorPlan.components[index];
 	if (!component) return input.prompt;
 	return [
+		`MG asset name: ${buildMGComponentAssetName({
+			index,
+			total,
+			component,
+			basePrompt: input.prompt,
+		})}`,
 		buildShotlyxMGCompositionGenerationGuidance({
 			description: input.prompt,
 			aspectRatio: input.aspectRatio ?? "16:9",
@@ -150,6 +151,28 @@ function buildComponentPrompt({
 	].join("\n");
 }
 
+function buildMGComponentAssetName({
+	index,
+	total,
+	component,
+	basePrompt,
+}: {
+	index: number;
+	total: number;
+	component: ShotlyxMGCompositionComponentPlan;
+	basePrompt: string;
+}): string {
+	const subject = basePrompt
+		.trim()
+		.replace(/\s+/g, " ")
+		.replace(/[，。,.、；;：:【】[\]（）()]/g, " ")
+		.trim()
+		.slice(0, 18)
+		.trim();
+	const suffix = total > 1 ? ` ${index + 1}/${total}` : "";
+	return `${component.label}${suffix}${subject ? ` · ${subject}` : ""}`;
+}
+
 function getJobComponentDurationSeconds({
 	input,
 	index,
@@ -173,35 +196,6 @@ function getJobComponentDurationSeconds({
 	return (
 		directorPlan.components[index]?.durationSeconds ?? input.durationSeconds
 	);
-}
-
-function buildFallbackComponentPrompt({
-	prompt,
-	error,
-	attempt,
-}: {
-	prompt: string;
-	error: string;
-	attempt: number;
-}): string {
-	const jsonRepairGuidance = isJsonParseLikeMGError(error)
-		? [
-				"这次失败是 JSON 解析失败。必须输出严格 JSON 对象，不要输出 JavaScript object literal、Markdown、注释或解释。",
-				"优先使用 componentSourceLines 字符串数组逐行输出 TSX，每一项都是合法 JSON 字符串；不要把多行 JSX 直接塞进 componentSource。",
-				"如果必须使用 componentSource，它必须是一个合法 JSON 字符串。请按 JSON.stringify 的语义转义：换行写成 \\n，双引号写成 \\\"，反斜杠写成 \\\\。",
-				"如果源码太长导致输出截断，请简化代码和 propsSchema，先保证 JSON 完整闭合。",
-			]
-		: [];
-	return [
-		`Fallback retry #${attempt}.`,
-		"上一轮 Shotlyx Remotion 组件生成失败，请重新生成一个更稳、更简单、仍然可编辑的 MG 组件。",
-		`失败原因：${error}`,
-		...jsonRepairGuidance,
-		"保留用户核心意图，但减少组件复杂度和动画分支，优先确保 JSON 可解析、schema 合法、可实时预览。",
-		"不要解释失败原因，不要输出 Markdown，只生成最终 Shotlyx Remotion 组件文档。",
-		"",
-		prompt,
-	].join("\n");
 }
 
 function getErrorMessage(error: unknown): string {
@@ -239,6 +233,9 @@ function isSpecificRepairableMGError(message: string): boolean {
 
 	return (
 		isJsonParseLikeMGError(message) ||
+		lower.includes("transform failed") ||
+		lower.includes("expected expression") ||
+		lower.includes("esbuild") ||
 		lower.includes("shotlyx mg 生成失败") ||
 		lower.includes("shotlyx remotion") ||
 		lower.includes("invalid shotlyx remotion") ||
@@ -312,17 +309,10 @@ async function tryCreateTemplateDocumentForJob({
 			templateId: job.input.templateId,
 			defaultTemplateMode: "off",
 		});
-	if (templateMode === "off") return null;
-	const templateId =
-		selectedTemplateId ??
-		resolveShotlyxMGTemplateForTask({
-			taskId: component.id,
-		});
+	if (templateMode !== "force") return null;
+	const templateId = selectedTemplateId;
 	if (!templateId) {
-		if (templateMode === "force") {
-			throw new Error(`No builtin MG template covers task "${component.id}"`);
-		}
-		return null;
+		throw new Error(`No builtin MG template selected for task "${component.id}"`);
 	}
 	emit({
 		job,
@@ -368,53 +358,6 @@ async function tryCreateTemplateDocumentForJob({
 		});
 		return null;
 	}
-}
-
-async function tryCreateProceduralEffectDocumentForJob({
-	job,
-	component,
-	componentIndex,
-	componentCount,
-}: {
-	job: ShotlyxMGJob;
-	component: ShotlyxMGCompositionComponentPlan;
-	componentIndex: number;
-	componentCount: number;
-}): Promise<ShotlyxRemotionComponentDocument | null> {
-	const { templateMode } = normalizeShotlyxMGTemplateSelection({
-		templateMode: job.input.templateMode,
-		templateId: job.input.templateId,
-		defaultTemplateMode: "off",
-	});
-	if (templateMode === "force") return null;
-	if (!isStarExplosionEffectRequest({ prompt: job.input.prompt })) return null;
-	emit({
-		job,
-		event: {
-			type: "progress",
-			jobId: job.id,
-			label: `使用自定义 Remotion 特效生成第 ${componentIndex + 1}/${componentCount} 个组件`,
-			status: "running",
-			detail: `procedural-star-explosion · ${component.label}`,
-			index: componentIndex,
-			total: componentCount,
-			taskId: component.id,
-			taskLabel: component.label,
-		},
-	});
-	return createShotlyxStarExplosionEffectDocument({
-		prompt: job.input.prompt,
-		taskId: component.id,
-		componentIndex,
-		componentCount,
-		durationSeconds: getJobComponentDurationSeconds({
-			input: job.input,
-			index: componentIndex,
-			total: componentCount,
-		}),
-		aspectRatio: job.input.aspectRatio ?? "16:9",
-		transparentBackground: job.input.transparentBackground !== false,
-	});
 }
 
 function emit({ job, event }: { job: ShotlyxMGJob; event: ShotlyxMGJobEvent }) {
@@ -592,33 +535,6 @@ async function generateMGComponentForJob({
 		},
 	});
 
-	const proceduralDocument = await tryCreateProceduralEffectDocumentForJob({
-		job,
-		component,
-		componentIndex,
-		componentCount,
-	});
-	if (proceduralDocument) {
-		if (shouldCancelJob({ job })) {
-			throw new Error("Shotlyx MG job cancelled");
-		}
-		emit({
-			job,
-			event: {
-				type: "component-complete",
-				jobId: job.id,
-				label: `已生成${proceduralDocument.name}`,
-				status: "success",
-				index: componentIndex,
-				total: componentCount,
-				taskId,
-				taskLabel,
-				document: proceduralDocument,
-			},
-		});
-		return proceduralDocument;
-	}
-
 	const templateResult = await tryCreateTemplateDocumentForJob({
 		job,
 		component,
@@ -657,7 +573,6 @@ async function generateMGComponentForJob({
 	});
 	let document: ShotlyxRemotionComponentDocument | null = null;
 	let lastErrorMessage = "";
-	let totalAttempt = 0;
 	let unclearRetryCount = 0;
 	let repairRetryCount = 0;
 
@@ -682,16 +597,8 @@ async function generateMGComponentForJob({
 						index: componentIndex,
 						total: componentCount,
 					}),
-					prompt:
-						totalAttempt === 0
-							? basePrompt
-							: buildFallbackComponentPrompt({
-									prompt: basePrompt,
-									error: lastErrorMessage,
-									attempt: totalAttempt,
-								}),
+					prompt: basePrompt,
 					repairAttempts: Math.max(job.input.repairAttempts ?? 0, 1),
-					preferPlainJson: job.input.preferPlainJson ?? false,
 					maxOutputTokens: Math.max(
 						job.input.maxOutputTokens ?? 0,
 						DEFAULT_COMPONENT_MAX_OUTPUT_TOKENS,
@@ -724,7 +631,6 @@ async function generateMGComponentForJob({
 			if (!canRepairSpecificError && !canRetryUnclearError) {
 				throw error;
 			}
-			totalAttempt += 1;
 			if (canRepairSpecificError) {
 				repairRetryCount += 1;
 			} else {

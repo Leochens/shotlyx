@@ -20,7 +20,7 @@ const VIDEO_GRAPHICS_STYLE_RULE =
 	"视觉风格要求：像高质量视频图形包装，而不是网页卡片或后台 dashboard 截图；优先大层级、强对比、留白、细描边、扫描线、计数动效、路径/描边动画和清晰数据对齐。若组件持续多秒，必须有轻微持续动效或退场，不能 1 秒动完后空等。";
 
 const AUTO_TEMPLATE_RULE =
-	'templateMode:"auto" 不是强制使用内置模板；调用前必须判断需求是否真的匹配标题、指标、标注或表格模板。纯视觉特效、粒子爆炸、光效、转场、背景、无文字动画、复杂新动画必须改传 templateMode:"off" 且不要传 templateId，让工具自定义生成 Remotion Component。';
+	'默认不要使用内置模板。只有用户在模板选择器里明确选中模板时，才传 templateMode:"force" 和 templateId；其它所有 MG 需求都传 templateMode:"off" 或省略模板参数，让工具自定义生成 Remotion Component。';
 
 export function resolveMGCompositionStyleGuide({
 	styleGuide,
@@ -60,7 +60,7 @@ export function buildShotlyxMGCompositionAgentPrompt({
 		componentCount,
 		styleGuide,
 		transparentBackground: true,
-		insertToTimeline: true,
+		insertToTimeline: false,
 		...(resolvedTemplateMode ? { templateMode: resolvedTemplateMode } : {}),
 		...(templateId ? { templateId } : {}),
 	};
@@ -76,7 +76,7 @@ export function buildShotlyxMGCompositionAgentPrompt({
 			: "",
 		AUTO_TEMPLATE_RULE,
 		"如果描述缺少具体业务内容、关键文案、数据或视觉方向，只问一个简短问题让用户选择风格/目标；不要直接生成空模板或占位内容。",
-		"请调用 shotlyx_generate_mg_composition，并把生成的 Remotion MG 组件插入当前时间线。startTimeSeconds 可以省略让工具自动排队；如果传入则必须是数字，不能传 undefined。",
+		"请调用 shotlyx_generate_mg_composition。默认先把生成的 Remotion MG 组件保存到素材库，不要插入当前时间线；只有用户明确说要放到时间线时，才传 insertToTimeline:true。startTimeSeconds 可以省略让工具自动排队；如果传入则必须是数字，不能传 undefined。",
 		COMPONENT_ROLES_RULE,
 		EDITABLE_PROPS_RULE,
 		PLACEHOLDER_RULE,

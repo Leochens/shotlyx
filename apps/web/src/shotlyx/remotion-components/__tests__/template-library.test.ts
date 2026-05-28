@@ -72,10 +72,18 @@ describe("Shotlyx MG template library", () => {
 		}
 	});
 
-	test("normalizes a selected template id into forced template mode", () => {
+	test("ignores selected template ids unless template mode is forced", () => {
 		expect(
 			normalizeShotlyxMGTemplateSelection({
 				templateMode: "auto",
+				templateId: "title-reveal",
+			}),
+		).toEqual({
+			templateMode: "auto",
+		});
+		expect(
+			normalizeShotlyxMGTemplateSelection({
+				templateMode: "force",
 				templateId: "title-reveal",
 			}),
 		).toEqual({

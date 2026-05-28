@@ -20,7 +20,6 @@ export const shotlyxMGJobRequestSchema = z.object({
 	templateMode: z.enum(["off", "auto", "force"]).optional(),
 	templateId: z.enum(SHOTLYX_MG_TEMPLATE_IDS).optional(),
 	repairAttempts: z.number().int().min(0).max(3).optional(),
-	preferPlainJson: z.boolean().optional(),
 	maxOutputTokens: z.number().int().min(512).max(12_000).optional(),
 });
 

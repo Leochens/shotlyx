@@ -12,8 +12,7 @@ const requestSchema = z.object({
 	styleGuide: z.string().optional(),
 	transparentBackground: z.boolean().optional(),
 	repairAttempts: z.number().int().min(0).max(3).optional(),
-	preferPlainJson: z.boolean().optional(),
-	maxOutputTokens: z.number().int().min(512).max(8000).optional(),
+	maxOutputTokens: z.number().int().min(512).max(12_000).optional(),
 });
 
 function normalizeMGGenerationError(error: unknown): {

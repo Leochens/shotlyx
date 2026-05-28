@@ -237,7 +237,7 @@ describe("Shotlyx MG job routes", () => {
 		await response.body?.cancel();
 	});
 
-	test("POST streams exact auto-template jobs without model config", async () => {
+	test("POST streams explicitly selected template jobs without model config", async () => {
 		await withMissingLLMConfig(async () => {
 			const response = await POST(
 				new ApiRequest("http://localhost/api/agent/creative/mg-jobs", {
@@ -248,7 +248,8 @@ describe("Shotlyx MG job routes", () => {
 						durationSeconds: 5,
 						aspectRatio: "16:9",
 						componentCount: 1,
-						templateMode: "auto",
+						templateMode: "force",
+						templateId: "title-reveal",
 					}),
 				}),
 			);
@@ -395,7 +396,7 @@ describe("Shotlyx MG job routes", () => {
 		expect(calls[0]?.prompt).toContain("像高质量视频图形包装");
 	});
 
-	test("MG composition jobs repair malformed JSON output with specific guidance", async () => {
+	test("MG composition jobs repair custom code output with specific guidance", async () => {
 		const calls: Array<{ prompt: string }> = [];
 		const events: Array<{ label?: string; type?: string }> = [];
 		const { jobId } = createShotlyxMGJob({
@@ -409,7 +410,7 @@ describe("Shotlyx MG job routes", () => {
 				calls.push({ prompt: args.prompt });
 				if (calls.length === 1) {
 					throw new Error(
-						"模型返回的 Remotion JSON 解析失败：Unterminated string in JSON at position 5758. componentSource 字符串需要 JSON 转义。",
+						"Transform failed: Expected expression but found return",
 					);
 				}
 				return shotlyxBattleCardFixture;
@@ -428,8 +429,8 @@ describe("Shotlyx MG job routes", () => {
 		unsubscribe();
 
 		expect(calls).toHaveLength(2);
-		expect(calls[1]?.prompt).toContain("componentSource");
-		expect(calls[1]?.prompt).toContain("JSON.stringify");
+		expect(calls[1]?.prompt).toBe(calls[0]?.prompt);
+		expect(calls[1]?.prompt).toContain("生成一个标题展示 MG");
 		expect(
 			events.some((event) => event.label?.includes("正在修复具体错误")),
 		).toBe(true);
@@ -469,14 +470,15 @@ describe("Shotlyx MG job routes", () => {
 		unsubscribe();
 
 		const completed = events.find((event) => event.type === "completed");
-		expect(calls).toHaveLength(0);
+		expect(calls).toHaveLength(4);
 		expect(completed?.documents).toHaveLength(4);
 		expect(
 			events.some((event) => event.label?.includes("使用内置 MG 模板")),
 		).toBe(false);
 	});
 
-	test("MG composition jobs complete star explosion as custom procedural Remotion without model calls", async () => {
+	test("MG composition jobs generate star explosions through the custom generator", async () => {
+		const calls: Array<{ prompt: string }> = [];
 		const events: Array<{ label?: string; type?: string; documents?: unknown[] }> =
 			[];
 		const { jobId } = createShotlyxMGJob({
@@ -489,8 +491,14 @@ describe("Shotlyx MG job routes", () => {
 				templateMode: "auto",
 				transparentBackground: true,
 			},
-			generateDocumentFn: async () => {
-				throw new Error("model should not be called for star explosion");
+			generateDocumentFn: async (args) => {
+				calls.push({
+					prompt: args.prompt,
+				});
+				return {
+					...shotlyxBattleCardFixture,
+					name: `自定义星星爆炸 ${calls.length}`,
+				};
 			},
 		});
 		const unsubscribe = subscribeShotlyxMGJob({
@@ -510,14 +518,8 @@ describe("Shotlyx MG job routes", () => {
 
 		const completed = events.find((event) => event.type === "completed");
 		expect(completed?.documents).toHaveLength(4);
-		const documents = completed?.documents ?? [];
-		expect(
-			documents.every((document) =>
-				isRecord(document) &&
-				typeof document.name === "string" &&
-				document.name.includes("自定义特效 · 星星爆炸"),
-			),
-		).toBe(true);
+		expect(calls).toHaveLength(4);
+		expect(calls.every((call) => call.prompt.includes("纯视觉"))).toBe(true);
 		expect(
 			events.some((event) => event.label?.includes("使用内置 MG 模板")),
 		).toBe(false);
@@ -542,7 +544,7 @@ describe("Shotlyx MG job routes", () => {
 			expectedName: "内置模板 · 数据表格图",
 		},
 	])(
-		"MG composition jobs use templates only for exact template-fit requests: $expectedName",
+		"MG composition jobs keep exact-looking auto requests custom by default: $expectedName",
 		async ({ prompt, expectedName }) => {
 			const calls: Array<{ prompt: string }> = [];
 			const events = await runCompletedMGJob({
@@ -556,15 +558,20 @@ describe("Shotlyx MG job routes", () => {
 				},
 				generateDocumentFn: async (args) => {
 					calls.push({ prompt: args.prompt });
-					throw new Error("model should not be needed for exact templates");
+					return {
+						...shotlyxBattleCardFixture,
+						name: `自定义 ${expectedName}`,
+					};
 				},
 			});
 
-			expect(calls).toHaveLength(0);
-			expect(getCompletedDocumentNames({ events })).toEqual([expectedName]);
+			expect(calls).toHaveLength(1);
+			expect(getCompletedDocumentNames({ events })).toEqual([
+				`自定义 ${expectedName}`,
+			]);
 			expect(
 				events.some((event) => event.label?.includes("使用内置 MG 模板")),
-			).toBe(true);
+			).toBe(false);
 		},
 	);
 
@@ -615,7 +622,8 @@ describe("Shotlyx MG job routes", () => {
 				durationSeconds: 5,
 				aspectRatio: "16:9",
 				componentCount: 2,
-				templateMode: "auto",
+				templateMode: "force",
+				templateId: "title-reveal",
 			},
 			generateDocumentFn: async (args) => {
 				calls.push({ prompt: args.prompt });
@@ -642,7 +650,7 @@ describe("Shotlyx MG job routes", () => {
 		).toBe(true);
 	});
 
-	test("MG composition jobs force a selected builtin template even when mode is auto", async () => {
+	test("MG composition jobs ignore accidental templateId unless mode is force", async () => {
 		const calls: Array<{ prompt: string }> = [];
 		const events: Array<{ label?: string; type?: string; documents?: unknown[] }> =
 			[];
@@ -657,7 +665,10 @@ describe("Shotlyx MG job routes", () => {
 			},
 			generateDocumentFn: async (args) => {
 				calls.push({ prompt: args.prompt });
-				throw new Error("model should not be called when template is forced");
+				return {
+					...shotlyxBattleCardFixture,
+					name: "自定义标题大字展示",
+				};
 			},
 		});
 		const unsubscribe = subscribeShotlyxMGJob({
@@ -674,10 +685,13 @@ describe("Shotlyx MG job routes", () => {
 
 		const completed = events.find((event) => event.type === "completed");
 		const [document] = completed?.documents ?? [];
-		expect(calls).toHaveLength(0);
+		expect(calls).toHaveLength(1);
 		expect(document).toMatchObject({
-			name: "内置模板 · 重点指标突出",
+			name: "自定义标题大字展示",
 		});
+		expect(
+			events.some((event) => event.label?.includes("使用内置 MG 模板")),
+		).toBe(false);
 	});
 
 	test("DELETE returns 404 for an unknown job", async () => {

@@ -430,7 +430,14 @@ function buildCompositionComponentPrompt({
 	styleGuide?: string;
 	transparentBackground: boolean;
 }): string {
+	const assetName = buildCompositionComponentAssetName({
+		prompt,
+		component,
+		componentIndex,
+		totalComponents,
+	});
 	return [
+		`MG asset name: ${assetName}`,
 		buildShotlyxMGCompositionGenerationGuidance({
 			description: prompt,
 			aspectRatio,
@@ -457,6 +464,29 @@ function buildCompositionComponentPrompt({
 			: "背景模式：允许根据设计需要绘制完整背景。",
 		"所有用户后续可能修改的文字、颜色、数据、数值和显示开关都必须进入 propsSchema。",
 	].join("\n");
+}
+
+function buildCompositionComponentAssetName({
+	prompt,
+	component,
+	componentIndex,
+	totalComponents,
+}: {
+	prompt: string;
+	component: ShotlyxMGCompositionComponentPlan;
+	componentIndex: number;
+	totalComponents: number;
+}): string {
+	const subject = prompt
+		.trim()
+		.replace(/\s+/g, " ")
+		.replace(/[，。,.、；;：:【】[\]（）()]/g, " ")
+		.trim()
+		.slice(0, 18)
+		.trim();
+	const suffix =
+		totalComponents > 1 ? ` ${componentIndex + 1}/${totalComponents}` : "";
+	return `${component.label}${suffix}${subject ? ` · ${subject}` : ""}`;
 }
 
 function emitToolProgress({
@@ -1525,7 +1555,6 @@ function buildShotlyxMGJobRouteBody({
 		transparentBackground: args.transparentBackground,
 		componentCount,
 		repairAttempts: args.repairAttempts,
-		preferPlainJson: args.preferPlainJson,
 		maxOutputTokens: args.maxOutputTokens,
 		templateMode: templateSelection.templateMode,
 		templateId: templateSelection.templateId,
@@ -1817,49 +1846,78 @@ async function followShotlyxMGJobToCompletion({
 			taskLabel?: string;
 		}
 	>();
-	const savedComponentIndexes = new Set<number>();
 	let terminalEvent: ShotlyxMGJobEvent | null = null;
 	let completedDocuments: ShotlyxRemotionComponentDocument[] = [];
 	let savedComponents: ShotlyxMGJobFollowResult["saved"] = [];
+	const savedComponentsByIndex = new Map<
+		number,
+		ShotlyxMGJobFollowResult["saved"][number]
+	>();
+	const saveCompletedDocument = ({
+		index,
+		document,
+		total,
+		shouldInsertToTimeline,
+	}: {
+		index: number;
+		document: ShotlyxRemotionComponentDocument;
+		total?: number;
+		shouldInsertToTimeline: boolean;
+	}): ShotlyxMGJobFollowResult["saved"][number] => {
+		const previous = savedComponentsByIndex.get(index);
+		if (previous && (!shouldInsertToTimeline || previous.trackId)) {
+			return previous;
+		}
+		const componentMeta = completedComponentDocuments.get(index);
+		const saved = saveShotlyxMGDocumentToProject({
+			editor,
+			document,
+			sourcePrompt,
+			startTime,
+			placementState,
+			insertToTimeline: shouldInsertToTimeline,
+			assetId: buildShotlyxMGJobComponentAssetId({
+				jobId,
+				index,
+			}),
+		});
+		savedComponentsByIndex.set(index, saved);
+		emitToolProgress({
+			context,
+			stage: "generation",
+			label: shouldInsertToTimeline
+				? (componentMeta?.label ?? `已生成${saved.name}`)
+				: `已保存到素材库：${saved.name}`,
+			status: "success",
+			current: index + 1,
+			total,
+			jobId,
+			taskId: componentMeta?.taskId,
+			taskLabel: componentMeta?.taskLabel,
+			taskIndex: index,
+		});
+		return saved;
+	};
 	const saveCompletedDocuments = ({
 		documents,
 		total,
+		shouldInsertToTimeline,
 	}: {
 		documents: ShotlyxRemotionComponentDocument[];
 		total?: number;
+		shouldInsertToTimeline: boolean;
 	}): ShotlyxMGJobFollowResult["saved"] => {
-		const savedResults: ShotlyxMGJobFollowResult["saved"] = [];
 		for (const [index, document] of documents.entries()) {
-			if (savedComponentIndexes.has(index)) continue;
-			savedComponentIndexes.add(index);
-			const componentMeta = completedComponentDocuments.get(index);
-			const saved = saveShotlyxMGDocumentToProject({
-				editor,
+			saveCompletedDocument({
+				index,
 				document,
-				sourcePrompt,
-				startTime,
-				placementState,
-				insertToTimeline,
-				assetId: buildShotlyxMGJobComponentAssetId({
-					jobId,
-					index,
-				}),
-			});
-			emitToolProgress({
-				context,
-				stage: "generation",
-				label: componentMeta?.label ?? `已生成${saved.name}`,
-				status: "success",
-				current: index + 1,
 				total: total ?? documents.length,
-				jobId,
-				taskId: componentMeta?.taskId,
-				taskLabel: componentMeta?.taskLabel,
-				taskIndex: index,
+				shouldInsertToTimeline,
 			});
-			savedResults.push(saved);
 		}
-		return savedResults;
+		return [...savedComponentsByIndex.entries()]
+			.sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
+			.map(([, saved]) => saved);
 	};
 	const handleAbort = () => {
 		void cancelShotlyxMGJobViaRoute({ jobId, fetchFn }).catch((error) => {
@@ -1905,18 +1963,11 @@ async function followShotlyxMGJobToCompletion({
 							taskLabel: event.taskLabel,
 						});
 					}
-					emitToolProgress({
-						context,
-						stage: "generation",
-						label: event.label ?? `已生成${event.document.name}`,
-						status: "success",
-						current:
-							event.index === undefined ? undefined : event.index + 1,
+					saveCompletedDocument({
+						index: componentIndex,
+						document: event.document,
 						total: event.total,
-						jobId: event.jobId,
-						taskId: event.taskId,
-						taskLabel: event.taskLabel,
-						taskIndex: componentIndex,
+						shouldInsertToTimeline: false,
 					});
 					return;
 				}
@@ -1931,6 +1982,7 @@ async function followShotlyxMGJobToCompletion({
 					savedComponents = saveCompletedDocuments({
 						documents: completedDocuments,
 						total: event.total,
+						shouldInsertToTimeline: insertToTimeline,
 					});
 					emitToolProgress({
 						context,
@@ -2624,13 +2676,13 @@ export function buildCreativeTools({
 				templateMode: {
 					type: "string",
 					description:
-						"内置 MG 模板模式：auto 仅在需求高置信匹配标题、指标、标注、表格或结构化图表时使用模板，否则自由生成；force 强制使用 templateId；off 关闭模板库。只要传入 templateId，系统会按 force 处理。",
+						"内置 MG 模板模式：默认 off，自定义生成。只有用户在模板选择器中明确选中模板时才传 force；auto 不会自动套模板。",
 					optional: true,
 				},
 				templateId: {
 					type: "string",
 					description:
-						"指定内置模板 ID：title-reveal、metric-emphasis、annotation-callout、data-table。仅当用户在模板选择器中选定具体模板时传入。",
+						"指定内置模板 ID：title-reveal、metric-emphasis、annotation-callout、data-table。仅当用户在模板选择器中选定具体模板并使用 templateMode force 时传入。",
 					optional: true,
 				},
 				startTimeSeconds: {
@@ -2647,7 +2699,8 @@ export function buildCreativeTools({
 				},
 				insertToTimeline: {
 					type: "boolean",
-					description: "是否自动插入时间线，默认 true",
+					description:
+						"是否自动插入时间线，默认 false。默认只保存到素材库；只有用户明确要求放到时间线时才设为 true。",
 					optional: true,
 				},
 			},
@@ -2687,7 +2740,7 @@ export function buildCreativeTools({
 				const transparentBackground =
 					optionalBooleanParam(params, "transparentBackground") ?? true;
 				const insertToTimeline =
-					optionalBooleanParam(params, "insertToTimeline") ?? true;
+					optionalBooleanParam(params, "insertToTimeline") ?? false;
 				if (insertToTimeline && !editor.scenes.getActiveSceneOrNull()) {
 					throw new Error("状态错误：未加载场景，无法插入 Shotlyx MG 动画");
 				}
@@ -2732,7 +2785,6 @@ export function buildCreativeTools({
 							transparentBackground,
 							abortSignal: context?.signal,
 							repairAttempts: 1,
-							preferPlainJson: false,
 							maxOutputTokens: 12_000,
 							templateMode,
 							templateId,
@@ -2830,7 +2882,6 @@ export function buildCreativeTools({
 							transparentBackground,
 							abortSignal: context?.signal,
 							repairAttempts: 1,
-							preferPlainJson: false,
 							maxOutputTokens: 12_000,
 						});
 					} catch (error) {
@@ -3022,7 +3073,6 @@ export function buildCreativeTools({
 							transparentBackground,
 							abortSignal: context?.signal,
 							repairAttempts: 2,
-							preferPlainJson: false,
 							maxOutputTokens: 12_000,
 						},
 						fetchFn: creativeDeps.fetchFn,
@@ -3075,7 +3125,6 @@ export function buildCreativeTools({
 					transparentBackground,
 					abortSignal: context?.signal,
 					repairAttempts: 2,
-					preferPlainJson: false,
 					maxOutputTokens: 12_000,
 				});
 				const asset = registerShotlyxMGAsset({

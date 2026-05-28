@@ -110,7 +110,9 @@ function useCompiledRemotionComponent({
 				},
 			);
 			moduleUrl = URL.createObjectURL(blob);
-			const mod: unknown = await import(/* webpackIgnore: true */ moduleUrl);
+			const mod: unknown = await import(
+				/* @vite-ignore */ /* webpackIgnore: true */ moduleUrl
+			);
 			const candidate =
 				typeof mod === "object" && mod !== null
 					? Reflect.get(mod, "default")

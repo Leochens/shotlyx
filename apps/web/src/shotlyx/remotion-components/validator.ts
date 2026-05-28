@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
 	SHOTLYX_REMOTION_COMPONENT_RUNTIME,
-	type ShotlyxMGPropDefinition,
 	type ShotlyxRemotionComponentDocument,
 } from "./types";
 
@@ -119,10 +118,6 @@ export interface ShotlyxRemotionValidationResult {
 	errors: string[];
 }
 
-function escapeRegExp(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function validateShotlyxRemotionComponentQuality({
 	source,
 }: {
@@ -133,6 +128,49 @@ function validateShotlyxRemotionComponentQuality({
 		errors.push(
 			"componentSource should use useCurrentFrame() for frame-based MG motion",
 		);
+	}
+	return errors;
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function validateDoubleAppliedPositionTransforms({
+	source,
+}: {
+	source: string;
+}): string[] {
+	const errors: string[] = [];
+	const styleObjectPattern =
+		/\bstyle\s*=\s*\{\{([\s\S]{0,1400}?)\}\}/g;
+	for (const match of source.matchAll(styleObjectPattern)) {
+		const style = match[1] ?? "";
+		const axisChecks: Array<{
+			property: "top" | "left";
+			transform: "translateY" | "translateX";
+		}> = [
+			{ property: "top", transform: "translateY" },
+			{ property: "left", transform: "translateX" },
+		];
+		for (const { property, transform } of axisChecks) {
+			for (const propertyMatch of style.matchAll(
+				new RegExp(`\\b${property}\\s*:\\s*([A-Za-z_$][\\w$]*)\\b`, "g"),
+			)) {
+				const variableName = propertyMatch[1];
+				if (!variableName) continue;
+				const translatePattern = new RegExp(
+					`\\b${transform}\\s*\\(\\s*\\$\\{\\s*${escapeRegExp(
+						variableName,
+					)}\\s*\\}\\s*px\\s*\\)`,
+				);
+				if (!translatePattern.test(style)) continue;
+				errors.push(
+					`componentSource double-applies ${property} with ${transform}(${variableName}); use either ${property} or transform for that axis, not both`,
+				);
+				return errors;
+			}
+		}
 	}
 	return errors;
 }
@@ -228,52 +266,9 @@ export function validateShotlyxRemotionComponentSource({
 		}
 	}
 	errors.push(...validateShotlyxRemotionComponentQuality({ source }));
+	errors.push(...validateDoubleAppliedPositionTransforms({ source }));
 	if (transparentBackground) {
 		errors.push(...validateTransparentBackgroundSource({ source }));
-	}
-	return {
-		valid: errors.length === 0,
-		errors,
-	};
-}
-
-function isSafeIdentifier(value: string): boolean {
-	return /^[A-Za-z_$][\w$]*$/.test(value);
-}
-
-function hasTableColumnReference({
-	source,
-	column,
-}: {
-	source: string;
-	column: string;
-}): boolean {
-	const escaped = escapeRegExp(column);
-	if (new RegExp(String.raw`\[\s*["'\`]${escaped}["'\`]\s*\]`).test(source)) {
-		return true;
-	}
-	return isSafeIdentifier(column)
-		? new RegExp(String.raw`\.\s*${escaped}\b`).test(source)
-		: false;
-}
-
-export function validateShotlyxRemotionComponentDataContract({
-	source,
-	propsSchema,
-}: {
-	source: string;
-	propsSchema: ShotlyxMGPropDefinition[];
-}): ShotlyxRemotionValidationResult {
-	const errors: string[] = [];
-	for (const prop of propsSchema) {
-		if (prop.type !== "table" || !prop.columns?.length) continue;
-		for (const column of prop.columns) {
-			if (!hasTableColumnReference({ source, column })) {
-				errors.push(
-					`table prop "${prop.key}" column "${column}" must be read with the exact generated column key`,
-				);
-			}
-		}
 	}
 	return {
 		valid: errors.length === 0,

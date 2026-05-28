@@ -8,14 +8,6 @@ import * as ReactRuntime from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Easing, interpolate, spring } from "remotion";
-import { z } from "zod";
-import {
-	buildStructuredGenerateTextRequest,
-	type GenerateTextRequest,
-	isStructuredOutputSchemaError,
-	isStructuredOutputValueError,
-	resolveStructuredGenerationMode,
-} from "@/agent/ai-sdk/request-builder";
 import { getDefaultModelBundle } from "@/agent/ai-sdk/providers";
 import type { LLMProviderConfig } from "@/agent/llm/types";
 import { generateUUID } from "@/utils/id";
@@ -24,22 +16,21 @@ import {
 	SHOTLYX_REMOTION_COMPONENT_RUNTIME,
 	type ShotlyxMGAspectRatio,
 	type ShotlyxMGPropDefinition,
-	type ShotlyxMGPropRole,
 	type ShotlyxMGPropType,
 	type ShotlyxMGPropValue,
 	type ShotlyxRemotionComponentDocument,
 	type ShotlyxRemotionComponentManifest,
 } from "./types";
-import {
-	assertValidShotlyxRemotionComponentAssetDocument,
-	validateShotlyxRemotionComponentDataContract,
-} from "./validator";
+import { assertValidShotlyxRemotionComponentAssetDocument } from "./validator";
 
 const DEFAULT_FPS = 30;
 const DEFAULT_DURATION_SECONDS = 6;
-const MAX_OUTPUT_TOKENS = 12000;
+const MAX_OUTPUT_TOKENS = 12_000;
 const RENDER_VALIDATION_FRAME_COUNT = 4;
+const MAX_SOURCE_CHARS = 32_000;
+
 let renderValidationQueue: Promise<void> = Promise.resolve();
+
 const RUNTIME_REMOTION_BINDING_NAMES = [
 	"AbsoluteFill",
 	"Sequence",
@@ -54,169 +45,6 @@ const RUNTIME_REMOTION_BINDING_NAMES = [
 const RUNTIME_REMOTION_BINDING_NAME_SET = new Set<string>(
 	RUNTIME_REMOTION_BINDING_NAMES,
 );
-const GENERATED_PROP_TYPE_ALIASES: Record<string, ShotlyxMGPropType> = {
-	array: "table",
-	asset: "image",
-	avatar: "image",
-	bool: "boolean",
-	boolean: "boolean",
-	checkbox: "boolean",
-	choice: "select",
-	choices: "select",
-	color: "color",
-	colorhex: "color",
-	colour: "color",
-	copy: "text",
-	data: "table",
-	dataset: "table",
-	double: "number",
-	dropdown: "select",
-	enum: "select",
-	float: "number",
-	font: "font",
-	fontfamily: "font",
-	hex: "color",
-	hexcolor: "color",
-	icon: "image",
-	image: "image",
-	imageurl: "image",
-	img: "image",
-	int: "number",
-	integer: "number",
-	label: "text",
-	list: "table",
-	logo: "image",
-	media: "image",
-	number: "number",
-	numeric: "number",
-	object: "table",
-	option: "select",
-	palette: "color",
-	photo: "image",
-	picture: "image",
-	range: "number",
-	record: "table",
-	richtext: "text",
-	rows: "table",
-	select: "select",
-	slider: "number",
-	source: "image",
-	src: "image",
-	string: "text",
-	switch: "boolean",
-	text: "text",
-	textarea: "text",
-	title: "text",
-	toggle: "boolean",
-	typeface: "font",
-	typography: "font",
-	url: "image",
-	zarray: "table",
-	zboolean: "boolean",
-	zenum: "select",
-	znumber: "number",
-	zobject: "table",
-	zrecord: "table",
-	zstring: "text",
-};
-const GENERATED_PROP_ROLE_ALIASES: Record<string, ShotlyxMGPropRole> = {
-	animation: "motion",
-	asset: "asset",
-	assets: "asset",
-	color: "style",
-	colors: "style",
-	content: "content",
-	copy: "content",
-	data: "data",
-	dataset: "data",
-	design: "style",
-	font: "typography",
-	fonts: "typography",
-	image: "asset",
-	images: "asset",
-	layout: "style",
-	media: "asset",
-	motion: "motion",
-	parameter: "style",
-	parameters: "style",
-	prop: "style",
-	props: "style",
-	style: "style",
-	styling: "style",
-	table: "data",
-	text: "content",
-	timing: "motion",
-	type: "typography",
-	typography: "typography",
-	video: "asset",
-	visual: "style",
-	visuals: "style",
-};
-
-const generatedScalarValueSchema = z.union([
-	z.string(),
-	z.number(),
-	z.boolean(),
-]);
-
-const generatedPropValueSchema = z.union([
-	generatedScalarValueSchema,
-	z.array(z.array(generatedScalarValueSchema).max(40)).max(200),
-]);
-
-export const shotlyxRemotionGeneratedComponentSchema = z.object({
-	name: z.string().min(1),
-	durationSeconds: z.number().positive().max(120).nullable(),
-	fps: z.number().positive().max(120).nullable(),
-	width: z.number().positive().nullable(),
-	height: z.number().positive().nullable(),
-	aspectRatio: z.enum(["16:9", "9:16", "1:1"]).nullable(),
-	thumbnailFrame: z.number().int().nonnegative().nullable(),
-	componentSource: z.string().min(1).max(30_000),
-	propsSchema: z
-		.array(
-			z.object({
-				key: z.string().min(1),
-				label: z.string().min(1),
-				type: z.enum([
-					"text",
-					"number",
-					"color",
-					"font",
-					"boolean",
-					"select",
-					"image",
-					"table",
-				]),
-				role: z.enum([
-					"content",
-					"style",
-					"typography",
-					"motion",
-					"data",
-					"asset",
-				]),
-				default: generatedPropValueSchema,
-				min: z.number().nullable(),
-				max: z.number().nullable(),
-				step: z.number().nullable(),
-				options: z
-					.array(z.object({ label: z.string(), value: z.string() }))
-					.nullable(),
-				columns: z.array(z.string()).nullable(),
-			}),
-		)
-		.min(1)
-		.max(40),
-});
-
-type GeneratedComponent = z.infer<
-	typeof shotlyxRemotionGeneratedComponentSchema
->;
-type GeneratedPropDefinition = GeneratedComponent["propsSchema"][number];
-type GeneratedTableRows = Array<
-	Array<z.infer<typeof generatedScalarValueSchema>>
->;
 
 export interface GenerateShotlyxMGComponentOptions {
 	prompt: string;
@@ -229,8 +57,8 @@ export interface GenerateShotlyxMGComponentOptions {
 	repairAttempts?: number;
 	abortSignal?: AbortSignal;
 	maxOutputTokens?: number;
-	preferPlainJson?: boolean;
 	transparentBackground?: boolean;
+	name?: string;
 }
 
 export interface CreateShotlyxRemotionComponentDocumentOptions {
@@ -255,85 +83,6 @@ function canvasSizeForAspectRatio({
 	if (aspectRatio === "9:16") return { width: 1080, height: 1920 };
 	if (aspectRatio === "1:1") return { width: 1080, height: 1080 };
 	return { width: 1920, height: 1080 };
-}
-
-function buildSystemPrompt({ skillContext }: { skillContext: string }): string {
-	return [
-		"You generate editable Shotlyx MG animations as real Remotion-compatible React components.",
-		"Transparent-background MG is the default: generated graphics should be easy to overlay on top of existing video footage.",
-		"Do not create full-canvas or decorative backgrounds unless the user explicitly asks for one.",
-		"If any background/backdrop/canvas layer is necessary, expose it as propsSchema controls with a default of transparent, false, or zero opacity.",
-		"Do not output a scene DSL, template name, storyboard, HTML document, CSS file, or SVG-only answer.",
-		"The output component must be custom code that implements the user's requested effect.",
-		"The componentSource must export default function ShotlyxComponent(props: Props).",
-		"Do not include import statements. Do not redeclare or destructure Remotion APIs at module scope.",
-		"Allowed Remotion APIs are injected by the Shotlyx runtime as bare bindings: AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video.",
-		"Use those bare bindings directly, or call Remotion.AbsoluteFill / Remotion.useCurrentFrame inside ShotlyxComponent when needed.",
-		"Use React JSX normally. React is available globally during compilation/runtime.",
-		"Every user-editable text, color, font, number, boolean, data array, and media reference must be declared in propsSchema with a useful default value.",
-		"For image props, declare type image and render via props. Never invent relative filenames like 4-3.png or /image.png. Use an empty string default and render a designed fallback when the image prop is empty.",
-		"For table props, declare columns and use default as an array of row arrays in the same column order. The runtime will convert them to row objects.",
-		'For table row rendering, always read cells with the exact declared column key. Use bracket access like row["核心症状"] for non-English labels; never invent aliases such as row.symptom unless the column is literally named symptom.',
-		"Never use fetch, XMLHttpRequest, WebSocket, eval, Function, document, window, localStorage, sessionStorage, indexedDB, require, or dynamic import.",
-		"Never use Node.js or CommonJS globals such as __filename, __dirname, process, Buffer, module, exports, or import.meta.",
-		"Animations must be deterministic from frame number and props. No randomness unless derived from deterministic props.",
-		'Never use placeholder copy such as "标题", "标题强调", "Subtitle", "Focus here", "Lorem", or "Example". Extract concrete copy, numbers, and row data from the user request.',
-		skillContext,
-	].join("\n");
-}
-
-function buildUserPrompt({
-	prompt,
-	durationSeconds,
-	aspectRatio,
-	styleGuide,
-	validationErrors,
-	plainJson,
-	transparentBackground,
-}: {
-	prompt: string;
-	durationSeconds: number;
-	aspectRatio: ShotlyxMGAspectRatio;
-	styleGuide?: string;
-	validationErrors?: string[];
-	plainJson?: boolean;
-	transparentBackground: boolean;
-}): string {
-	const size = canvasSizeForAspectRatio({ aspectRatio });
-	return [
-		`User request: ${prompt}`,
-		`Duration: ${durationSeconds}s`,
-		"Treat Duration as the real visible runtime for this component, not just an intro. If the main reveal finishes early, keep the design alive with subtle hold motion, pulsing highlights, cursor/scanline movement, counter shimmer, or a clean exit until the last frame. Do not leave the component blank or visually finished after the first second.",
-		"If this is a short beat such as a quick arrow, circle, box, sticker pop, or word punch, it is acceptable to return a shorter durationSeconds that matches the action instead of padding dead time.",
-		`Canvas: ${size.width}x${size.height}, aspect ${aspectRatio}, fps ${DEFAULT_FPS}`,
-		`Background: ${transparentBackground ? "transparent" : "solid/custom"}`,
-		transparentBackground
-			? "Render as an overlay MG with a transparent root canvas. Default to no background. Do not set a full-canvas background color on AbsoluteFill, body, root containers, or nested position:absolute/inset:0 layers. Avoid black or dark full-screen backplates. Use local cards, pills, strokes, glows, or panels only where the design needs them. If you include any background/backdrop/canvas surface, make it editable through propsSchema and default it to transparent, disabled, or opacity 0."
-			: "A full-canvas background is allowed when it improves the requested design.",
-		styleGuide ? `Style guide: ${styleGuide}` : "",
-		validationErrors?.length
-			? `Previous output failed validation. Fix these errors:\n${validationErrors.join("\n")}`
-			: "",
-		plainJson
-			? "Return only one valid JSON object. Do not use markdown fences, comments, or prose. For custom TSX effects, use componentSourceLines: an array of code lines, instead of componentSource. Do not put raw multiline TSX inside componentSource."
-			: "Return one structured object with name, durationSeconds, fps, width, height, aspectRatio, thumbnailFrame, componentSource, propsSchema.",
-		plainJson
-			? "Plain JSON may include either componentSourceLines or componentSource, but componentSourceLines is required for long or complex TSX. Every componentSourceLines item must be one valid JSON string line, and the server will join the lines with newline characters."
-			: "",
-		"Always include durationSeconds, fps, width, height, aspectRatio, and thumbnailFrame. Use null if a value should use the requested default.",
-		"Choose thumbnailFrame as the representative frame for the asset cover: pick a frame where the animation content is visible and characteristic, not an empty intro frame.",
-		"Every propsSchema item must include min, max, step, options, and columns. Use null when the field does not apply.",
-		'Every propsSchema[].type must be exactly one of: "text", "number", "color", "font", "boolean", "select", "image", "table".',
-		'Every propsSchema[].role must be exactly one of: "content", "style", "typography", "motion", "data", "asset".',
-		"Do not return a separate defaults object. Put each editable default only in propsSchema[].default.",
-		'For table defaults, return rows as arrays, for example [["2014", 1364], ["2023", 1410]], not objects.',
-		'When rendering table rows, use the same column labels from propsSchema.columns, for example row["year"] and row["population"]. Chinese column labels must also be read by bracket syntax, for example row["病害名称"].',
-		'Never use placeholder copy such as "标题", "标题强调", "Subtitle", "Focus here", "Lorem", or "Example"; all visible text and table data must come from the user request.',
-		"For typewriter effects, implement real per-frame character reveal using useCurrentFrame(), not opacity-only fade.",
-		"For charts or data animations, animate paths/bars/labels with frame-based interpolation.",
-	]
-		.filter(Boolean)
-		.join("\n");
 }
 
 function stripDefaultExport({ source }: { source: string }): string {
@@ -376,6 +125,7 @@ function normalizeTopLevelRemotionDestructuring({
 		.map((member) => member.trim())
 		.filter(Boolean);
 	if (!members.length) return null;
+
 	const keptMembers: string[] = [];
 	let removedRuntimeBinding = false;
 	for (const member of members) {
@@ -442,9 +192,7 @@ function normalizeGeneratedComponentSource({ source }: { source: string }): stri
 				}
 				continue;
 			}
-			if (isTopLevelDuplicateRemotionAlias({ line })) {
-				continue;
-			}
+			if (isTopLevelDuplicateRemotionAlias({ line })) continue;
 		}
 		normalizedLines.push(line);
 		braceDepth = updateSourceBraceDepth({ depth: braceDepth, line });
@@ -487,7 +235,9 @@ async function importModuleFromSource({
 	const filePath = join(tempDir, `${id}.mjs`);
 	try {
 		await writeFile(filePath, source, "utf8");
-		return await import(`${pathToFileURL(filePath).href}?t=${Date.now()}`);
+		return await import(
+			/* @vite-ignore */ `${pathToFileURL(filePath).href}?t=${Date.now()}`
+		);
 	} finally {
 		await rm(tempDir, { recursive: true, force: true });
 	}
@@ -567,12 +317,36 @@ async function assertRenderableShotlyxRemotionComponent({
 		releaseValidation = resolve;
 	});
 	await previousQueue;
+
 	let currentFrame = 0;
 	const previousRuntime = Reflect.get(
 		globalThis,
 		"__SHOTLYX_REMOTION_RUNTIME__",
 	);
+	const previousConsoleError = console.error;
+	const previousConsoleWarn = console.warn;
+	const renderWarnings: string[] = [];
+	const captureConsoleMessage = (args: unknown[]) => {
+		const message = args
+			.map((arg) => (typeof arg === "string" ? arg : String(arg)))
+			.join(" ");
+		if (
+			/\bNaN\b/.test(message) ||
+			/\bInfinity\b/.test(message) ||
+			message.toLowerCase().includes("received")
+		) {
+			renderWarnings.push(message);
+		}
+	};
 	try {
+		console.error = (...args: unknown[]) => {
+			captureConsoleMessage(args);
+			previousConsoleError(...args);
+		};
+		console.warn = (...args: unknown[]) => {
+			captureConsoleMessage(args);
+			previousConsoleWarn(...args);
+		};
 		Reflect.set(globalThis, "__SHOTLYX_REMOTION_RUNTIME__", {
 			React: ReactRuntime,
 			Remotion: {
@@ -619,6 +393,11 @@ async function assertRenderableShotlyxRemotionComponent({
 				ReactRuntime.createElement(Component, document.defaultProps),
 			);
 		}
+		if (renderWarnings.length > 0) {
+			throw new Error(
+				`React render warning: ${renderWarnings.slice(0, 3).join(" | ")}`,
+			);
+		}
 	} catch (error) {
 		throw new Error(
 			`Render validation failed: ${
@@ -631,99 +410,10 @@ async function assertRenderableShotlyxRemotionComponent({
 		} else {
 			Reflect.set(globalThis, "__SHOTLYX_REMOTION_RUNTIME__", previousRuntime);
 		}
+		console.error = previousConsoleError;
+		console.warn = previousConsoleWarn;
 		releaseValidation();
 	}
-}
-
-function isGeneratedTableRows(
-	value: GeneratedPropDefinition["default"],
-): value is GeneratedTableRows {
-	return Array.isArray(value) && value.every((row) => Array.isArray(row));
-}
-
-function normalizeGeneratedTableDefault({
-	columns,
-	rows,
-}: {
-	columns: string[] | null | undefined;
-	rows: GeneratedTableRows;
-}): Array<Record<string, string | number | boolean>> {
-	const normalizedColumns =
-		columns && columns.length > 0
-			? columns
-			: (rows[0] ?? []).map((_, index) => `column${index + 1}`);
-	return rows.map((row) =>
-		Object.fromEntries(
-			normalizedColumns.map((column, index) => [column, row[index] ?? ""]),
-		),
-	);
-}
-
-function normalizeGeneratedPropDefault({
-	prop,
-	transparentBackground,
-}: {
-	prop: GeneratedPropDefinition;
-	transparentBackground: boolean;
-}): ShotlyxMGPropValue {
-	if (prop.type === "table") {
-		if (!isGeneratedTableRows(prop.default)) {
-			return [];
-		}
-		return normalizeGeneratedTableDefault({
-			columns: prop.columns,
-			rows: prop.default,
-		});
-	}
-	if (Array.isArray(prop.default)) {
-		return "";
-	}
-	if (
-		transparentBackground &&
-		prop.type === "color" &&
-		isBackgroundColorProp({ prop })
-	) {
-		return "transparent";
-	}
-	return prop.default;
-}
-
-function isBackgroundColorProp({
-	prop,
-}: {
-	prop: Pick<GeneratedPropDefinition, "key" | "label">;
-}): boolean {
-	const text = `${prop.key} ${prop.label}`.toLowerCase();
-	return (
-		text.includes("background") ||
-		text.includes("backdrop") ||
-		text.includes("canvas") ||
-		/\bbg\b/.test(text)
-	);
-}
-
-function normalizeGeneratedPropsSchema({
-	propsSchema,
-	transparentBackground,
-}: {
-	propsSchema: GeneratedComponent["propsSchema"];
-	transparentBackground: boolean;
-}): ShotlyxMGPropDefinition[] {
-	return propsSchema.map((prop) => {
-		const normalized: ShotlyxMGPropDefinition = {
-			key: prop.key,
-			label: prop.label,
-			type: prop.type,
-			role: prop.role,
-			default: normalizeGeneratedPropDefault({ prop, transparentBackground }),
-		};
-		if (prop.min !== null) normalized.min = prop.min;
-		if (prop.max !== null) normalized.max = prop.max;
-		if (prop.step !== null) normalized.step = prop.step;
-		if (prop.options !== null) normalized.options = prop.options;
-		if (prop.columns !== null) normalized.columns = prop.columns;
-		return normalized;
-	});
 }
 
 function buildDefaultPropsFromSchema({
@@ -799,9 +489,7 @@ export async function createShotlyxRemotionComponentDocument({
 			? Math.floor(durationInFrames * 0.45)
 			: Math.max(0, Math.min(durationInFrames - 1, thumbnailFrame));
 	assertUniqueGeneratedPropKeys({ propsSchema });
-	const defaultProps = buildDefaultPropsFromSchema({
-		propsSchema,
-	});
+	const defaultProps = buildDefaultPropsFromSchema({ propsSchema });
 	const normalizedComponentSource = normalizeGeneratedComponentSource({
 		source: componentSource,
 	});
@@ -833,519 +521,499 @@ export async function createShotlyxRemotionComponentDocument({
 		}),
 	};
 	assertValidShotlyxRemotionComponentAssetDocument(document);
-	const dataContractValidation = validateShotlyxRemotionComponentDataContract({
-		source: document.componentSource,
-		propsSchema: document.propsSchema,
-	});
-	if (!dataContractValidation.valid) {
-		throw new Error(
-			`Invalid Shotlyx Remotion component data contract: ${dataContractValidation.errors.join(
-				"; ",
-			)}`,
-		);
-	}
 	await assertRenderableShotlyxRemotionComponent({ document });
 	return document;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+function isNoTextMGRequest({ prompt }: { prompt: string }): boolean {
+	const normalized = prompt.toLowerCase();
+	return [
+		"不出现文字",
+		"不要文字",
+		"无文字",
+		"纯视觉",
+		"no text",
+		"without text",
+		"pure visual",
+	].some((term) => normalized.includes(term));
 }
 
-function normalizeAliasToken(value: unknown): string | undefined {
-	if (typeof value !== "string") return undefined;
-	const normalized = value
-		.trim()
-		.toLowerCase()
-		.replace(/^z\./, "z")
-		.replace(/\(\)$/, "")
-		.replace(/[^a-z0-9]+/g, "");
-	return normalized || undefined;
+function isDataLikeMGRequest({ prompt }: { prompt: string }): boolean {
+	const normalized = prompt.toLowerCase();
+	return [
+		"数据",
+		"图表",
+		"表格",
+		"指标",
+		"趋势",
+		"排行",
+		"柱状",
+		"折线",
+		"chart",
+		"table",
+		"metric",
+		"kpi",
+		"trend",
+		"bar",
+		"line chart",
+	].some((term) => normalized.includes(term));
 }
 
-function isShotlyxPropTypeToken(token: string): token is ShotlyxMGPropType {
-	switch (token) {
-		case "text":
-		case "number":
-		case "color":
-		case "font":
-		case "boolean":
-		case "select":
-		case "image":
-		case "table":
-			return true;
-		default:
-			return false;
-	}
-}
-
-function isShotlyxPropRoleToken(token: string): token is ShotlyxMGPropRole {
-	switch (token) {
-		case "content":
-		case "style":
-		case "typography":
-		case "motion":
-		case "data":
-		case "asset":
-			return true;
-		default:
-			return false;
-	}
-}
-
-function textIncludesAny({
-	text,
-	terms,
+function truncateForGeneratedName({
+	value,
+	maxLength,
 }: {
-	text: string;
-	terms: string[];
-}): boolean {
-	return terms.some((term) => text.includes(term));
-}
-
-function propContextText({
-	key,
-	label,
-	type,
-	role,
-}: {
-	key: unknown;
-	label: unknown;
-	type?: unknown;
-	role?: unknown;
+	value: string;
+	maxLength: number;
 }): string {
-	return [key, label, type, role]
-		.filter((value): value is string => typeof value === "string")
-		.join(" ")
-		.toLowerCase();
+	const normalized = value.trim().replace(/\s+/g, " ");
+	if (!normalized) return "自定义 MG";
+	if (normalized.length <= maxLength) return normalized;
+	return `${normalized.slice(0, maxLength - 1).trim()}…`;
 }
 
-function isColorLikeProp({
-	key,
-	label,
-	defaultValue,
-}: {
-	key: unknown;
-	label: unknown;
-	defaultValue: unknown;
-}): boolean {
-	const text = propContextText({ key, label });
-	return (
-		textIncludesAny({
-			text,
-			terms: ["color", "colour", "accent", "background", "backdrop", "fill"],
-		}) ||
-		(typeof defaultValue === "string" &&
-			/^(?:#(?:[0-9a-f]{3,8})|rgba?\(|hsla?\()/i.test(defaultValue.trim()))
+function buildGeneratedComponentName({ prompt }: { prompt: string }): string {
+	const explicitName = extractExplicitMGAssetName({ prompt });
+	if (explicitName) return explicitName;
+	return truncateForGeneratedName({
+		value: prompt,
+		maxLength: 36,
+	});
+}
+
+function extractExplicitMGAssetName({ prompt }: { prompt: string }): string | null {
+	const match = prompt.match(
+		/(?:MG asset name|MG 资产名|资产名称|组件名称)\s*[:：]\s*([^\n]+)/i,
 	);
+	const rawName = match?.[1]?.trim();
+	if (!rawName) return null;
+	const cleanName = rawName.replace(/^["'“”‘’「」]+|["'“”‘’「」]+$/g, "");
+	if (!cleanName) return null;
+	return truncateForGeneratedName({ value: cleanName, maxLength: 40 });
 }
 
-function isImageLikeProp({
-	key,
-	label,
-	type,
-	role,
+function extractQuotedTextSnippets({ prompt }: { prompt: string }): string[] {
+	const snippets: string[] = [];
+	for (const pattern of [
+		/["“]([^"”]{1,80})["”]/g,
+		/「([^」]{1,80})」/g,
+		/『([^』]{1,80})』/g,
+		/《([^》]{1,80})》/g,
+	]) {
+		for (const match of prompt.matchAll(pattern)) {
+			const value = match[1]?.trim();
+			if (value && !snippets.includes(value)) snippets.push(value);
+		}
+	}
+	return snippets.slice(0, 6);
+}
+
+function extractPromptHexColors({
+	prompt,
+	styleGuide,
 }: {
-	key: unknown;
-	label: unknown;
-	type?: unknown;
-	role?: unknown;
-}): boolean {
-	return textIncludesAny({
-		text: propContextText({ key, label, type, role }),
-		terms: [
-			"asset",
-			"avatar",
-			"icon",
-			"image",
-			"img",
-			"logo",
-			"media",
-			"photo",
-			"picture",
-			"src",
-			"url",
-		],
-	});
+	prompt: string;
+	styleGuide?: string;
+}): string[] {
+	const text = `${prompt}\n${styleGuide ?? ""}`;
+	return Array.from(
+		new Set(
+			(text.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []).map((color) =>
+				color.toLowerCase(),
+			),
+		),
+	).slice(0, 6);
 }
 
-function isMotionLikeProp({
-	key,
-	label,
-	role,
+function extractPromptNumbers({ prompt }: { prompt: string }): string[] {
+	return Array.from(
+		new Set(prompt.match(/[-+]?\d+(?:\.\d+)?%?(?:万|亿|k|K|m|M)?/g) ?? []),
+	).slice(0, 8);
+}
+
+function deriveTextDefaults({
+	prompt,
+	noText,
 }: {
-	key: unknown;
-	label: unknown;
-	role?: unknown;
-}): boolean {
-	return textIncludesAny({
-		text: propContextText({ key, label, role }),
-		terms: [
-			"animation",
-			"delay",
-			"duration",
-			"easing",
-			"motion",
-			"speed",
-			"spring",
-			"stagger",
-			"timing",
-		],
-	});
+	prompt: string;
+	noText: boolean;
+}): {
+	title?: string;
+	subtitle?: string;
+	caption?: string;
+} {
+	if (noText) return {};
+	const snippets = extractQuotedTextSnippets({ prompt });
+	const compactPrompt = prompt
+		.replace(/\s+/g, " ")
+		.replace(/[\n\r]+/g, " ")
+		.trim();
+	const [firstClause, secondClause] = compactPrompt
+		.split(/[。.!！?？；;，,]/)
+		.map((part) => part.trim())
+		.filter(Boolean);
+	const title = snippets[0] ?? firstClause ?? "自定义 MG 动画";
+	const subtitle =
+		snippets[1] ??
+		secondClause ??
+		(compactPrompt === title ? "Shotlyx Remotion" : compactPrompt);
+	return {
+		title: truncateForGeneratedName({ value: title, maxLength: 28 }),
+		subtitle: truncateForGeneratedName({ value: subtitle, maxLength: 42 }),
+		caption: truncateForGeneratedName({ value: compactPrompt, maxLength: 68 }),
+	};
 }
 
-function isTypographyLikeProp({
-	key,
-	label,
-	role,
+function deriveTableRows({
+	prompt,
+	noText,
 }: {
-	key: unknown;
-	label: unknown;
-	role?: unknown;
-}): boolean {
-	return textIncludesAny({
-		text: propContextText({ key, label, role }),
-		terms: ["font", "typeface", "typography"],
-	});
+	prompt: string;
+	noText: boolean;
+}): Array<Record<string, string | number | boolean>> {
+	if (noText || !isDataLikeMGRequest({ prompt })) return [];
+	const numbers = extractPromptNumbers({ prompt });
+	if (numbers.length === 0) return [];
+	return numbers.slice(0, 6).map((value, index) => ({
+		label: `Item ${index + 1}`,
+		value,
+		note: index === 0 ? "primary" : "context",
+	}));
 }
 
-function normalizeGeneratedPropTypeAlias({
+function prop({
 	key,
 	label,
 	type,
 	role,
 	defaultValue,
+	min,
+	max,
+	step,
+	options,
 	columns,
 }: {
-	key: unknown;
-	label: unknown;
-	type: unknown;
-	role: unknown;
-	defaultValue: unknown;
-	columns: unknown;
-}): ShotlyxMGPropType {
-	if (
-		Array.isArray(columns) ||
-		(Array.isArray(defaultValue) &&
-			defaultValue.some((row) => Array.isArray(row)))
-	) {
-		return "table";
-	}
-
-	const token = normalizeAliasToken(type);
-	const aliased = token
-		? (GENERATED_PROP_TYPE_ALIASES[token] ??
-			(isShotlyxPropTypeToken(token) ? token : undefined))
-		: undefined;
-	if (aliased && aliased !== "text") return aliased;
-	if (aliased === "text" && isImageLikeProp({ key, label, type, role })) {
-		return "image";
-	}
-	if (aliased === "text" && isColorLikeProp({ key, label, defaultValue })) {
-		return "color";
-	}
-	if (aliased === "text" && isTypographyLikeProp({ key, label, role })) {
-		return "font";
-	}
-	if (aliased) return aliased;
-
-	if (isImageLikeProp({ key, label, type, role })) return "image";
-	if (isColorLikeProp({ key, label, defaultValue })) return "color";
-	if (isTypographyLikeProp({ key, label, role })) return "font";
-	if (typeof defaultValue === "number") return "number";
-	if (typeof defaultValue === "boolean") return "boolean";
-	return "text";
-}
-
-function normalizeGeneratedPropRoleAlias({
-	key,
-	label,
-	role,
-	type,
-}: {
-	key: unknown;
-	label: unknown;
-	role: unknown;
-	type: ShotlyxMGPropType;
-}): ShotlyxMGPropRole {
-	const token = normalizeAliasToken(role);
-	const aliased = token
-		? (GENERATED_PROP_ROLE_ALIASES[token] ??
-			(isShotlyxPropRoleToken(token) ? token : undefined))
-		: undefined;
-	if (aliased) return aliased;
-	if (type === "table") return "data";
-	if (type === "image") return "asset";
-	if (type === "font") return "typography";
-	if (isMotionLikeProp({ key, label, role })) return "motion";
-	if (type === "color" || type === "select" || type === "boolean") {
-		return "style";
-	}
-	return "content";
-}
-
-function humanizePropKey({ key }: { key: string }): string {
-	const spaced = key
-		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-		.replace(/[_-]+/g, " ")
-		.trim();
-	if (!spaced) return "Property";
-	return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
-function normalizeColumnLabel({
-	value,
-	index,
-}: {
-	value: unknown;
-	index: number;
-}): string {
-	if (typeof value === "string" && value.trim()) {
-		return value.trim();
-	}
-	if (isRecord(value)) {
-		for (const key of ["key", "value", "label", "name"]) {
-			const candidate = value[key];
-			if (typeof candidate === "string" && candidate.trim()) {
-				return candidate.trim();
-			}
-		}
-	}
-	return `Column ${index + 1}`;
-}
-
-function normalizeComponentSourceFromRaw({
-	normalized,
-}: {
-	normalized: Record<string, unknown>;
-}): void {
-	const rawSource = normalized.componentSource;
-	if (Array.isArray(rawSource) && rawSource.every((line) => typeof line === "string")) {
-		normalized.componentSource = rawSource.join("\n");
-		return;
-	}
-	if (typeof rawSource === "string" && rawSource.trim()) return;
-	for (const key of ["componentSourceLines", "sourceLines"]) {
-		const lines = normalized[key];
-		if (Array.isArray(lines) && lines.every((line) => typeof line === "string")) {
-			normalized.componentSource = lines.join("\n");
-			return;
-		}
-	}
-}
-
-function camelCasePropKey({ value }: { value: string }): string | null {
-	const tokens = value
-		.normalize("NFKD")
-		.replace(/[\u0300-\u036f]/g, "")
-		.replace(/[^a-zA-Z0-9]+/g, " ")
-		.trim()
-		.split(/\s+/)
-		.filter(Boolean);
-	if (tokens.length === 0) return null;
-	const [first, ...rest] = tokens;
-	if (!first) return null;
-	return [
-		first.charAt(0).toLowerCase() + first.slice(1),
-		...rest.map((token) => token.charAt(0).toUpperCase() + token.slice(1)),
-	].join("");
-}
-
-function normalizeGeneratedPropKey({
-	key,
-	label,
-	index,
-}: {
-	key: unknown;
-	label: unknown;
-	index: number;
-}): string {
-	if (typeof key === "string" && key.trim()) {
-		return key.trim();
-	}
-	if (isRecord(key)) {
-		for (const field of ["key", "value", "label", "name"]) {
-			const candidate = key[field];
-			if (typeof candidate === "string" && candidate.trim()) {
-				return candidate.trim();
-			}
-		}
-	}
-	if (typeof label === "string" && label.trim()) {
-		const fromLabel = camelCasePropKey({ value: label });
-		if (fromLabel) return fromLabel;
-	}
-	return `prop${index + 1}`;
-}
-
-function hasExplicitGeneratedPropKey({ key }: { key: unknown }): boolean {
-	if (typeof key === "string") return key.trim().length > 0;
-	if (!isRecord(key)) return false;
-	return ["key", "value", "label", "name"].some((field) => {
-		const candidate = key[field];
-		return typeof candidate === "string" && candidate.trim().length > 0;
-	});
-}
-
-function makeUniquePropKey({
-	key,
-	seenKeys,
-}: {
 	key: string;
-	seenKeys: Set<string>;
-}): string {
-	if (!seenKeys.has(key)) {
-		seenKeys.add(key);
-		return key;
-	}
-	let suffix = 2;
-	while (seenKeys.has(`${key}${suffix}`)) {
-		suffix += 1;
-	}
-	const uniqueKey = `${key}${suffix}`;
-	seenKeys.add(uniqueKey);
-	return uniqueKey;
+	label: string;
+	type: ShotlyxMGPropType;
+	role: ShotlyxMGPropDefinition["role"];
+	defaultValue: ShotlyxMGPropValue;
+	min?: number;
+	max?: number;
+	step?: number;
+	options?: Array<{ label: string; value: string }>;
+	columns?: string[];
+}): ShotlyxMGPropDefinition {
+	return {
+		key,
+		label,
+		type,
+		role,
+		default: defaultValue,
+		...(min === undefined ? {} : { min }),
+		...(max === undefined ? {} : { max }),
+		...(step === undefined ? {} : { step }),
+		...(options ? { options } : {}),
+		...(columns ? { columns } : {}),
+	};
 }
 
-function normalizeRawGeneratedComponent(value: unknown): unknown {
-	if (!isRecord(value)) return value;
-	const normalized: Record<string, unknown> = { ...value };
-	normalizeComponentSourceFromRaw({ normalized });
-	for (const key of [
-		"durationSeconds",
-		"fps",
-		"width",
-		"height",
-		"aspectRatio",
-		"thumbnailFrame",
-	]) {
-		if (!(key in normalized)) normalized[key] = null;
-	}
-	if (Array.isArray(normalized.propsSchema)) {
-		const seenPropKeys = new Set<string>();
-		normalized.propsSchema = normalized.propsSchema.map((prop, index) => {
-			if (!isRecord(prop)) return prop;
-			const normalizedPropKey = normalizeGeneratedPropKey({
-				key: prop.key,
-				label: prop.label,
-				index,
-			});
-			const propKey = hasExplicitGeneratedPropKey({ key: prop.key })
-				? normalizedPropKey
-				: makeUniquePropKey({
-						key: normalizedPropKey,
-						seenKeys: seenPropKeys,
-					});
-			const propLabel =
-				typeof prop.label === "string" && prop.label.trim()
-					? prop.label.trim()
-					: typeof propKey === "string"
-						? humanizePropKey({ key: propKey })
-						: prop.label;
-			const columns = Array.isArray(prop.columns)
-				? prop.columns.map((column, index) =>
-						normalizeColumnLabel({ value: column, index }),
-					)
-				: null;
-			const propType = normalizeGeneratedPropTypeAlias({
-				key: propKey,
-				label: propLabel,
-				type: prop.type,
-				role: prop.role,
-				defaultValue: prop.default,
-				columns,
-			});
-			return {
-				...prop,
-				key: propKey,
-				label: propLabel,
-				type: propType,
-				role: normalizeGeneratedPropRoleAlias({
-					key: propKey,
-					label: propLabel,
-					role: prop.role,
-					type: propType,
-				}),
-				min: "min" in prop ? prop.min : null,
-				max: "max" in prop ? prop.max : null,
-				step: "step" in prop ? prop.step : null,
-				options: "options" in prop ? prop.options : null,
-				columns,
-			};
-		});
-	}
-	return normalized;
-}
+function derivePropsSchema({
+	prompt,
+	styleGuide,
+	transparentBackground,
+}: {
+	prompt: string;
+	styleGuide?: string;
+	transparentBackground: boolean;
+}): ShotlyxMGPropDefinition[] {
+	const noText = isNoTextMGRequest({ prompt });
+	const colors = extractPromptHexColors({ prompt, styleGuide });
+	const textDefaults = deriveTextDefaults({ prompt, noText });
+	const rows = deriveTableRows({ prompt, noText });
+	const props: ShotlyxMGPropDefinition[] = [];
 
-function parseGeneratedComponent(value: unknown): GeneratedComponent {
-	const result = shotlyxRemotionGeneratedComponentSchema.safeParse(
-		normalizeRawGeneratedComponent(value),
-	);
-	if (!result.success) {
-		throw new Error(
-			`模型返回的 Remotion JSON 不符合 Shotlyx schema：${result.error.issues
-				.map((issue) => `${issue.path.join(".") || "root"} ${issue.message}`)
-				.join("; ")}`,
-		);
-	}
-	return result.data;
-}
-
-function parseJsonObjectFromText({ text }: { text: string }): unknown {
-	const trimmed = text.trim();
-	if (!trimmed) {
-		throw new Error("No output generated.");
-	}
-	const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-	const candidate = fenced?.[1] ?? trimmed;
-	const start = candidate.indexOf("{");
-	const end = candidate.lastIndexOf("}");
-	if (start < 0 || end < start) {
-		throw new Error("模型没有返回可解析的 JSON 对象");
-	}
-	const jsonText = candidate.slice(start, end + 1);
-	try {
-		return JSON.parse(jsonText);
-	} catch (error) {
-		throw new Error(
-			buildPlainJsonParseErrorMessage({
-				jsonText,
-				error,
+	if (!noText) {
+		props.push(
+			prop({
+				key: "title",
+				label: "Title",
+				type: "text",
+				role: "content",
+				defaultValue: textDefaults.title ?? "自定义 MG 动画",
+			}),
+			prop({
+				key: "subtitle",
+				label: "Subtitle",
+				type: "text",
+				role: "content",
+				defaultValue: textDefaults.subtitle ?? "",
+			}),
+			prop({
+				key: "caption",
+				label: "Caption",
+				type: "text",
+				role: "content",
+				defaultValue: textDefaults.caption ?? "",
+			}),
+			prop({
+				key: "showLabels",
+				label: "Show labels",
+				type: "boolean",
+				role: "content",
+				defaultValue: true,
 			}),
 		);
 	}
+
+	if (rows.length > 0) {
+		props.push(
+			prop({
+				key: "items",
+				label: "Data items",
+				type: "table",
+				role: "data",
+				defaultValue: rows,
+				columns: ["label", "value", "note"],
+			}),
+		);
+	}
+
+	props.push(
+		prop({
+			key: "primaryColor",
+			label: "Primary color",
+			type: "color",
+			role: "style",
+			defaultValue: colors[0] ?? "#22d3ee",
+		}),
+		prop({
+			key: "secondaryColor",
+			label: "Secondary color",
+			type: "color",
+			role: "style",
+			defaultValue: colors[1] ?? "#a78bfa",
+		}),
+		prop({
+			key: "warningColor",
+			label: "Warning color",
+			type: "color",
+			role: "style",
+			defaultValue: colors[2] ?? "#ef4444",
+		}),
+		prop({
+			key: "fontFamily",
+			label: "Font family",
+			type: "font",
+			role: "typography",
+			defaultValue:
+				'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+		}),
+		prop({
+			key: "intensity",
+			label: "Motion intensity",
+			type: "number",
+			role: "motion",
+			defaultValue: 1,
+			min: 0.2,
+			max: 2,
+			step: 0.05,
+		}),
+		prop({
+			key: "density",
+			label: "Visual density",
+			type: "number",
+			role: "motion",
+			defaultValue: 1,
+			min: 0.2,
+			max: 2,
+			step: 0.05,
+		}),
+	);
+
+	if (transparentBackground) {
+		props.push(
+			prop({
+				key: "backdropOpacity",
+				label: "Backdrop opacity",
+				type: "number",
+				role: "style",
+				defaultValue: 0,
+				min: 0,
+				max: 1,
+				step: 0.05,
+			}),
+		);
+	} else {
+		props.push(
+			prop({
+				key: "backgroundColor",
+				label: "Background color",
+				type: "color",
+				role: "style",
+				defaultValue: colors[3] ?? "#080a12",
+			}),
+		);
+	}
+
+	return props;
 }
 
-function buildPlainJsonParseErrorMessage({
-	jsonText,
-	error,
+function typeForProp({ prop }: { prop: ShotlyxMGPropDefinition }): string {
+	switch (prop.type) {
+		case "number":
+			return "number";
+		case "boolean":
+			return "boolean";
+		case "table":
+			return "Array<{ label: string; value: string | number | boolean; note: string }>";
+		case "text":
+		case "color":
+		case "font":
+		case "select":
+		case "image":
+		default:
+			return "string";
+	}
+}
+
+function buildPropsType({
+	propsSchema,
 }: {
-	jsonText: string;
-	error: unknown;
+	propsSchema: ShotlyxMGPropDefinition[];
 }): string {
-	const rawMessage = error instanceof Error ? error.message : String(error);
-	const positionMatch = rawMessage.match(/position\s+(\d+)/i);
-	const position = positionMatch ? Number(positionMatch[1]) : NaN;
-	const excerpt = Number.isFinite(position)
-		? jsonText.slice(
-				Math.max(0, position - 160),
-				Math.min(jsonText.length, position + 160),
-			)
-		: jsonText.slice(0, 320);
 	return [
-		`模型返回的 Remotion JSON 解析失败：${rawMessage}。`,
-		"常见原因是 componentSource 里的 JSX、换行或双引号没有按 JSON 字符串转义，或者模型输出被截断。",
-		"优先使用 componentSourceLines 字符串数组逐行输出 TSX；如果必须使用 componentSource，请按 JSON.stringify 的语义转义：换行写成 \\n，双引号写成 \\\"，不要把多行代码直接粘进 JSON 字符串。",
-		`JSON 输出长度：${jsonText.length}。`,
-		`错误附近片段：${excerpt}`,
-	].join(" ");
+		"type Props = {",
+		...propsSchema.map((item) => `  ${item.key}: ${typeForProp({ prop: item })};`),
+		"};",
+	].join("\n");
+}
+
+function buildCodeSystemPrompt({
+	skillContext,
+	propsSchema,
+	providerConfig,
+}: {
+	skillContext: string;
+	propsSchema: ShotlyxMGPropDefinition[];
+	providerConfig?: LLMProviderConfig;
+}): string {
+	return [
+		"You generate fully custom Shotlyx MG animations as Remotion-compatible React component source code.",
+		"Return TSX code only. Do not return JSON, Markdown explanation, a template id, a storyboard, or prose.",
+		"The code must export default function ShotlyxComponent(props: Props).",
+		"Do not include import statements. Do not redeclare Remotion APIs at module scope.",
+		"Allowed Remotion APIs are injected as bare bindings: AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video.",
+		"React is available globally. Use JSX normally.",
+		"Never use fetch, XMLHttpRequest, WebSocket, eval, Function, document, window, localStorage, sessionStorage, indexedDB, require, dynamic import, __filename, __dirname, process, Buffer, module, exports, or import.meta.",
+		"Use frame-based motion only: useCurrentFrame(), useVideoConfig(), interpolate(), spring(), and deterministic math.",
+		"Do not use CSS transition, CSS animation, @keyframes, or Tailwind animate/transition utility classes.",
+		"Prefer SVG, div geometry, masks, gradients, strokes, paths, and deterministic particle arrays for motion graphics.",
+		"For moving elements, do not apply the same axis twice. Example: do not use top: y together with transform: translateY(y); use one positioning method per axis.",
+		"Use only the provided props contract. Do not invent additional props.",
+		buildPropsType({ propsSchema }),
+		`Default editable props: ${JSON.stringify(
+			buildDefaultPropsFromSchema({ propsSchema }),
+		)}`,
+		providerConfig?.provider ? `Provider: ${providerConfig.provider}` : "",
+		skillContext,
+	]
+		.filter(Boolean)
+		.join("\n");
+}
+
+function buildCodeUserPrompt({
+	prompt,
+	durationSeconds,
+	aspectRatio,
+	styleGuide,
+	validationErrors,
+	previousSource,
+	transparentBackground,
+	propsSchema,
+}: {
+	prompt: string;
+	durationSeconds: number;
+	aspectRatio: ShotlyxMGAspectRatio;
+	styleGuide?: string;
+	validationErrors?: string[];
+	previousSource?: string;
+	transparentBackground: boolean;
+	propsSchema: ShotlyxMGPropDefinition[];
+}): string {
+	const size = canvasSizeForAspectRatio({ aspectRatio });
+	const noText = isNoTextMGRequest({ prompt });
+	return [
+		`User request: ${prompt}`,
+		`Duration: ${durationSeconds}s`,
+		`Canvas: ${size.width}x${size.height}, aspect ${aspectRatio}, fps ${DEFAULT_FPS}`,
+		`Background: ${transparentBackground ? "transparent overlay" : "solid/custom allowed"}`,
+		styleGuide ? `Style guide: ${styleGuide}` : "",
+		noText
+			? "The user requested no text / pure visual. Do not render words, labels, numbers, headings, captions, or placeholder text."
+			: "Visible text must come from the provided props and the user request. Do not render placeholder copy.",
+		transparentBackground
+			? "Do not paint a full-canvas opaque background. If a backdrop is needed, use props.backdropOpacity and keep it local/subtle."
+			: "A full-canvas background is allowed when it improves the requested design.",
+		"Design the content structure, visual direction, timing, and micro-motion yourself. Do not imitate a builtin template.",
+		"Use enough geometry or particles so the result is visibly non-empty at frame 0, 25%, 50%, 75%, and the final frame. For falling/rain effects, initialize some elements already inside the viewport and wrap them deterministically.",
+		"Keep animated coordinates within or near the canvas. Avoid putting every element off-screen during the sampled frames.",
+		`Editable props available to the component: ${propsSchema
+			.map((item) => item.key)
+			.join(", ")}`,
+		validationErrors?.length
+			? `Previous code failed. Fix only the code and return a complete corrected TSX component.\nErrors:\n${validationErrors.join("\n")}`
+			: "",
+		previousSource
+			? `Previous code:\n\`\`\`tsx\n${previousSource.slice(
+					0,
+					MAX_SOURCE_CHARS,
+				)}\n\`\`\``
+			: "",
+	]
+		.filter(Boolean)
+		.join("\n");
+}
+
+function extractComponentSourceFromText({ text }: { text: string }): string {
+	const trimmed = text.trim();
+	if (!trimmed) throw new Error("No output generated.");
+	const fenced = trimmed.match(
+		/```(?:tsx|typescript|ts|jsx|javascript|js)?\s*([\s\S]*?)```/i,
+	);
+	let source = (fenced?.[1] ?? trimmed).trim();
+	const exportIndex = source.search(
+		/export\s+default\s+function\s+ShotlyxComponent\b/,
+	);
+	if (exportIndex > 0) source = source.slice(exportIndex).trim();
+	if (!/export\s+default\s+function\s+ShotlyxComponent\b/.test(source)) {
+		source = source.replace(
+			/\bfunction\s+ShotlyxComponent\b/,
+			"export default function ShotlyxComponent",
+		);
+	}
+	const trailingFenceIndex = source.indexOf("```");
+	if (trailingFenceIndex >= 0) {
+		source = source.slice(0, trailingFenceIndex).trim();
+	}
+	return source;
 }
 
 function textFromGenerateTextResult(result: unknown): string {
-	if (isRecord(result) && typeof result.text === "string") {
+	if (
+		typeof result === "object" &&
+		result !== null &&
+		"text" in result &&
+		typeof result.text === "string"
+	) {
 		return result.text;
 	}
-	if (isRecord(result) && typeof result.output === "string") {
+	if (
+		typeof result === "object" &&
+		result !== null &&
+		"output" in result &&
+		typeof result.output === "string"
+	) {
 		return result.output;
 	}
 	throw new Error("No output generated.");
@@ -1359,11 +1027,11 @@ export async function generateShotlyxMGComponentDocument({
 	model,
 	providerConfig,
 	generateTextFn = generateText,
-	repairAttempts = 1,
+	repairAttempts = 3,
 	abortSignal,
 	maxOutputTokens = MAX_OUTPUT_TOKENS,
-	preferPlainJson = false,
 	transparentBackground = true,
+	name,
 }: GenerateShotlyxMGComponentOptions): Promise<ShotlyxRemotionComponentDocument> {
 	const defaultBundle = model ? undefined : getDefaultModelBundle();
 	const selectedModel = model ?? defaultBundle?.model;
@@ -1373,109 +1041,78 @@ export async function generateShotlyxMGComponentDocument({
 	const selectedProviderConfig = providerConfig ?? defaultBundle?.config;
 	const requestedDuration = Math.max(0.1, Math.min(durationSeconds, 120));
 	const requestedSize = canvasSizeForAspectRatio({ aspectRatio });
-	let validationErrors: string[] | undefined;
-	let lastError: unknown;
-	let usePlainJson = preferPlainJson;
-	let attempt = 0;
+	const propsSchema = derivePropsSchema({
+		prompt,
+		styleGuide,
+		transparentBackground,
+	});
 	const skillContext = buildRemotionSkillContext({
 		prompt,
 		styleGuide,
 	});
+	let validationErrors: string[] | undefined;
+	let previousSource: string | undefined;
+	let lastError: unknown;
+	let attempt = 0;
 
 	while (attempt <= repairAttempts) {
 		try {
-			const structuredMode = resolveStructuredGenerationMode({
-				config: selectedProviderConfig,
-				preferPlainJson: usePlainJson,
-			});
-			const plainJsonRequest = structuredMode === "plain-json";
-			const baseRequest: GenerateTextRequest = {
+			const result = await generateTextFn({
 				model: selectedModel,
-				system: buildSystemPrompt({ skillContext }),
-				prompt: buildUserPrompt({
+				system: buildCodeSystemPrompt({
+					skillContext,
+					propsSchema,
+					providerConfig: selectedProviderConfig,
+				}),
+				prompt: buildCodeUserPrompt({
 					prompt,
 					durationSeconds: requestedDuration,
 					aspectRatio,
 					styleGuide,
 					validationErrors,
-					plainJson: plainJsonRequest,
+					previousSource,
 					transparentBackground,
+					propsSchema,
 				}),
 				maxOutputTokens,
 				abortSignal,
-			};
-			const structuredRequest = buildStructuredGenerateTextRequest({
-				baseRequest,
-				config: selectedProviderConfig,
-				outputName: "ShotlyxRemotionComponent",
-				outputDescription:
-					"One editable Remotion-compatible React component asset.",
-				schema: shotlyxRemotionGeneratedComponentSchema,
-				preferPlainJson: plainJsonRequest,
 			});
-			const generated =
-				structuredRequest.mode === "plain-json"
-					? parseGeneratedComponent(
-							parseJsonObjectFromText({
-								text: textFromGenerateTextResult(
-									await generateTextFn(structuredRequest.request),
-								),
-							}),
-						)
-					: parseGeneratedComponent(
-							(await generateTextFn(structuredRequest.request)).output,
-						);
-			const normalizedDuration = generated.durationSeconds ?? requestedDuration;
-			const fps = generated.fps ?? DEFAULT_FPS;
-			const width = generated.width ?? requestedSize.width;
-			const height = generated.height ?? requestedSize.height;
-			const normalizedAspectRatio = generated.aspectRatio ?? aspectRatio;
+			const source = extractComponentSourceFromText({
+				text: textFromGenerateTextResult(result),
+			});
+			if (source.length > MAX_SOURCE_CHARS) {
+				throw new Error(
+					`Generated Remotion component source is too long: ${source.length}`,
+				);
+			}
+			previousSource = source;
 			const durationInFrames = Math.max(
 				1,
-				Math.round(normalizedDuration * fps),
+				Math.round(requestedDuration * DEFAULT_FPS),
 			);
-				const thumbnailFrame =
-					generated.thumbnailFrame === null
-						? Math.floor(durationInFrames * 0.45)
-						: Math.min(durationInFrames - 1, generated.thumbnailFrame);
-				const propsSchema = normalizeGeneratedPropsSchema({
-					propsSchema: generated.propsSchema,
-					transparentBackground,
-				});
-				return await createShotlyxRemotionComponentDocument({
-					name: generated.name,
-					durationSeconds: normalizedDuration,
-					fps,
-					width,
-					height,
-					aspectRatio: normalizedAspectRatio,
-					transparentBackground,
-					componentSource: generated.componentSource,
-					propsSchema,
-					sourcePrompt: prompt,
-					thumbnailFrame,
-				});
-			} catch (error) {
-				lastError = error;
-				validationErrors = [
-					error instanceof Error ? error.message : String(error),
-				];
-			if (
-				!usePlainJson &&
-				(isStructuredOutputSchemaError(error) ||
-					isStructuredOutputValueError(error))
-			) {
-				usePlainJson = true;
-				validationErrors = [
-					`结构化输出不可用，已切换为普通 JSON 生成模式继续重试：${validationErrors[0]}`,
-				];
-				continue;
-			}
+			return await createShotlyxRemotionComponentDocument({
+				name: name?.trim() || buildGeneratedComponentName({ prompt }),
+				durationSeconds: requestedDuration,
+				fps: DEFAULT_FPS,
+				width: requestedSize.width,
+				height: requestedSize.height,
+				aspectRatio,
+				transparentBackground,
+				componentSource: source,
+				propsSchema,
+				sourcePrompt: prompt,
+				thumbnailFrame: Math.floor(durationInFrames * 0.45),
+			});
+		} catch (error) {
+			lastError = error;
+			validationErrors = [
+				error instanceof Error ? error.message : String(error),
+			];
 			attempt += 1;
 		}
 	}
 
 	throw lastError instanceof Error
 		? lastError
-		: new Error("Shotlyx Remotion component generation failed");
+		: new Error("Shotlyx Remotion safe-code generation failed");
 }
