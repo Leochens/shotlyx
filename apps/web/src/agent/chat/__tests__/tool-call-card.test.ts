@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import type { ToolCallRecord } from "@/agent/controller/types";
 import {
+	ToolCallGroup,
 	buildToolCallSummary,
 	getJobTaskProgressItems,
 	getStockLicenseDisplay,
@@ -40,6 +43,24 @@ describe("tool call card display helpers", () => {
 		expect(buildToolCallSummary(toolCalls)).toBe(
 			"工具调用 · 3 项 · 2 成功 · 1 失败",
 		);
+	});
+
+	test("renders the tool group with a light-mode card surface", () => {
+		const toolCalls: ToolCallRecord[] = [
+			{
+				tool: "project_get_summary",
+				params: {},
+				result: { status: "success", data: { name: "Agent测试" } },
+			},
+		];
+
+		const html = renderToStaticMarkup(
+			createElement(ToolCallGroup, { toolCalls }),
+		);
+
+		expect(html).toContain("border-border/70");
+		expect(html).toContain("bg-card/95");
+		expect(html).not.toContain("border-cyan-300/15 bg-neutral-950/55");
 	});
 
 	test("includes pending count while tools are still running", () => {

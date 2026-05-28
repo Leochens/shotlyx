@@ -19,11 +19,18 @@ function notifyListeners() {
 	for (const listener of listeners) listener();
 }
 
-function resolveBrowserLocale(): AppLocale {
-	if (typeof navigator === "undefined") return DEFAULT_APP_LOCALE;
-	return navigator.language.toLowerCase().startsWith("zh")
+export function resolveAppLocaleFromLanguage(
+	language?: string | null,
+): AppLocale {
+	return language?.toLowerCase().startsWith("zh")
 		? "zh-CN"
 		: DEFAULT_APP_LOCALE;
+}
+
+function resolveBrowserLocale(): AppLocale {
+	if (typeof navigator === "undefined") return DEFAULT_APP_LOCALE;
+	const primaryLanguage = navigator.languages?.[0] ?? navigator.language;
+	return resolveAppLocaleFromLanguage(primaryLanguage);
 }
 
 function readStoredLocale(): AppLocale {

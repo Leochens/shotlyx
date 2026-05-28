@@ -17,6 +17,7 @@ type ThemeContextValue = {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 const STORAGE_KEY = "shotlyx-theme";
+export const DEFAULT_THEME: Theme = "dark";
 
 function getSystemTheme(): "light" | "dark" {
 	if (typeof window === "undefined") return "dark";
@@ -35,7 +36,7 @@ function readInitialTheme(defaultTheme: Theme): Theme {
 
 export function ThemeProvider({
 	children,
-	defaultTheme = "system",
+	defaultTheme = DEFAULT_THEME,
 }: {
 	children: ReactNode;
 	attribute?: "class";
@@ -78,8 +79,8 @@ export function useTheme() {
 	const value = useContext(ThemeContext);
 	if (value) return value;
 	return {
-		theme: "system" as const,
-		resolvedTheme: getSystemTheme(),
+		theme: DEFAULT_THEME,
+		resolvedTheme: DEFAULT_THEME,
 		setTheme: () => {},
 	};
 }

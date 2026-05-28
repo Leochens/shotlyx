@@ -9,10 +9,9 @@ import type { ChatMessage } from "@/agent/chat/types";
 describe("MessageItem", () => {
 	test("uses render keys that remain unique for duplicate action ids", () => {
 		expect(
-			[
-				{ id: "option-b-roll" },
-				{ id: "option-b-roll" },
-			].map((action, index) => getMessageActionRenderKey({ action, index })),
+			[{ id: "option-b-roll" }, { id: "option-b-roll" }].map((action, index) =>
+				getMessageActionRenderKey({ action, index }),
+			),
 		).toEqual(["option-b-roll:0", "option-b-roll:1"]);
 	});
 
@@ -37,6 +36,20 @@ describe("MessageItem", () => {
 		expect(html).toContain("<br");
 		expect(html).toContain("<strong");
 		expect(html).toContain("<table");
+	});
+
+	test("renders assistant content with a readable light-mode bubble surface", () => {
+		const message: ChatMessage = {
+			id: "assistant-light-surface",
+			role: "assistant",
+			content: "项目目前是空的，需要先上传素材。",
+			timestamp: 0,
+		};
+
+		const html = renderToStaticMarkup(<MessageItem message={message} />);
+
+		expect(html).toContain("border-border/70");
+		expect(html).toContain("bg-card/85");
 	});
 
 	test("renders streaming assistant content as lightweight plain text", () => {

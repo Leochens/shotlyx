@@ -203,22 +203,22 @@ html[data-shotlyx-window-state="full"] .electron-window-left-slot--desktop {
 }
 
 .editor-workbench .agent-panel {
-	--background: hsl(186 34% 96%);
+	--background: hsl(190 18% 92%);
 	--foreground: hsl(206 25% 13%);
-	--card: hsl(186 34% 97%);
+	--card: hsl(190 18% 94%);
 	--card-foreground: hsl(206 25% 13%);
-	--popover: hsl(186 34% 97%);
-	--popover-hover: hsl(186 26% 90%);
+	--popover: hsl(190 18% 94%);
+	--popover-hover: hsl(190 16% 87%);
 	--popover-foreground: hsl(206 25% 13%);
-	--secondary: hsl(188 55% 90%);
-	--secondary-border: hsl(188 42% 78%);
+	--secondary: hsl(188 26% 86%);
+	--secondary-border: hsl(188 26% 73%);
 	--secondary-foreground: hsl(190 82% 28%);
-	--muted: hsl(188 18% 88%);
+	--muted: hsl(190 13% 84%);
 	--muted-foreground: hsl(202 11% 43%);
-	--accent: hsl(188 24% 89%);
+	--accent: hsl(188 16% 86%);
 	--accent-foreground: hsl(204 23% 15%);
-	--border: hsl(188 20% 78%);
-	--input: hsl(188 24% 93%);
+	--border: hsl(190 14% 72%);
+	--input: hsl(190 16% 89%);
 	--ring: hsl(188 82% 40%);
 }
 

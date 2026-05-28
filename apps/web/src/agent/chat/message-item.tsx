@@ -173,8 +173,8 @@ export function MessageItem({
 		return getAssistantContentPreview({ content: message.content });
 	}, [isExpanded, isLongAssistantContent, message.content]);
 	const textBubbleClassName = isUser
-		? "border border-sky-200/45 bg-sky-50/70 text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:border-sky-200/10 dark:bg-sky-300/[0.075] dark:text-neutral-100 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
-		: "bg-muted text-foreground";
+		? "border border-primary/20 bg-primary/10 text-foreground shadow-[0_8px_20px_rgba(14,116,144,0.08),inset_0_1px_0_rgba(255,255,255,0.72)] dark:border-sky-200/10 dark:bg-sky-300/[0.075] dark:text-neutral-100 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
+		: "border border-border/70 bg-card/85 text-foreground shadow-[0_10px_26px_rgba(14,44,56,0.07),inset_0_1px_0_rgba(255,255,255,0.75)] dark:border-border/45 dark:bg-muted/55 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]";
 
 	return (
 		<div

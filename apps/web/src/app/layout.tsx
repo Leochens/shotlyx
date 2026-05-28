@@ -31,7 +31,7 @@ export default function RootLayout({
 			<body className="font-sans antialiased">
 				<ThemeProvider
 					attribute="class"
-					defaultTheme="system"
+					defaultTheme="dark"
 					disableTransitionOnChange={true}
 				>
 					<TooltipProvider>

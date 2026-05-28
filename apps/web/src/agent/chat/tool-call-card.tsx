@@ -47,27 +47,31 @@ export interface ToolOutputDisplay {
 const STATUS_CONFIG = {
 	pending: {
 		icon: Loader2,
-		iconClass: "animate-spin text-blue-400",
-		dotClass: "bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.65)]",
+		iconClass: "animate-spin text-blue-500 dark:text-blue-400",
+		dotClass:
+			"bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.35)] dark:bg-blue-400 dark:shadow-[0_0_10px_rgba(96,165,250,0.65)]",
 		label: "执行中",
-		labelClass: "text-blue-300",
-		rowClass: "border-blue-500/30 bg-blue-500/5",
+		labelClass: "text-blue-600 dark:text-blue-300",
+		rowClass:
+			"border-blue-200/80 bg-blue-50/80 dark:border-blue-500/30 dark:bg-blue-500/5",
 	},
 	success: {
 		icon: CheckCircle2,
-		iconClass: "text-emerald-400",
-		dotClass: "bg-emerald-400",
+		iconClass: "text-emerald-600 dark:text-emerald-400",
+		dotClass: "bg-emerald-500 dark:bg-emerald-400",
 		label: "已完成",
-		labelClass: "text-emerald-300",
-		rowClass: "border-neutral-800 bg-neutral-900/40",
+		labelClass: "text-emerald-600 dark:text-emerald-300",
+		rowClass:
+			"border-emerald-200/80 bg-emerald-50/80 dark:border-neutral-800 dark:bg-neutral-900/40",
 	},
 	error: {
 		icon: XCircle,
-		iconClass: "text-red-400",
-		dotClass: "bg-red-400",
+		iconClass: "text-red-600 dark:text-red-400",
+		dotClass: "bg-red-500 dark:bg-red-400",
 		label: "失败",
-		labelClass: "text-red-300",
-		rowClass: "border-red-500/30 bg-red-500/5",
+		labelClass: "text-red-600 dark:text-red-300",
+		rowClass:
+			"border-red-200/90 bg-red-50/80 dark:border-red-500/30 dark:bg-red-500/5",
 	},
 } as const;
 
@@ -169,18 +173,18 @@ export function getToolOutputDisplay(
 	if (status === "success") {
 		return {
 			tone: "success",
-				text:
-					toolCall.tool === "creative_generate_image"
-						? "图片已生成并保存到资源库。"
-						: toolCall.tool === "creative_generate_seedance_video"
-							? "Seedance 视频已生成并保存到资源库。"
-							: toolCall.tool === "stock_search_media"
-								? "素材候选已通过资源卡展示。"
-								: toolCall.tool === "rough_cut_create_review"
-									? "粗剪审核单已生成，请在弹窗里确认后再剪辑。"
-									: toolCall.tool === "rough_cut_apply_review"
-										? "已按审核结果完成粗剪。"
-										: stringifyCompact(toolCall.result.data),
+			text:
+				toolCall.tool === "creative_generate_image"
+					? "图片已生成并保存到资源库。"
+					: toolCall.tool === "creative_generate_seedance_video"
+						? "Seedance 视频已生成并保存到资源库。"
+						: toolCall.tool === "stock_search_media"
+							? "素材候选已通过资源卡展示。"
+							: toolCall.tool === "rough_cut_create_review"
+								? "粗剪审核单已生成，请在弹窗里确认后再剪辑。"
+								: toolCall.tool === "rough_cut_apply_review"
+									? "已按审核结果完成粗剪。"
+									: stringifyCompact(toolCall.result.data),
 		};
 	}
 	return {
@@ -316,7 +320,7 @@ export function ToolCallGroup({ toolCalls }: ToolCallGroupProps) {
 	const selectedIndex = getSelectedIndex({ toolCalls, selectedToolKey });
 
 	return (
-		<div className="mt-2 w-full overflow-hidden rounded-sm border border-cyan-300/15 bg-neutral-950/55">
+		<div className="mt-2 w-full overflow-hidden rounded-sm border border-border/70 bg-card/95 shadow-[0_12px_30px_rgba(14,44,56,0.08),inset_0_1px_0_rgba(255,255,255,0.72)] dark:border-cyan-300/15 dark:bg-neutral-950/55 dark:shadow-none">
 			<button
 				type="button"
 				onClick={() => {
@@ -325,26 +329,26 @@ export function ToolCallGroup({ toolCalls }: ToolCallGroupProps) {
 						value === statusSignature ? null : statusSignature,
 					);
 				}}
-				className="flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-neutral-900/80"
+				className="flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-accent/70 dark:hover:bg-neutral-900/80"
 			>
 				<div className="min-w-0 flex-1">
-					<div className="truncate text-xs font-medium text-neutral-200">
+					<div className="truncate text-xs font-medium text-foreground dark:text-neutral-200">
 						{summary}
 					</div>
-					<div className="truncate text-[10px] text-neutral-500">
+					<div className="truncate text-[10px] text-muted-foreground dark:text-neutral-500">
 						{compactToolNames}
 					</div>
 				</div>
 				<ChevronDown
 					size={14}
-					className={`shrink-0 text-neutral-500 transition-transform ${
+					className={`shrink-0 text-muted-foreground transition-transform dark:text-neutral-500 ${
 						isOpen ? "rotate-180" : ""
 					}`}
 				/>
 			</button>
 
 			{isOpen && (
-				<div className="border-t border-neutral-800 px-2 py-2">
+				<div className="border-border/70 border-t px-2 py-2 dark:border-neutral-800">
 					{!hasPending && !hasError && shouldShowRunReviewStrip(toolCalls) && (
 						<RunReviewStrip />
 					)}
@@ -373,11 +377,13 @@ function shouldShowRunReviewStrip(toolCalls: ToolCallRecord[]): boolean {
 
 function RunReviewStrip() {
 	return (
-		<div className="mb-2 flex items-start gap-2 rounded-sm border border-emerald-300/15 bg-emerald-300/10 px-2.5 py-2 text-[0.68rem] leading-5 text-emerald-100/85">
-			<CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-emerald-300" />
+		<div className="mb-2 flex items-start gap-2 rounded-sm border border-emerald-200/90 bg-emerald-50/90 px-2.5 py-2 text-[0.68rem] leading-5 text-emerald-800 dark:border-emerald-300/15 dark:bg-emerald-300/10 dark:text-emerald-100/85">
+			<CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-300" />
 			<div>
-				<span className="font-medium text-emerald-200">已应用到当前项目。</span>
-				<span className="text-emerald-100/70">
+				<span className="font-medium text-emerald-800 dark:text-emerald-200">
+					已应用到当前项目。
+				</span>
+				<span className="text-emerald-700/80 dark:text-emerald-100/70">
 					{" "}
 					如果效果不对，可以用撤销回退，或继续让 Agent 基于当前结果调整。
 				</span>
@@ -417,22 +423,22 @@ function ToolCallRow({
 				<span
 					className={`h-1.5 w-1.5 shrink-0 rounded-full ${config.dotClass}`}
 				/>
-				<span className="shrink-0 text-[10px] tabular-nums text-neutral-600">
+				<span className="shrink-0 text-[10px] tabular-nums text-muted-foreground dark:text-neutral-600">
 					{String(index + 1).padStart(2, "0")}
 				</span>
 				<StatusIcon size={13} className={`shrink-0 ${config.iconClass}`} />
 				<div className="min-w-0 flex-1">
-					<div className="truncate font-mono text-[11px] text-neutral-300">
+					<div className="truncate font-mono text-[11px] text-foreground dark:text-neutral-300">
 						{toolCall.tool}
 					</div>
 					{latestProgress && (
 						<div
 							className={`truncate text-[10px] ${
 								latestProgress.status === "error"
-									? "text-red-300"
+									? "text-red-600 dark:text-red-300"
 									: latestProgress.status === "success"
-										? "text-emerald-300"
-										: "text-blue-300"
+										? "text-emerald-600 dark:text-emerald-300"
+										: "text-blue-600 dark:text-blue-300"
 							}`}
 						>
 							{latestProgress.label}
@@ -466,16 +472,14 @@ function ToolCallDetails({ toolCall }: { toolCall: ToolCallRecord }) {
 
 	return (
 		<div className="space-y-2">
-			{taskProgress.length > 0 && (
-				<JobTaskProgressList items={taskProgress} />
-			)}
+			{taskProgress.length > 0 && <JobTaskProgressList items={taskProgress} />}
 			{progress.length > 0 && (
 				<div>
-					<div className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-neutral-600">
+					<div className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-muted-foreground dark:text-neutral-600">
 						<Circle size={9} />
 						进度
 					</div>
-					<div className="max-h-32 overflow-auto rounded bg-neutral-950/80 p-2">
+					<div className="max-h-32 overflow-auto rounded border border-border/60 bg-background/75 p-2 dark:border-transparent dark:bg-neutral-950/80">
 						<div className="space-y-1">
 							{progress.map((event, index) => (
 								<div
@@ -492,17 +496,17 @@ function ToolCallDetails({ toolCall }: { toolCall: ToolCallRecord }) {
 										}`}
 									/>
 									<div className="min-w-0 flex-1">
-										<div className="truncate text-neutral-300">
+										<div className="truncate text-foreground dark:text-neutral-300">
 											{event.label}
 										</div>
 										{event.detail && (
-											<div className="line-clamp-2 text-neutral-600">
+											<div className="line-clamp-2 text-muted-foreground dark:text-neutral-600">
 												{event.detail}
 											</div>
 										)}
 									</div>
 									{event.total !== undefined && event.current !== undefined && (
-										<span className="shrink-0 tabular-nums text-neutral-600">
+										<span className="shrink-0 tabular-nums text-muted-foreground dark:text-neutral-600">
 											{event.current}/{event.total}
 										</span>
 									)}
@@ -514,26 +518,26 @@ function ToolCallDetails({ toolCall }: { toolCall: ToolCallRecord }) {
 			)}
 			<div className="grid gap-2 md:grid-cols-2">
 				<div>
-					<div className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-neutral-600">
+					<div className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-muted-foreground dark:text-neutral-600">
 						<Wrench size={11} />
 						输入
 					</div>
-					<pre className="max-h-56 select-text overflow-auto rounded bg-neutral-950 p-2 font-mono text-[10px] leading-relaxed whitespace-pre-wrap text-neutral-400">
+					<pre className="max-h-56 select-text overflow-auto rounded border border-border/60 bg-background/80 p-2 font-mono text-[10px] leading-relaxed whitespace-pre-wrap text-muted-foreground dark:border-transparent dark:bg-neutral-950 dark:text-neutral-400">
 						{stringifyCompact(toolCall.params)}
 					</pre>
 				</div>
 				<div>
-					<div className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-neutral-600">
+					<div className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-muted-foreground dark:text-neutral-600">
 						<Circle size={9} />
 						输出
 					</div>
 					<div
-						className={`max-h-56 select-text overflow-auto rounded p-2 text-[10px] leading-relaxed whitespace-pre-wrap ${
+						className={`max-h-56 select-text overflow-auto rounded border p-2 text-[10px] leading-relaxed whitespace-pre-wrap ${
 							output.tone === "success"
-								? "bg-emerald-500/5 text-emerald-300/80"
+								? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800 dark:border-transparent dark:bg-emerald-500/5 dark:text-emerald-300/80"
 								: output.tone === "error"
-									? "bg-red-500/5 text-red-300"
-									: "bg-blue-500/5 text-blue-300"
+									? "border-red-200/80 bg-red-50/80 text-red-700 dark:border-transparent dark:bg-red-500/5 dark:text-red-300"
+									: "border-blue-200/80 bg-blue-50/80 text-blue-700 dark:border-transparent dark:bg-blue-500/5 dark:text-blue-300"
 						}`}
 					>
 						{output.text}
@@ -547,16 +551,16 @@ function ToolCallDetails({ toolCall }: { toolCall: ToolCallRecord }) {
 function JobTaskProgressList({ items }: { items: JobTaskProgressItem[] }) {
 	return (
 		<div>
-			<div className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-neutral-600">
+			<div className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-muted-foreground dark:text-neutral-600">
 				<Grid2X2 size={10} />
 				并行任务
 			</div>
-			<div className="rounded bg-neutral-950/80 p-2">
+			<div className="rounded border border-border/60 bg-background/75 p-2 dark:border-transparent dark:bg-neutral-950/80">
 				<div className="grid gap-1 md:grid-cols-2">
 					{items.map((item) => (
 						<div
 							key={item.id}
-							className="flex min-w-0 items-center gap-2 rounded-sm border border-neutral-800/70 px-2 py-1.5"
+							className="flex min-w-0 items-center gap-2 rounded-sm border border-border/70 bg-card/65 px-2 py-1.5 dark:border-neutral-800/70 dark:bg-transparent"
 						>
 							<span
 								className={`h-1.5 w-1.5 shrink-0 rounded-full ${
@@ -568,23 +572,23 @@ function JobTaskProgressList({ items }: { items: JobTaskProgressItem[] }) {
 								}`}
 							/>
 							<div className="min-w-0 flex-1">
-								<div className="truncate text-[10px] font-medium text-neutral-300">
+								<div className="truncate text-[10px] font-medium text-foreground dark:text-neutral-300">
 									{item.label}
 								</div>
 								<div
 									className={`truncate text-[10px] ${
 										item.status === "error"
-											? "text-red-300"
+											? "text-red-600 dark:text-red-300"
 											: item.status === "success"
-												? "text-emerald-300"
-												: "text-blue-300"
+												? "text-emerald-600 dark:text-emerald-300"
+												: "text-blue-600 dark:text-blue-300"
 									}`}
 								>
 									{item.detail}
 								</div>
 							</div>
 							{item.total !== undefined && item.current !== undefined && (
-								<span className="shrink-0 tabular-nums text-[10px] text-neutral-600">
+								<span className="shrink-0 tabular-nums text-[10px] text-muted-foreground dark:text-neutral-600">
 									{item.current}/{item.total}
 								</span>
 							)}
@@ -791,10 +795,22 @@ function getPreviewButtonLabel(candidate: StockMediaCandidate): string {
 
 function StockMediaPlaceholderIcon({ type }: { type?: string }) {
 	if (type === "audio")
-		return <Music2 size={28} className="text-neutral-600" />;
+		return (
+			<Music2
+				size={28}
+				className="text-muted-foreground dark:text-neutral-600"
+			/>
+		);
 	if (type === "image")
-		return <ImageIcon size={28} className="text-neutral-600" />;
-	return <Film size={28} className="text-neutral-600" />;
+		return (
+			<ImageIcon
+				size={28}
+				className="text-muted-foreground dark:text-neutral-600"
+			/>
+		);
+	return (
+		<Film size={28} className="text-muted-foreground dark:text-neutral-600" />
+	);
 }
 
 export function StockMediaResultsPanel({
@@ -826,25 +842,25 @@ export function StockMediaResultsPanel({
 	return (
 		<div
 			data-testid="stock-media-results"
-			className="mt-2 w-full rounded-lg border border-neutral-800 bg-neutral-950/80 p-2"
+			className="mt-2 w-full rounded-lg border border-border/70 bg-card/95 p-2 shadow-[0_12px_30px_rgba(14,44,56,0.08)] dark:border-neutral-800 dark:bg-neutral-950/80 dark:shadow-none"
 		>
 			<div className="mb-2 flex items-center justify-between gap-2 px-1">
 				<div>
-					<div className="text-xs font-medium text-neutral-200">
+					<div className="text-xs font-medium text-foreground dark:text-neutral-200">
 						素材结果 · {candidates.length} 项
 					</div>
-					<div className="mt-0.5 text-[10px] text-neutral-500">
+					<div className="mt-0.5 text-[10px] text-muted-foreground dark:text-neutral-500">
 						可预览后再导入资源库
 					</div>
 				</div>
-				<div className="flex shrink-0 rounded-md border border-neutral-800 bg-neutral-900 p-0.5">
+				<div className="flex shrink-0 rounded-md border border-border/70 bg-background/80 p-0.5 dark:border-neutral-800 dark:bg-neutral-900">
 					<button
 						type="button"
 						onClick={() => setLayout("grid")}
 						className={`flex h-7 items-center gap-1 rounded px-2 text-[10px] ${
 							layout === "grid"
-								? "bg-neutral-700 text-neutral-100"
-								: "text-neutral-500 hover:text-neutral-200"
+								? "bg-card text-foreground shadow-sm dark:bg-neutral-700 dark:text-neutral-100"
+								: "text-muted-foreground hover:text-foreground dark:text-neutral-500 dark:hover:text-neutral-200"
 						}`}
 						title="平铺展示"
 					>
@@ -856,8 +872,8 @@ export function StockMediaResultsPanel({
 						onClick={() => setLayout("focus")}
 						className={`flex h-7 items-center gap-1 rounded px-2 text-[10px] ${
 							layout === "focus"
-								? "bg-neutral-700 text-neutral-100"
-								: "text-neutral-500 hover:text-neutral-200"
+								? "bg-card text-foreground shadow-sm dark:bg-neutral-700 dark:text-neutral-100"
+								: "text-muted-foreground hover:text-foreground dark:text-neutral-500 dark:hover:text-neutral-200"
 						}`}
 						title="单张切换"
 					>
@@ -897,7 +913,7 @@ export function StockMediaResultsPanel({
 									className={`size-2 rounded-full transition-colors ${
 										index === safeSelectedIndex
 											? "bg-blue-400"
-											: "bg-neutral-700 hover:bg-neutral-500"
+											: "bg-muted hover:bg-muted-foreground/35 dark:bg-neutral-700 dark:hover:bg-neutral-500"
 									}`}
 									aria-label={`查看素材 ${index + 1}`}
 									title={`查看素材 ${index + 1}`}
@@ -951,8 +967,8 @@ function StockMediaCandidateCard({
 	};
 
 	return (
-		<div className="overflow-hidden rounded-md border border-neutral-800 bg-neutral-950">
-			<div className="relative aspect-video bg-neutral-900">
+		<div className="overflow-hidden rounded-md border border-border/70 bg-card shadow-[0_8px_22px_rgba(14,44,56,0.07)] dark:border-neutral-800 dark:bg-neutral-950 dark:shadow-none">
+			<div className="relative aspect-video bg-muted/55 dark:bg-neutral-900">
 				{previewUrl && candidate.type !== "audio" ? (
 					<img
 						src={previewUrl}
@@ -964,7 +980,7 @@ function StockMediaCandidateCard({
 						<StockMediaPlaceholderIcon type={candidate.type} />
 					</div>
 				)}
-				<div className="absolute left-2 top-2 rounded bg-neutral-950/80 px-1.5 py-0.5 text-[10px] font-medium text-neutral-200">
+				<div className="absolute left-2 top-2 rounded bg-background/85 px-1.5 py-0.5 text-[10px] font-medium text-foreground shadow-sm backdrop-blur dark:bg-neutral-950/80 dark:text-neutral-200">
 					{formatProvider(candidate.provider)}
 				</div>
 				<div
@@ -986,7 +1002,7 @@ function StockMediaCandidateCard({
 					type="button"
 					onClick={() => onPreview?.(candidate)}
 					disabled={!candidate.previewUrl}
-					className="absolute bottom-2 right-2 inline-flex h-8 items-center gap-1.5 rounded bg-neutral-950/85 px-2 text-xs font-medium text-neutral-200 backdrop-blur hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-45"
+					className="absolute bottom-2 right-2 inline-flex h-8 items-center gap-1.5 rounded bg-background/90 px-2 text-xs font-medium text-foreground shadow-sm backdrop-blur hover:bg-background disabled:cursor-not-allowed disabled:opacity-45 dark:bg-neutral-950/85 dark:text-neutral-200 dark:hover:bg-neutral-900"
 				>
 					{candidate.type === "image" ? (
 						<Expand size={13} />
@@ -1001,18 +1017,18 @@ function StockMediaCandidateCard({
 
 			<div className="space-y-2 p-2">
 				<div>
-					<div className="line-clamp-2 text-xs font-medium leading-snug text-neutral-200">
+					<div className="line-clamp-2 text-xs font-medium leading-snug text-foreground dark:text-neutral-200">
 						{title}
 					</div>
-					<div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-neutral-500">
+					<div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground dark:text-neutral-500">
 						<span>{formatDuration(candidate.durationSeconds)}</span>
 						<span>{formatResolution(candidate)}</span>
 						{candidate.author?.name && <span>{candidate.author.name}</span>}
 					</div>
 				</div>
 
-				<div className="rounded bg-neutral-900/70 px-2 py-1.5 text-[10px] leading-relaxed text-neutral-400">
-					<div className="font-medium text-neutral-300">
+				<div className="rounded border border-border/60 bg-background/75 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground dark:border-transparent dark:bg-neutral-900/70 dark:text-neutral-400">
+					<div className="font-medium text-foreground dark:text-neutral-300">
 						{candidate.license?.name ?? "授权信息未知"}
 					</div>
 					<div>{licenseDisplay.description}</div>
@@ -1045,7 +1061,7 @@ function StockMediaCandidateCard({
 								? "bg-emerald-600/20 text-emerald-300"
 								: status === "error"
 									? "bg-red-600/20 text-red-300 hover:bg-red-600/30"
-									: "bg-blue-600 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+									: "bg-blue-600 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500"
 						}`}
 					>
 						{status === "importing" ? (
@@ -1066,7 +1082,7 @@ function StockMediaCandidateCard({
 							href={candidate.sourceUrl}
 							target="_blank"
 							rel="noreferrer"
-							className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:bg-neutral-900 hover:text-neutral-200"
+							className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border text-muted-foreground hover:border-primary/40 hover:bg-accent hover:text-foreground dark:border-neutral-800 dark:text-neutral-400 dark:hover:border-neutral-700 dark:hover:bg-neutral-900 dark:hover:text-neutral-200"
 							aria-label="打开素材来源"
 							title="打开素材来源"
 						>
@@ -1199,9 +1215,9 @@ function GeneratedImagesPreview({ data }: { data: unknown }) {
 				return (
 					<div
 						key={image.id ?? `${label}-${index}`}
-						className="overflow-hidden rounded-md border border-neutral-800 bg-neutral-950"
+						className="overflow-hidden rounded-md border border-border/70 bg-card dark:border-neutral-800 dark:bg-neutral-950"
 					>
-						<div className="flex aspect-video items-center justify-center bg-neutral-950">
+						<div className="flex aspect-video items-center justify-center bg-muted/60 dark:bg-neutral-950">
 							{src ? (
 								<img
 									src={src}
@@ -1209,14 +1225,17 @@ function GeneratedImagesPreview({ data }: { data: unknown }) {
 									className="h-full w-full object-contain"
 								/>
 							) : (
-								<ImageIcon size={24} className="text-neutral-600" />
+								<ImageIcon
+									size={24}
+									className="text-muted-foreground dark:text-neutral-600"
+								/>
 							)}
 						</div>
 						<div className="space-y-0.5 px-2 py-1.5">
-							<div className="truncate text-xs font-medium text-neutral-200">
+							<div className="truncate text-xs font-medium text-foreground dark:text-neutral-200">
 								{label}
 							</div>
-							<div className="text-[10px] text-neutral-500">
+							<div className="text-[10px] text-muted-foreground dark:text-neutral-500">
 								{image.width && image.height
 									? `${image.width}x${image.height}`
 									: "尺寸未知"}
@@ -1232,19 +1251,22 @@ function GeneratedImagesPreview({ data }: { data: unknown }) {
 
 function ImageGenerationLoading() {
 	return (
-		<div className="overflow-hidden rounded-md border border-neutral-800 bg-neutral-950">
-			<div className="relative aspect-video bg-neutral-950">
+		<div className="overflow-hidden rounded-md border border-border/70 bg-card dark:border-neutral-800 dark:bg-neutral-950">
+			<div className="relative aspect-video bg-muted/60 dark:bg-neutral-950">
 				<div className="absolute inset-0 animate-pulse bg-[linear-gradient(110deg,transparent_0%,rgba(59,130,246,0.12)_35%,rgba(255,255,255,0.16)_50%,rgba(59,130,246,0.12)_65%,transparent_100%)]" />
 				<div className="absolute inset-4 grid grid-cols-3 gap-2 opacity-80">
-					<div className="rounded bg-neutral-800/80" />
-					<div className="rounded bg-neutral-800/50" />
-					<div className="rounded bg-neutral-800/70" />
-					<div className="col-span-2 rounded bg-neutral-800/60" />
-					<div className="rounded bg-neutral-800/40" />
+					<div className="rounded bg-muted-foreground/20 dark:bg-neutral-800/80" />
+					<div className="rounded bg-muted-foreground/12 dark:bg-neutral-800/50" />
+					<div className="rounded bg-muted-foreground/18 dark:bg-neutral-800/70" />
+					<div className="col-span-2 rounded bg-muted-foreground/15 dark:bg-neutral-800/60" />
+					<div className="rounded bg-muted-foreground/10 dark:bg-neutral-800/40" />
 				</div>
-				<div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-neutral-950 px-3 py-2">
-					<div className="flex items-center gap-2 text-xs text-neutral-300">
-						<Loader2 size={13} className="animate-spin text-blue-400" />
+				<div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background/95 px-3 py-2 dark:from-neutral-950">
+					<div className="flex items-center gap-2 text-xs text-foreground dark:text-neutral-300">
+						<Loader2
+							size={13}
+							className="animate-spin text-blue-500 dark:text-blue-400"
+						/>
 						正在生成图片并保存到资源库
 					</div>
 				</div>

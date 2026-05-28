@@ -125,6 +125,9 @@ const REMOTION_MG_TEMPLATE_OPTIONS = [
 	},
 ] as const;
 
+const CHAT_INPUT_SURFACE_CLASS_NAME =
+	"rounded-sm border border-border/80 bg-input/85 p-2 shadow-[0_8px_22px_rgba(14,44,56,0.08),inset_0_1px_0_rgba(255,255,255,0.58)] transition-[border-color,box-shadow] focus-within:border-primary/40 focus-within:shadow-[0_12px_28px_rgba(14,165,190,0.11),inset_0_1px_0_rgba(255,255,255,0.68)] dark:border-cyan-300/15 dark:bg-input/90 dark:shadow-[0_14px_40px_rgba(0,0,0,0.22)] dark:focus-within:border-cyan-300/35 dark:focus-within:shadow-[0_16px_42px_rgba(0,0,0,0.34)]";
+
 function formatSeconds(seconds: number): string {
 	const min = Math.floor(seconds / 60);
 	const sec = seconds % 60;
@@ -296,7 +299,7 @@ export function BottomToolbar({
 				}}
 				className="border-t border-border/70 bg-background/95 p-2"
 			>
-				<div className="rounded-sm border border-cyan-300/15 bg-input/90 p-2 shadow-[0_14px_40px_rgba(0,0,0,0.22)]">
+				<div className={CHAT_INPUT_SURFACE_CLASS_NAME}>
 					<textarea
 						value={input}
 						data-testid="chat-input"
@@ -423,7 +426,7 @@ export function BottomToolbar({
 				}}
 				className="border-t border-border/70 bg-background/95 p-2"
 			>
-				<div className="rounded-sm border border-cyan-300/15 bg-input/90 p-2 shadow-[0_14px_40px_rgba(0,0,0,0.22)]">
+				<div className={CHAT_INPUT_SURFACE_CLASS_NAME}>
 					<div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-2">
 						<Popover open={referenceOpen} onOpenChange={setReferenceOpen}>
 							<PopoverTrigger asChild>
@@ -547,7 +550,7 @@ export function BottomToolbar({
 			}}
 			className="border-t border-border/70 bg-background/95 p-2"
 		>
-			<div className="rounded-sm border border-cyan-300/15 bg-input/90 p-2 shadow-[0_14px_40px_rgba(0,0,0,0.22)]">
+			<div className={CHAT_INPUT_SURFACE_CLASS_NAME}>
 				<textarea
 					value={input}
 					data-testid="chat-input"

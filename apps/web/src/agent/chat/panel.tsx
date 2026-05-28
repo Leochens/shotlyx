@@ -108,27 +108,33 @@ const STARTER_PROMPT_STYLES: Array<{
 }> = [
 	{
 		icon: Scissors,
-		iconClassName: "border-cyan-300/25 bg-cyan-300/10 text-cyan-300",
+		iconClassName:
+			"border-cyan-500/20 bg-cyan-500/[0.08] text-cyan-600 dark:border-cyan-300/25 dark:bg-cyan-300/10 dark:text-cyan-300",
 	},
 	{
 		icon: Sparkles,
-		iconClassName: "border-amber-300/25 bg-amber-300/10 text-amber-200",
+		iconClassName:
+			"border-amber-500/20 bg-amber-500/[0.08] text-amber-600 dark:border-amber-300/25 dark:bg-amber-300/10 dark:text-amber-200",
 	},
 	{
 		icon: BarChart3,
-		iconClassName: "border-emerald-300/25 bg-emerald-300/10 text-emerald-300",
+		iconClassName:
+			"border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-600 dark:border-emerald-300/25 dark:bg-emerald-300/10 dark:text-emerald-300",
 	},
 	{
 		icon: LineChart,
-		iconClassName: "border-blue-300/25 bg-blue-300/10 text-blue-300",
+		iconClassName:
+			"border-blue-500/20 bg-blue-500/[0.08] text-blue-600 dark:border-blue-300/25 dark:bg-blue-300/10 dark:text-blue-300",
 	},
 	{
 		icon: Megaphone,
-		iconClassName: "border-rose-300/25 bg-rose-300/10 text-rose-300",
+		iconClassName:
+			"border-rose-500/20 bg-rose-500/[0.08] text-rose-600 dark:border-rose-300/25 dark:bg-rose-300/10 dark:text-rose-300",
 	},
 	{
 		icon: BookOpenText,
-		iconClassName: "border-violet-300/25 bg-violet-300/10 text-violet-300",
+		iconClassName:
+			"border-violet-500/20 bg-violet-500/[0.08] text-violet-600 dark:border-violet-300/25 dark:bg-violet-300/10 dark:text-violet-300",
 	},
 ];
 
@@ -333,7 +339,9 @@ function parsePlanEventData(value: unknown): {
 	};
 }
 
-function parseTokenUsageEventData(value: unknown): AgentTokenUsageTotals | null {
+function parseTokenUsageEventData(
+	value: unknown,
+): AgentTokenUsageTotals | null {
 	const usage = getRecordField({ value, key: "usage" });
 	if (!usage) return null;
 	const rawSources = Array.isArray(usage.sources) ? usage.sources : [];
@@ -360,7 +368,8 @@ function parseTokenUsageEventData(value: unknown): AgentTokenUsageTotals | null 
 		}),
 		approximate: getBooleanField({ value: usage, key: "approximate" }) ?? false,
 		sources,
-		updatedAt: getTokenCountField({ value: usage, key: "updatedAt" }) || Date.now(),
+		updatedAt:
+			getTokenCountField({ value: usage, key: "updatedAt" }) || Date.now(),
 	};
 }
 
@@ -1427,7 +1436,7 @@ export function ChatPanel() {
 		>
 			{/* Multi-session UI is intentionally disabled for the compact Agent surface. */}
 			<div className="flex flex-1 flex-col overflow-hidden">
-				<div className="flex min-h-10 min-w-0 items-center justify-between gap-1.5 border-b border-border/60 bg-background/95 px-2 py-1.5">
+				<div className="flex min-h-10 min-w-0 items-center justify-between gap-1.5 border-b border-border/70 bg-card/[0.65] px-2 py-1.5 backdrop-blur dark:bg-background/95">
 					<div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
 						<AgentModeSelect
 							selectedAgent={selectedAgent}
@@ -1510,7 +1519,7 @@ export function ChatPanel() {
 					</div>
 				</div>
 
-				<div className="scrollbar-thin min-w-0 flex-1 select-text overflow-y-auto overflow-x-hidden bg-[linear-gradient(180deg,rgba(34,211,238,0.045),transparent_18rem)] p-3">
+				<div className="scrollbar-thin min-w-0 flex-1 select-text overflow-y-auto overflow-x-hidden bg-[linear-gradient(180deg,rgba(8,145,178,0.025),rgba(255,255,255,0)_14rem)] p-3 dark:bg-[linear-gradient(180deg,rgba(34,211,238,0.045),transparent_18rem)]">
 					{visibleMessages.length === 0 && !isLoading ? (
 						<AgentEmptyState
 							disabled={isLoading || !editor}
@@ -1620,7 +1629,7 @@ function AgentEmptyState({
 	return (
 		<div className="flex min-h-full flex-col justify-center gap-4 py-4">
 			<div className="mx-auto max-w-md text-center">
-				<div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-cyan-300/80">
+				<div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-primary/[0.55] dark:text-cyan-300/80">
 					{copy.editor.chat.emptyKicker}
 				</div>
 				<h2 className="mt-2 text-xl font-semibold tracking-normal text-foreground">
@@ -1632,8 +1641,8 @@ function AgentEmptyState({
 			</div>
 
 			{!hasMedia && (
-				<div className="rounded-sm border border-cyan-300/20 bg-cyan-300/5 px-3 py-2 text-sm">
-					<div className="font-medium text-cyan-200">
+				<div className="rounded-sm border border-border/75 bg-card/[0.45] px-3 py-2 text-sm dark:border-cyan-300/20 dark:bg-cyan-300/5">
+					<div className="font-medium text-foreground dark:text-cyan-200">
 						{copy.editor.chat.emptyNoMediaTitle}
 					</div>
 					<p className="mt-1 leading-5 text-muted-foreground">
@@ -1652,10 +1661,10 @@ function AgentEmptyState({
 							type="button"
 							disabled={disabled}
 							onClick={() => onPromptSelect(prompt)}
-							className="group flex min-h-[4.8rem] w-full cursor-pointer items-center gap-3 rounded-md border border-border/70 bg-muted/35 px-3 py-2.5 text-left transition-colors hover:border-cyan-300/30 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+							className="group flex min-h-[4.8rem] w-full cursor-pointer items-center gap-3 rounded-md border border-border/75 bg-muted/[0.38] px-3 py-2.5 text-left transition-colors hover:border-primary/25 hover:bg-muted/[0.55] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:border-cyan-300/30 dark:hover:bg-accent"
 						>
 							<span
-								className={`flex size-10 shrink-0 items-center justify-center rounded-md border shadow-[0_10px_24px_rgba(0,0,0,0.16)] ${iconClassName} group-hover:text-foreground`}
+								className={`flex size-10 shrink-0 items-center justify-center rounded-md border ${iconClassName} group-hover:text-foreground`}
 							>
 								<Icon size={19} />
 							</span>

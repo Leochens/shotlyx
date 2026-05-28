@@ -3,13 +3,6 @@ import { rmSync } from "node:fs";
 
 const isDesktopE2E = process.env.SHOTLYX_DESKTOP === "1";
 
-test.skip(!isDesktopE2E, "desktop visuals require the local API bridge");
-
-test.use({
-	colorScheme: "light",
-	viewport: { width: 1440, height: 900 },
-});
-
 async function captureOneImage({
 	page,
 	testInfo,
@@ -29,6 +22,12 @@ async function captureOneImage({
 }
 
 test.describe("desktop visual smoke", () => {
+	test.skip(!isDesktopE2E, "desktop visuals require the local API bridge");
+	test.use({
+		colorScheme: "light",
+		viewport: { width: 1440, height: 900 },
+	});
+
 	test.beforeEach(async ({ page }) => {
 		if (process.env.SHOTLYX_DESKTOP_CONFIG_PATH) {
 			rmSync(process.env.SHOTLYX_DESKTOP_CONFIG_PATH, { force: true });
@@ -64,7 +63,9 @@ test.describe("desktop visual smoke", () => {
 			.click();
 		await page.waitForURL(/\/editor\//);
 		await expect(page.locator(".editor-workbench")).toBeVisible();
-		await expect(page.locator('header button[aria-label="设置"]')).toBeVisible();
+		await expect(
+			page.locator('header button[aria-label="设置"]'),
+		).toBeVisible();
 
 		await captureOneImage({ page, testInfo, name: "editor-workbench" });
 	});
