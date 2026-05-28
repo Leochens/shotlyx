@@ -330,13 +330,39 @@ function createDefaultPlan({
 	};
 }
 
+function isPureVisualEffectRequest(text: string): boolean {
+	return includesAny({
+		text,
+		values: [
+			"纯视觉",
+			"无文字",
+			"粒子",
+			"星星",
+			"星空",
+			"爆炸",
+			"特效",
+			"光效",
+			"转场",
+			"数字雨",
+			"数据雨",
+			"digital rain",
+			"matrix",
+			"particle",
+			"particles",
+			"starfield",
+			"explosion",
+			"visual effect",
+		],
+	});
+}
+
 export function createShotlyxMGCompositionPlan({
 	prompt,
 	componentCount,
 	durationSeconds,
 	styleGuide,
 }: CreateShotlyxMGCompositionPlanOptions): ShotlyxMGCompositionDirectorPlan {
-	const normalized = `${prompt} ${styleGuide ?? ""}`.toLowerCase();
+	const normalized = prompt.toLowerCase();
 	const safeComponentCount = Math.max(Math.floor(componentCount), 1);
 	if (
 		includesAny({
@@ -345,6 +371,14 @@ export function createShotlyxMGCompositionPlan({
 		})
 	) {
 		return createAiAgentPlan({
+			componentCount: safeComponentCount,
+			durationSeconds,
+			styleGuide,
+		});
+	}
+	if (isPureVisualEffectRequest(normalized)) {
+		return createDefaultPlan({
+			prompt,
 			componentCount: safeComponentCount,
 			durationSeconds,
 			styleGuide,

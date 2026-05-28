@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { SMART_MG_COMPOSITION_STYLE_GUIDE } from "../composition-prompt";
 import { createShotlyxMGCompositionPlan } from "../composition-director";
 
 describe("Shotlyx MG composition director", () => {
@@ -46,6 +47,22 @@ describe("Shotlyx MG composition director", () => {
 			plan.components.map((component) => component.durationSeconds),
 		).toEqual([2.8, 2.4, 1.8, 3.8]);
 		expect(plan.components[2]?.screenTiming).toBe("5.2s-7.0s");
+	});
+
+	test("does not let generic smart style guidance reclassify pure visual effects as data templates", () => {
+		const plan = createShotlyxMGCompositionPlan({
+			prompt: "生成一个数据雨和星星爆炸的纯视觉粒子 MG 动画，不出现文字",
+			componentCount: 4,
+			durationSeconds: 5,
+			styleGuide: SMART_MG_COMPOSITION_STYLE_GUIDE,
+		});
+
+		expect(plan.components.map((component) => component.id)).toEqual([
+			"concept",
+			"main-mechanism",
+			"callouts",
+			"final-summary",
+		]);
 	});
 
 	test("can plan more than five MG components without truncating", () => {

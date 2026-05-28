@@ -1,4 +1,5 @@
 import { shotlyxBattleCardFixture } from "@/shotlyx/remotion-components/fixtures/battle-card";
+import { SMART_MG_COMPOSITION_STYLE_GUIDE } from "@/shotlyx/remotion-components/composition-prompt";
 import {
 	clearShotlyxMGJobs,
 	createShotlyxMGJob,
@@ -300,6 +301,47 @@ describe("Shotlyx MG job routes", () => {
 		expect(
 			events.some((event) => event.label?.includes("正在修复具体错误")),
 		).toBe(true);
+	});
+
+	test("MG composition jobs do not auto-template pure visual effects", async () => {
+		const calls: Array<{ prompt: string }> = [];
+		const events: Array<{ label?: string; type?: string; documents?: unknown[] }> =
+			[];
+		const { jobId } = createShotlyxMGJob({
+			input: {
+				prompt: "生成一个数据雨和星星爆炸的纯视觉粒子 MG 动画，不出现文字",
+				durationSeconds: 5,
+				aspectRatio: "16:9",
+				componentCount: 4,
+				styleGuide: SMART_MG_COMPOSITION_STYLE_GUIDE,
+				templateMode: "auto",
+			},
+			generateDocumentFn: async (args) => {
+				calls.push({ prompt: args.prompt });
+				return {
+					...shotlyxBattleCardFixture,
+					name: `自定义星星爆炸 ${calls.length}`,
+				};
+			},
+		});
+		const unsubscribe = subscribeShotlyxMGJob({
+			jobId,
+			onEvent: (event) => {
+				events.push(event);
+			},
+		});
+
+		await waitForCondition({
+			condition: () => events.some((event) => event.type === "completed"),
+		});
+		unsubscribe();
+
+		const completed = events.find((event) => event.type === "completed");
+		expect(calls).toHaveLength(4);
+		expect(completed?.documents).toHaveLength(4);
+		expect(
+			events.some((event) => event.label?.includes("使用内置 MG 模板")),
+		).toBe(false);
 	});
 
 	test("MG composition jobs can use builtin templates without calling the model generator", async () => {

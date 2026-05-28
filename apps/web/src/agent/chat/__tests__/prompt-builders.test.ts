@@ -34,6 +34,8 @@ describe("chat prompt builders", () => {
 		expect(prompt).toContain("稳定唯一 key");
 		expect(prompt).toContain("只问一个简短问题让用户选择风格/目标");
 		expect(prompt).toContain("自动缩短到 1-2s");
+		expect(prompt).toContain('templateMode:"auto" 不是强制使用内置模板');
+		expect(prompt).toContain('改传 templateMode:"off"');
 		expect(prompt).not.toContain("shotlyx_generate_hyperframes_overlay");
 	});
 

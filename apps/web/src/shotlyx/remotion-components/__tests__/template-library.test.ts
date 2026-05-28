@@ -49,6 +49,17 @@ describe("Shotlyx MG template library", () => {
 		);
 	});
 
+	test("does not resolve generic default director tasks to builtin templates", () => {
+		for (const taskId of [
+			"concept",
+			"main-mechanism",
+			"callouts",
+			"final-summary",
+		]) {
+			expect(resolveShotlyxMGTemplateForTask({ taskId })).toBe(null);
+		}
+	});
+
 	test("normalizes a selected template id into forced template mode", () => {
 		expect(
 			normalizeShotlyxMGTemplateSelection({
