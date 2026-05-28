@@ -9,9 +9,12 @@ import {
 	type ToolActionResult,
 	type ToolCallActionRequest,
 } from "./tool-call-card";
-import { OptionCard } from "./option-card";
 import { ReferenceChipList } from "./reference-chip";
 import { ClarificationCard } from "./clarification-card";
+import {
+	QuestionnaireCard,
+	type QuestionnaireOption,
+} from "./questionnaire-card";
 import { ReactMarkdownWrapper } from "@/components/ui/react-markdown-wrapper";
 import type { AgentTokenUsageTotals } from "@/agent/token-usage";
 import type { MessageAction } from "@/agent/controller/types";
@@ -56,6 +59,53 @@ function getAssistantContentPreview({ content }: { content: string }): string {
 
 function PlainAssistantText({ content }: { content: string }) {
 	return <span className="whitespace-pre-wrap">{content}</span>;
+}
+
+function usesChinese(value: string): boolean {
+	return /[\u3400-\u9fff]/.test(value);
+}
+
+function getActionQuestion({ content }: { content: string }): string {
+	const normalized = content.replace(/\s+/g, " ").trim();
+	const questionMatches = normalized.match(/[^。！？.!?]*[？?]/g);
+	const lastQuestion =
+		questionMatches?.[questionMatches.length - 1]?.trim() ?? "";
+
+	if (lastQuestion && lastQuestion.length <= 96) {
+		return lastQuestion;
+	}
+
+	return usesChinese(normalized)
+		? "你希望我按哪个方向继续？"
+		: "How should I continue?";
+}
+
+function getActionQuestionnaireCopy({ content }: { content: string }) {
+	const chinese = usesChinese(content);
+
+	return {
+		title: chinese ? "需要你确认" : "Needs your answer",
+		description: chinese
+			? "选定后我会继续处理下一步。"
+			: "Pick one option and I will continue.",
+		question: getActionQuestion({ content }),
+	};
+}
+
+function toQuestionnaireOptions(
+	actions: MessageAction[],
+): QuestionnaireOption[] {
+	return actions
+		.filter((action) => action.value !== "__other__")
+		.map((action) => ({
+			id: action.id,
+			label: action.label,
+			value:
+				typeof action.value === "string" && action.value.length > 0
+					? action.value
+					: action.label,
+			description: action.description,
+		}));
 }
 
 function formatTokenCount(value: number): string {
@@ -155,9 +205,24 @@ export function MessageItem({
 		!isUser &&
 		getStockMediaCandidatesFromToolCalls(message.toolCalls).length > 0;
 	const hasActions = !isUser && message.actions && message.actions.length > 0;
+	const optionActions = hasActions
+		? message.actions!.filter((action) => action.isOption)
+		: [];
+	const plainActions = hasActions
+		? message.actions!.filter((action) => !action.isOption)
+		: [];
 	const hasClarification = !isUser && message.clarification;
 	const hasError = !isUser && message.error;
-	const isOptions = hasActions && message.actions!.some((a) => a.isOption);
+	const isOptions = optionActions.length > 0;
+	const optionQuestionnaireCopy = isOptions
+		? getActionQuestionnaireCopy({ content: message.content })
+		: null;
+	const optionQuestionnaireOptions = isOptions
+		? toQuestionnaireOptions(optionActions)
+		: [];
+	const allowsCustomOption = optionActions.some(
+		(action) => action.value === "__other__",
+	);
 	const hasReferences = isUser && (message.references?.length ?? 0) > 0;
 	const isLongAssistantContent =
 		!isUser &&
@@ -302,21 +367,53 @@ export function MessageItem({
 				{hasActions && (
 					<div className="mt-2 w-full">
 						{isOptions ? (
-							<div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,13.5rem),1fr))] gap-2.5">
-								{message.actions!.map((action, index) => (
-									<OptionCard
-										key={getMessageActionRenderKey({ action, index })}
-										option={action}
-										onSelect={() =>
-											onActionClick?.({ actionId: action.id, action })
+							<div className="space-y-2.5">
+								<QuestionnaireCard
+									title={optionQuestionnaireCopy!.title}
+									description={optionQuestionnaireCopy!.description}
+									question={optionQuestionnaireCopy!.question}
+									options={optionQuestionnaireOptions}
+									allowOther={allowsCustomOption}
+									onAnswer={(answer, option) => {
+										const action = option
+											? optionActions.find((item) => item.id === option.id)
+											: undefined;
+
+										if (action) {
+											onActionClick?.({ actionId: action.id, action });
+											return;
 										}
-										onCustomSubmit={onOptionCustomAnswer}
-									/>
-								))}
+
+										onOptionCustomAnswer?.(answer);
+									}}
+								/>
+								{plainActions.length > 0 && (
+									<div className="flex flex-wrap gap-2">
+										{plainActions.map((action, index) => (
+											<button
+												key={getMessageActionRenderKey({ action, index })}
+												data-testid={`action-${action.id}`}
+												type="button"
+												onClick={() =>
+													onActionClick?.({ actionId: action.id, action })
+												}
+												className={`rounded-lg px-3.5 py-2 text-xs font-medium transition-colors ${
+													action.variant === "primary"
+														? "bg-blue-600 text-white hover:bg-blue-500"
+														: action.variant === "danger"
+															? "bg-red-600 text-white hover:bg-red-500"
+															: "border bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+												}`}
+											>
+												{action.label}
+											</button>
+										))}
+									</div>
+								)}
 							</div>
 						) : (
 							<div className="flex flex-wrap gap-2">
-								{message.actions!.map((action, index) => (
+								{plainActions.map((action, index) => (
 									<button
 										key={getMessageActionRenderKey({ action, index })}
 										data-testid={`action-${action.id}`}

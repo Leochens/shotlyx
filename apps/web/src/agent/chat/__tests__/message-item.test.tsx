@@ -115,4 +115,72 @@ describe("MessageItem", () => {
 		expect(html).toContain("Reason 80");
 		expect(html).toContain("估算");
 	});
+
+	test("renders quick reply options as a questionnaire form", () => {
+		const message: ChatMessage = {
+			id: "assistant-options",
+			role: "assistant",
+			content: "这个片头想走哪种视觉气质？",
+			actions: [
+				{
+					id: "option-warm",
+					label: "暖色 + 力量感",
+					value: "我想走暖色 + 力量感，请继续。",
+					description: "品牌/演讲/发布会",
+					variant: "secondary",
+					isOption: true,
+				},
+				{
+					id: "option-other",
+					label: "其他",
+					value: "__other__",
+					description: "自己输入",
+					variant: "secondary",
+					isOption: true,
+				},
+			],
+			timestamp: 0,
+		};
+
+		const html = renderToStaticMarkup(<MessageItem message={message} />);
+
+		expect(html).toContain("需要你确认");
+		expect(html).toContain("这个片头想走哪种视觉气质？");
+		expect(html).toContain("暖色 + 力量感");
+		expect(html).toContain("其他（我在备注里说）");
+	});
+
+	test("renders structured clarification as a questionnaire form", () => {
+		const message: ChatMessage = {
+			id: "assistant-clarification",
+			role: "assistant",
+			content: "",
+			clarification: {
+				id: "opening-line",
+				title: "片头金句参数",
+				question: "金句全文是什么？",
+				reason: "锁定内容后再出片，保证每一帧都是真实数据。",
+				options: [
+					{
+						id: "slogan",
+						label: "品牌 Slogan",
+						value: "使用品牌 Slogan。",
+						recommended: true,
+					},
+				],
+				allowOther: true,
+				blocking: true,
+				targetSlot: "opening.line",
+			},
+			timestamp: 0,
+		};
+
+		const html = renderToStaticMarkup(<MessageItem message={message} />);
+
+		expect(html).toContain("片头金句参数");
+		expect(html).toContain("金句全文是什么？");
+		expect(html).toContain("锁定内容后再出片");
+		expect(html).toContain("待回答");
+		expect(html).toContain("品牌 Slogan");
+	});
 });
