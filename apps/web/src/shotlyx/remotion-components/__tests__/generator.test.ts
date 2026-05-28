@@ -42,15 +42,24 @@ export default function ShotlyxComponent(props: Props) {
 }
 `;
 
+const runtimeThrowSource = `
+type Props = { title: string };
+
+export default function ShotlyxComponent(props: Props) {
+	const frame = useCurrentFrame();
+	if (frame >= 0) {
+		throw new Error("preview cannot render");
+	}
+	return <AbsoluteFill>{props.title}</AbsoluteFill>;
+}
+`;
+
 describe("generateShotlyxMGComponentDocument", () => {
 	test("uses a strict-provider compatible propsSchema item schema", () => {
-		const jsonSchema = z.toJSONSchema(
-			shotlyxRemotionGeneratedComponentSchema,
-			{
-				target: "draft-7",
-				io: "input",
-			},
-		);
+		const jsonSchema = z.toJSONSchema(shotlyxRemotionGeneratedComponentSchema, {
+			target: "draft-7",
+			io: "input",
+		});
 		const rootProperties = isRecord(jsonSchema)
 			? jsonSchema.properties
 			: undefined;
@@ -203,10 +212,11 @@ export default function ShotlyxComponent(props: Props) {
 
 		expect(document.transparentBackground).toBe(true);
 		expect(document.defaultProps.backgroundColor).toBe("transparent");
-		expect(document.propsSchema.find((prop) => prop.key === "backgroundColor"))
-			?.toMatchObject({
-				default: "transparent",
-			});
+		expect(
+			document.propsSchema.find((prop) => prop.key === "backgroundColor"),
+		)?.toMatchObject({
+			default: "transparent",
+		});
 	});
 
 	test("normalizes generated table defaults from strict row arrays into editable row objects", async () => {
@@ -736,5 +746,41 @@ export default function ShotlyxComponent(props: Props) {
 				repairAttempts: 0,
 			}),
 		).rejects.toThrow("forbidden API: fetch");
+	});
+
+	test("rejects components that compile but fail render validation", async () => {
+		const generateTextMock = mock(async () => ({
+			output: {
+				name: "Runtime Throw",
+				durationSeconds: 5,
+				fps: 30,
+				width: 1920,
+				height: 1080,
+				aspectRatio: "16:9",
+				componentSource: runtimeThrowSource,
+				propsSchema: [
+					{
+						key: "title",
+						label: "Title",
+						type: "text",
+						role: "content",
+						default: "Hello",
+					},
+				],
+			},
+		}));
+
+		await expect(
+			generateShotlyxMGComponentDocument({
+				model: fakeModel(),
+				generateTextFn:
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+					generateTextMock as unknown as NonNullable<
+						GenerateShotlyxMGComponentOptions["generateTextFn"]
+					>,
+				prompt: "做一个会在预览时报错的组件",
+				repairAttempts: 0,
+			}),
+		).rejects.toThrow("Render validation failed");
 	});
 });

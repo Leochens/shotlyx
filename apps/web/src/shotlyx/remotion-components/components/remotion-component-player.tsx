@@ -59,6 +59,17 @@ function withRemotionBareBindings({ moduleSource }: { moduleSource: string }) {
 	].join("\n");
 }
 
+function RemotionErrorFallback({ error }: { error: Error }) {
+	return (
+		<div className="flex size-full items-center justify-center bg-neutral-950 p-4 text-center text-xs text-amber-300">
+			<div>
+				<p className="font-medium">Remotion 组件渲染失败</p>
+				<p className="mt-1 text-neutral-400">{error.message}</p>
+			</div>
+		</div>
+	);
+}
+
 function useCompiledRemotionComponent({
 	asset,
 }: {
@@ -181,6 +192,7 @@ export function ShotlyxRemotionComponentPlayer({
 			clickToPlay={controls}
 			spaceKeyToPlayOrPause={controls}
 			initialFrame={normalizedFrame}
+			errorFallback={RemotionErrorFallback}
 			style={{
 				width: "100%",
 				height: "100%",

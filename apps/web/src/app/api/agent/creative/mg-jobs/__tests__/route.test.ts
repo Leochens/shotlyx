@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
 import { GET } from "../[jobId]/events/route";
 import { DELETE } from "../[jobId]/route";
-import { POST } from "../route";
+import { POST, shotlyxMGJobRequestSchema } from "../route";
 
 function createDeferred<T>() {
 	let resolve!: (value: T) => void;
@@ -80,6 +80,15 @@ describe("Shotlyx MG job routes", () => {
 
 		expect(response.status).toBe(400);
 		expect(await response.json()).toMatchObject({ error: "Invalid input" });
+	});
+
+	test("request schema accepts more than five MG components", () => {
+		const parsed = shotlyxMGJobRequestSchema.safeParse({
+			prompt: "生成 8 个连续标注 MG",
+			componentCount: 8,
+		});
+
+		expect(parsed.success).toBe(true);
 	});
 
 	test("GET returns 404 for an unknown job", async () => {

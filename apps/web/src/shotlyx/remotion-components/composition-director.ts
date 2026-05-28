@@ -71,7 +71,7 @@ function sliceComponents({
 	durationSeconds?: number;
 }): ShotlyxMGCompositionComponentPlan[] {
 	let cursor = 0;
-	return components.slice(0, componentCount).map((component) => {
+	return expandComponents({ components, componentCount }).map((component) => {
 		const componentDuration = durationForComponent({
 			recommendedDurationSeconds: component.durationSeconds,
 			requestedDurationSeconds: durationSeconds,
@@ -86,6 +86,29 @@ function sliceComponents({
 		};
 		cursor += componentDuration;
 		return nextComponent;
+	});
+}
+
+function expandComponents({
+	components,
+	componentCount,
+}: {
+	components: ShotlyxMGCompositionComponentPlan[];
+	componentCount: number;
+}): ShotlyxMGCompositionComponentPlan[] {
+	if (componentCount <= 0 || components.length === 0) return [];
+	return Array.from({ length: componentCount }, (_, index) => {
+		const component = components[index % components.length]!;
+		const cycle = Math.floor(index / components.length) + 1;
+		if (cycle === 1) return component;
+		return {
+			...component,
+			id: `${component.id}-${cycle}`,
+			label: `${component.label} 扩展 ${cycle}`,
+			focus: `${component.focus} 这是第 ${index + 1}/${componentCount} 个扩展 MG 组件，必须换用新的文字、数据、位置或强调对象，避免和前序组件重复。`,
+			visualRole: `${component.visualRole} 扩展层 ${cycle}，位置和节奏要与同类组件错开。`,
+			qualityBar: `${component.qualityBar} 扩展组件仍需独立成片，不要复制前一层的占位内容。`,
+		};
 	});
 }
 
@@ -199,8 +222,7 @@ function createChartPlan({
 				{
 					id: "title-reveal",
 					label: "标题大字展示",
-					focus:
-						"从用户需求中提取主标题和副标题，用大字标题建立数据视频主题。",
+					focus: "从用户需求中提取主标题和副标题，用大字标题建立数据视频主题。",
 					visualRole: "大标题、短副标题、细线/高亮条/少量数据纹理。",
 					durationSeconds: 2.8,
 					screenTiming: "",
@@ -218,8 +240,7 @@ function createChartPlan({
 					screenTiming: "",
 					animationDirection:
 						"数字从小到大或从低透明度到高透明度出现，强调线/光晕同步收束。",
-					qualityBar:
-						"一屏只突出一个核心指标，文字和数值必须来自用户需求。",
+					qualityBar: "一屏只突出一个核心指标，文字和数值必须来自用户需求。",
 				},
 				{
 					id: "annotation-callout",
@@ -237,13 +258,11 @@ function createChartPlan({
 				{
 					id: "data-table",
 					label: "数据表格图",
-					focus:
-						"把用户给出的指标、数值和变化整理成可读数据表格或轻量榜单。",
+					focus: "把用户给出的指标、数值和变化整理成可读数据表格或轻量榜单。",
 					visualRole: "三到五行表格、列标题、重点行高亮、趋势符号。",
 					durationSeconds: 3.8,
 					screenTiming: "",
-					animationDirection:
-						"表头先出现，行项目按顺序滑入，重点行轻微高亮。",
+					animationDirection: "表头先出现，行项目按顺序滑入，重点行轻微高亮。",
 					qualityBar:
 						"表格数据必须结构化进入 propsSchema table，列名和行内容必须可编辑且对齐清楚。",
 				},
@@ -318,7 +337,7 @@ export function createShotlyxMGCompositionPlan({
 	styleGuide,
 }: CreateShotlyxMGCompositionPlanOptions): ShotlyxMGCompositionDirectorPlan {
 	const normalized = `${prompt} ${styleGuide ?? ""}`.toLowerCase();
-	const safeComponentCount = Math.min(Math.max(componentCount, 1), 5);
+	const safeComponentCount = Math.max(Math.floor(componentCount), 1);
 	if (
 		includesAny({
 			text: normalized,

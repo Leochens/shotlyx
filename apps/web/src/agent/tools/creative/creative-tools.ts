@@ -168,10 +168,18 @@ function requirePositiveInteger({
 }: {
 	value: number;
 	key: string;
-	max: number;
+	max?: number;
 }): number {
-	if (!Number.isInteger(value) || value < 1 || value > max) {
-		throw new Error(`类型不匹配："${key}" 必须为 1 到 ${max} 的整数`);
+	if (
+		!Number.isInteger(value) ||
+		value < 1 ||
+		(max !== undefined && value > max)
+	) {
+		throw new Error(
+			max === undefined
+				? `类型不匹配："${key}" 必须为大于等于 1 的整数`
+				: `类型不匹配："${key}" 必须为 1 到 ${max} 的整数`,
+		);
 	}
 	return value;
 }
@@ -2451,7 +2459,7 @@ export function buildCreativeTools({
 				},
 				componentCount: {
 					type: "number",
-					description: "拆分生成的小组件数量，默认 4，最大 5",
+					description: "拆分生成的小组件数量，默认 4。没有固定上限",
 					optional: true,
 				},
 				startTimeSeconds: {
@@ -2496,7 +2504,6 @@ export function buildCreativeTools({
 				const componentCount = requirePositiveInteger({
 					value: componentCountValue ?? DEFAULT_MG_COMPOSITION_COMPONENT_COUNT,
 					key: "componentCount",
-					max: 5,
 				});
 				const aspectRatio = optionalAspectRatioParam(params) ?? "16:9";
 				const styleGuide = resolveMGCompositionStyleGuide({

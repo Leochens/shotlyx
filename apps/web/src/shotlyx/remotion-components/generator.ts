@@ -1,5 +1,9 @@
 import { generateText, type LanguageModel } from "ai";
 import { transform } from "esbuild";
+import * as ReactRuntime from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Easing, interpolate, spring } from "remotion";
 import { z } from "zod";
 import {
 	buildStructuredGenerateTextRequest,
@@ -26,6 +30,7 @@ import {
 const DEFAULT_FPS = 30;
 const DEFAULT_DURATION_SECONDS = 6;
 const MAX_OUTPUT_TOKENS = 12000;
+const RENDER_VALIDATION_FRAME_COUNT = 4;
 
 const generatedScalarValueSchema = z.union([
 	z.string(),
@@ -133,7 +138,7 @@ function buildSystemPrompt({ skillContext }: { skillContext: string }): string {
 		"Every user-editable text, color, font, number, boolean, data array, and media reference must be declared in propsSchema with a useful default value.",
 		"For image props, declare type image and render via props. Never invent relative filenames like 4-3.png or /image.png. Use an empty string default and render a designed fallback when the image prop is empty.",
 		"For table props, declare columns and use default as an array of row arrays in the same column order. The runtime will convert them to row objects.",
-		"For table row rendering, always read cells with the exact declared column key. Use bracket access like row[\"核心症状\"] for non-English labels; never invent aliases such as row.symptom unless the column is literally named symptom.",
+		'For table row rendering, always read cells with the exact declared column key. Use bracket access like row["核心症状"] for non-English labels; never invent aliases such as row.symptom unless the column is literally named symptom.',
 		"Never use fetch, XMLHttpRequest, WebSocket, eval, Function, document, window, localStorage, sessionStorage, indexedDB, require, or dynamic import.",
 		"Animations must be deterministic from frame number and props. No randomness unless derived from deterministic props.",
 		'Never use placeholder copy such as "标题", "标题强调", "Subtitle", "Focus here", "Lorem", or "Example". Extract concrete copy, numbers, and row data from the user request.',
@@ -218,6 +223,147 @@ async function compileRemotionComponentModule({
 		jsxFragment: "React.Fragment",
 	});
 	return result.code;
+}
+
+function buildDataModuleUrl({ source }: { source: string }): string {
+	return `data:text/javascript;base64,${Buffer.from(source, "utf8").toString(
+		"base64",
+	)}`;
+}
+
+function getRenderValidationFrames({
+	durationInFrames,
+	thumbnailFrame,
+}: {
+	durationInFrames: number;
+	thumbnailFrame?: number;
+}): number[] {
+	const candidates = [
+		0,
+		Math.floor(durationInFrames * 0.25),
+		thumbnailFrame ?? Math.floor(durationInFrames * 0.45),
+		durationInFrames - 1,
+	];
+	return Array.from(
+		new Set(
+			candidates.map((frame) =>
+				Math.max(0, Math.min(durationInFrames - 1, frame)),
+			),
+		),
+	).slice(0, RENDER_VALIDATION_FRAME_COUNT);
+}
+
+function StubAbsoluteFill({
+	children,
+	style,
+}: {
+	children?: ReactNode;
+	style?: CSSProperties;
+}) {
+	return ReactRuntime.createElement(
+		"div",
+		{
+			style: {
+				position: "absolute",
+				inset: 0,
+				width: "100%",
+				height: "100%",
+				...style,
+			},
+		},
+		children,
+	);
+}
+
+function StubSequence({ children }: { children?: ReactNode }) {
+	return ReactRuntime.createElement(ReactRuntime.Fragment, null, children);
+}
+
+function StubImg({ src, style }: { src?: unknown; style?: CSSProperties }) {
+	return ReactRuntime.createElement("img", {
+		alt: "",
+		src: typeof src === "string" && src ? src : undefined,
+		style,
+	});
+}
+
+function StubVideo({ src, style }: { src?: unknown; style?: CSSProperties }) {
+	return ReactRuntime.createElement("video", {
+		src: typeof src === "string" && src ? src : undefined,
+		style,
+	});
+}
+
+async function assertRenderableShotlyxRemotionComponent({
+	document,
+}: {
+	document: ShotlyxRemotionComponentDocument;
+}): Promise<void> {
+	let currentFrame = 0;
+	const previousRuntime = Reflect.get(
+		globalThis,
+		"__SHOTLYX_REMOTION_RUNTIME__",
+	);
+	try {
+		Reflect.set(globalThis, "__SHOTLYX_REMOTION_RUNTIME__", {
+			React: ReactRuntime,
+			Remotion: {
+				AbsoluteFill: StubAbsoluteFill,
+				Sequence: StubSequence,
+				useCurrentFrame: () => currentFrame,
+				useVideoConfig: () => ({
+					id: document.name,
+					width: document.width,
+					height: document.height,
+					fps: document.fps,
+					durationInFrames: Math.round(document.durationSeconds * document.fps),
+					defaultProps: document.defaultProps,
+					props: document.defaultProps,
+				}),
+				interpolate,
+				spring,
+				Easing,
+				Img: StubImg,
+				Video: StubVideo,
+			},
+		});
+		const moduleUrl = buildDataModuleUrl({
+			source: `${document.compiledModule}\n//# sourceURL=shotlyx-mg-render-validation-${document.manifest?.id ?? "component"}.mjs`,
+		});
+		const mod: unknown = await import(/* webpackIgnore: true */ moduleUrl);
+		const Component =
+			typeof mod === "object" && mod !== null
+				? Reflect.get(mod, "default")
+				: null;
+		if (typeof Component !== "function") {
+			throw new Error("compiled module default export is not a component");
+		}
+		const durationInFrames = Math.max(
+			1,
+			Math.round(document.durationSeconds * document.fps),
+		);
+		for (const frame of getRenderValidationFrames({
+			durationInFrames,
+			thumbnailFrame: document.thumbnailFrame,
+		})) {
+			currentFrame = frame;
+			renderToStaticMarkup(
+				ReactRuntime.createElement(Component, document.defaultProps),
+			);
+		}
+	} catch (error) {
+		throw new Error(
+			`Render validation failed: ${
+				error instanceof Error ? error.message : String(error)
+			}`,
+		);
+	} finally {
+		if (previousRuntime === undefined) {
+			Reflect.deleteProperty(globalThis, "__SHOTLYX_REMOTION_RUNTIME__");
+		} else {
+			Reflect.set(globalThis, "__SHOTLYX_REMOTION_RUNTIME__", previousRuntime);
+		}
+	}
 }
 
 function isGeneratedTableRows(
@@ -536,17 +682,18 @@ export async function generateShotlyxMGComponentDocument({
 				schema: shotlyxRemotionGeneratedComponentSchema,
 				preferPlainJson: usePlainJson,
 			});
-			const generated = structuredRequest.mode === "plain-json"
-				? parseGeneratedComponent(
-						parseJsonObjectFromText({
-							text: textFromGenerateTextResult(
-								await generateTextFn(structuredRequest.request),
-							),
-						}),
-					)
-				: parseGeneratedComponent(
-						(await generateTextFn(structuredRequest.request)).output,
-					);
+			const generated =
+				structuredRequest.mode === "plain-json"
+					? parseGeneratedComponent(
+							parseJsonObjectFromText({
+								text: textFromGenerateTextResult(
+									await generateTextFn(structuredRequest.request),
+								),
+							}),
+						)
+					: parseGeneratedComponent(
+							(await generateTextFn(structuredRequest.request)).output,
+						);
 			const normalizedDuration = generated.durationSeconds ?? requestedDuration;
 			const fps = generated.fps ?? DEFAULT_FPS;
 			const width = generated.width ?? requestedSize.width;
@@ -608,6 +755,7 @@ export async function generateShotlyxMGComponentDocument({
 					)}`,
 				);
 			}
+			await assertRenderableShotlyxRemotionComponent({ document });
 			return document;
 		} catch (error) {
 			lastError = error;

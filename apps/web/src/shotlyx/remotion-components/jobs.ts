@@ -75,6 +75,7 @@ const DEFAULT_COMPONENT_TIMEOUT_MS = 180_000;
 const DEFAULT_COMPONENT_RETRY_ATTEMPTS = 2;
 const DEFAULT_COMPONENT_REPAIR_ATTEMPTS = 4;
 const DEFAULT_COMPONENT_MAX_OUTPUT_TOKENS = 8000;
+const DEFAULT_COMPONENT_CONCURRENCY = 5;
 const globalShotlyxMGJobs = globalThis as typeof globalThis & {
 	__shotlyxMGJobs?: Map<string, ShotlyxMGJob>;
 };
@@ -504,9 +505,15 @@ async function runParallelJobTasks<T>({
 	tasks: Array<() => Promise<T>>;
 }): Promise<T[]> {
 	const results = new Array<T>(tasks.length);
+	let nextIndex = 0;
+	const workerCount = Math.min(DEFAULT_COMPONENT_CONCURRENCY, tasks.length);
 	await Promise.all(
-		tasks.map(async (task, index) => {
-			results[index] = await task();
+		Array.from({ length: workerCount }, async () => {
+			while (nextIndex < tasks.length) {
+				const index = nextIndex;
+				nextIndex += 1;
+				results[index] = await tasks[index]!();
+			}
 		}),
 	);
 	return results;
@@ -528,10 +535,7 @@ async function runShotlyxMGJob({
 		return;
 	}
 	job.status = "running";
-	const componentCount = Math.min(
-		Math.max(job.input.componentCount ?? 1, 1),
-		5,
-	);
+	const componentCount = Math.max(Math.floor(job.input.componentCount ?? 1), 1);
 	const styleGuide = resolveMGCompositionStyleGuide({
 		styleGuide: job.input.styleGuide,
 		componentCount,
