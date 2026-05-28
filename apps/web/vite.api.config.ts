@@ -20,7 +20,7 @@ export default defineConfig({
 			process.env.VITE_SHOTLYX_API_ORIGIN ?? "app://shotlyx",
 		),
 		"process.env.VITE_SITE_URL": JSON.stringify(
-			process.env.VITE_SITE_URL ?? "app://shotlyx",
+			process.env.VITE_SITE_URL ?? "https://shotlyx.ai",
 		),
 		"process.env.VITE_MARBLE_API_URL": JSON.stringify(
 			process.env.VITE_MARBLE_API_URL ?? "app://shotlyx",

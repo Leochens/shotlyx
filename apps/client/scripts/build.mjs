@@ -10,6 +10,7 @@ const clientDir = path.resolve(
 	"..",
 );
 const repoRoot = path.resolve(clientDir, "../..");
+const desktopSiteUrl = "https://shotlyx.ai";
 
 function runWebBuild() {
 	return new Promise((resolve, reject) => {
@@ -17,9 +18,10 @@ function runWebBuild() {
 			cwd: repoRoot,
 			env: {
 				...createDesktopEnv(),
+				NODE_ENV: "production",
 				SHOTLYX_RENDERER_ORIGIN: "app://shotlyx",
 				VITE_SHOTLYX_API_ORIGIN: "app://shotlyx",
-				VITE_SITE_URL: "app://shotlyx",
+				VITE_SITE_URL: desktopSiteUrl,
 				VITE_MARBLE_API_URL: "app://shotlyx",
 			},
 			stdio: "inherit",
@@ -45,9 +47,10 @@ function runApiBuild() {
 				cwd: repoRoot,
 				env: {
 					...createDesktopEnv(),
+					NODE_ENV: "production",
 					SHOTLYX_RENDERER_ORIGIN: "app://shotlyx",
 					VITE_SHOTLYX_API_ORIGIN: "app://shotlyx",
-					VITE_SITE_URL: "app://shotlyx",
+					VITE_SITE_URL: desktopSiteUrl,
 					VITE_MARBLE_API_URL: "app://shotlyx",
 				},
 				stdio: "inherit",

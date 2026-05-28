@@ -13,6 +13,7 @@ directories:
 
 files:
   - main.cjs
+  - storage-migration.cjs
   - package.json
   - build/icon.png
 

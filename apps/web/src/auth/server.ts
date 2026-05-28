@@ -9,6 +9,15 @@ const redis = new Redis({
 	token: webEnv.UPSTASH_REDIS_REST_TOKEN,
 });
 
+function getAuthHttpUrl(url: string) {
+	if (url.startsWith("http://") || url.startsWith("https://")) {
+		return url;
+	}
+	return "http://localhost:3000";
+}
+
+const authBaseURL = getAuthHttpUrl(webEnv.VITE_SITE_URL);
+
 export const auth = betterAuth({
 	database: drizzleAdapter(db, {
 		provider: "pg",
@@ -35,9 +44,9 @@ export const auth = betterAuth({
 			},
 		},
 	},
-	baseURL: webEnv.VITE_SITE_URL,
+	baseURL: authBaseURL,
 	appName: "Shotlyx",
-	trustedOrigins: [webEnv.VITE_SITE_URL],
+	trustedOrigins: [authBaseURL],
 });
 
 export type Auth = typeof auth;
