@@ -787,6 +787,49 @@ export default function ShotlyxComponent(props: Props) {
 		expect(generateTextMock).toHaveBeenCalledTimes(1);
 	});
 
+	test("plain JSON parse errors explain malformed componentSource output", async () => {
+		const generateTextMock = mock(async () => ({
+			text: `{"name":"Broken MG","durationSeconds":5,"fps":30,"width":1920,"height":1080,"aspectRatio":"16:9","thumbnailFrame":15,"componentSource":"export default function ShotlyxComponent() {
+	return <AbsoluteFill>Broken</AbsoluteFill>;
+}","propsSchema":[]}`,
+		}));
+
+		let caughtError: unknown;
+		try {
+			await generateShotlyxMGComponentDocument({
+				model: fakeModel(),
+				providerConfig: {
+					name: "mg",
+					provider: "google",
+					host: "https://generativelanguage.googleapis.com/v1beta",
+					apiKey: "google-key",
+					model: "gemini-2.5-flash",
+				},
+				generateTextFn:
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+					generateTextMock as unknown as NonNullable<
+						GenerateShotlyxMGComponentOptions["generateTextFn"]
+					>,
+				prompt: "做一个打字机标题 MG",
+				durationSeconds: 5,
+				aspectRatio: "16:9",
+				repairAttempts: 0,
+			});
+		} catch (error) {
+			caughtError = error;
+		}
+
+		expect(caughtError).toBeInstanceOf(Error);
+		if (!(caughtError instanceof Error)) {
+			throw new Error("Expected malformed plain JSON to throw");
+		}
+		const message = caughtError.message;
+		expect(message).toContain("模型返回的 Remotion JSON 解析失败");
+		expect(message).toContain("Unterminated string");
+		expect(message).toContain("componentSource");
+		expect(message).toContain("JSON.stringify");
+	});
+
 	test("uses plain JSON immediately for OpenAI-compatible provider configs in auto mode", async () => {
 		const generateTextMock = mock(
 			async (options: { output?: unknown; prompt?: string }) => {

@@ -966,7 +966,42 @@ function parseJsonObjectFromText({ text }: { text: string }): unknown {
 	if (start < 0 || end < start) {
 		throw new Error("模型没有返回可解析的 JSON 对象");
 	}
-	return JSON.parse(candidate.slice(start, end + 1));
+	const jsonText = candidate.slice(start, end + 1);
+	try {
+		return JSON.parse(jsonText);
+	} catch (error) {
+		throw new Error(
+			buildPlainJsonParseErrorMessage({
+				jsonText,
+				error,
+			}),
+		);
+	}
+}
+
+function buildPlainJsonParseErrorMessage({
+	jsonText,
+	error,
+}: {
+	jsonText: string;
+	error: unknown;
+}): string {
+	const rawMessage = error instanceof Error ? error.message : String(error);
+	const positionMatch = rawMessage.match(/position\s+(\d+)/i);
+	const position = positionMatch ? Number(positionMatch[1]) : NaN;
+	const excerpt = Number.isFinite(position)
+		? jsonText.slice(
+				Math.max(0, position - 160),
+				Math.min(jsonText.length, position + 160),
+			)
+		: jsonText.slice(0, 320);
+	return [
+		`模型返回的 Remotion JSON 解析失败：${rawMessage}。`,
+		"常见原因是 componentSource 里的 JSX、换行或双引号没有按 JSON 字符串转义，或者模型输出被截断。",
+		"请按 JSON.stringify 的语义输出 componentSource：换行写成 \\n，双引号写成 \\\"，不要把多行代码直接粘进 JSON 字符串。",
+		`JSON 输出长度：${jsonText.length}。`,
+		`错误附近片段：${excerpt}`,
+	].join(" ");
 }
 
 function textFromGenerateTextResult(result: unknown): string {

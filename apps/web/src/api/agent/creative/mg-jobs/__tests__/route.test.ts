@@ -261,6 +261,46 @@ describe("Shotlyx MG job routes", () => {
 		expect(calls[0]?.prompt).toContain("像高质量视频图形包装");
 	});
 
+	test("MG composition jobs repair malformed JSON output with specific guidance", async () => {
+		const calls: Array<{ prompt: string }> = [];
+		const events: Array<{ label?: string; type?: string }> = [];
+		const { jobId } = createShotlyxMGJob({
+			input: {
+				prompt: "生成一个标题展示 MG",
+				durationSeconds: 5,
+				aspectRatio: "16:9",
+				componentCount: 1,
+			},
+			generateDocumentFn: async (args) => {
+				calls.push({ prompt: args.prompt });
+				if (calls.length === 1) {
+					throw new Error(
+						"模型返回的 Remotion JSON 解析失败：Unterminated string in JSON at position 5758. componentSource 字符串需要 JSON 转义。",
+					);
+				}
+				return shotlyxBattleCardFixture;
+			},
+		});
+		const unsubscribe = subscribeShotlyxMGJob({
+			jobId,
+			onEvent: (event) => {
+				events.push(event);
+			},
+		});
+
+		await waitForCondition({
+			condition: () => events.some((event) => event.type === "completed"),
+		});
+		unsubscribe();
+
+		expect(calls).toHaveLength(2);
+		expect(calls[1]?.prompt).toContain("componentSource");
+		expect(calls[1]?.prompt).toContain("JSON.stringify");
+		expect(
+			events.some((event) => event.label?.includes("正在修复具体错误")),
+		).toBe(true);
+	});
+
 	test("DELETE returns 404 for an unknown job", async () => {
 		const response = await DELETE(
 			new ApiRequest("http://localhost/api/agent/creative/mg-jobs/missing"),

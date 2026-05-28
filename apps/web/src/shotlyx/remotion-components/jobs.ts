@@ -168,10 +168,18 @@ function buildFallbackComponentPrompt({
 	error: string;
 	attempt: number;
 }): string {
+	const jsonRepairGuidance = isJsonParseLikeMGError(error)
+		? [
+				"这次失败是 JSON 解析失败。必须输出严格 JSON 对象，不要输出 JavaScript object literal、Markdown、注释或解释。",
+				"componentSource 必须是一个合法 JSON 字符串。请按 JSON.stringify 的语义转义：换行写成 \\n，双引号写成 \\\"，反斜杠写成 \\\\。",
+				"如果 componentSource 太长导致输出截断，请简化代码和 propsSchema，先保证 JSON 完整闭合。",
+			]
+		: [];
 	return [
 		`Fallback retry #${attempt}.`,
 		"上一轮 Shotlyx Remotion 组件生成失败，请重新生成一个更稳、更简单、仍然可编辑的 MG 组件。",
 		`失败原因：${error}`,
+		...jsonRepairGuidance,
 		"保留用户核心意图，但减少组件复杂度和动画分支，优先确保 JSON 可解析、schema 合法、可实时预览。",
 		"不要解释失败原因，不要输出 Markdown，只生成最终 Shotlyx Remotion 组件文档。",
 		"",
@@ -189,6 +197,19 @@ function getErrorMessage(error: unknown): string {
 	}
 }
 
+function isJsonParseLikeMGError(message: string): boolean {
+	const lower = message.toLowerCase();
+	return (
+		lower.includes("remotion json 解析失败") ||
+		lower.includes("unterminated string in json") ||
+		lower.includes("expected property name") ||
+		lower.includes("unexpected token") ||
+		lower.includes("bad control character") ||
+		lower.includes("json parse error") ||
+		lower.includes("json.parse")
+	);
+}
+
 function isSpecificRepairableMGError(message: string): boolean {
 	const lower = message.toLowerCase();
 	if (
@@ -200,6 +221,7 @@ function isSpecificRepairableMGError(message: string): boolean {
 	}
 
 	return (
+		isJsonParseLikeMGError(message) ||
 		lower.includes("shotlyx mg 生成失败") ||
 		lower.includes("shotlyx remotion") ||
 		lower.includes("invalid shotlyx remotion") ||
@@ -211,6 +233,46 @@ function isSpecificRepairableMGError(message: string): boolean {
 		lower.includes("duplicate node") ||
 		lower.includes("validation")
 	);
+}
+
+function getErrorStack(error: unknown): string | undefined {
+	if (error instanceof Error && error.stack) return error.stack;
+	return undefined;
+}
+
+function logComponentGenerationError({
+	job,
+	componentIndex,
+	componentCount,
+	taskId,
+	taskLabel,
+	error,
+	message,
+	retrying,
+	repairingSpecificError,
+}: {
+	job: ShotlyxMGJob;
+	componentIndex: number;
+	componentCount: number;
+	taskId: string;
+	taskLabel: string;
+	error: unknown;
+	message: string;
+	retrying: boolean;
+	repairingSpecificError: boolean;
+}): void {
+	if (process.env.NODE_ENV === "test") return;
+	console.warn("[shotlyx-mg-job] component-error", {
+		jobId: job.id,
+		componentIndex,
+		componentCount,
+		taskId,
+		taskLabel,
+		retrying,
+		repairingSpecificError,
+		error: message,
+		stack: getErrorStack(error),
+	});
 }
 
 function emit({ job, event }: { job: ShotlyxMGJob; event: ShotlyxMGJobEvent }) {
@@ -447,6 +509,17 @@ async function generateMGComponentForJob({
 			const canRetryUnclearError =
 				!isSpecificRepairableMGError(lastErrorMessage) &&
 				unclearRetryCount < componentRetryAttempts;
+			logComponentGenerationError({
+				job,
+				componentIndex,
+				componentCount,
+				taskId,
+				taskLabel,
+				error,
+				message: lastErrorMessage,
+				retrying: canRepairSpecificError || canRetryUnclearError,
+				repairingSpecificError: canRepairSpecificError,
+			});
 			if (!canRepairSpecificError && !canRetryUnclearError) {
 				throw error;
 			}
