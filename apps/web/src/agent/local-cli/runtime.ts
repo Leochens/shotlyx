@@ -118,16 +118,50 @@ function isExecutable(filePath: string): boolean {
 	}
 }
 
-function pathDirs(env: Record<string, string | undefined>): string[] {
-	const raw = env.PATH ?? process.env.PATH ?? "";
-	const dirs = raw.split(path.delimiter).filter(Boolean);
+function splitPathList(value: string | undefined): string[] {
+	return (value ?? "").split(path.delimiter).filter(Boolean);
+}
+
+function homePath({
+	env,
+	segments,
+}: {
+	env: Record<string, string | undefined>;
+	segments: string[];
+}): string | null {
+	const home = env.HOME ?? process.env.HOME;
+	return home ? path.join(home, ...segments) : null;
+}
+
+function commonRuntimePathDirs(
+	env: Record<string, string | undefined>,
+): string[] {
 	const extras = [
 		"/opt/homebrew/bin",
+		"/opt/homebrew/sbin",
 		"/usr/local/bin",
-		path.join(process.env.HOME ?? "", ".local/bin"),
-		path.join(process.env.HOME ?? "", ".bun/bin"),
+		"/usr/local/sbin",
+		"/usr/bin",
+		"/bin",
+		"/usr/sbin",
+		"/sbin",
+		homePath({ env, segments: [".local", "bin"] }),
+		homePath({ env, segments: [".bun", "bin"] }),
+		homePath({ env, segments: [".volta", "bin"] }),
+		homePath({ env, segments: [".asdf", "shims"] }),
+		homePath({ env, segments: [".nodenv", "shims"] }),
 	].filter(Boolean);
-	return Array.from(new Set([...dirs, ...extras]));
+	return Array.from(new Set(extras));
+}
+
+function pathDirs(env: Record<string, string | undefined>): string[] {
+	return Array.from(
+		new Set([
+			...splitPathList(env.PATH),
+			...splitPathList(process.env.PATH),
+			...commonRuntimePathDirs(env),
+		]),
+	);
 }
 
 function resolveOnPath({
@@ -158,13 +192,22 @@ function resolveAgentBin({
 	return resolveOnPath({ bin: def.bin, env });
 }
 
-function buildChildEnv(
-	env: Record<string, string | undefined>,
-): NodeJS.ProcessEnv {
+function buildChildEnv({
+	env,
+	extraPathDirs = [],
+}: {
+	env: Record<string, string | undefined>;
+	extraPathDirs?: string[];
+}): NodeJS.ProcessEnv {
 	const merged: NodeJS.ProcessEnv = { ...process.env, ...env };
-	if (env.PATH && process.env.PATH && !env.PATH.includes(process.env.PATH)) {
-		merged.PATH = `${env.PATH}${path.delimiter}${process.env.PATH}`;
-	}
+	merged.PATH = Array.from(
+		new Set([
+			...splitPathList(env.PATH),
+			...splitPathList(process.env.PATH),
+			...extraPathDirs.filter(Boolean),
+			...commonRuntimePathDirs(env),
+		]),
+	).join(path.delimiter);
 	return merged;
 }
 
@@ -180,8 +223,12 @@ function runCommandText({
 	timeoutMs?: number;
 }): Promise<string | null> {
 	return new Promise((resolve) => {
+		const commandDir = path.isAbsolute(command) ? path.dirname(command) : null;
 		const child = spawn(command, args, {
-			env: buildChildEnv(env),
+			env: buildChildEnv({
+				env,
+				extraPathDirs: commandDir ? [commandDir] : [],
+			}),
 			stdio: ["ignore", "pipe", "pipe"],
 			shell: false,
 		});
@@ -697,8 +744,14 @@ function runLocalCliOnce({
 }): Promise<LocalCliEvent[]> {
 	return new Promise((resolve, reject) => {
 		const command = buildLocalCliCommand({ agentId, binPath, model });
+		const commandDir = path.isAbsolute(command.command)
+			? path.dirname(command.command)
+			: null;
 		const child = spawn(command.command, command.args, {
-			env: buildChildEnv(env),
+			env: buildChildEnv({
+				env,
+				extraPathDirs: commandDir ? [commandDir] : [],
+			}),
 			stdio: ["pipe", "pipe", "pipe"],
 			shell: false,
 		});

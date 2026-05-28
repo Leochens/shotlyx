@@ -1,6 +1,12 @@
 /* eslint-disable shotlyx/prefer-object-params -- Test helpers mirror small filesystem calls and stay clearer with positional name/source inputs. */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -61,6 +67,59 @@ exit 0
 			available: true,
 			version: "codex-cli 0.130.0",
 		});
+	});
+
+	test("runs env-node CLI shims from explicit local paths", async () => {
+		const previousHome = process.env.HOME;
+		const previousPath = process.env.PATH;
+		const homeDir = path.join(tempDir, "home");
+		const localBin = path.join(homeDir, ".local", "bin");
+		mkdirSync(localBin, { recursive: true });
+		process.env.HOME = homeDir;
+		process.env.PATH = "/usr/bin:/bin";
+		try {
+			const fakeNode = path.join(localBin, "node");
+			writeFileSync(
+				fakeNode,
+				`#!/usr/bin/env bash
+if [[ "$2" == "--version" ]]; then echo "shim node resolved"; exit 0; fi
+exit 0
+`,
+				"utf8",
+			);
+			chmodSync(fakeNode, 0o755);
+			const fakeClaude = path.join(localBin, "claude");
+			writeFileSync(
+				fakeClaude,
+				`#!/usr/bin/env node
+`,
+				"utf8",
+			);
+			chmodSync(fakeClaude, 0o755);
+
+			const agents = await detectLocalCliAgents({
+				env: {
+					PATH: "/usr/bin:/bin",
+					SHOTLYX_CLAUDE_BIN: fakeClaude,
+				},
+			});
+
+			expect(agents.find((agent) => agent.id === "claude")).toMatchObject({
+				available: true,
+				version: "shim node resolved",
+			});
+		} finally {
+			if (previousHome === undefined) {
+				delete process.env.HOME;
+			} else {
+				process.env.HOME = previousHome;
+			}
+			if (previousPath === undefined) {
+				delete process.env.PATH;
+			} else {
+				process.env.PATH = previousPath;
+			}
+		}
 	});
 
 	test("builds safe stdin-based commands for Claude Code and Codex", () => {

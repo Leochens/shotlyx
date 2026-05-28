@@ -1,8 +1,7 @@
-const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const net = require("node:net");
 const path = require("node:path");
-const { app, BrowserWindow, dialog, shell } = require("electron");
+const { app, BrowserWindow, dialog, shell, utilityProcess } = require("electron");
 
 let autoUpdater = null;
 try {
@@ -68,7 +67,6 @@ function createPackagedServerEnv(port) {
 	const origin = `http://127.0.0.1:${port}`;
 	return {
 		...process.env,
-		ELECTRON_RUN_AS_NODE: "1",
 		NODE_ENV: "production",
 		HOSTNAME: "127.0.0.1",
 		PORT: String(port),
@@ -126,24 +124,27 @@ async function startPackagedServer() {
 	const origin = `http://127.0.0.1:${port}`;
 	const configUrl = `${origin}/api/desktop/config`;
 
-	packagedServerProcess = spawn(process.execPath, [serverPath], {
+	packagedServerProcess = utilityProcess.fork(serverPath, [], {
 		cwd: path.dirname(serverPath),
 		env: createPackagedServerEnv(port),
 		stdio: "ignore",
+		serviceName: "Shotlyx Desktop Web Server",
 	});
 
-	packagedServerProcess.on("exit", (code, signal) => {
-		packagedServerExit = { code, signal };
+	packagedServerProcess.on("exit", (code) => {
+		packagedServerExit = { code, signal: null };
 		if (!isQuitting) {
 			console.error(
-				`Shotlyx desktop web server exited with code ${code ?? "unknown"} ${signal ?? ""}`.trim(),
+				`Shotlyx desktop web server exited with code ${code ?? "unknown"}`,
 			);
 		}
 	});
 
-	packagedServerProcess.on("error", (error) => {
+	packagedServerProcess.on("error", (type, location) => {
 		packagedServerExit = { code: null, signal: null };
-		console.error(`Failed to start Shotlyx desktop web server: ${error.message}`);
+		console.error(
+			`Failed to start Shotlyx desktop web server: ${type}${location ? ` at ${location}` : ""}`,
+		);
 	});
 
 	await waitForPackagedServer(configUrl);
@@ -246,7 +247,7 @@ app.whenReady().then(async () => {
 
 app.on("before-quit", () => {
 	isQuitting = true;
-	if (packagedServerProcess && !packagedServerProcess.killed) {
+	if (packagedServerProcess?.pid) {
 		packagedServerProcess.kill();
 	}
 });
