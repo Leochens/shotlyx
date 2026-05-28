@@ -1,4 +1,5 @@
 import { AlertCircle, RotateCcw } from "lucide-react";
+import { useMemo, useState } from "react";
 import type { ChatMessage } from "./types";
 import { ReasoningBlock } from "./reasoning-block";
 import {
@@ -12,6 +13,48 @@ import { OptionCard } from "./option-card";
 import { ReferenceChipList } from "./reference-chip";
 import { ClarificationCard } from "./clarification-card";
 import { ReactMarkdownWrapper } from "@/components/ui/react-markdown-wrapper";
+
+const LONG_ASSISTANT_CONTENT_THRESHOLD = 1800;
+const LONG_ASSISTANT_CONTENT_PREVIEW_LENGTH = 1200;
+
+function getPreviewBreakIndex({
+	content,
+	maxLength,
+}: {
+	content: string;
+	maxLength: number;
+}): number {
+	const roughEnd = Math.min(content.length, maxLength);
+	const tailWindowStart = Math.max(0, roughEnd - 240);
+	const tail = content.slice(tailWindowStart, roughEnd);
+	const newlineIndex = tail.lastIndexOf("\n");
+	if (newlineIndex >= 0 && tailWindowStart + newlineIndex > maxLength * 0.65) {
+		return tailWindowStart + newlineIndex;
+	}
+
+	const spaceIndex = tail.search(/\s[^\s]*$/);
+	if (spaceIndex >= 0 && tailWindowStart + spaceIndex > maxLength * 0.65) {
+		return tailWindowStart + spaceIndex;
+	}
+
+	return roughEnd;
+}
+
+function getAssistantContentPreview({ content }: { content: string }): string {
+	if (content.length <= LONG_ASSISTANT_CONTENT_PREVIEW_LENGTH) {
+		return content;
+	}
+
+	const endIndex = getPreviewBreakIndex({
+		content,
+		maxLength: LONG_ASSISTANT_CONTENT_PREVIEW_LENGTH,
+	});
+	return `${content.slice(0, endIndex).trimEnd()}\n\n...`;
+}
+
+function PlainAssistantText({ content }: { content: string }) {
+	return <span className="whitespace-pre-wrap">{content}</span>;
+}
 
 interface MessageItemProps {
 	message: ChatMessage;
@@ -45,6 +88,19 @@ export function MessageItem({
 	const hasError = !isUser && message.error;
 	const isOptions = hasActions && message.actions!.some((a) => a.isOption);
 	const hasReferences = isUser && (message.references?.length ?? 0) > 0;
+	const isLongAssistantContent =
+		!isUser &&
+		hasContent &&
+		message.content.length > LONG_ASSISTANT_CONTENT_THRESHOLD;
+	const [isExpanded, setIsExpanded] = useState(false);
+	const shouldRenderPlainAssistantText =
+		!isUser &&
+		hasContent &&
+		(isStreaming || (isLongAssistantContent && !isExpanded));
+	const displayedAssistantContent = useMemo(() => {
+		if (!isLongAssistantContent || isExpanded) return message.content;
+		return getAssistantContentPreview({ content: message.content });
+	}, [isExpanded, isLongAssistantContent, message.content]);
 	const textBubbleClassName = isUser
 		? "border border-sky-200/45 bg-sky-50/70 text-slate-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:border-sky-200/10 dark:bg-sky-300/[0.075] dark:text-neutral-100 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
 		: "bg-muted text-foreground";
@@ -85,12 +141,37 @@ export function MessageItem({
 						}`}
 					>
 						{hasContent && !isUser ? (
-							<ReactMarkdownWrapper>{message.content}</ReactMarkdownWrapper>
+							shouldRenderPlainAssistantText ? (
+								<PlainAssistantText content={displayedAssistantContent} />
+							) : (
+								<ReactMarkdownWrapper>
+									{displayedAssistantContent}
+								</ReactMarkdownWrapper>
+							)
 						) : (
 							message.content || (isStreaming ? "..." : "")
 						)}
 						{isStreaming && hasContent && (
 							<span className="ml-1 inline-block h-2 w-2 animate-pulse rounded-full bg-blue-400" />
+						)}
+						{isLongAssistantContent && !isStreaming && (
+							<div className="mt-2 flex items-center justify-between gap-3 border-border/60 border-t pt-2 text-xs text-muted-foreground">
+								<span>
+									{isExpanded
+										? "已展开完整回复"
+										: `已收起较长回复，完整内容约 ${message.content.length.toLocaleString()} 字符`}
+								</span>
+								<button
+									type="button"
+									className="shrink-0 rounded-md border border-border/70 bg-background/50 px-2 py-1 text-xs text-foreground transition-colors hover:bg-accent"
+									onClick={(event) => {
+										event.stopPropagation();
+										setIsExpanded((value) => !value);
+									}}
+								>
+									{isExpanded ? "收起" : "展开全文"}
+								</button>
+							</div>
 						)}
 					</div>
 				)}

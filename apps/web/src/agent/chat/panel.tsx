@@ -131,6 +131,8 @@ const STARTER_PROMPT_STYLES: Array<{
 	},
 ];
 
+const STREAM_TEXT_FLUSH_INTERVAL_MS = 80;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -501,12 +503,20 @@ export function ChatPanel() {
 		currentAssistantMsgIdRef,
 		runSessionIdRef,
 		runSignal,
+		queueMessageContentUpdate,
+		flushMessageContentUpdate,
 	}: {
 		sseEvent: SSEEvent;
 		accumulated: { text: string; thought: string };
 		currentAssistantMsgIdRef: { current: string | null };
 		runSessionIdRef: { current: string | null };
 		runSignal: AbortSignal;
+		queueMessageContentUpdate: (args: {
+			id: string;
+			content: string;
+			immediate?: boolean;
+		}) => void;
+		flushMessageContentUpdate: () => void;
 	}) => {
 		if (runSignal.aborted) return;
 		const data: unknown = JSON.parse(sseEvent.data);
@@ -536,6 +546,7 @@ export function ChatPanel() {
 		}
 
 		if (sseEvent.event === "done") {
+			flushMessageContentUpdate();
 			return;
 		}
 
@@ -565,11 +576,12 @@ export function ChatPanel() {
 			const text = getStringField({ value: data, key: "text" }) ?? "";
 			accumulated.text += text;
 			const mid = ensureAssistantMessage();
-			updateMessageContent({ id: mid, content: accumulated.text });
+			queueMessageContentUpdate({ id: mid, content: accumulated.text });
 			return;
 		}
 
 		if (sseEvent.event === "text-end") {
+			flushMessageContentUpdate();
 			return;
 		}
 
@@ -743,9 +755,10 @@ export function ChatPanel() {
 			if (planData.displayContent) {
 				accumulated.text = planData.displayContent;
 				const mid = ensureAssistantMessage();
-				updateMessageContent({
+				queueMessageContentUpdate({
 					id: mid,
 					content: planData.displayContent,
+					immediate: true,
 				});
 			}
 			if (planData.actions !== undefined) {
@@ -778,6 +791,7 @@ export function ChatPanel() {
 			return;
 		}
 		if (sseEvent.event === "error") {
+			flushMessageContentUpdate();
 			const message =
 				getStringField({ value: data, key: "message" }) ?? "未知错误";
 			const category =
@@ -820,6 +834,50 @@ export function ChatPanel() {
 		};
 		const runSessionIdRef: { current: string | null } = {
 			current: null,
+		};
+		const pendingContentUpdateRef: {
+			id: string | null;
+			content: string;
+			timer: ReturnType<typeof setTimeout> | null;
+		} = {
+			id: null,
+			content: "",
+			timer: null,
+		};
+		const flushMessageContentUpdate = () => {
+			if (pendingContentUpdateRef.timer !== null) {
+				clearTimeout(pendingContentUpdateRef.timer);
+				pendingContentUpdateRef.timer = null;
+			}
+			if (pendingContentUpdateRef.id === null) return;
+			updateMessageContent({
+				id: pendingContentUpdateRef.id,
+				content: pendingContentUpdateRef.content,
+			});
+			pendingContentUpdateRef.id = null;
+		};
+		const queueMessageContentUpdate = ({
+			id,
+			content,
+			immediate = false,
+		}: {
+			id: string;
+			content: string;
+			immediate?: boolean;
+		}) => {
+			pendingContentUpdateRef.id = id;
+			pendingContentUpdateRef.content = content;
+
+			if (immediate) {
+				flushMessageContentUpdate();
+				return;
+			}
+
+			if (pendingContentUpdateRef.timer !== null) return;
+
+			pendingContentUpdateRef.timer = setTimeout(() => {
+				flushMessageContentUpdate();
+			}, STREAM_TEXT_FLUSH_INTERVAL_MS);
 		};
 
 		try {
@@ -872,10 +930,16 @@ export function ChatPanel() {
 							currentAssistantMsgIdRef,
 							runSessionIdRef,
 							runSignal: runAbort.signal,
+							queueMessageContentUpdate,
+							flushMessageContentUpdate,
 						});
 					},
-					onComplete: () => resolve(),
+					onComplete: () => {
+						flushMessageContentUpdate();
+						resolve();
+					},
 					onError: (error) => {
+						flushMessageContentUpdate();
 						addMessage({
 							id: `err-${Date.now()}`,
 							role: "assistant",
@@ -898,6 +962,7 @@ export function ChatPanel() {
 				timestamp: Date.now(),
 			});
 		} finally {
+			flushMessageContentUpdate();
 			setStreamingMessageId(null);
 			setLoading(false);
 			setStartTime(null);

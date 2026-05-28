@@ -1,4 +1,5 @@
 import ReactMarkdown from "react-markdown";
+import { memo } from "react";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/utils/ui";
@@ -29,7 +30,7 @@ const allowedMarkdownElements = [
 	"ul",
 ] as const;
 
-export function ReactMarkdownWrapper({
+export const ReactMarkdownWrapper = memo(function ReactMarkdownWrapper({
 	children,
 	inline = false,
 }: {
@@ -154,4 +155,4 @@ export function ReactMarkdownWrapper({
 			{children}
 		</ReactMarkdown>
 	);
-}
+});
