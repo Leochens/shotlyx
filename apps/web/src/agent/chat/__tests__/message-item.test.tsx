@@ -62,4 +62,32 @@ describe("MessageItem", () => {
 		expect(html).not.toContain("<strong");
 		expect(html).not.toContain("tail-marker-should-not-render");
 	});
+
+	test("renders assistant token usage summary", () => {
+		const message: ChatMessage = {
+			id: "assistant-token-usage",
+			role: "assistant",
+			content: "已完成。",
+			tokenUsage: {
+				inputTokens: 1200,
+				outputTokens: 320,
+				reasoningTokens: 80,
+				totalTokens: 1520,
+				cachedInputTokens: 100,
+				cacheWriteTokens: 0,
+				approximate: true,
+				sources: ["local-cli"],
+				updatedAt: 0,
+			},
+			timestamp: 0,
+		};
+
+		const html = renderToStaticMarkup(<MessageItem message={message} />);
+
+		expect(html).toContain("1.5K tokens");
+		expect(html).toContain("In 1.2K");
+		expect(html).toContain("Out 320");
+		expect(html).toContain("Reason 80");
+		expect(html).toContain("估算");
+	});
 });

@@ -1,3 +1,4 @@
+/* eslint-disable shotlyx/prefer-object-params -- Logger methods mirror compact event fields at call sites. */
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -75,6 +76,15 @@ export class AgentLogger {
 			type: "plan",
 			direction: "out",
 			payload: planData,
+		});
+	}
+
+	tokenUsage(usage: unknown) {
+		this.write({
+			type: "token-usage",
+			direction: "internal",
+			payload: usage,
+			elapsedMs: Date.now() - this.startTime,
 		});
 	}
 

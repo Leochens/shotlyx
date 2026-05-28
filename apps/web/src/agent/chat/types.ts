@@ -5,6 +5,7 @@ import type {
 	ToolCallRecord,
 } from "@/agent/controller/types";
 import type { AgentContextReference } from "@/agent/context/types";
+import type { AgentTokenUsageTotals } from "@/agent/token-usage";
 
 export type ChatMessageRole = "user" | "assistant" | "system";
 
@@ -24,6 +25,7 @@ export interface ChatMessage {
 	}>;
 	references?: AgentContextReference[];
 	toolCalls?: ToolCallRecord[];
+	tokenUsage?: AgentTokenUsageTotals;
 	timestamp: number;
 	hidden?: boolean;
 	error?: {
@@ -86,6 +88,10 @@ export interface ChatState {
 	) => void;
 	updateMessageToolCalls: (
 		args: { id: string; toolCalls: ToolCallRecord[] },
+		sessionId?: string,
+	) => void;
+	updateMessageTokenUsage: (
+		args: { id: string; tokenUsage: AgentTokenUsageTotals },
 		sessionId?: string,
 	) => void;
 	clearMessages: () => void;

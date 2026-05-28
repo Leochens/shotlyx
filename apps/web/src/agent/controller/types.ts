@@ -1,3 +1,5 @@
+import type { AgentTokenUsageTotals } from "@/agent/token-usage";
+
 export type AgentRole = "user" | "assistant" | "system";
 
 export type ExecutionMode = "auto" | "suggest" | "manual";
@@ -39,6 +41,7 @@ export interface AgentMessage {
 	actions?: MessageAction[];
 	attachments?: Attachment[];
 	toolCalls?: ToolCallRecord[];
+	tokenUsage?: AgentTokenUsageTotals;
 	hidden?: boolean;
 	timestamp: number;
 }

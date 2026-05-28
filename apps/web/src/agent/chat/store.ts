@@ -93,6 +93,7 @@ const initialState: Omit<
 	| "updateMessageActions"
 	| "updateMessageClarification"
 	| "updateMessageToolCalls"
+	| "updateMessageTokenUsage"
 	| "clearMessages"
 	| "clearAll"
 > = {
@@ -428,6 +429,30 @@ export const useChatStore = create<ChatState>()(
 										...s,
 										messages: s.messages.map((m) =>
 											m.id === id ? { ...m, toolCalls } : m,
+										),
+										updatedAt: Date.now(),
+									}
+								: s,
+						),
+					};
+				});
+			},
+
+			updateMessageTokenUsage: ({ id, tokenUsage }, sessionId) => {
+				set((state) => {
+					const target = getTargetSession(
+						state.sessions,
+						state.activeSessionId,
+						sessionId,
+					);
+					if (target === undefined) return state;
+					return {
+						sessions: state.sessions.map((s) =>
+							s.id === target.id
+								? {
+										...s,
+										messages: s.messages.map((m) =>
+											m.id === id ? { ...m, tokenUsage } : m,
 										),
 										updatedAt: Date.now(),
 									}

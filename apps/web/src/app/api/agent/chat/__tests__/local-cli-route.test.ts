@@ -133,8 +133,15 @@ describe("/api/agent/chat local CLI runtime", () => {
 
 		expect(events.map((event) => event.event)).toContain("reasoning-delta");
 		expect(events.map((event) => event.event)).toContain("tool-call");
+		expect(events.map((event) => event.event)).toContain("token-usage");
 		expect(events.map((event) => event.event)).toContain("text-delta");
 		expect(events.at(-1)?.event).toBe("done");
+		expect(events.find((event) => event.event === "token-usage")?.data).toMatchObject({
+			source: "local-cli",
+			usage: {
+				approximate: true,
+			},
+		});
 		expect(
 			events.find((event) => event.event === "text-delta")?.data,
 		).toMatchObject({ text: "完成：已添加标题。" });

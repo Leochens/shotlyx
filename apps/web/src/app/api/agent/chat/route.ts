@@ -36,6 +36,12 @@ import {
 	runLocalCliReactLoop,
 	type LocalCliEvent,
 } from "@/agent/local-cli/runtime";
+import {
+	addTokenUsage,
+	createEmptyTokenUsage,
+	normalizeTokenUsage,
+	type AgentTokenUsageSource,
+} from "@/agent/token-usage";
 import { registerPendingCall } from "./resolve";
 
 export const runtime = "nodejs";
@@ -79,6 +85,13 @@ const requestSchema = z.object({
 		})
 		.optional(),
 });
+
+type TokenUsageReporter = (event: {
+	usage: unknown;
+	source: AgentTokenUsageSource;
+	label: string;
+	approximate?: boolean;
+}) => void;
 
 function buildReferencesContextText({
 	references,
@@ -148,6 +161,7 @@ async function generatePlanFromLLM(
 	toolSchemas: FunctionSchema[],
 	logger: AgentLogger,
 	abortSignal?: AbortSignal,
+	onTokenUsage?: TokenUsageReporter,
 ): Promise<AgentPlan> {
 	if (toolSchemas.length === 0) {
 		return {
@@ -165,6 +179,14 @@ async function generatePlanFromLLM(
 				messages,
 				toolSchemas,
 				signal: abortSignal,
+				onUsage: (usage) => {
+					onTokenUsage?.({
+						usage,
+						source: "local-cli",
+						label: "Plan",
+						approximate: usage.approximate,
+					});
+				},
 			});
 		} catch (err) {
 			logger.error(err);
@@ -196,6 +218,13 @@ async function generatePlanFromLLM(
 			tools,
 			stopWhen: stepCountIs(1),
 			abortSignal,
+			onStepFinish({ usage }) {
+				onTokenUsage?.({
+					usage,
+					source: "api",
+					label: "Plan",
+				});
+			},
 		});
 
 		let reasoning = "";
@@ -322,6 +351,7 @@ async function generateQuickReplyActions({
 	toolSchemas,
 	logger,
 	abortSignal,
+	onTokenUsage,
 }: {
 	assistantText: string;
 	messages: ModelMessage[];
@@ -329,6 +359,7 @@ async function generateQuickReplyActions({
 	toolSchemas: FunctionSchema[];
 	logger: AgentLogger;
 	abortSignal?: AbortSignal;
+	onTokenUsage?: TokenUsageReporter;
 }): Promise<MessageAction[]> {
 	if (isLocalCliRuntimeEnabled()) {
 		return [];
@@ -374,6 +405,12 @@ async function generateQuickReplyActions({
 				],
 			}),
 			abortSignal,
+		});
+		const usageResult = result as { usage?: unknown; totalUsage?: unknown };
+		onTokenUsage?.({
+			usage: usageResult.totalUsage ?? usageResult.usage,
+			source: "api",
+			label: "Quick replies",
 		});
 
 		return normalizeQuickReplyActions({
@@ -515,6 +552,38 @@ export async function POST(request: NextRequest) {
 					closed = true;
 				}
 			};
+			let tokenUsageTotals = createEmptyTokenUsage();
+			const reportTokenUsage: TokenUsageReporter = ({
+				usage,
+				source,
+				label,
+				approximate,
+			}) => {
+				const delta = normalizeTokenUsage({
+					value: usage,
+					source,
+					label,
+					approximate,
+				});
+				if (!delta) return;
+				tokenUsageTotals = addTokenUsage({
+					current: tokenUsageTotals,
+					delta,
+				});
+				logger.tokenUsage({
+					label,
+					delta,
+					totals: tokenUsageTotals,
+				});
+				sseSend("token-usage", {
+					usage: tokenUsageTotals,
+					delta,
+					source,
+					label,
+					approximate: tokenUsageTotals.approximate,
+					timestamp: Date.now(),
+				});
+			};
 
 			async function proxyOnToolCall(
 				callId: string,
@@ -611,6 +680,13 @@ export async function POST(request: NextRequest) {
 					tools: proxyTools,
 					stopWhen: stepCountIs(20),
 					abortSignal: request.signal,
+					onStepFinish({ usage }) {
+						reportTokenUsage({
+							usage,
+							source: "api",
+							label: "Agent step",
+						});
+					},
 				});
 
 				let partCount = 0;
@@ -766,6 +842,7 @@ export async function POST(request: NextRequest) {
 					toolSchemas: toolSchemas as FunctionSchema[],
 					logger,
 					abortSignal: request.signal,
+					onTokenUsage: reportTokenUsage,
 				});
 				if (actions.length > 0) {
 					sseSend("message-actions", { actions, timestamp: Date.now() });
@@ -820,6 +897,13 @@ export async function POST(request: NextRequest) {
 						sendTextDelta(event.text);
 					} else if (event.type === "plan" && event.reasoning) {
 						sendReasoningDelta(event.reasoning);
+					} else if (event.type === "usage") {
+						reportTokenUsage({
+							usage: event.usage,
+							source: "local-cli",
+							label: "Local CLI",
+							approximate: event.usage.approximate,
+						});
 					} else if (event.type === "error") {
 						throw new Error(event.message);
 					}
@@ -862,6 +946,7 @@ export async function POST(request: NextRequest) {
 					toolSchemas: toolSchemas as FunctionSchema[],
 					logger,
 					abortSignal: request.signal,
+					onTokenUsage: reportTokenUsage,
 				});
 				if (actions.length > 0) {
 					sseSend("message-actions", { actions, timestamp: Date.now() });
@@ -915,6 +1000,7 @@ export async function POST(request: NextRequest) {
 						toolSchemas: toolSchemas as FunctionSchema[],
 						logger,
 						abortSignal: request.signal,
+						onTokenUsage: reportTokenUsage,
 					});
 					return actions.length > 0 ? { ...nextPlan, actions } : nextPlan;
 				};
@@ -973,6 +1059,7 @@ export async function POST(request: NextRequest) {
 							toolSchemas as FunctionSchema[],
 							logger,
 							request.signal,
+							reportTokenUsage,
 						);
 
 						const remainingSteps = followUpPlan.steps
@@ -1079,6 +1166,7 @@ export async function POST(request: NextRequest) {
 							toolSchemas as FunctionSchema[],
 							logger,
 							request.signal,
+							reportTokenUsage,
 						);
 						logger.plan(plan);
 						await handleSuggestOrManual(plan);
@@ -1099,6 +1187,7 @@ export async function POST(request: NextRequest) {
 						toolSchemas as FunctionSchema[],
 						logger,
 						request.signal,
+						reportTokenUsage,
 					);
 					logger.plan(plan);
 					await handleSuggestOrManual(plan);

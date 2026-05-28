@@ -236,6 +236,31 @@ exit 0
 		).toEqual([{ type: "reasoning", text: "Checking editor state." }]);
 	});
 
+	test("extracts token usage from native CLI JSON events", () => {
+		expect(
+			parseLocalCliEventsFromLine(
+				JSON.stringify({
+					type: "result",
+					usage: {
+						input_tokens: 120,
+						output_tokens: 30,
+						total_tokens: 150,
+					},
+				}),
+			),
+		).toEqual([
+			{
+				type: "usage",
+				usage: {
+					inputTokens: 120,
+					outputTokens: 30,
+					totalTokens: 150,
+					source: "local-cli",
+				},
+			},
+		]);
+	});
+
 	test("runs a multi-turn ReAct loop through a fake CLI and tool callback", async () => {
 		const fakeClaude = writeExecutable(
 			"claude",
@@ -281,6 +306,12 @@ fi
 
 		expect(result.finalText).toBe("Added the title.");
 		expect(result.toolCallCount).toBe(1);
-		expect(seenEvents).toEqual(["reasoning", "tool_call", "final"]);
+		expect(seenEvents).toEqual([
+			"reasoning",
+			"tool_call",
+			"usage",
+			"final",
+			"usage",
+		]);
 	});
 });

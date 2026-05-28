@@ -36,6 +36,7 @@ import { useAgentContextStore } from "@/agent/context/store";
 import type { AgentContextReference } from "@/agent/context/types";
 import type { ChatMessage } from "./types";
 import type { ToolProgressEvent, ToolResult } from "@/agent/mcp/types";
+import type { AgentTokenUsageTotals } from "@/agent/token-usage";
 import { resumeShotlyxMGJobInBackground } from "@/agent/tools/creative/creative-tools";
 import {
 	getShotlyxMGJobDataFromToolCall,
@@ -171,6 +172,24 @@ function getNumberField({
 	if (!isRecord(value)) return undefined;
 	const nextValue = value[key];
 	return typeof nextValue === "number" ? nextValue : undefined;
+}
+
+function getTokenCountField({
+	value,
+	key,
+}: {
+	value: unknown;
+	key: string;
+}): number {
+	const numberValue = getNumberField({ value, key });
+	if (
+		numberValue === undefined ||
+		!Number.isFinite(numberValue) ||
+		numberValue < 0
+	) {
+		return 0;
+	}
+	return Math.round(numberValue);
 }
 
 function getRecordField({
@@ -314,6 +333,37 @@ function parsePlanEventData(value: unknown): {
 	};
 }
 
+function parseTokenUsageEventData(value: unknown): AgentTokenUsageTotals | null {
+	const usage = getRecordField({ value, key: "usage" });
+	if (!usage) return null;
+	const rawSources = Array.isArray(usage.sources) ? usage.sources : [];
+	const sources = rawSources.filter(
+		(source): source is AgentTokenUsageTotals["sources"][number] =>
+			source === "api" || source === "local-cli",
+	);
+
+	return {
+		inputTokens: getTokenCountField({ value: usage, key: "inputTokens" }),
+		outputTokens: getTokenCountField({ value: usage, key: "outputTokens" }),
+		reasoningTokens: getTokenCountField({
+			value: usage,
+			key: "reasoningTokens",
+		}),
+		totalTokens: getTokenCountField({ value: usage, key: "totalTokens" }),
+		cachedInputTokens: getTokenCountField({
+			value: usage,
+			key: "cachedInputTokens",
+		}),
+		cacheWriteTokens: getTokenCountField({
+			value: usage,
+			key: "cacheWriteTokens",
+		}),
+		approximate: getBooleanField({ value: usage, key: "approximate" }) ?? false,
+		sources,
+		updatedAt: getTokenCountField({ value: usage, key: "updatedAt" }) || Date.now(),
+	};
+}
+
 export function ChatPanel() {
 	const { copy, locale } = useAppLocale();
 	const [input, setInput] = useState("");
@@ -363,6 +413,7 @@ export function ChatPanel() {
 		updateMessageActions,
 		updateMessageClarification,
 		updateMessageToolCalls,
+		updateMessageTokenUsage,
 		activeSessionId,
 		setActiveProject,
 		clearSessionMessages,
@@ -722,6 +773,14 @@ export function ChatPanel() {
 		}
 
 		if (sseEvent.event === "tool-result") {
+			return;
+		}
+
+		if (sseEvent.event === "token-usage") {
+			const usage = parseTokenUsageEventData(data);
+			if (!usage || usage.totalTokens <= 0) return;
+			const mid = ensureAssistantMessage();
+			updateMessageTokenUsage({ id: mid, tokenUsage: usage });
 			return;
 		}
 

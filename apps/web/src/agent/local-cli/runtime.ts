@@ -5,6 +5,11 @@ import type { ModelMessage } from "ai";
 import type { FunctionSchema } from "@/agent/mcp/schema";
 import type { AgentPlan, AgentStep } from "@/agent/controller/types";
 import { getRuntimeEnv } from "@/desktop/config/server";
+import {
+	estimateTokenUsage,
+	normalizeTokenUsage,
+	type AgentTokenUsageDelta,
+} from "@/agent/token-usage";
 
 export type LocalCliAgentId = "claude" | "codex";
 
@@ -36,6 +41,7 @@ export type LocalCliEvent =
 	| { type: "reasoning"; text: string }
 	| { type: "text"; text: string }
 	| { type: "final"; text: string }
+	| { type: "usage"; usage: AgentTokenUsageDelta }
 	| {
 			type: "tool_call";
 			id?: string;
@@ -344,6 +350,27 @@ function normalizePlanSteps(value: unknown): AgentStep[] {
 	});
 }
 
+function extractUsageCandidate(
+	value: Record<string, unknown>,
+): AgentTokenUsageDelta | null {
+	const direct = normalizeTokenUsage({ value, source: "local-cli" });
+	if (direct) return direct;
+
+	for (const key of [
+		"usage",
+		"totalUsage",
+		"tokenUsage",
+		"token_usage",
+		"metrics",
+	]) {
+		const nested = value[key];
+		const usage = normalizeTokenUsage({ value: nested, source: "local-cli" });
+		if (usage) return usage;
+	}
+
+	return null;
+}
+
 function eventsFromText({
 	text,
 	fallbackType = "text",
@@ -358,6 +385,10 @@ function eventsFromText({
 
 function parseProtocolObject(parsed: Record<string, unknown>): LocalCliEvent | null {
 	const type = typeof parsed.type === "string" ? parsed.type : "";
+	if (type === "usage" || type === "token_usage") {
+		const usage = extractUsageCandidate(parsed);
+		return usage ? { type: "usage", usage } : null;
+	}
 	if (type === "reasoning" || type === "reasoning_delta") {
 		return {
 			type: "reasoning",
@@ -402,6 +433,18 @@ function parseProtocolObject(parsed: Record<string, unknown>): LocalCliEvent | n
 		};
 	}
 	return null;
+}
+
+function withUsageEvent({
+	events,
+	parsed,
+}: {
+	events: LocalCliEvent[];
+	parsed: Record<string, unknown>;
+}): LocalCliEvent[] {
+	if (events.some((event) => event.type === "usage")) return events;
+	const usage = extractUsageCandidate(parsed);
+	return usage ? [...events, { type: "usage", usage }] : events;
 }
 
 function parseClaudeStreamEvent(parsed: Record<string, unknown>): LocalCliEvent[] {
@@ -547,13 +590,18 @@ export function parseLocalCliEventsFromLine(line: string): LocalCliEvent[] {
 			...parseClaudeStreamEvent(parsed),
 			...parseCodexJsonEvent(parsed),
 		];
-		if (nativeEvents.length > 0) return nativeEvents;
+		if (nativeEvents.length > 0) {
+			return withUsageEvent({ events: nativeEvents, parsed });
+		}
 
 		const wrappedText = extractCliWrappedText(parsed).trim();
 		if (wrappedText) {
-			return eventsFromText({ text: wrappedText, fallbackType: "text" });
+			return withUsageEvent({
+				events: eventsFromText({ text: wrappedText, fallbackType: "text" }),
+				parsed,
+			});
 		}
-		return [];
+		return withUsageEvent({ events: [], parsed });
 	} catch {
 		return [{ type: "text", text: trimmed }];
 	}
@@ -656,6 +704,7 @@ function runLocalCliOnce({
 		});
 		const events: LocalCliEvent[] = [];
 		let stdout = "";
+		let rawStdout = "";
 		let stderr = "";
 		const abort = () => {
 			child.kill("SIGTERM");
@@ -667,7 +716,9 @@ function runLocalCliOnce({
 		}
 		signal?.addEventListener("abort", abort, { once: true });
 		child.stdout.on("data", (chunk: Buffer) => {
-			stdout += chunk.toString("utf8");
+			const text = chunk.toString("utf8");
+			rawStdout += text;
+			stdout += text;
 			const lines = stdout.split(/\r?\n/);
 			stdout = lines.pop() ?? "";
 			for (const line of lines) {
@@ -691,6 +742,17 @@ function runLocalCliOnce({
 					),
 				);
 				return;
+			}
+			if (!events.some((event) => event.type === "usage")) {
+				events.push({
+					type: "usage",
+					usage: estimateTokenUsage({
+						inputText: prompt,
+						outputText: rawStdout,
+						source: "local-cli",
+						label: "Local CLI",
+					}),
+				});
 			}
 			resolve(events);
 		});
@@ -778,6 +840,9 @@ export async function runLocalCliReactLoop({
 
 		for (const event of events) {
 			onEvent?.(event);
+			if (event.type === "usage") {
+				continue;
+			}
 			if (event.type === "final" || event.type === "text") {
 				finalText += event.text;
 			}
@@ -811,12 +876,14 @@ export async function generatePlanWithLocalCli({
 	toolSchemas,
 	env = getRuntimeEnv(),
 	signal,
+	onUsage,
 }: {
 	systemPrompt: string;
 	messages: Array<{ role: string; content: string; references?: unknown[] }>;
 	toolSchemas: FunctionSchema[];
 	env?: Record<string, string | undefined>;
 	signal?: AbortSignal;
+	onUsage?: (usage: AgentTokenUsageDelta) => void;
 }): Promise<AgentPlan> {
 	const config = resolveLocalCliRuntimeConfig({ env });
 	if (!config.binPath) {
@@ -843,6 +910,8 @@ export async function generatePlanWithLocalCli({
 		if (event.type === "plan") {
 			reasoning += event.reasoning ?? "";
 			steps.push(...event.steps);
+		} else if (event.type === "usage") {
+			onUsage?.(event.usage);
 		} else if (event.type === "tool_call") {
 			steps.push({
 				tool: event.tool,

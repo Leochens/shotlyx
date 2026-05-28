@@ -1,4 +1,4 @@
-import { AlertCircle, RotateCcw } from "lucide-react";
+import { AlertCircle, Gauge, RotateCcw } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ChatMessage } from "./types";
 import { ReasoningBlock } from "./reasoning-block";
@@ -13,6 +13,7 @@ import { OptionCard } from "./option-card";
 import { ReferenceChipList } from "./reference-chip";
 import { ClarificationCard } from "./clarification-card";
 import { ReactMarkdownWrapper } from "@/components/ui/react-markdown-wrapper";
+import type { AgentTokenUsageTotals } from "@/agent/token-usage";
 
 const LONG_ASSISTANT_CONTENT_THRESHOLD = 1800;
 const LONG_ASSISTANT_CONTENT_PREVIEW_LENGTH = 1200;
@@ -56,6 +57,60 @@ function PlainAssistantText({ content }: { content: string }) {
 	return <span className="whitespace-pre-wrap">{content}</span>;
 }
 
+function formatTokenCount(value: number): string {
+	if (!Number.isFinite(value) || value <= 0) return "0";
+	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+	if (value >= 10_000) return `${Math.round(value / 1_000)}K`;
+	if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+	return String(Math.round(value));
+}
+
+function TokenUsageSummary({
+	usage,
+	isStreaming,
+}: {
+	usage: AgentTokenUsageTotals;
+	isStreaming?: boolean;
+}) {
+	const details = [
+		usage.inputTokens > 0 ? `In ${formatTokenCount(usage.inputTokens)}` : null,
+		usage.outputTokens > 0
+			? `Out ${formatTokenCount(usage.outputTokens)}`
+			: null,
+		usage.reasoningTokens > 0
+			? `Reason ${formatTokenCount(usage.reasoningTokens)}`
+			: null,
+		usage.cachedInputTokens > 0
+			? `Cache ${formatTokenCount(usage.cachedInputTokens)}`
+			: null,
+	].filter((item): item is string => Boolean(item));
+
+	return (
+		<div className="mt-1.5 flex max-w-full flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+			<span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/60 px-2 py-0.5">
+				<Gauge size={11} />
+				<span>{formatTokenCount(usage.totalTokens)} tokens</span>
+				{isStreaming && (
+					<span className="size-1.5 animate-pulse rounded-full bg-cyan-400" />
+				)}
+			</span>
+			{details.map((item) => (
+				<span
+					key={item}
+					className="rounded-full border border-border/45 bg-muted/50 px-1.5 py-0.5"
+				>
+					{item}
+				</span>
+			))}
+			{usage.approximate && (
+				<span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-amber-500 dark:text-amber-300">
+					估算
+				</span>
+			)}
+		</div>
+	);
+}
+
 interface MessageItemProps {
 	message: ChatMessage;
 	onActionClick?: (actionId: string) => void;
@@ -80,6 +135,8 @@ export function MessageItem({
 	const hasContent = !!message.content && message.content.length > 0;
 	const hasToolCalls =
 		!isUser && message.toolCalls && message.toolCalls.length > 0;
+	const hasTokenUsage =
+		!isUser && message.tokenUsage && message.tokenUsage.totalTokens > 0;
 	const hasMediaResults =
 		!isUser &&
 		getStockMediaCandidatesFromToolCalls(message.toolCalls).length > 0;
@@ -174,6 +231,13 @@ export function MessageItem({
 							</div>
 						)}
 					</div>
+				)}
+
+				{hasTokenUsage && (
+					<TokenUsageSummary
+						usage={message.tokenUsage!}
+						isStreaming={isStreaming}
+					/>
 				)}
 
 				{hasReferences && (
