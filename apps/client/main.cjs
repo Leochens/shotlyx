@@ -11,6 +11,7 @@ try {
 }
 
 const PRODUCT_NAME = "Shotlyx Desktop";
+const DEV_PRODUCT_NAME = `${PRODUCT_NAME} Dev`;
 const LOCAL_PROTOCOL = "app";
 const LOCAL_PROTOCOL_HOST = "shotlyx";
 const LOCAL_RENDERER_URL = "app://shotlyx/desktop";
@@ -32,6 +33,24 @@ protocol.registerSchemesAsPrivileged([
 
 function getStartUrl() {
 	return process.env.SHOTLYX_WEB_URL || LOCAL_RENDERER_URL;
+}
+
+function isDevelopmentRuntime() {
+	return !app.isPackaged || process.env.SHOTLYX_DESKTOP_DEV === "1";
+}
+
+function configureAppIdentity() {
+	const productName = isDevelopmentRuntime() ? DEV_PRODUCT_NAME : PRODUCT_NAME;
+	app.setName(productName);
+
+	if (process.env.SHOTLYX_USER_DATA_DIR) {
+		app.setPath("userData", process.env.SHOTLYX_USER_DATA_DIR);
+		return;
+	}
+
+	if (isDevelopmentRuntime()) {
+		app.setPath("userData", path.join(app.getPath("appData"), DEV_PRODUCT_NAME));
+	}
 }
 
 function shouldUseLocalRenderer() {
@@ -287,19 +306,24 @@ function configureAutoUpdater() {
 	}, 5_000);
 }
 
-app.setName(PRODUCT_NAME);
+configureAppIdentity();
 
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
+const shouldUseSingleInstanceLock =
+	process.env.SHOTLYX_DISABLE_SINGLE_INSTANCE_LOCK !== "1";
+const hasSingleInstanceLock =
+	!shouldUseSingleInstanceLock || app.requestSingleInstanceLock();
 
 if (!hasSingleInstanceLock) {
 	app.quit();
 } else {
-	app.on("second-instance", () => {
-		const win = BrowserWindow.getAllWindows()[0];
-		if (!win) return;
-		if (win.isMinimized()) win.restore();
-		win.focus();
-	});
+	if (shouldUseSingleInstanceLock) {
+		app.on("second-instance", () => {
+			const win = BrowserWindow.getAllWindows()[0];
+			if (!win) return;
+			if (win.isMinimized()) win.restore();
+			win.focus();
+		});
+	}
 
 	app.whenReady().then(() => {
 		try {

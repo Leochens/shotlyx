@@ -33,7 +33,7 @@ Shotlyx 的基础视频编辑器来源于 OpenCut 项目，包括核心浏览器
 - Stock 素材搜索/导入、网页搜索/抓取、生图、旁白/TTS、ASR 字幕、静音分析与剪辑工作流。
 - Shotlyx MG：生成可编辑的 Remotion-style 动态图形组件。
 - Rust/WASM 模块支持时间、音频分析、GPU/合成、特效和蒙版能力。
-- Docker 与 Cloudflare 静态资源部署脚手架。
+- Docker 与 Cloudflare/OpenNext 部署脚手架。
 
 ## 项目状态
 
@@ -44,7 +44,7 @@ Shotlyx 的基础视频编辑器来源于 OpenCut 项目，包括核心浏览器
 ```text
 .
 ├── apps/
-│   ├── web/          # Vite React 编辑器应用和 Agent runtime
+│   ├── web/          # Next.js 编辑器应用和 Agent runtime
 │   └── desktop/      # Rust GPUI 桌面壳原型
 ├── rust/
 │   ├── crates/       # time、audio、GPU、masks、effects 等 Rust crate
@@ -80,7 +80,7 @@ Shotlyx 使用前后端分离的工具执行模型：
 ## 环境要求
 
 - Bun 1.2.x
-- 可运行本地 API handlers 的 Node-compatible runtime
+- 可运行 Next.js API routes 的 Node-compatible runtime
 - Rust toolchain
 - 用于重新构建 WASM 包的 `wasm-pack`
 - Docker，如果需要本地 Postgres/Redis 服务
@@ -136,7 +136,7 @@ http://localhost:3000
 ## 开发命令
 
 ```bash
-bun run dev:web        # Vite 开发服务
+bun run dev:web        # Next.js 开发服务
 bun run build:web      # 构建 Web 应用
 bun run build:wasm     # 重新构建 Rust/WASM 包
 bun run lint:web       # lint Web 源码
@@ -181,7 +181,7 @@ docker compose up --build
 
 Compose 文件主要面向本地/自托管开发。任何真实部署前，请替换所有占位 secret。
 
-Cloudflare 静态资源：
+Cloudflare/OpenNext：
 
 ```bash
 cd apps/web

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -19,6 +20,25 @@ const hasExplicitWebUrl = Boolean(process.env.SHOTLYX_WEB_URL);
 let runtime = getDesktopRuntime();
 let desktopEnv = createDesktopEnv(runtime);
 let webProcessExitCode = null;
+let isShuttingDown = false;
+
+function getLocalBinCommand(command) {
+	const binaryName = process.platform === "win32" ? `${command}.cmd` : command;
+	for (const rootDir of [repoRoot, path.join(repoRoot, "apps/web")]) {
+		const candidate = path.join(rootDir, "node_modules", ".bin", binaryName);
+		if (fs.existsSync(candidate)) return candidate;
+	}
+	return command;
+}
+
+function exitCodeFromSignal(signal) {
+	if (!signal) return 0;
+	const signalNumbers = {
+		SIGINT: 2,
+		SIGTERM: 15,
+	};
+	return 128 + (signalNumbers[signal] ?? 0);
+}
 
 function isPortAvailable(targetRuntime) {
 	return new Promise((resolve) => {
@@ -92,8 +112,19 @@ let webProcess = null;
 let electronProcess = null;
 
 function shutdown() {
+	isShuttingDown = true;
 	if (electronProcess && !electronProcess.killed) electronProcess.kill();
 	if (webProcess && !webProcess.killed) webProcess.kill();
+}
+
+function exitAfterWebProcessStops(exitCode) {
+	if (!webProcess || webProcess.killed) {
+		process.exit(exitCode);
+	}
+
+	webProcess.once("exit", () => process.exit(exitCode));
+	webProcess.kill();
+	setTimeout(() => process.exit(exitCode), 2_000).unref();
 }
 
 function runApiBuild() {
@@ -132,11 +163,8 @@ await prepareDesktopApiBundle();
 
 if (shouldStartServer) {
 	webProcess = spawn(
-		"bun",
+		getLocalBinCommand("vite"),
 		[
-			"run",
-			"dev",
-			"--",
 			"--host",
 			runtime.hostname,
 			"--port",
@@ -154,12 +182,20 @@ if (shouldStartServer) {
 		shutdown();
 		process.exit(1);
 	});
-	webProcess.on("exit", (code) => {
-		webProcessExitCode = code ?? 0;
-		if (code && electronProcess && !electronProcess.killed) {
+	webProcess.on("exit", (code, signal) => {
+		const exitCode = code ?? exitCodeFromSignal(signal);
+		webProcessExitCode = exitCode;
+		webProcess = null;
+		if (isShuttingDown) return;
+
+		if (electronProcess && !electronProcess.killed) {
+			console.error(
+				`Vite dev server stopped; closing Shotlyx Desktop (code ${exitCode}).`,
+			);
+			isShuttingDown = true;
 			electronProcess.kill();
-			process.exit(code);
 		}
+		process.exit(exitCode || 1);
 	});
 }
 
@@ -172,6 +208,8 @@ electronProcess = spawn(
 		cwd: repoRoot,
 		env: {
 			...desktopEnv,
+			SHOTLYX_DESKTOP_DEV: "1",
+			SHOTLYX_DISABLE_SINGLE_INSTANCE_LOCK: "1",
 			SHOTLYX_WEB_URL: runtime.webUrl,
 		},
 		stdio: "inherit",
@@ -188,6 +226,7 @@ electronProcess.on("error", (error) => {
 });
 
 electronProcess.on("exit", (code) => {
-	if (webProcess && !webProcess.killed) webProcess.kill();
-	process.exit(code ?? 0);
+	const exitCode = code ?? 0;
+	isShuttingDown = true;
+	exitAfterWebProcessStops(exitCode);
 });

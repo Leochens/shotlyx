@@ -33,18 +33,18 @@ The Agent layer that makes the editor operable through natural language is origi
 - Stock media search/import, web search/fetch, image generation, voiceover/TTS, ASR-assisted subtitles, and silence removal workflows.
 - Shotlyx MG generation for editable Remotion-style motion graphics components.
 - Rust/WASM modules for shared time, audio analysis, GPU/compositor, effects, and masks.
-- Docker and Cloudflare static-assets deployment scaffolding.
+- Docker and Cloudflare/OpenNext deployment scaffolding.
 
 ## Project Status
 
-This repository is public-readiness work in progress. The web editor and Agent stack are the main active surfaces. The Electron client under `apps/client` wraps the Vite renderer and local API bridge in desktop mode. The older `apps/desktop` directory is a small GPUI shell prototype, not the current desktop editor.
+This repository is public-readiness work in progress. The web editor and Agent stack are the main active surfaces. The Electron client under `apps/client` wraps the local Next.js app in desktop API mode. The older `apps/desktop` directory is a small GPUI shell prototype, not the current desktop editor.
 
 ## Repository Structure
 
 ```text
 .
 ├── apps/
-│   ├── web/          # Vite React editor app and Agent runtime
+│   ├── web/          # Next.js editor app and Agent runtime
 │   ├── client/       # Electron desktop client for local API configuration
 │   └── desktop/      # Rust GPUI desktop shell prototype
 ├── rust/
@@ -81,7 +81,7 @@ This keeps secrets and provider APIs on the server while keeping editor-bound st
 ## Requirements
 
 - Bun 1.2.x
-- Node-compatible runtime for local API handlers
+- Node-compatible runtime for Next.js API routes
 - Rust toolchain
 - `wasm-pack` for rebuilding the WASM package
 - Docker, if you want local Postgres/Redis services
@@ -125,11 +125,13 @@ Run the Electron desktop client in local API mode:
 bun run dev:client
 ```
 
-The desktop client loads the Vite renderer directly and enables
-`SHOTLYX_DESKTOP=1`, so users can configure their own Agent, video, image, TTS,
-ASR, web-search, and stock-media API keys from `/settings/api`. These values are
-stored in a local desktop config file and read by Electron's local API bridge,
-not by browser localStorage.
+The desktop client opens `/desktop` and enables `SHOTLYX_DESKTOP=1`, so users can
+configure their own Agent, video, image, TTS, ASR, web-search, and stock-media
+API keys from `/settings/api`. These values are stored in a local desktop config
+file and read by the local Next.js server, not by browser localStorage. By
+default the Electron client uses `http://127.0.0.1:3100` and a separate
+`.next-desktop` build directory so it can run alongside the web dev server on
+port 3000.
 
 ## Environment Variables
 
@@ -149,7 +151,7 @@ Do not commit `.env.local` or any real credentials.
 ## Development Commands
 
 ```bash
-bun run dev:web        # Vite dev server
+bun run dev:web        # Next.js dev server
 bun run build:web      # Build the web app
 bun run build:wasm     # Rebuild Rust/WASM package
 bun run lint:web       # Lint web source
@@ -194,7 +196,7 @@ docker compose up --build
 
 The compose file is intended for local/self-hosted development. Replace all placeholder secrets before using it for any real deployment.
 
-Cloudflare static assets:
+Cloudflare/OpenNext:
 
 ```bash
 cd apps/web
