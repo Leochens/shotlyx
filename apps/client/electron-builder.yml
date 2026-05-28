@@ -20,6 +20,7 @@ mac:
   category: public.app-category.video
   icon: build/icon.icns
   hardenedRuntime: true
+  notarize: true
   target:
     - dmg
     - zip
