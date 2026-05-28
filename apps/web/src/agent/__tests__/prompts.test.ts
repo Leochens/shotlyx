@@ -48,10 +48,10 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain(
 			"When one user request asks for subtitles, voiceover, and MG",
 		);
-		expect(prompt).toContain("Remotion/Shotlyx Component MG is the only MG generation path");
 		expect(prompt).toContain(
-			"Do not use HTML/GSAP overlay generators for MG",
+			"Remotion/Shotlyx Component MG is the only MG generation path",
 		);
+		expect(prompt).toContain("Do not use HTML/GSAP overlay generators for MG");
 		expect(prompt).toContain("never leave placeholder copy");
 		expect(prompt).toContain("duration as flexible");
 		expect(prompt).toContain("generate subtitles first");
@@ -66,5 +66,13 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain("帮我剪辑一下视频");
 		expect(prompt).toContain("removing silence");
 		expect(prompt).toContain("generating subtitles");
+		expect(prompt).toContain("## Complete Video Creation");
+		expect(prompt).toContain("media_get_all and timeline_get_summary");
+		expect(prompt).toContain("external stock b-roll");
+		expect(prompt).toContain("纪录片数据解说");
+		expect(prompt).toContain("完整包装：配音+字幕+MG+音效");
+		expect(prompt).toContain('stock_search_media with type "video"');
+		expect(prompt).toContain('type "audio" and provider "freesound"');
+		expect(prompt).toContain("avoid an empty black canvas");
 	});
 });

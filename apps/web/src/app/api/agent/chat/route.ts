@@ -360,7 +360,7 @@ async function generateQuickReplyActions({
 			model,
 			schema: quickReplyResponseSchema,
 			system:
-				"You generate quick-reply options for an editing assistant. Return only valid JSON that matches the schema. Only offer options when the assistant's latest reply asks a genuine blocking clarification question that the user can answer by selecting one option. Do not offer options for status updates, completed work, confirmations, or rhetorical questions. Options must be contextual, not fixed presets. Labels should be short. Descriptions should be one concise phrase explaining what that choice does. Values must be complete user replies in the same language as the assistant. For broad video-editing clarification, prefer choices that map to available tools, such as AI rough-cut review for filler/repeat removal, silence removal, subtitle generation, B-roll/media insertion, title text, voiceover, or style cleanup when those tools exist. Never offer unavailable capabilities.",
+				"You generate quick-reply options for an editing assistant. Return only valid JSON that matches the schema. Only offer options when the assistant's latest reply asks a genuine blocking clarification question that the user can answer by selecting one option. Do not offer options for status updates, completed work, confirmations, or rhetorical questions. Options must be contextual, not fixed presets. Labels should be short. Descriptions should be one concise phrase explaining what that choice does. Values must be complete user replies in the same language as the assistant. For broad video-editing clarification, prefer choices that map to available tools, such as AI rough-cut review for filler/repeat removal, silence removal, subtitle generation, B-roll/media insertion, title text, voiceover, or style cleanup when those tools exist. For full video creation clarification, offer choices for asset source (use existing assets, search stock media, graphics-first, upload later), visual style (documentary data explainer, news infographic, business report, social short video, minimalist MG), or production package (voiceover+subtitles, MG emphasis, MG+sound effects, full package) when those are what the assistant asked about. Never offer unavailable capabilities.",
 			prompt: JSON.stringify({
 				recentMessages,
 				assistantText,
@@ -868,7 +868,9 @@ export async function POST(request: NextRequest) {
 				}
 			}
 
-			async function runProxyLoop(messagesForLLM: ModelMessage[]): Promise<void> {
+			async function runProxyLoop(
+				messagesForLLM: ModelMessage[],
+			): Promise<void> {
 				if (isLocalCliRuntimeEnabled()) {
 					await runLocalCliProxyLoop(messagesForLLM);
 					return;

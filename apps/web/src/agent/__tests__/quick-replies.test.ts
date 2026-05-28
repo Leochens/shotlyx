@@ -112,4 +112,42 @@ describe("quick replies", () => {
 			}),
 		).toEqual([]);
 	});
+
+	test("normalizes full-video production package options", () => {
+		const actions = normalizeQuickReplyActions({
+			assistantText:
+				"这个介绍视频要做到什么完整度？要配音、字幕、MG 动画和音效吗？",
+			response: {
+				shouldOffer: true,
+				options: [
+					{
+						label: "完整包装",
+						value: "做完整包装：配音、字幕、关键 MG 动画和音效都需要。",
+						description: "配音+字幕+MG+音效",
+					},
+					{
+						label: "配音字幕",
+						value: "先做配音和字幕，不需要额外 MG 和音效。",
+						description: "只生成旁白和字幕层",
+					},
+					{
+						label: "MG+字幕",
+						value: "做字幕和关键 MG 强调，暂时不要配音和音效。",
+						description: "偏图形化讲解",
+					},
+				],
+			},
+		});
+
+		expect(actions).toHaveLength(4);
+		expect(actions[0]).toMatchObject({
+			label: "完整包装",
+			value: "做完整包装：配音、字幕、关键 MG 动画和音效都需要。",
+			description: "配音+字幕+MG+音效",
+		});
+		expect(actions[3]).toMatchObject({
+			id: "option-other",
+			label: "其他",
+		});
+	});
 });
