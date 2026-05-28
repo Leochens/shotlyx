@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	isStructuredOutputSchemaError,
+	isStructuredOutputValueError,
 	resolveStructuredGenerationMode,
 } from "@/agent/ai-sdk/request-builder";
 import type { LLMProviderConfig } from "@/agent/llm/types";
@@ -22,10 +23,21 @@ describe("AI request builder", () => {
 		).toBe("plain-json");
 	});
 
-	test("uses native structured output for OpenAI-compatible providers", () => {
+	test("uses plain JSON for OpenAI-compatible providers by default", () => {
 		expect(
 			resolveStructuredGenerationMode({
 				config: config("openai-compatible"),
+			}),
+		).toBe("plain-json");
+	});
+
+	test("allows native structured output when explicitly requested", () => {
+		expect(
+			resolveStructuredGenerationMode({
+				config: {
+					...config("openai-compatible"),
+					structuredOutputMode: "native",
+				},
 			}),
 		).toBe("native");
 	});
@@ -43,6 +55,19 @@ describe("AI request builder", () => {
 				new Error(
 					`Invalid JSON payload received. Unknown name "additionalProperties" at 'generation_config.response_schema.properties[6].value.items': Cannot find field.`,
 				),
+			),
+		).toBe(true);
+	});
+
+	test("detects AI SDK structured output value errors", () => {
+		expect(
+			isStructuredOutputValueError(
+				new Error("No object generated: response did not match schema."),
+			),
+		).toBe(true);
+		expect(
+			isStructuredOutputValueError(
+				new Error("No object generated: could not parse the response."),
 			),
 		).toBe(true);
 	});

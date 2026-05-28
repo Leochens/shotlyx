@@ -566,6 +566,81 @@ export default function ShotlyxComponent(props: Props) {
 		expect(document.defaultProps.title).toBe("Hello fallback");
 	});
 
+	test("falls back to plain JSON generation when native structured output has no object", async () => {
+		let calls = 0;
+		const generateTextMock = mock(async (options: { output?: unknown }) => {
+			calls += 1;
+			if (calls === 1) {
+				expect(options.output).toBeDefined();
+				throw new Error("No object generated: response did not match schema.");
+			}
+			expect(options.output).toBeUndefined();
+			return {
+				text: JSON.stringify({
+					name: "OpenAI Compatible Fallback",
+					durationSeconds: 5,
+					fps: 30,
+					width: 1920,
+					height: 1080,
+					aspectRatio: "16:9",
+					thumbnailFrame: null,
+					componentSource: typewriterSource,
+					propsSchema: [
+						{
+							key: "title",
+							label: "Title",
+							type: "text",
+							role: "content",
+							default: "Hello compatible fallback",
+							min: null,
+							max: null,
+							step: null,
+							options: null,
+							columns: null,
+						},
+						{
+							key: "accentColor",
+							label: "Accent",
+							type: "color",
+							role: "style",
+							default: "#38bdf8",
+							min: null,
+							max: null,
+							step: null,
+							options: null,
+							columns: null,
+						},
+					],
+				}),
+			};
+		});
+
+		const document = await generateShotlyxMGComponentDocument({
+			model: fakeModel(),
+			providerConfig: {
+				name: "mg",
+				provider: "openai-compatible",
+				host: "https://api.deepseek.com/v1",
+				apiKey: "deepseek-key",
+				model: "deepseek-v4-pro",
+				structuredOutputMode: "native",
+			},
+			generateTextFn:
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				generateTextMock as unknown as NonNullable<
+					GenerateShotlyxMGComponentOptions["generateTextFn"]
+				>,
+			prompt: "做一个打字机标题 MG",
+			durationSeconds: 5,
+			aspectRatio: "16:9",
+			repairAttempts: 0,
+		});
+
+		expect(generateTextMock).toHaveBeenCalledTimes(2);
+		expect(document.name).toBe("OpenAI Compatible Fallback");
+		expect(document.defaultProps.title).toBe("Hello compatible fallback");
+	});
+
 	test("falls back to plain JSON generation when Gemini rejects response_schema keywords", async () => {
 		let calls = 0;
 		const generateTextMock = mock(async (options: { output?: unknown }) => {
@@ -644,47 +719,50 @@ export default function ShotlyxComponent(props: Props) {
 	});
 
 	test("uses plain JSON immediately for Gemini provider configs in auto mode", async () => {
-		const generateTextMock = mock(async (options: { output?: unknown }) => {
-			expect(options.output).toBeUndefined();
-			return {
-				text: JSON.stringify({
-					name: "Gemini Plain Typewriter",
-					durationSeconds: 5,
-					fps: 30,
-					width: 1920,
-					height: 1080,
-					aspectRatio: "16:9",
-					thumbnailFrame: null,
-					componentSource: typewriterSource,
-					propsSchema: [
-						{
-							key: "title",
-							label: "Title",
-							type: "text",
-							role: "content",
-							default: "Hello Gemini",
-							min: null,
-							max: null,
-							step: null,
-							options: null,
-							columns: null,
-						},
-						{
-							key: "accentColor",
-							label: "Accent",
-							type: "color",
-							role: "style",
-							default: "#38bdf8",
-							min: null,
-							max: null,
-							step: null,
-							options: null,
-							columns: null,
-						},
-					],
-				}),
-			};
-		});
+		const generateTextMock = mock(
+			async (options: { output?: unknown; prompt?: string }) => {
+				expect(options.output).toBeUndefined();
+				expect(options.prompt).toContain("Return only one valid JSON object");
+				return {
+					text: JSON.stringify({
+						name: "Gemini Plain Typewriter",
+						durationSeconds: 5,
+						fps: 30,
+						width: 1920,
+						height: 1080,
+						aspectRatio: "16:9",
+						thumbnailFrame: null,
+						componentSource: typewriterSource,
+						propsSchema: [
+							{
+								key: "title",
+								label: "Title",
+								type: "text",
+								role: "content",
+								default: "Hello Gemini",
+								min: null,
+								max: null,
+								step: null,
+								options: null,
+								columns: null,
+							},
+							{
+								key: "accentColor",
+								label: "Accent",
+								type: "color",
+								role: "style",
+								default: "#38bdf8",
+								min: null,
+								max: null,
+								step: null,
+								options: null,
+								columns: null,
+							},
+						],
+					}),
+				};
+			},
+		);
 
 		await generateShotlyxMGComponentDocument({
 			model: fakeModel(),
@@ -694,6 +772,75 @@ export default function ShotlyxComponent(props: Props) {
 				host: "https://generativelanguage.googleapis.com/v1beta",
 				apiKey: "google-key",
 				model: "gemini-2.5-flash",
+			},
+			generateTextFn:
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				generateTextMock as unknown as NonNullable<
+					GenerateShotlyxMGComponentOptions["generateTextFn"]
+				>,
+			prompt: "做一个打字机标题 MG",
+			durationSeconds: 5,
+			aspectRatio: "16:9",
+			repairAttempts: 0,
+		});
+
+		expect(generateTextMock).toHaveBeenCalledTimes(1);
+	});
+
+	test("uses plain JSON immediately for OpenAI-compatible provider configs in auto mode", async () => {
+		const generateTextMock = mock(
+			async (options: { output?: unknown; prompt?: string }) => {
+				expect(options.output).toBeUndefined();
+				expect(options.prompt).toContain("Return only one valid JSON object");
+				return {
+					text: JSON.stringify({
+						name: "Compatible Plain Typewriter",
+						durationSeconds: 5,
+						fps: 30,
+						width: 1920,
+						height: 1080,
+						aspectRatio: "16:9",
+						thumbnailFrame: null,
+						componentSource: typewriterSource,
+						propsSchema: [
+							{
+								key: "title",
+								label: "Title",
+								type: "text",
+								role: "content",
+								default: "Hello compatible plain JSON",
+								min: null,
+								max: null,
+								step: null,
+								options: null,
+								columns: null,
+							},
+							{
+								key: "accentColor",
+								label: "Accent",
+								type: "color",
+								role: "style",
+								default: "#38bdf8",
+								min: null,
+								max: null,
+								step: null,
+								options: null,
+								columns: null,
+							},
+						],
+					}),
+				};
+			},
+		);
+
+		await generateShotlyxMGComponentDocument({
+			model: fakeModel(),
+			providerConfig: {
+				name: "mg",
+				provider: "openai-compatible",
+				host: "https://api.deepseek.com/v1",
+				apiKey: "deepseek-key",
+				model: "deepseek-v4-pro",
 			},
 			generateTextFn:
 				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion

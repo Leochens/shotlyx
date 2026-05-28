@@ -17,6 +17,7 @@ export function resolveStructuredGenerationMode({
 	if (config?.structuredOutputMode === "native") return "native";
 	if (config?.structuredOutputMode === "plain-json") return "plain-json";
 	if (config?.provider === "google") return "plain-json";
+	if (config?.provider === "openai-compatible") return "plain-json";
 	return "native";
 }
 
@@ -89,5 +90,16 @@ export function isStructuredOutputSchemaError(error: unknown): boolean {
 	return (
 		lower.includes("exclusiveminimum") ||
 		lower.includes("additionalproperties")
+	);
+}
+
+export function isStructuredOutputValueError(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	const lower = message.toLowerCase();
+	return (
+		lower.includes("no object generated") &&
+		(lower.includes("response did not match schema") ||
+			lower.includes("could not parse") ||
+			lower.includes("invalid json"))
 	);
 }

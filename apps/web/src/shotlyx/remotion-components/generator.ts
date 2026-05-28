@@ -9,6 +9,8 @@ import {
 	buildStructuredGenerateTextRequest,
 	type GenerateTextRequest,
 	isStructuredOutputSchemaError,
+	isStructuredOutputValueError,
+	resolveStructuredGenerationMode,
 } from "@/agent/ai-sdk/request-builder";
 import { getDefaultModelBundle } from "@/agent/ai-sdk/providers";
 import type { LLMProviderConfig } from "@/agent/llm/types";
@@ -1010,6 +1012,11 @@ export async function generateShotlyxMGComponentDocument({
 
 	while (attempt <= repairAttempts) {
 		try {
+			const structuredMode = resolveStructuredGenerationMode({
+				config: selectedProviderConfig,
+				preferPlainJson: usePlainJson,
+			});
+			const plainJsonRequest = structuredMode === "plain-json";
 			const baseRequest: GenerateTextRequest = {
 				model: selectedModel,
 				system: buildSystemPrompt({ skillContext }),
@@ -1019,7 +1026,7 @@ export async function generateShotlyxMGComponentDocument({
 					aspectRatio,
 					styleGuide,
 					validationErrors,
-					plainJson: usePlainJson,
+					plainJson: plainJsonRequest,
 					transparentBackground,
 				}),
 				maxOutputTokens,
@@ -1032,7 +1039,7 @@ export async function generateShotlyxMGComponentDocument({
 				outputDescription:
 					"One editable Remotion-compatible React component asset.",
 				schema: shotlyxRemotionGeneratedComponentSchema,
-				preferPlainJson: usePlainJson,
+				preferPlainJson: plainJsonRequest,
 			});
 			const generated =
 				structuredRequest.mode === "plain-json"
@@ -1114,10 +1121,14 @@ export async function generateShotlyxMGComponentDocument({
 			validationErrors = [
 				error instanceof Error ? error.message : String(error),
 			];
-			if (!usePlainJson && isStructuredOutputSchemaError(error)) {
+			if (
+				!usePlainJson &&
+				(isStructuredOutputSchemaError(error) ||
+					isStructuredOutputValueError(error))
+			) {
 				usePlainJson = true;
 				validationErrors = [
-					`结构化输出 schema 被 provider 拒绝，已切换为普通 JSON 生成模式继续重试：${validationErrors[0]}`,
+					`结构化输出不可用，已切换为普通 JSON 生成模式继续重试：${validationErrors[0]}`,
 				];
 				continue;
 			}
