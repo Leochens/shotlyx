@@ -27,6 +27,7 @@ export default defineConfig({
 		),
 	},
 	ssr: {
+		external: ["esbuild"],
 		noExternal: true,
 	},
 	build: {
@@ -36,6 +37,7 @@ export default defineConfig({
 		sourcemap: true,
 		target: "node20",
 		rollupOptions: {
+			external: ["esbuild"],
 			output: {
 				entryFileNames: "desktop-api.mjs",
 				format: "es",

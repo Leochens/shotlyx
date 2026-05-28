@@ -538,7 +538,7 @@ describe("buildCreativeTools", () => {
 			aspectRatio: "16:9",
 			transparentBackground: true,
 			preferPlainJson: false,
-			maxOutputTokens: 8000,
+			maxOutputTokens: 12_000,
 		});
 		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(1);
 		expect(insertElement).toHaveBeenCalledTimes(1);
@@ -881,7 +881,7 @@ describe("buildCreativeTools", () => {
 			transparentBackground: true,
 			componentCount: 1,
 			preferPlainJson: false,
-			maxOutputTokens: 8000,
+			maxOutputTokens: 12_000,
 		});
 
 		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(1);
@@ -1114,6 +1114,84 @@ describe("buildCreativeTools", () => {
 			),
 		).rejects.toThrow("模型输出不可用");
 		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	test("shotlyx_generate_mg_composition ignores non-builtin template ids for custom generation", async () => {
+		const routeBodies: unknown[] = [];
+		const fetchMock = mock(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (String(input) === "/api/agent/creative/mg-jobs") {
+					routeBodies.push(
+						typeof init?.body === "string" ? JSON.parse(init.body) : null,
+					);
+					return new Response(JSON.stringify({ jobId: "mg-job-custom" }), {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					});
+				}
+				if (
+					String(input) === "/api/agent/creative/mg-jobs/mg-job-custom/events"
+				) {
+					return sseResponse([
+						{
+							type: "completed",
+							jobId: "mg-job-custom",
+							label: "MG 子智能体已完成",
+							status: "success",
+							documents: [
+								{
+									...shotlyxBattleCardFixture,
+									name: "自定义 MG",
+									durationSeconds: 5,
+								},
+							],
+						},
+					]);
+				}
+				return new Response("not found", { status: 404 });
+			},
+		);
+
+		const tools = buildCreativeTools({
+			editor: asEditorCore({
+				project: {
+					getActiveOrNull: () => ({ metadata: { id: "project-1" } }),
+					upsertShotlyxMGAsset: mock(() => undefined),
+				},
+				scenes: {
+					getActiveSceneOrNull: () => null,
+				},
+				selection: {
+					getSelectedElements: () => [],
+				},
+				playback: {
+					getCurrentTime: () => 0,
+				},
+			}),
+			deps: {
+				fetchFn: fetchMock,
+			},
+		});
+		const generateTool = tools.find(
+			(tool) => tool.name === "shotlyx_generate_mg_composition",
+		);
+
+		await generateTool?.handler({
+			prompt: "自定义生成一个新的复杂 MG 动画",
+			durationSeconds: 5,
+			aspectRatio: "16:9",
+			componentCount: 1,
+			templateMode: "auto",
+			templateId: "custom-template",
+			insertToTimeline: false,
+		});
+
+		expect(routeBodies[0]).toMatchObject({
+			templateMode: "auto",
+		});
+		expect(routeBodies[0]).not.toMatchObject({
+			templateId: expect.any(String),
+		});
 	});
 
 	test("shotlyx_generate_mg_component does not duplicate timeline inserts when a job event is replayed", async () => {

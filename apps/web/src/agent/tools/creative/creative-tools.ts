@@ -252,12 +252,7 @@ function optionalShotlyxMGTemplateIdParam(
 ): ShotlyxMGTemplateId | undefined {
 	const value = optionalStringParam(params, "templateId");
 	if (value === undefined) return undefined;
-	if (!isShotlyxMGTemplateId(value)) {
-		throw new Error(
-			`类型不匹配："templateId" 必须为以下之一：${SHOTLYX_MG_TEMPLATE_IDS.join(", ")}`,
-		);
-	}
-	return value;
+	return isShotlyxMGTemplateId(value) ? value : undefined;
 }
 
 function optionalShotlyxMGTemplateModeParam(
