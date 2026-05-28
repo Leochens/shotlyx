@@ -1,11 +1,11 @@
-import type { Metadata } from "next";
-import Link from "next/link";
+import type { PageMetadata } from "@/platform/metadata";
+import Link from "@/platform/link";
 import { BasePage } from "@/app/base-page";
 import { Separator } from "@/components/ui/separator";
 import { getPosts } from "@/blog/query";
 import type { Post } from "@/blog/types";
 
-export const metadata: Metadata = {
+export const metadata: PageMetadata = {
 	title: "Blog - Shotlyx",
 	description:
 		"Read the latest news and updates about Shotlyx, the free and open-source video editor.",

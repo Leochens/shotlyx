@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/platform/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Captions, Eye, FileText, Pencil } from "lucide-react";
 import type { ShotlyxMGAsset } from "@/shotlyx/remotion-components/asset-store";

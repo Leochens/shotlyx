@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/platform/image";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ColorPicker } from "@/components/ui/color-picker";

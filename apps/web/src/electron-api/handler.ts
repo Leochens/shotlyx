@@ -1,34 +1,35 @@
-import * as agentChatRoute from "@/app/api/agent/chat/route";
-import * as agentChatToolResultRoute from "@/app/api/agent/chat/[sessionId]/tool-result/route";
-import * as creativeImageRoute from "@/app/api/agent/creative/image/route";
-import * as creativeMgComponentRoute from "@/app/api/agent/creative/mg-component/route";
-import * as creativeMgJobRoute from "@/app/api/agent/creative/mg-jobs/[jobId]/route";
-import * as creativeMgJobEventsRoute from "@/app/api/agent/creative/mg-jobs/[jobId]/events/route";
-import * as creativeMgJobsRoute from "@/app/api/agent/creative/mg-jobs/route";
-import * as seedanceVideoTaskRoute from "@/app/api/agent/creative/video/seedance/[taskId]/route";
-import * as seedanceVideoDownloadRoute from "@/app/api/agent/creative/video/seedance/download/route";
-import * as seedanceVideoRoute from "@/app/api/agent/creative/video/seedance/route";
-import * as stockDownloadRoute from "@/app/api/agent/stock/download/route";
-import * as stockSearchRoute from "@/app/api/agent/stock/search/route";
-import * as subtitleTranslationRoute from "@/app/api/agent/subtitle-translation/route";
-import * as transcriptionRoute from "@/app/api/agent/transcription/route";
-import * as webFetchRoute from "@/app/api/agent/web/fetch/route";
-import * as webSearchRoute from "@/app/api/agent/web/search/route";
-import * as voiceoverRoute from "@/app/api/agent/voiceover/route";
-import * as voiceoverVoicesRoute from "@/app/api/agent/voiceover/voices/route";
-import * as desktopAgentsRoute from "@/app/api/desktop/agents/route";
-import * as desktopConfigRoute from "@/app/api/desktop/config/route";
-import * as desktopConfigRevealRoute from "@/app/api/desktop/config/reveal/route";
-import * as desktopModelsRoute from "@/app/api/desktop/models/route";
-import * as feedbackRoute from "@/app/api/feedback/route";
-import * as healthRoute from "@/app/api/health/route";
-import * as soundsSearchRoute from "@/app/api/sounds/search/route";
-import { NextRequest } from "@/platform/next-server";
+import * as agentChatRoute from "@/api/agent/chat/route";
+import * as agentChatToolResultRoute from "@/api/agent/chat/[sessionId]/tool-result/route";
+import * as creativeImageRoute from "@/api/agent/creative/image/route";
+import * as creativeMgComponentRoute from "@/api/agent/creative/mg-component/route";
+import * as creativeMgJobRoute from "@/api/agent/creative/mg-jobs/[jobId]/route";
+import * as creativeMgJobEventsRoute from "@/api/agent/creative/mg-jobs/[jobId]/events/route";
+import * as creativeMgJobsRoute from "@/api/agent/creative/mg-jobs/route";
+import * as seedanceVideoTaskRoute from "@/api/agent/creative/video/seedance/[taskId]/route";
+import * as seedanceVideoDownloadRoute from "@/api/agent/creative/video/seedance/download/route";
+import * as seedanceVideoRoute from "@/api/agent/creative/video/seedance/route";
+import * as stockDownloadRoute from "@/api/agent/stock/download/route";
+import * as stockSearchRoute from "@/api/agent/stock/search/route";
+import * as subtitleTranslationRoute from "@/api/agent/subtitle-translation/route";
+import * as transcriptionRoute from "@/api/agent/transcription/route";
+import * as webFetchRoute from "@/api/agent/web/fetch/route";
+import * as webSearchRoute from "@/api/agent/web/search/route";
+import * as voiceoverRoute from "@/api/agent/voiceover/route";
+import * as voiceoverVoicesRoute from "@/api/agent/voiceover/voices/route";
+import * as authRoute from "@/api/auth/[...all]/route";
+import * as desktopAgentsRoute from "@/api/desktop/agents/route";
+import * as desktopConfigRoute from "@/api/desktop/config/route";
+import * as desktopConfigRevealRoute from "@/api/desktop/config/reveal/route";
+import * as desktopModelsRoute from "@/api/desktop/models/route";
+import * as feedbackRoute from "@/api/feedback/route";
+import * as healthRoute from "@/api/health/route";
+import * as soundsSearchRoute from "@/api/sounds/search/route";
+import { ApiRequest } from "@/platform/http";
 
 type RouteModule = Partial<
 	Record<
 		"DELETE" | "GET" | "PATCH" | "POST" | "PUT",
-		(request: NextRequest, context?: RouteContext) => Response | Promise<Response>
+		(request: ApiRequest, context?: RouteContext) => Response | Promise<Response>
 	>
 >;
 
@@ -66,6 +67,10 @@ const staticRoutes = new Map<string, RouteModule>([
 ]);
 
 function matchDynamicRoute(pathname: string): MatchedRoute | null {
+	if (pathname === "/api/auth" || pathname.startsWith("/api/auth/")) {
+		return { module: authRoute };
+	}
+
 	let match = pathname.match(
 		/^\/api\/agent\/chat\/([^/]+)\/tool-result$/,
 	);
@@ -178,7 +183,7 @@ export async function handleElectronApiRequest(request: Request) {
 	}
 
 	try {
-		const nextRequest = new NextRequest(request);
+		const nextRequest = new ApiRequest(request);
 		const context = route.params
 			? { params: Promise.resolve(route.params) }
 			: undefined;

@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 
+import { wasmMock } from "@/test/wasm-mock";
 import type { MediaTime } from "@/wasm";
 import type {
 	SceneTracks,
@@ -10,21 +11,7 @@ import type {
 	VideoTrack,
 } from "@/timeline";
 
-mock.module("@/wasm", () => ({
-	ZERO_MEDIA_TIME: 0,
-	TICKS_PER_SECOND: 120000,
-	mediaTime: ({ ticks }: { ticks: number }) => ticks,
-	mediaTimeFromSeconds: ({ seconds }: { seconds: number }) =>
-		Math.round(seconds * 120000),
-	mediaTimeToSeconds: ({ time }: { time: number }) => time / 120000,
-	addMediaTime: ({ a, b }: { a: number; b: number }) => a + b,
-	subMediaTime: ({ a, b }: { a: number; b: number }) => a - b,
-	roundMediaTime: ({ time }: { time: number }) => Math.round(time),
-	roundFrameTime: ({ time }: { time: number }) => time,
-	roundFrameTicks: ({ ticks }: { ticks: number }) => ticks,
-	snapSeekMediaTime: ({ time }: { time: number }) => time,
-	lastFrameMediaTime: ({ duration }: { duration: number }) => duration,
-}));
+mock.module("@/wasm", () => wasmMock);
 
 const { buildSilenceCutTracks } = await import("@/silence/apply-cut-plan");
 

@@ -84,31 +84,25 @@ export default defineConfig(({ mode }) => ({
 				__dirname,
 				"../../rust/wasm/pkg/opencut_wasm.js",
 			),
-			"next/image": path.join(platformDir, "next-image.tsx"),
-			"next/link": path.join(platformDir, "next-link.tsx"),
-			"next/navigation": path.join(platformDir, "router.tsx"),
-			"next/server": path.join(platformDir, "next-server.ts"),
-			"next/script": path.join(platformDir, "next-script.tsx"),
-			"next-themes": path.join(platformDir, "next-themes.tsx"),
 			"utf-8-validate": path.join(platformDir, "optional-native-empty.ts"),
 		},
 	},
 	define: {
 		"process.env.NODE_ENV": JSON.stringify(mode),
-		"process.env.NEXT_PUBLIC_REACT_SCAN": JSON.stringify(
-			process.env.NEXT_PUBLIC_REACT_SCAN ?? "false",
+		"process.env.VITE_REACT_SCAN": JSON.stringify(
+			process.env.VITE_REACT_SCAN ?? "false",
 		),
-		"process.env.NEXT_PUBLIC_SHOTLYX_DESKTOP": JSON.stringify("1"),
-		"process.env.NEXT_PUBLIC_SHOTLYX_API_ORIGIN": JSON.stringify(
-			process.env.NEXT_PUBLIC_SHOTLYX_API_ORIGIN ?? "",
+		"process.env.VITE_SHOTLYX_DESKTOP": JSON.stringify("1"),
+		"process.env.VITE_SHOTLYX_API_ORIGIN": JSON.stringify(
+			process.env.VITE_SHOTLYX_API_ORIGIN ?? "",
 		),
-		"process.env.NEXT_PUBLIC_SITE_URL": JSON.stringify(
-			process.env.NEXT_PUBLIC_SITE_URL ??
+		"process.env.VITE_SITE_URL": JSON.stringify(
+			process.env.VITE_SITE_URL ??
 				process.env.SHOTLYX_RENDERER_ORIGIN ??
 				"app://shotlyx",
 		),
-		"process.env.NEXT_PUBLIC_MARBLE_API_URL": JSON.stringify(
-			process.env.NEXT_PUBLIC_MARBLE_API_URL ??
+		"process.env.VITE_MARBLE_API_URL": JSON.stringify(
+			process.env.VITE_MARBLE_API_URL ??
 				process.env.SHOTLYX_RENDERER_ORIGIN ??
 				"app://shotlyx",
 		),

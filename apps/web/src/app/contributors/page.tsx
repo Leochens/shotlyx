@@ -1,11 +1,11 @@
-import type { Metadata } from "next";
-import Link from "next/link";
+import type { PageMetadata } from "@/platform/metadata";
+import Link from "@/platform/link";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent } from "@/components/ui/card";
 import { EXTERNAL_TOOLS } from "@/site/external-tools";
 import { BasePage } from "../base-page";
 
-export const metadata: Metadata = {
+export const metadata: PageMetadata = {
 	title: "Contributors - Shotlyx",
 	description:
 		"Meet the amazing people who contribute to Shotlyx, the AI-native video workspace.",
@@ -47,9 +47,8 @@ async function getContributors(): Promise<Contributor[]> {
 			{
 				headers: {
 					Accept: "application/vnd.github.v3+json",
-					"User-Agent": "Shotlyx-Web-App",
 				},
-				next: { revalidate: 600 }, // 10 minutes
+				cache: "no-store",
 			},
 		);
 

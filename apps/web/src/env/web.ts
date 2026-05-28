@@ -7,7 +7,7 @@ import {
 applyDesktopConfigToProcessEnv();
 
 const REQUIRED_HOSTED_ENV_KEYS = [
-	"NEXT_PUBLIC_MARBLE_API_URL",
+	"VITE_MARBLE_API_URL",
 	"DATABASE_URL",
 	"BETTER_AUTH_SECRET",
 	"UPSTASH_REDIS_REST_URL",
@@ -24,11 +24,10 @@ const webEnvSchema = z
 			.enum(["development", "production", "test"])
 			.default("development"),
 		ANALYZE: z.string().optional(),
-		NEXT_RUNTIME: z.enum(["nodejs", "edge"]).optional(),
 
 		// Public
-		NEXT_PUBLIC_SITE_URL: z.url().default("http://localhost:3000"),
-		NEXT_PUBLIC_MARBLE_API_URL: z.url().default("http://127.0.0.1:3000"),
+		VITE_SITE_URL: z.url().default("http://localhost:3000"),
+		VITE_MARBLE_API_URL: z.url().default("http://127.0.0.1:3000"),
 
 		// Server
 		DATABASE_URL: z

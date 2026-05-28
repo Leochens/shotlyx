@@ -13,9 +13,16 @@ import rehypeSlug from "rehype-slug";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import rehypeSanitize from "rehype-sanitize";
 
+const runtimeEnv =
+	typeof process !== "undefined" ? process.env : ({} as NodeJS.ProcessEnv);
 const url =
-	process.env.NEXT_PUBLIC_MARBLE_API_URL ?? "https://api.marblecms.com";
-const key = process.env.MARBLE_WORKSPACE_KEY ?? "cmd4iw9mm0006l804kwqv0k46";
+	import.meta.env.VITE_MARBLE_API_URL ??
+	runtimeEnv.VITE_MARBLE_API_URL ??
+	"https://api.marblecms.com";
+const key =
+	import.meta.env.VITE_MARBLE_WORKSPACE_KEY ??
+	runtimeEnv.MARBLE_WORKSPACE_KEY ??
+	"cmd4iw9mm0006l804kwqv0k46";
 
 const EMPTY_PAGINATION: Pagination = {
 	limit: 0,

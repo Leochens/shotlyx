@@ -1,6 +1,6 @@
-import type { Metadata } from "next";
-import Image from "next/image";
-import { notFound } from "next/navigation";
+import type { PageMetadata } from "@/platform/metadata";
+import Image from "@/platform/image";
+import { notFound } from "@/platform/router";
 import { BasePage } from "@/app/base-page";
 import Prose from "@/components/ui/prose";
 import { Separator } from "@/components/ui/separator";
@@ -14,7 +14,7 @@ type PageProps = {
 
 export async function generateMetadata({
 	params,
-}: PageProps): Promise<Metadata> {
+}: PageProps): Promise<PageMetadata> {
 	const slug = (await params).slug;
 
 	const data = await getSinglePost({ slug });

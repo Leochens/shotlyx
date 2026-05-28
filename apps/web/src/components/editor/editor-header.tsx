@@ -1,9 +1,9 @@
 "use client";
 
 import { Button } from "../ui/button";
-import Image from "next/image";
+import Image from "@/platform/image";
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/platform/router";
 import { ExportButton } from "./export-button";
 import { ThemeToggle } from "../theme-toggle";
 import { LanguageSelector } from "../language-selector";
@@ -46,7 +46,7 @@ import { formatDate } from "@/utils/date";
 import { formatTimecode, mediaTimeToSeconds } from "opencut-wasm";
 
 export function EditorHeader() {
-	const isDesktop = process.env.NEXT_PUBLIC_SHOTLYX_DESKTOP === "1";
+	const isDesktop = process.env.VITE_SHOTLYX_DESKTOP === "1";
 
 	return (
 		<header

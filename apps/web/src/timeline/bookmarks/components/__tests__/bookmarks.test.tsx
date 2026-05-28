@@ -1,38 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { wasmMock } from "@/test/wasm-mock";
 
-const TICKS_PER_SECOND = 120_000;
+const TICKS_PER_SECOND = wasmMock.TICKS_PER_SECOND;
 
-mock.module("@/wasm", () => ({
-	TICKS_PER_SECOND,
-	ZERO_MEDIA_TIME: 0,
-	mediaTime: ({ ticks }: { ticks: number }) => Math.round(ticks),
-	mediaTimeFromSeconds: ({ seconds }: { seconds: number }) =>
-		Math.round(seconds * TICKS_PER_SECOND),
-	mediaTimeToSeconds: ({ time }: { time: number }) => time / TICKS_PER_SECOND,
-	roundMediaTime: ({ time }: { time: number }) => Math.round(time),
-	roundFrameTime: ({ time }: { time: number }) => Math.round(time),
-	roundFrameTicks: ({ ticks }: { ticks: number }) => Math.round(ticks),
-	snapSeekMediaTime: ({ time }: { time: number }) => Math.round(time),
-	snappedSeekTime: ({ time }: { time: number }) => Math.round(time),
-	parseTimecode: () => 0,
-	parseMediaTimecode: () => 0,
-	addMediaTime: ({ a, b }: { a: number; b: number }) => a + b,
-	subMediaTime: ({ a, b }: { a: number; b: number }) => a - b,
-	maxMediaTime: ({ a, b }: { a: number; b: number }) => Math.max(a, b),
-	minMediaTime: ({ a, b }: { a: number; b: number }) => Math.min(a, b),
-	clampMediaTime: ({
-		time,
-		min,
-		max,
-	}: {
-		time: number;
-		min: number;
-		max: number;
-	}) => Math.min(Math.max(time, min), max),
-	lastFrameMediaTime: ({ duration }: { duration: number }) =>
-		Math.max(0, duration - 1),
-}));
+mock.module("@/wasm", () => wasmMock);
 
 const editor = {
 	scenes: {

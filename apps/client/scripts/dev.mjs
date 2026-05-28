@@ -32,9 +32,9 @@ function isPortAvailable(targetRuntime) {
 }
 
 function runtimeWithPort(port) {
-	const nextUrl = new URL(runtime.webUrl);
-	nextUrl.port = String(port);
-	return getDesktopRuntime(nextUrl.toString());
+	const runtimeUrl = new URL(runtime.webUrl);
+	runtimeUrl.port = String(port);
+	return getDesktopRuntime(runtimeUrl.toString());
 }
 
 async function resolveRuntime() {
@@ -106,9 +106,9 @@ function runApiBuild() {
 				env: {
 					...desktopEnv,
 					SHOTLYX_RENDERER_ORIGIN: "app://shotlyx",
-					NEXT_PUBLIC_SHOTLYX_API_ORIGIN: "app://shotlyx",
-					NEXT_PUBLIC_SITE_URL: "app://shotlyx",
-					NEXT_PUBLIC_MARBLE_API_URL: "app://shotlyx",
+					VITE_SHOTLYX_API_ORIGIN: "app://shotlyx",
+					VITE_SITE_URL: "app://shotlyx",
+					VITE_MARBLE_API_URL: "app://shotlyx",
 				},
 				stdio: "inherit",
 			},

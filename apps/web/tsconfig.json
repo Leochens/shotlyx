@@ -14,11 +14,6 @@
 		"jsx": "react-jsx",
 		"incremental": true,
 		"types": ["vite/client"],
-		"plugins": [
-			{
-				"name": "next"
-			}
-		],
 		"paths": {
 			"@/*": ["./src/*"],
 			"content-collections": ["./.content-collections/generated"]
@@ -28,19 +23,9 @@
 	"include": [
 		"**/*.ts",
 		"**/*.tsx",
-		"apps/web/.next/types/**/*.ts",
-		"next-env.d.ts",
-		".next/types/**/*.ts",
 		"src/types/**/*.d.ts",
 		"../../use-frame-cache.ts",
-		"src/stores/timeline-store.ts",
-		".next/dev/types/**/*.ts",
-		".next-desktop/types/**/*.ts",
-		".next-desktop/dev/types/**/*.ts",
-		".next-desktop-e2e/types/**/*.ts",
-		".next-desktop-e2e/dev/types/**/*.ts",
-		".next-desktop-alt/types/**/*.ts",
-		".next-desktop-alt/dev/types/**/*.ts"
+		"src/stores/timeline-store.ts"
 	],
 	"exclude": ["node_modules"]
 }

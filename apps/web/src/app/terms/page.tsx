@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { PageMetadata } from "@/platform/metadata";
 import { BasePage } from "@/app/base-page";
 import {
 	Accordion,
@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/accordion";
 import { Separator } from "@/components/ui/separator";
 
-export const metadata: Metadata = {
+export const metadata: PageMetadata = {
 	title: "Terms of Service - Shotlyx",
 	description:
 		"Shotlyx's Terms of Service. Fair, transparent terms for our free and open-source video editor.",

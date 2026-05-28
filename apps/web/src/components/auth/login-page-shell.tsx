@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/platform/link";
 import { Cpu, Network, ShieldCheck } from "lucide-react";
 import { LoginForm } from "@/components/auth/login-form";
 import { LanguageSelector } from "@/components/language-selector";

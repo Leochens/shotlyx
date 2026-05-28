@@ -1,11 +1,11 @@
-import type { Metadata } from "next";
-import Link from "next/link";
+import type { PageMetadata } from "@/platform/metadata";
+import Link from "@/platform/link";
 import { ArrowRight, GitBranch, ShieldCheck, Terminal } from "lucide-react";
 import { PRODUCT_NAME, SITE_INFO } from "@/site/brand";
 import { Button } from "@/components/ui/button";
 import { ShotlyxLogo } from "@/components/brand-logo";
 
-export const metadata: Metadata = {
+export const metadata: PageMetadata = {
 	title: `Foundation - ${SITE_INFO.title}`,
 	description: `${SITE_INFO.title} product foundation and licensing notes.`,
 };

@@ -55,6 +55,7 @@ const wasmMock = {
 	applyEffectPasses: () => ({}),
 	applyMaskFeather: () => ({}),
 	initializeGpu: async () => {},
+	detectSilenceSegments: () => [],
 };
 
 mock.module("@/wasm", () => wasmMock);

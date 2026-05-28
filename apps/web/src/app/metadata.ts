@@ -1,7 +1,7 @@
-import type { Metadata } from "next";
+import type { PageMetadata } from "@/platform/metadata";
 import { SITE_INFO, SITE_URL } from "@/site/brand";
 
-export const baseMetaData: Metadata = {
+export const baseMetaData: PageMetadata = {
 	metadataBase: new URL(SITE_URL),
 	title: SITE_INFO.title,
 	description: SITE_INFO.description,

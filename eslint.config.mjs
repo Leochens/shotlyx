@@ -1,5 +1,4 @@
 import js from "@eslint/js";
-import next from "@next/eslint-plugin-next";
 import eslintConfigPrettier from "eslint-config-prettier/flat";
 import jsxA11y from "eslint-plugin-jsx-a11y";
 import react from "eslint-plugin-react";
@@ -29,7 +28,7 @@ function scopeToWebFiles(config) {
 
 export default [
 	{
-		ignores: ["**/.next/**", "**/node_modules/**", "**/dist/**", "**/build/**"],
+		ignores: ["**/node_modules/**", "**/dist/**", "**/build/**"],
 	},
 	{
 		files: webFiles,
@@ -63,7 +62,6 @@ export default [
 	scopeToWebFiles(react.configs.flat["jsx-runtime"]),
 	scopeToWebFiles(reactHooks.configs.flat["recommended-latest"]),
 	scopeToWebFiles(jsxA11y.flatConfigs.recommended),
-	scopeToWebFiles(next.configs["core-web-vitals"]),
 	{
 		files: webFiles,
 		plugins: {

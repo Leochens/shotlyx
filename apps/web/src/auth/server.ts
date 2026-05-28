@@ -35,9 +35,9 @@ export const auth = betterAuth({
 			},
 		},
 	},
-	baseURL: webEnv.NEXT_PUBLIC_SITE_URL,
+	baseURL: webEnv.VITE_SITE_URL,
 	appName: "Shotlyx",
-	trustedOrigins: [webEnv.NEXT_PUBLIC_SITE_URL],
+	trustedOrigins: [webEnv.VITE_SITE_URL],
 });
 
 export type Auth = typeof auth;

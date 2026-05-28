@@ -1,8 +1,4 @@
-import {
-	applyEffectPasses,
-	applyMaskFeather as applyMaskFeatherWasm,
-	initializeGpu,
-} from "opencut-wasm";
+import * as opencutWasm from "opencut-wasm";
 import type { EffectPass, EffectUniformValue } from "@/effects/types";
 
 let gpuAvailable = false;
@@ -10,7 +6,8 @@ let initPromise: Promise<void> | null = null;
 
 export function initializeGpuRenderer(): Promise<void> {
 	if (!initPromise) {
-		initPromise = initializeGpu()
+		initPromise = opencutWasm
+			.initializeGpu()
 			.then(() => {
 				gpuAvailable = true;
 			})
@@ -43,7 +40,7 @@ export const gpuRenderer = {
 			return source;
 		}
 
-		return applyEffectPasses({
+		return opencutWasm.applyEffectPasses({
 			source,
 			width,
 			height,
@@ -66,7 +63,7 @@ export const gpuRenderer = {
 			return maskCanvas;
 		}
 
-		return applyMaskFeatherWasm({
+		return opencutWasm.applyMaskFeather({
 			mask: maskCanvas,
 			width,
 			height,

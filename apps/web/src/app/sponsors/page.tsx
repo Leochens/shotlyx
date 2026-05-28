@@ -1,6 +1,6 @@
-import type { Metadata } from "next";
-import Image from "next/image";
-import Link from "next/link";
+import type { PageMetadata } from "@/platform/metadata";
+import Image from "@/platform/image";
+import Link from "@/platform/link";
 import { BasePage } from "@/app/base-page";
 import { Card, CardContent } from "@/components/ui/card";
 import { SPONSORS, type Sponsor } from "@/site/sponsors";
@@ -8,7 +8,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { LinkSquare02Icon } from "@hugeicons/core-free-icons";
 import { cn } from "@/utils/ui";
 
-export const metadata: Metadata = {
+export const metadata: PageMetadata = {
 	title: "Sponsors - Shotlyx",
 	description:
 		"Support Shotlyx and help us build the future of free and open-source video editing.",

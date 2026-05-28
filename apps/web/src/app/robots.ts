@@ -1,7 +1,7 @@
-import type { MetadataRoute } from "next";
+import type { RobotsMetadata } from "@/platform/metadata";
 import { SITE_URL } from "@/site/brand";
 
-export default function robots(): MetadataRoute.Robots {
+export default function robots(): RobotsMetadata {
 	return {
 		rules: {
 			userAgent: "*",

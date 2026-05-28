@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/platform/link";
 import { cn } from "@/utils/ui";
 import { ReactMarkdownWrapper } from "@/components/ui/react-markdown-wrapper";
 import {

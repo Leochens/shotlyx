@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import type { Metadata } from "next";
-import Link from "next/link";
+import type { PageMetadata } from "@/platform/metadata";
+import Link from "@/platform/link";
 import { BasePage } from "@/app/base-page";
 import { Separator } from "@/components/ui/separator";
 import { SOCIAL_LINKS } from "@/site/social";
 
-export const metadata: Metadata = {
+export const metadata: PageMetadata = {
 	title: "Third-Party Notices - Shotlyx",
 	description:
 		"OpenCut lineage, third-party dependency notices, and asset provenance guidance for Shotlyx.",

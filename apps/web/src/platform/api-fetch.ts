@@ -1,5 +1,5 @@
 /* eslint-disable shotlyx/prefer-object-params -- This file wraps the native Fetch signature so existing /api calls keep working in Electron. */
-const DESKTOP_API_ORIGIN = process.env.NEXT_PUBLIC_SHOTLYX_API_ORIGIN;
+const DESKTOP_API_ORIGIN = process.env.VITE_SHOTLYX_API_ORIGIN;
 
 declare global {
 	interface Window {

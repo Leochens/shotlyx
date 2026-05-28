@@ -1,12 +1,4 @@
-import {
-	getCompositorCanvas,
-	getLastFrameProfile,
-	initCompositor,
-	releaseTexture,
-	renderFrame,
-	resizeCompositor,
-	uploadTexture,
-} from "opencut-wasm";
+import * as opencutWasm from "opencut-wasm";
 import {
 	incrementCounter,
 	isRenderPerfEnabled,
@@ -46,8 +38,8 @@ class WasmCompositor {
 
 	ensureInitialized({ width, height }: { width: number; height: number }) {
 		if (!this.canvas) {
-			initCompositor(width, height);
-			this.canvas = getCompositorCanvas();
+			opencutWasm.initCompositor(width, height);
+			this.canvas = opencutWasm.getCompositorCanvas();
 			this.initializedSize = { width, height };
 			return;
 		}
@@ -57,7 +49,7 @@ class WasmCompositor {
 			this.initializedSize.width !== width ||
 			this.initializedSize.height !== height
 		) {
-			resizeCompositor(width, height);
+			opencutWasm.resizeCompositor(width, height);
 			this.initializedSize = { width, height };
 		}
 	}
@@ -72,11 +64,11 @@ class WasmCompositor {
 	syncTextures(textures: TextureUploadDescriptor[]) {
 		const nextIds = new Set(textures.map((texture) => texture.id));
 		for (const previousId of this.cache.keys()) {
-			if (!nextIds.has(previousId)) {
-				releaseTexture(previousId);
-				this.cache.delete(previousId);
+				if (!nextIds.has(previousId)) {
+					opencutWasm.releaseTexture(previousId);
+					this.cache.delete(previousId);
+				}
 			}
-		}
 
 		for (const texture of textures) {
 			if (texture.kind === "external") {
@@ -88,10 +80,13 @@ class WasmCompositor {
 	}
 
 	render(frame: FrameDescriptor) {
-		renderFrame(frame);
+		opencutWasm.renderFrame(frame);
 		if (isRenderPerfEnabled()) {
 			recordWasmFrameProfile(
-				getLastFrameProfile() as Array<{ name: string; durationMs: number }>,
+				opencutWasm.getLastFrameProfile() as Array<{
+					name: string;
+					durationMs: number;
+				}>,
 			);
 		}
 	}
@@ -113,7 +108,7 @@ class WasmCompositor {
 			name: "textureUploadPixels",
 			by: texture.width * texture.height,
 		});
-		uploadTexture({
+		opencutWasm.uploadTexture({
 			id: texture.id,
 			source: ensureOffscreenCanvas({
 				source: texture.source,
@@ -166,7 +161,7 @@ class WasmCompositor {
 			name: "textureUploadPixels",
 			by: texture.width * texture.height,
 		});
-		uploadTexture({
+		opencutWasm.uploadTexture({
 			id: texture.id,
 			source: canvas,
 			width: texture.width,

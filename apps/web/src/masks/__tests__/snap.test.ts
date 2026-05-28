@@ -6,40 +6,11 @@ import type {
 	SplitMaskParams,
 	TextMaskParams,
 } from "@/masks/types";
+import { wasmMock } from "@/test/wasm-mock";
 
-const TICKS_PER_SECOND = 120_000;
+const TICKS_PER_SECOND = wasmMock.TICKS_PER_SECOND;
 
-mock.module("@/wasm", () => ({
-	TICKS_PER_SECOND,
-	ZERO_MEDIA_TIME: 0,
-	mediaTime: ({ ticks }: { ticks: number }) => Math.round(ticks),
-	roundMediaTime: ({ time }: { time: number }) => Math.round(time),
-	mediaTimeFromSeconds: ({ seconds }: { seconds: number }) =>
-		Math.round(seconds * TICKS_PER_SECOND),
-	mediaTimeToSeconds: ({ time }: { time: number }) => time / TICKS_PER_SECOND,
-	addMediaTime: ({ a, b }: { a: number; b: number }) => a + b,
-	subMediaTime: ({ a, b }: { a: number; b: number }) => a - b,
-	maxMediaTime: ({ a, b }: { a: number; b: number }) => Math.max(a, b),
-	minMediaTime: ({ a, b }: { a: number; b: number }) => Math.min(a, b),
-	clampMediaTime: ({
-		time,
-		min,
-		max,
-	}: {
-		time: number;
-		min: number;
-		max: number;
-	}) => Math.min(Math.max(time, min), max),
-	lastFrameMediaTime: ({ duration }: { duration: number }) =>
-		Math.max(0, duration - 1),
-	roundFrameTime: ({ time }: { time: number }) => Math.round(time),
-	roundFrameTicks: ({ ticks }: { ticks: number }) => Math.round(ticks),
-	snapSeekMediaTime: ({ time }: { time: number }) => Math.round(time),
-	roundToFrame: ({ time }: { time: number }) => Math.round(time),
-	snappedSeekTime: ({ time }: { time: number }) => Math.round(time),
-	parseTimecode: () => 0,
-	parseMediaTimecode: () => 0,
-}));
+mock.module("@/wasm", () => wasmMock);
 
 const textMeasurementContext = {
 	save: () => {},
@@ -53,6 +24,88 @@ const textMeasurementContext = {
 
 mock.module("@/text/measure-element", () => ({
 	getTextMeasurementContext: () => textMeasurementContext,
+	measureTextElement: ({
+		element,
+		canvasHeight,
+		ctx,
+	}: {
+		element: { params: Record<string, unknown> };
+		canvasHeight: number;
+		ctx: CanvasRenderingContext2D;
+	}) => {
+		const content =
+			typeof element.params.content === "string"
+				? element.params.content
+				: "Default text";
+		const fontSize =
+			typeof element.params.fontSize === "number" ? element.params.fontSize : 15;
+		const scaledFontSize = (fontSize / 100) * canvasHeight;
+		const lines = content.split("\n");
+		const lineMetrics = lines.map((line) => ctx.measureText(line));
+		const maxWidth = Math.max(0, ...lineMetrics.map((metrics) => metrics.width));
+		const lineHeightPx = scaledFontSize * 1.2;
+		const block = {
+			visualCenterOffset: ((lines.length - 1) * lineHeightPx) / 2,
+			height: lines.length * lineHeightPx,
+			maxWidth,
+		};
+
+		return {
+			scaledFontSize,
+			fontString: `${scaledFontSize}px Arial`,
+			letterSpacing: 0,
+			lineHeightPx,
+			fontSizeRatio: 1,
+			textAlign: "center",
+			textDecoration: "none",
+			lines,
+			lineMetrics,
+			block,
+			resolvedBackground: {
+				enabled: false,
+				color: "transparent",
+				paddingX: 0,
+				paddingY: 0,
+				offsetX: 0,
+				offsetY: 0,
+				cornerRadius: 0,
+			},
+			visualRect: {
+				left: -maxWidth / 2,
+				top: -block.height / 2,
+				width: maxWidth,
+				height: block.height,
+			},
+		};
+	},
+	buildTextLayoutParamsFromElement: ({
+		element,
+	}: {
+		element: { params: Record<string, unknown> };
+	}) => ({
+		content:
+			typeof element.params.content === "string"
+				? element.params.content
+				: "Default text",
+		fontSize:
+			typeof element.params.fontSize === "number" ? element.params.fontSize : 15,
+		fontFamily: "Arial",
+		fontWeight: "normal",
+		fontStyle: "normal",
+		textAlign: "center",
+		textDecoration: "none",
+		letterSpacing: 0,
+		lineHeight: 1.2,
+	}),
+	buildTextBackgroundFromElement: () => ({
+		enabled: false,
+		color: "transparent",
+		cornerRadius: 0,
+		paddingX: 0,
+		paddingY: 0,
+		offsetX: 0,
+		offsetY: 0,
+	}),
 }));
 
 const {

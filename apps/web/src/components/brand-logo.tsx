@@ -1,4 +1,4 @@
-import Image from "next/image";
+import Image from "@/platform/image";
 import { PRODUCT_NAME } from "@/site/brand";
 import { cn } from "@/utils/ui";
 

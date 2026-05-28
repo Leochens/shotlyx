@@ -7,9 +7,10 @@ const webServerCommand = `bun run dev -- --host 127.0.0.1 --port ${e2ePort} --st
 
 export default defineConfig({
 	testDir: "./e2e/specs",
-	fullyParallel: true,
+	fullyParallel: !isDesktopE2E,
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 2 : 0,
+	workers: isDesktopE2E ? 1 : undefined,
 	reporter: "html",
 	use: {
 		baseURL,

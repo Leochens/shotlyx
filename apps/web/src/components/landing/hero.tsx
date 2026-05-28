@@ -1,7 +1,7 @@
 "use client";
 
-import Image from "next/image";
-import Link from "next/link";
+import Image from "@/platform/image";
+import Link from "@/platform/link";
 import {
 	ArrowRight,
 	BrainCircuit,

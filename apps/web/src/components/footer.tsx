@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/platform/link";
 import { PRODUCT_NAME } from "@/site/brand";
 import { useAppLocale } from "@/i18n/use-app-locale";
 import { ShotlyxLogo } from "@/components/brand-logo";

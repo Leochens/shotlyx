@@ -9,11 +9,26 @@ import {
 } from "react";
 
 export type ShotlyxRouteKind =
+	| "home"
 	| "projects"
 	| "desktop"
 	| "settings"
 	| "settings-api"
 	| "editor"
+	| "blog"
+	| "blog-post"
+	| "brand"
+	| "changelog"
+	| "changelog-detail"
+	| "contributors"
+	| "license"
+	| "login"
+	| "privacy"
+	| "roadmap"
+	| "source"
+	| "sponsors"
+	| "terms"
+	| "third-party-notices"
 	| "not-found";
 
 export type ShotlyxRoute = {
@@ -30,6 +45,35 @@ type RouterContextValue = {
 
 const RouterContext = createContext<RouterContextValue | null>(null);
 
+export class RouteRedirectError extends Error {
+	constructor(readonly href: string) {
+		super(`Redirect to ${href}`);
+		this.name = "RouteRedirectError";
+	}
+}
+
+export class RouteNotFoundError extends Error {
+	constructor() {
+		super("Route not found");
+		this.name = "RouteNotFoundError";
+	}
+}
+
+export function redirect(href: string): never {
+	if (typeof window !== "undefined") {
+		window.location.replace(href);
+	}
+	throw new RouteRedirectError(href);
+}
+
+export function notFound(): never {
+	throw new RouteNotFoundError();
+}
+
+export function isRouteNotFoundError(error: unknown) {
+	return error instanceof RouteNotFoundError;
+}
+
 function normalizePathname(pathname: string): string {
 	if (!pathname || pathname === "/") return "/";
 	const normalized = pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
@@ -44,7 +88,10 @@ export function matchShotlyxRoute(rawPath: string): ShotlyxRoute {
 		search: url.search,
 	};
 
-	if (pathname === "/" || pathname === "/projects") {
+	if (pathname === "/") {
+		return { ...base, kind: "home", params: {} };
+	}
+	if (pathname === "/projects") {
 		return { ...base, kind: "projects", params: {} };
 	}
 	if (pathname === "/desktop") {
@@ -55,6 +102,58 @@ export function matchShotlyxRoute(rawPath: string): ShotlyxRoute {
 	}
 	if (pathname === "/settings/api") {
 		return { ...base, kind: "settings-api", params: {} };
+	}
+	if (pathname === "/blog") {
+		return { ...base, kind: "blog", params: {} };
+	}
+	const blogPostMatch = /^\/blog\/([^/]+)$/.exec(pathname);
+	if (blogPostMatch) {
+		return {
+			...base,
+			kind: "blog-post",
+			params: { slug: decodeURIComponent(blogPostMatch[1] ?? "") },
+		};
+	}
+	if (pathname === "/brand") {
+		return { ...base, kind: "brand", params: {} };
+	}
+	if (pathname === "/changelog") {
+		return { ...base, kind: "changelog", params: {} };
+	}
+	const changelogMatch = /^\/changelog\/([^/]+)$/.exec(pathname);
+	if (changelogMatch) {
+		return {
+			...base,
+			kind: "changelog-detail",
+			params: { version: decodeURIComponent(changelogMatch[1] ?? "") },
+		};
+	}
+	if (pathname === "/contributors") {
+		return { ...base, kind: "contributors", params: {} };
+	}
+	if (pathname === "/license") {
+		return { ...base, kind: "license", params: {} };
+	}
+	if (pathname === "/login") {
+		return { ...base, kind: "login", params: {} };
+	}
+	if (pathname === "/privacy") {
+		return { ...base, kind: "privacy", params: {} };
+	}
+	if (pathname === "/roadmap") {
+		return { ...base, kind: "roadmap", params: {} };
+	}
+	if (pathname === "/source") {
+		return { ...base, kind: "source", params: {} };
+	}
+	if (pathname === "/sponsors") {
+		return { ...base, kind: "sponsors", params: {} };
+	}
+	if (pathname === "/terms") {
+		return { ...base, kind: "terms", params: {} };
+	}
+	if (pathname === "/third-party-notices") {
+		return { ...base, kind: "third-party-notices", params: {} };
 	}
 	const editorMatch = /^\/editor\/([^/]+)$/.exec(pathname);
 	if (editorMatch) {
@@ -130,7 +229,7 @@ export function useRouter() {
 
 export function useParams<T extends Record<string, string> = Record<string, string>>() {
 	const { route } = useShotlyxRouter();
-	// Mirrors next/navigation's generic useParams<T>() API for migrated components.
+	// Mirrors the generic route params API used by migrated components.
 	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 	return route.params as T;
 }

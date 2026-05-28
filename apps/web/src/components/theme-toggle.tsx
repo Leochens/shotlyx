@@ -3,7 +3,7 @@
 import { useSyncExternalStore, type MouseEvent } from "react";
 import { Moon, Sun } from "lucide-react";
 import { Button } from "./ui/button";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/platform/theme";
 import { cn } from "@/utils/ui";
 import { useAppLocale } from "@/i18n/use-app-locale";
 

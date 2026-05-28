@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { PageMetadata } from "@/platform/metadata";
 import { BasePage } from "@/app/base-page";
 import {
 	Accordion,
@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/accordion";
 import { Separator } from "@/components/ui/separator";
 
-export const metadata: Metadata = {
+export const metadata: PageMetadata = {
 	title: "Privacy Policy - Shotlyx",
 	description:
 		"Learn how Shotlyx handles your data and privacy. Our commitment to protecting your information while you edit videos.",

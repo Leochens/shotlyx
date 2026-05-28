@@ -1,107 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { EditorCore } from "@/core";
-import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
+import { wasmMock } from "@/test/wasm-mock";
 
-const TICKS_PER_SECOND = MEDIA_TIME_TICKS_PER_SECOND;
-const ZERO_MEDIA_TIME = 0;
+const TICKS_PER_SECOND = wasmMock.TICKS_PER_SECOND;
+const ZERO_MEDIA_TIME = wasmMock.ZERO_MEDIA_TIME;
 
-function mediaTime({ ticks }: { ticks: number }) {
-	return Math.round(ticks);
-}
-
-function roundMediaTime({ time }: { time: number }) {
-	return Math.round(time);
-}
-
-function mediaTimeFromSeconds({ seconds }: { seconds: number }) {
-	return roundMediaTime({ time: seconds * TICKS_PER_SECOND });
-}
-
-function mediaTimeToSeconds({ time }: { time: number }) {
-	return time / TICKS_PER_SECOND;
-}
-
-function addMediaTime({ a, b }: { a: number; b: number }) {
-	return mediaTime({ ticks: a + b });
-}
-
-function subMediaTime({ a, b }: { a: number; b: number }) {
-	return mediaTime({ ticks: a - b });
-}
-
-function maxMediaTime({ a, b }: { a: number; b: number }) {
-	return Math.max(a, b);
-}
-
-function minMediaTime({ a, b }: { a: number; b: number }) {
-	return Math.min(a, b);
-}
-
-function clampMediaTime({
-	time,
-	min,
-	max,
-}: {
-	time: number;
-	min: number;
-	max: number;
-}) {
-	return Math.min(Math.max(time, min), max);
-}
-
-function lastFrameMediaTime({ duration }: { duration: number }) {
-	return Math.max(ZERO_MEDIA_TIME, duration - 1);
-}
-
-function roundFrameTime({ time }: { time: number }) {
-	return roundMediaTime({ time });
-}
-
-function roundFrameTicks({ ticks }: { ticks: number }) {
-	return Math.round(ticks);
-}
-
-function snapSeekMediaTime({ time }: { time: number }) {
-	return roundMediaTime({ time });
-}
-
-function roundToFrame({ time }: { time: number }) {
-	return roundMediaTime({ time });
-}
-
-function snappedSeekTime({ time }: { time: number }) {
-	return roundMediaTime({ time });
-}
-
-function parseTimecode() {
-	return ZERO_MEDIA_TIME;
-}
-
-function parseMediaTimecode() {
-	return ZERO_MEDIA_TIME;
-}
-
-mock.module("@/wasm", () => ({
-	TICKS_PER_SECOND,
-	ZERO_MEDIA_TIME,
-	mediaTime,
-	roundMediaTime,
-	mediaTimeFromSeconds,
-	mediaTimeToSeconds,
-	addMediaTime,
-	subMediaTime,
-	maxMediaTime,
-	minMediaTime,
-	clampMediaTime,
-	lastFrameMediaTime,
-	roundFrameTime,
-	roundFrameTicks,
-	snapSeekMediaTime,
-	parseTimecode,
-	parseMediaTimecode,
-	roundToFrame,
-	snappedSeekTime,
-}));
+mock.module("@/wasm", () => wasmMock);
 
 function asEditorCore(value: unknown): EditorCore {
 	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion

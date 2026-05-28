@@ -1,14 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unsafe-type-assertion -- Test builds a compact SubtitleElement fixture. */
 import { describe, expect, mock, test } from "bun:test";
+import { wasmMock } from "@/test/wasm-mock";
 import type { SubtitleElement } from "@/timeline";
 
-mock.module("@/wasm", () => ({
-	TICKS_PER_SECOND: 120_000,
-	ZERO_MEDIA_TIME: 0,
-	mediaTime: ({ ticks }: { ticks: number }) => Math.round(ticks),
-	mediaTimeFromSeconds: ({ seconds }: { seconds: number }) =>
-		Math.round(seconds * 120_000),
-}));
+mock.module("@/wasm", () => wasmMock);
 
 describe("element param registry", () => {
 	test("exposes subtitle display controls and writes reveal mode to the layer", async () => {

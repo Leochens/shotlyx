@@ -12,9 +12,11 @@
 		"start": "node scripts/start.mjs",
 		"build": "node scripts/build.mjs",
 		"pack": "bun run build && electron-builder --dir",
+		"pack:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
 		"dist": "bun run build && electron-builder",
 		"dist:all": "bun run build && electron-builder --mac dmg zip --publish never && electron-builder --win nsis zip --x64 --publish never",
 		"dist:mac": "bun run build && electron-builder --mac dmg zip",
+		"dist:mac:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip",
 		"dist:win": "bun run build && electron-builder --win nsis zip --x64",
 		"publish:mac": "bun run build && electron-builder --mac dmg zip --publish always",
 		"publish:win": "bun run build && electron-builder --win nsis zip --x64 --publish always"

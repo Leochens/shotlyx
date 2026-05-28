@@ -18,9 +18,9 @@ function runWebBuild() {
 			env: {
 				...createDesktopEnv(),
 				SHOTLYX_RENDERER_ORIGIN: "app://shotlyx",
-				NEXT_PUBLIC_SHOTLYX_API_ORIGIN: "app://shotlyx",
-				NEXT_PUBLIC_SITE_URL: "app://shotlyx",
-				NEXT_PUBLIC_MARBLE_API_URL: "app://shotlyx",
+				VITE_SHOTLYX_API_ORIGIN: "app://shotlyx",
+				VITE_SITE_URL: "app://shotlyx",
+				VITE_MARBLE_API_URL: "app://shotlyx",
 			},
 			stdio: "inherit",
 		});
@@ -46,9 +46,9 @@ function runApiBuild() {
 				env: {
 					...createDesktopEnv(),
 					SHOTLYX_RENDERER_ORIGIN: "app://shotlyx",
-					NEXT_PUBLIC_SHOTLYX_API_ORIGIN: "app://shotlyx",
-					NEXT_PUBLIC_SITE_URL: "app://shotlyx",
-					NEXT_PUBLIC_MARBLE_API_URL: "app://shotlyx",
+					VITE_SHOTLYX_API_ORIGIN: "app://shotlyx",
+					VITE_SITE_URL: "app://shotlyx",
+					VITE_MARBLE_API_URL: "app://shotlyx",
 				},
 				stdio: "inherit",
 			},

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { PageMetadata } from "@/platform/metadata";
 import { BasePage } from "@/app/base-page";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -13,7 +13,7 @@ import {
 	ReleaseChanges,
 } from "@/changelog/components/release";
 
-export const metadata: Metadata = {
+export const metadata: PageMetadata = {
 	title: "Changelog - Shotlyx",
 	description: "What's new in Shotlyx",
 	openGraph: {

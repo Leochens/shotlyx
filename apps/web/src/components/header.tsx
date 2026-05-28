@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/platform/link";
 import { motion } from "motion/react";
 import { Button } from "./ui/button";
 import { ArrowRight, Terminal } from "lucide-react";

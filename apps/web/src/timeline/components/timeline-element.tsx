@@ -63,7 +63,7 @@ import {
 import { useElementSelection } from "@/timeline/hooks/element/use-element-selection";
 import { resolveStickerId } from "@/stickers";
 import { buildGraphicPreviewUrl } from "@/graphics";
-import Image from "next/image";
+import Image from "@/platform/image";
 import {
 	ScissorIcon,
 	Delete02Icon,

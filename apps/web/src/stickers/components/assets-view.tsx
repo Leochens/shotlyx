@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/platform/image";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";

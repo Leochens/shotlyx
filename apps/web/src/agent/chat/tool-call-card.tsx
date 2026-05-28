@@ -954,7 +954,6 @@ function StockMediaCandidateCard({
 		<div className="overflow-hidden rounded-md border border-neutral-800 bg-neutral-950">
 			<div className="relative aspect-video bg-neutral-900">
 				{previewUrl && candidate.type !== "audio" ? (
-					// eslint-disable-next-line @next/next/no-img-element
 					<img
 						src={previewUrl}
 						alt={title}
@@ -1114,7 +1113,6 @@ function StockMediaPreviewDialog({
 				</div>
 				<div className="bg-black p-3">
 					{candidate.type === "image" && previewUrl ? (
-						// eslint-disable-next-line @next/next/no-img-element
 						<img
 							src={previewUrl}
 							alt={title}
@@ -1205,7 +1203,6 @@ function GeneratedImagesPreview({ data }: { data: unknown }) {
 					>
 						<div className="flex aspect-video items-center justify-center bg-neutral-950">
 							{src ? (
-								// eslint-disable-next-line @next/next/no-img-element
 								<img
 									src={src}
 									alt={label}

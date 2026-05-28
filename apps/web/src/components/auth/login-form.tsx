@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/platform/router";
 import { toast } from "sonner";
 import { ArrowRight, Fingerprint, Loader2, Terminal } from "lucide-react";
 import { signIn, signUp } from "@/auth/client";

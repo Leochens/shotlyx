@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams } from "@/platform/router";
 import {
 	ResizablePanelGroup,
 	ResizablePanel,

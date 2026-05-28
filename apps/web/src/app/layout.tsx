@@ -1,22 +1,14 @@
-import { ThemeProvider } from "next-themes";
-import Script from "next/script";
+import { ThemeProvider } from "@/platform/theme";
+import Script from "@/platform/script";
 import "./globals.css";
 import { Toaster } from "../components/ui/sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
 import { baseMetaData } from "./metadata";
-import { BotIdClient } from "botid/client";
 import { isDesktopMode } from "@/desktop/config/server";
 
-const enableReactScan = process.env.NEXT_PUBLIC_REACT_SCAN === "true";
+const enableReactScan = process.env.VITE_REACT_SCAN === "true";
 
 export const metadata = baseMetaData;
-
-const protectedRoutes = [
-	{
-		path: "/none",
-		method: "GET",
-	},
-];
 
 export default function RootLayout({
 	children,
@@ -26,7 +18,6 @@ export default function RootLayout({
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<head>
-				<BotIdClient protect={protectedRoutes} />
 				{process.env.NODE_ENV === "development" && enableReactScan && (
 					<>
 						<Script

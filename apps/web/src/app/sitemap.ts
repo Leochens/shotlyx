@@ -1,11 +1,11 @@
 import { SITE_URL } from "@/site/brand";
 import { getPosts } from "@/blog/query";
-import type { MetadataRoute } from "next";
+import type { SitemapMetadata } from "@/platform/metadata";
 
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+export default async function sitemap(): Promise<SitemapMetadata> {
 	const data = await getPosts();
 
-	const postPages: MetadataRoute.Sitemap =
+	const postPages: SitemapMetadata =
 		data?.posts?.map((post) => ({
 			url: `${SITE_URL}/blog/${post.slug}`,
 			lastModified: new Date(post.publishedAt),

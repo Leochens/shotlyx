@@ -1,5 +1,5 @@
 import { Button } from "./ui/button";
-import Link from "next/link";
+import Link from "@/platform/link";
 import { SOCIAL_LINKS } from "@/site/social";
 import { GithubIcon, Link04Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/platform/link";
 import { Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PRODUCT_NAME } from "@/site/brand";

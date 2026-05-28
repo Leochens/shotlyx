@@ -1,6 +1,6 @@
-import type { Metadata } from "next";
-import Link from "next/link";
-import { notFound } from "next/navigation";
+import type { PageMetadata } from "@/platform/metadata";
+import Link from "@/platform/link";
+import { notFound } from "@/platform/router";
 import { BasePage } from "@/app/base-page";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { getReleaseByVersion, getSortedReleases } from "@/changelog/utils";
@@ -19,7 +19,7 @@ export async function generateStaticParams() {
 	return getSortedReleases().map((release) => ({ version: release.version }));
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata({ params }: Props): Promise<PageMetadata> {
 	const { version } = await params;
 	const release = getReleaseByVersion({ version });
 	if (!release) return {};

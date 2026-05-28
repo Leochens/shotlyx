@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import Link from "@/platform/link";
+import { useSearchParams } from "@/platform/router";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import {
 	ArrowLeft,

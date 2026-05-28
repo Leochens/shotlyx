@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { PageMetadata } from "@/platform/metadata";
 import { BasePage } from "@/app/base-page";
 import { GitHubContributeSection } from "@/components/gitHub-contribute-section";
 import { Badge } from "@/components/ui/badge";
@@ -59,7 +59,7 @@ const roadmapItems: RoadmapItem[] = [
 	},
 ];
 
-export const metadata: Metadata = {
+export const metadata: PageMetadata = {
 	title: "Roadmap - Shotlyx",
 	description:
 		"See what's coming next for Shotlyx - the free, open-source video editor that respects your privacy.",

@@ -28,9 +28,15 @@ describe("matchShotlyxRoute", () => {
 			search: "",
 		});
 		expect(matchShotlyxRoute("/")).toEqual({
-			kind: "projects",
+			kind: "home",
 			params: {},
 			pathname: "/",
+			search: "",
+		});
+		expect(matchShotlyxRoute("/projects")).toEqual({
+			kind: "projects",
+			params: {},
+			pathname: "/projects",
 			search: "",
 		});
 	});
@@ -47,6 +53,22 @@ describe("matchShotlyxRoute", () => {
 			params: {},
 			pathname: "/settings/api",
 			search: "?section=agent",
+		});
+	});
+
+	test("maps public content routes", () => {
+		expect(matchShotlyxRoute("/blog")).toMatchObject({ kind: "blog" });
+		expect(matchShotlyxRoute("/blog/hello-world")).toMatchObject({
+			kind: "blog-post",
+			params: { slug: "hello-world" },
+		});
+		expect(matchShotlyxRoute("/changelog/v1.0.0")).toMatchObject({
+			kind: "changelog-detail",
+			params: { version: "v1.0.0" },
+		});
+		expect(matchShotlyxRoute("/privacy")).toMatchObject({ kind: "privacy" });
+		expect(matchShotlyxRoute("/third-party-notices")).toMatchObject({
+			kind: "third-party-notices",
 		});
 	});
 });

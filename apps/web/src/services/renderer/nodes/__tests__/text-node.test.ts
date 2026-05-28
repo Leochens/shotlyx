@@ -1,15 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unsafe-type-assertion, shotlyx/prefer-object-params -- Test builds a compact renderer node/context stub. */
 import { describe, expect, mock, test } from "bun:test";
+import { wasmMock } from "@/test/wasm-mock";
 import type { MeasuredTextElement } from "@/text/measure-element";
 import type { ResolvedTextNodeState, TextNodeParams } from "../text-node";
 
-mock.module("@/wasm", () => ({
-	TICKS_PER_SECOND: 120_000,
-	ZERO_MEDIA_TIME: 0,
-	mediaTime: ({ ticks }: { ticks: number }) => Math.round(ticks),
-	mediaTimeFromSeconds: ({ seconds }: { seconds: number }) =>
-		Math.round(seconds * 120_000),
-}));
+mock.module("@/wasm", () => wasmMock);
 
 function makeMeasuredText(): MeasuredTextElement {
 	return {

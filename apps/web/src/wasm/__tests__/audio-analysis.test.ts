@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
+import { opencutWasmMock } from "@/test/wasm-mock";
 
-mock.module("opencut-wasm", () => ({}));
+mock.module("opencut-wasm", () => opencutWasmMock);
 
 describe("audio silence analysis", () => {
 	test("falls back to local detection when wasm silence export is missing", async () => {

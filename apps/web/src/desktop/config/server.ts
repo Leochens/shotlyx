@@ -43,7 +43,7 @@ const CONFIG_VERSION = 1;
 export function isDesktopMode(): boolean {
 	return (
 		process.env.SHOTLYX_DESKTOP === "1" ||
-		process.env.NEXT_PUBLIC_SHOTLYX_DESKTOP === "1"
+		process.env.VITE_SHOTLYX_DESKTOP === "1"
 	);
 }
 

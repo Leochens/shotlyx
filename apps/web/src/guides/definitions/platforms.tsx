@@ -1,4 +1,4 @@
-import Image from "next/image";
+import Image from "@/platform/image";
 import type { GuideDefinition } from "@/guides/types";
 import { TikTokLayout } from "./tiktok-layout";
 

@@ -1,14 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unsafe-type-assertion, shotlyx/prefer-object-params -- Test uses a compact canvas context stub. */
 import { describe, expect, mock, test } from "bun:test";
+import { wasmMock } from "@/test/wasm-mock";
 import type { MeasuredTextLayout } from "../primitives";
 
-mock.module("@/wasm", () => ({
-	TICKS_PER_SECOND: 120_000,
-	ZERO_MEDIA_TIME: 0,
-	mediaTime: ({ ticks }: { ticks: number }) => Math.round(ticks),
-	mediaTimeFromSeconds: ({ seconds }: { seconds: number }) =>
-		Math.round(seconds * 120_000),
-}));
+mock.module("@/wasm", () => wasmMock);
 
 describe("text primitives", () => {
 	test("draws karaoke highlight from the visual start of each measured line", async () => {

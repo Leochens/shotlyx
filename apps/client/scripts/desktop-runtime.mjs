@@ -29,12 +29,12 @@ export function createDesktopEnv(runtime = getDesktopRuntime()) {
 		SHOTLYX_DESKTOP: "1",
 		SHOTLYX_RENDERER_ORIGIN:
 			process.env.SHOTLYX_RENDERER_ORIGIN ?? runtime.origin,
-		NEXT_PUBLIC_SHOTLYX_API_ORIGIN:
-			process.env.NEXT_PUBLIC_SHOTLYX_API_ORIGIN ?? "app://shotlyx",
-		NEXT_PUBLIC_SHOTLYX_DESKTOP: "1",
-		NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL ?? runtime.origin,
-		NEXT_PUBLIC_MARBLE_API_URL:
-			process.env.NEXT_PUBLIC_MARBLE_API_URL ?? runtime.origin,
+		VITE_SHOTLYX_API_ORIGIN:
+			process.env.VITE_SHOTLYX_API_ORIGIN ?? "app://shotlyx",
+		VITE_SHOTLYX_DESKTOP: "1",
+		VITE_SITE_URL: process.env.VITE_SITE_URL ?? runtime.origin,
+		VITE_MARBLE_API_URL:
+			process.env.VITE_MARBLE_API_URL ?? runtime.origin,
 		BETTER_AUTH_SECRET:
 			process.env.BETTER_AUTH_SECRET ?? "shotlyx-desktop-local-secret",
 		UPSTASH_REDIS_REST_URL:
