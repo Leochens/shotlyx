@@ -10,6 +10,8 @@ export type ShotlyxMGTemplateCategory =
 	| "annotation"
 	| "data";
 
+export type ShotlyxMGTemplateMode = "off" | "auto" | "force";
+
 export interface ShotlyxMGTemplateMetadata {
 	id: ShotlyxMGTemplateId;
 	name: string;
@@ -101,4 +103,27 @@ export function resolveShotlyxMGTemplateForTask({
 		}
 	}
 	return null;
+}
+
+export function normalizeShotlyxMGTemplateSelection({
+	templateMode,
+	templateId,
+	defaultTemplateMode = "auto",
+}: {
+	templateMode?: ShotlyxMGTemplateMode;
+	templateId?: ShotlyxMGTemplateId;
+	defaultTemplateMode?: ShotlyxMGTemplateMode;
+}): {
+	templateMode: ShotlyxMGTemplateMode;
+	templateId?: ShotlyxMGTemplateId;
+} {
+	if (templateId) {
+		return {
+			templateMode: "force",
+			templateId,
+		};
+	}
+	return {
+		templateMode: templateMode ?? defaultTemplateMode,
+	};
 }

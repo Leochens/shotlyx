@@ -86,6 +86,7 @@ describe("Shotlyx MG job routes", () => {
 		const parsed = shotlyxMGJobRequestSchema.safeParse({
 			prompt: "生成 8 个连续标注 MG",
 			componentCount: 8,
+			maxOutputTokens: 12_000,
 		});
 
 		expect(parsed.success).toBe(true);
@@ -338,7 +339,7 @@ describe("Shotlyx MG job routes", () => {
 		).toBe(true);
 	});
 
-	test("MG composition jobs can force one selected builtin template", async () => {
+	test("MG composition jobs force a selected builtin template even when mode is auto", async () => {
 		const calls: Array<{ prompt: string }> = [];
 		const events: Array<{ label?: string; type?: string; documents?: unknown[] }> =
 			[];
@@ -348,7 +349,7 @@ describe("Shotlyx MG job routes", () => {
 				durationSeconds: 5,
 				aspectRatio: "16:9",
 				componentCount: 1,
-				templateMode: "force",
+				templateMode: "auto",
 				templateId: "metric-emphasis",
 			},
 			generateDocumentFn: async (args) => {

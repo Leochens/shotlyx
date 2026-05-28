@@ -1,7 +1,10 @@
 import { getMGModelBundle } from "@/agent/ai-sdk/providers";
 import { generateShotlyxMGComponentDocument } from "@/shotlyx/remotion-components/generator";
 import { createShotlyxMGJob } from "@/shotlyx/remotion-components/jobs";
-import { SHOTLYX_MG_TEMPLATE_IDS } from "@/shotlyx/remotion-components/template-registry";
+import {
+	SHOTLYX_MG_TEMPLATE_IDS,
+	normalizeShotlyxMGTemplateSelection,
+} from "@/shotlyx/remotion-components/template-registry";
 import { type ApiRequest, ApiResponse } from "@/platform/http";
 import { z } from "zod";
 
@@ -18,7 +21,7 @@ export const shotlyxMGJobRequestSchema = z.object({
 	templateId: z.enum(SHOTLYX_MG_TEMPLATE_IDS).optional(),
 	repairAttempts: z.number().int().min(0).max(3).optional(),
 	preferPlainJson: z.boolean().optional(),
-	maxOutputTokens: z.number().int().min(512).max(8000).optional(),
+	maxOutputTokens: z.number().int().min(512).max(12_000).optional(),
 });
 
 export async function POST(request: ApiRequest) {
@@ -39,10 +42,14 @@ export async function POST(request: ApiRequest) {
 	}
 
 	const mgModel = getMGModelBundle();
+	const templateSelection = normalizeShotlyxMGTemplateSelection({
+		templateMode: parsed.data.templateMode,
+		templateId: parsed.data.templateId,
+	});
 	const job = createShotlyxMGJob({
 		input: {
 			...parsed.data,
-			templateMode: parsed.data.templateMode ?? "auto",
+			...templateSelection,
 		},
 		generateDocumentFn: (args) =>
 			generateShotlyxMGComponentDocument({

@@ -39,6 +39,7 @@ const DEFAULT_FPS = 30;
 const DEFAULT_DURATION_SECONDS = 6;
 const MAX_OUTPUT_TOKENS = 12000;
 const RENDER_VALIDATION_FRAME_COUNT = 4;
+let renderValidationQueue: Promise<void> = Promise.resolve();
 const GENERATED_PROP_TYPE_ALIASES: Record<string, ShotlyxMGPropType> = {
 	array: "table",
 	asset: "image",
@@ -300,8 +301,11 @@ function buildUserPrompt({
 			? `Previous output failed validation. Fix these errors:\n${validationErrors.join("\n")}`
 			: "",
 		plainJson
-			? "Return only one valid JSON object. Do not use markdown fences, comments, or prose."
+			? "Return only one valid JSON object. Do not use markdown fences, comments, or prose. To avoid multiline string escaping failures, prefer componentSourceLines: an array of code lines, instead of componentSource. If you use componentSource, it must be a valid JSON string with escaped newlines and quotes."
 			: "Return one structured object with name, durationSeconds, fps, width, height, aspectRatio, thumbnailFrame, componentSource, propsSchema.",
+		plainJson
+			? "Plain JSON may include either componentSourceLines or componentSource. componentSourceLines is safer for TSX; every item must be one valid JSON string line, and the server will join the lines with newline characters."
+			: "",
 		"Always include durationSeconds, fps, width, height, aspectRatio, and thumbnailFrame. Use null if a value should use the requested default.",
 		"Choose thumbnailFrame as the representative frame for the asset cover: pick a frame where the animation content is visible and characteristic, not an empty intro frame.",
 		"Every propsSchema item must include min, max, step, options, and columns. Use null when the field does not apply.",
@@ -433,6 +437,12 @@ async function assertRenderableShotlyxRemotionComponent({
 }: {
 	document: ShotlyxRemotionComponentDocument;
 }): Promise<void> {
+	const previousQueue = renderValidationQueue;
+	let releaseValidation = () => {};
+	renderValidationQueue = new Promise((resolve) => {
+		releaseValidation = resolve;
+	});
+	await previousQueue;
 	let currentFrame = 0;
 	const previousRuntime = Reflect.get(
 		globalThis,
@@ -497,6 +507,7 @@ async function assertRenderableShotlyxRemotionComponent({
 		} else {
 			Reflect.set(globalThis, "__SHOTLYX_REMOTION_RUNTIME__", previousRuntime);
 		}
+		releaseValidation();
 	}
 }
 
@@ -976,9 +987,103 @@ function normalizeColumnLabel({
 	return `Column ${index + 1}`;
 }
 
+function normalizeComponentSourceFromRaw({
+	normalized,
+}: {
+	normalized: Record<string, unknown>;
+}): void {
+	const rawSource = normalized.componentSource;
+	if (Array.isArray(rawSource) && rawSource.every((line) => typeof line === "string")) {
+		normalized.componentSource = rawSource.join("\n");
+		return;
+	}
+	if (typeof rawSource === "string" && rawSource.trim()) return;
+	for (const key of ["componentSourceLines", "sourceLines"]) {
+		const lines = normalized[key];
+		if (Array.isArray(lines) && lines.every((line) => typeof line === "string")) {
+			normalized.componentSource = lines.join("\n");
+			return;
+		}
+	}
+}
+
+function camelCasePropKey({ value }: { value: string }): string | null {
+	const tokens = value
+		.normalize("NFKD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.replace(/[^a-zA-Z0-9]+/g, " ")
+		.trim()
+		.split(/\s+/)
+		.filter(Boolean);
+	if (tokens.length === 0) return null;
+	const [first, ...rest] = tokens;
+	if (!first) return null;
+	return [
+		first.charAt(0).toLowerCase() + first.slice(1),
+		...rest.map((token) => token.charAt(0).toUpperCase() + token.slice(1)),
+	].join("");
+}
+
+function normalizeGeneratedPropKey({
+	key,
+	label,
+	index,
+}: {
+	key: unknown;
+	label: unknown;
+	index: number;
+}): string {
+	if (typeof key === "string" && key.trim()) {
+		return key.trim();
+	}
+	if (isRecord(key)) {
+		for (const field of ["key", "value", "label", "name"]) {
+			const candidate = key[field];
+			if (typeof candidate === "string" && candidate.trim()) {
+				return candidate.trim();
+			}
+		}
+	}
+	if (typeof label === "string" && label.trim()) {
+		const fromLabel = camelCasePropKey({ value: label });
+		if (fromLabel) return fromLabel;
+	}
+	return `prop${index + 1}`;
+}
+
+function hasExplicitGeneratedPropKey({ key }: { key: unknown }): boolean {
+	if (typeof key === "string") return key.trim().length > 0;
+	if (!isRecord(key)) return false;
+	return ["key", "value", "label", "name"].some((field) => {
+		const candidate = key[field];
+		return typeof candidate === "string" && candidate.trim().length > 0;
+	});
+}
+
+function makeUniquePropKey({
+	key,
+	seenKeys,
+}: {
+	key: string;
+	seenKeys: Set<string>;
+}): string {
+	if (!seenKeys.has(key)) {
+		seenKeys.add(key);
+		return key;
+	}
+	let suffix = 2;
+	while (seenKeys.has(`${key}${suffix}`)) {
+		suffix += 1;
+	}
+	const uniqueKey = `${key}${suffix}`;
+	seenKeys.add(uniqueKey);
+	return uniqueKey;
+}
+
 function normalizeRawGeneratedComponent(value: unknown): unknown {
 	if (!isRecord(value)) return value;
 	const normalized: Record<string, unknown> = { ...value };
+	normalizeComponentSourceFromRaw({ normalized });
 	for (const key of [
 		"durationSeconds",
 		"fps",
@@ -990,12 +1095,20 @@ function normalizeRawGeneratedComponent(value: unknown): unknown {
 		if (!(key in normalized)) normalized[key] = null;
 	}
 	if (Array.isArray(normalized.propsSchema)) {
-		normalized.propsSchema = normalized.propsSchema.map((prop) => {
+		const seenPropKeys = new Set<string>();
+		normalized.propsSchema = normalized.propsSchema.map((prop, index) => {
 			if (!isRecord(prop)) return prop;
-			const propKey =
-				typeof prop.key === "string" && prop.key.trim()
-					? prop.key.trim()
-					: prop.key;
+			const normalizedPropKey = normalizeGeneratedPropKey({
+				key: prop.key,
+				label: prop.label,
+				index,
+			});
+			const propKey = hasExplicitGeneratedPropKey({ key: prop.key })
+				? normalizedPropKey
+				: makeUniquePropKey({
+						key: normalizedPropKey,
+						seenKeys: seenPropKeys,
+					});
 			const propLabel =
 				typeof prop.label === "string" && prop.label.trim()
 					? prop.label.trim()

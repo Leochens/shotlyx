@@ -830,6 +830,121 @@ export default function ShotlyxComponent(props: Props) {
 		expect(message).toContain("JSON.stringify");
 	});
 
+	test("plain JSON mode accepts componentSourceLines to avoid multiline string escaping", async () => {
+		const generateTextMock = mock(
+			async (options: { output?: unknown; prompt?: string }) => {
+				expect(options.output).toBeUndefined();
+				expect(options.prompt).toContain("componentSourceLines");
+				return {
+					text: JSON.stringify({
+						name: "Line Based Typewriter",
+						durationSeconds: 5,
+						fps: 30,
+						width: 1920,
+						height: 1080,
+						aspectRatio: "16:9",
+						thumbnailFrame: null,
+						componentSourceLines: typewriterSource.trim().split("\n"),
+						propsSchema: [
+							{
+								key: "title",
+								label: "Title",
+								type: "text",
+								role: "content",
+								default: "Hello line mode",
+								min: null,
+								max: null,
+								step: null,
+								options: null,
+								columns: null,
+							},
+							{
+								key: "accentColor",
+								label: "Accent",
+								type: "color",
+								role: "style",
+								default: "#38bdf8",
+								min: null,
+								max: null,
+								step: null,
+								options: null,
+								columns: null,
+							},
+						],
+					}),
+				};
+			},
+		);
+
+		const document = await generateShotlyxMGComponentDocument({
+			model: fakeModel(),
+			providerConfig: {
+				name: "mg",
+				provider: "google",
+				host: "https://generativelanguage.googleapis.com/v1beta",
+				apiKey: "google-key",
+				model: "gemini-2.5-flash",
+			},
+			generateTextFn:
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				generateTextMock as unknown as NonNullable<
+					GenerateShotlyxMGComponentOptions["generateTextFn"]
+				>,
+			prompt: "做一个打字机标题 MG",
+			durationSeconds: 5,
+			aspectRatio: "16:9",
+			repairAttempts: 0,
+		});
+
+		expect(document.componentSource).toContain("useCurrentFrame");
+		expect(document.defaultProps.title).toBe("Hello line mode");
+	});
+
+	test("derives stable prop keys from labels when model returns empty keys", async () => {
+		const generateTextMock = mock(async () => ({
+			output: {
+				name: "Derived Keys",
+				durationSeconds: 5,
+				fps: 30,
+				width: 1920,
+				height: 1080,
+				aspectRatio: "16:9",
+				thumbnailFrame: null,
+				componentSource: bareRemotionHookSource,
+				propsSchema: [
+					{
+						key: "",
+						label: "Title",
+						type: "text",
+						role: "content",
+						default: "Derived title",
+						min: null,
+						max: null,
+						step: null,
+						options: null,
+						columns: null,
+					},
+				],
+			},
+		}));
+
+		const document = await generateShotlyxMGComponentDocument({
+			model: fakeModel(),
+			generateTextFn:
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				generateTextMock as unknown as NonNullable<
+					GenerateShotlyxMGComponentOptions["generateTextFn"]
+				>,
+			prompt: "做一个标题 MG",
+			durationSeconds: 5,
+			aspectRatio: "16:9",
+			repairAttempts: 0,
+		});
+
+		expect(document.propsSchema[0]?.key).toBe("title");
+		expect(document.defaultProps.title).toBe("Derived title");
+	});
+
 	test("uses plain JSON immediately for OpenAI-compatible provider configs in auto mode", async () => {
 		const generateTextMock = mock(
 			async (options: { output?: unknown; prompt?: string }) => {

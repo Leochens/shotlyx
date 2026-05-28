@@ -28,7 +28,9 @@ import {
 } from "@/shotlyx/remotion-components/skill-context";
 import {
 	SHOTLYX_MG_TEMPLATE_IDS,
+	normalizeShotlyxMGTemplateSelection,
 	type ShotlyxMGTemplateId,
+	type ShotlyxMGTemplateMode,
 } from "@/shotlyx/remotion-components/template-registry";
 import {
 	SHOTLYX_REMOTION_COMPONENT_RUNTIME,
@@ -72,8 +74,6 @@ type Orientation = (typeof ORIENTATIONS)[number];
 type AspectRatio = (typeof ASPECT_RATIOS)[number];
 type SeedanceVideoAspectRatio = (typeof SEEDANCE_VIDEO_ASPECT_RATIOS)[number];
 type SeedanceVideoDuration = (typeof SEEDANCE_VIDEO_DURATIONS)[number];
-
-type ShotlyxMGTemplateMode = "off" | "auto" | "force";
 
 type ShotlyxMGJobRouteOptions = GenerateShotlyxMGComponentOptions & {
 	templateMode?: ShotlyxMGTemplateMode;
@@ -1517,6 +1517,10 @@ function buildShotlyxMGJobRouteBody({
 	args: ShotlyxMGJobRouteOptions;
 	componentCount: number;
 }): Record<string, unknown> {
+	const templateSelection = normalizeShotlyxMGTemplateSelection({
+		templateMode: args.templateMode,
+		templateId: args.templateId,
+	});
 	return {
 		prompt: args.prompt,
 		durationSeconds: args.durationSeconds,
@@ -1527,8 +1531,8 @@ function buildShotlyxMGJobRouteBody({
 		repairAttempts: args.repairAttempts,
 		preferPlainJson: args.preferPlainJson,
 		maxOutputTokens: args.maxOutputTokens,
-		templateMode: args.templateMode,
-		templateId: args.templateId,
+		templateMode: templateSelection.templateMode,
+		templateId: templateSelection.templateId,
 	};
 }
 
@@ -2624,7 +2628,7 @@ export function buildCreativeTools({
 				templateMode: {
 					type: "string",
 					description:
-						"内置 MG 模板模式：auto 优先模板并可降级自由生成；force 强制使用 templateId；off 关闭模板库。",
+						"内置 MG 模板模式：auto 优先模板并可降级自由生成；force 强制使用 templateId；off 关闭模板库。只要传入 templateId，系统会按 force 处理。",
 					optional: true,
 				},
 				templateId: {
@@ -2733,7 +2737,7 @@ export function buildCreativeTools({
 							abortSignal: context?.signal,
 							repairAttempts: 1,
 							preferPlainJson: false,
-							maxOutputTokens: 8000,
+							maxOutputTokens: 12_000,
 							templateMode,
 							templateId,
 						},
@@ -2831,7 +2835,7 @@ export function buildCreativeTools({
 							abortSignal: context?.signal,
 							repairAttempts: 1,
 							preferPlainJson: false,
-							maxOutputTokens: 8000,
+							maxOutputTokens: 12_000,
 						});
 					} catch (error) {
 						emitToolProgress({
@@ -3023,7 +3027,7 @@ export function buildCreativeTools({
 							abortSignal: context?.signal,
 							repairAttempts: 2,
 							preferPlainJson: false,
-							maxOutputTokens: 8000,
+							maxOutputTokens: 12_000,
 						},
 						fetchFn: creativeDeps.fetchFn,
 						componentCount: 1,
@@ -3076,7 +3080,7 @@ export function buildCreativeTools({
 					abortSignal: context?.signal,
 					repairAttempts: 2,
 					preferPlainJson: false,
-					maxOutputTokens: 8000,
+					maxOutputTokens: 12_000,
 				});
 				const asset = registerShotlyxMGAsset({
 					document,

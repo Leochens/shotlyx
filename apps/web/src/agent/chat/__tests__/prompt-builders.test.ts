@@ -45,12 +45,12 @@ describe("chat prompt builders", () => {
 			componentCount: 1,
 			aspectRatio: "16:9",
 			durationSeconds: 5,
-			templateMode: "force",
+			templateMode: "auto",
 			templateId: "title-reveal",
 		});
 
 		expect(prompt).toContain('"templateMode":"force"');
 		expect(prompt).toContain('"templateId":"title-reveal"');
-		expect(prompt).toContain("必须传入 templateMode 和 templateId");
+		expect(prompt).toContain('必须传入 templateMode:"force" 和 templateId');
 	});
 });

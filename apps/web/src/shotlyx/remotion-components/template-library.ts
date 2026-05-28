@@ -1,10 +1,12 @@
 import { createShotlyxRemotionComponentDocument } from "./generator";
 export {
 	listShotlyxMGTemplates,
+	normalizeShotlyxMGTemplateSelection,
 	resolveShotlyxMGTemplateForTask,
 	type ShotlyxMGTemplateCategory,
 	type ShotlyxMGTemplateId,
 	type ShotlyxMGTemplateMetadata,
+	type ShotlyxMGTemplateMode,
 } from "./template-registry";
 import type { ShotlyxMGTemplateId } from "./template-registry";
 import type {

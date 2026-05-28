@@ -15,8 +15,10 @@ import {
 } from "./skill-context";
 import {
 	createShotlyxMGTemplateDocument,
+	normalizeShotlyxMGTemplateSelection,
 	resolveShotlyxMGTemplateForTask,
 	type ShotlyxMGTemplateId,
+	type ShotlyxMGTemplateMode,
 } from "./template-library";
 import type { ShotlyxRemotionComponentDocument } from "./types";
 
@@ -25,7 +27,7 @@ export interface ShotlyxMGJobInput extends Omit<
 	"model" | "generateTextFn"
 > {
 	componentCount?: number;
-	templateMode?: "off" | "auto" | "force";
+	templateMode?: ShotlyxMGTemplateMode;
 	templateId?: ShotlyxMGTemplateId;
 }
 
@@ -84,7 +86,7 @@ export type GenerateShotlyxMGJobDocumentFn = (
 const DEFAULT_COMPONENT_TIMEOUT_MS = 180_000;
 const DEFAULT_COMPONENT_RETRY_ATTEMPTS = 2;
 const DEFAULT_COMPONENT_REPAIR_ATTEMPTS = 4;
-const DEFAULT_COMPONENT_MAX_OUTPUT_TOKENS = 8000;
+const DEFAULT_COMPONENT_MAX_OUTPUT_TOKENS = 12_000;
 const DEFAULT_COMPONENT_CONCURRENCY = 5;
 const globalShotlyxMGJobs = globalThis as typeof globalThis & {
 	__shotlyxMGJobs?: Map<string, ShotlyxMGJob>;
@@ -299,10 +301,15 @@ async function tryCreateTemplateDocumentForJob({
 	document: ShotlyxRemotionComponentDocument;
 	templateId: ShotlyxMGTemplateId;
 } | null> {
-	const templateMode = job.input.templateMode ?? "off";
+	const { templateMode, templateId: selectedTemplateId } =
+		normalizeShotlyxMGTemplateSelection({
+			templateMode: job.input.templateMode,
+			templateId: job.input.templateId,
+			defaultTemplateMode: "off",
+		});
 	if (templateMode === "off") return null;
 	const templateId =
-		job.input.templateId ??
+		selectedTemplateId ??
 		resolveShotlyxMGTemplateForTask({
 			taskId: component.id,
 		});

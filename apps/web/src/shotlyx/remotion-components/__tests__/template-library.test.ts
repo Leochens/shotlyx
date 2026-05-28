@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	createShotlyxMGTemplateDocument,
 	listShotlyxMGTemplates,
+	normalizeShotlyxMGTemplateSelection,
 	resolveShotlyxMGTemplateForTask,
 } from "../template-library";
 
@@ -46,5 +47,17 @@ describe("Shotlyx MG template library", () => {
 		expect(resolveShotlyxMGTemplateForTask({ taskId: "unknown-effect" })).toBe(
 			null,
 		);
+	});
+
+	test("normalizes a selected template id into forced template mode", () => {
+		expect(
+			normalizeShotlyxMGTemplateSelection({
+				templateMode: "auto",
+				templateId: "title-reveal",
+			}),
+		).toEqual({
+			templateMode: "force",
+			templateId: "title-reveal",
+		});
 	});
 });
