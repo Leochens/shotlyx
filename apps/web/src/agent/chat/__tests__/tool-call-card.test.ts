@@ -1,15 +1,65 @@
 import { describe, expect, test } from "bun:test";
 import type { ToolCallRecord } from "@/agent/controller/types";
 import {
+	buildToolCallSummary,
 	getJobTaskProgressItems,
 	getStockLicenseDisplay,
 	getStockMediaCandidates,
 	getStockMediaCandidatesFromToolCalls,
+	getToolCallSummaryCounts,
 	getToolOutputDisplay,
 	getToolStatus,
 } from "@/agent/chat/tool-call-card";
 
 describe("tool call card display helpers", () => {
+	test("summarizes a mixed tool group with counts instead of an overall status", () => {
+		const toolCalls: ToolCallRecord[] = [
+			{
+				tool: "subtitles_extract_transcript",
+				params: {},
+				result: { status: "success", data: {} },
+			},
+			{
+				tool: "selection_get_state",
+				params: {},
+				result: { status: "success", data: {} },
+			},
+			{
+				tool: "timeline_get_summary",
+				params: {},
+				result: { status: "error", error: "failed" },
+			},
+		];
+
+		expect(getToolCallSummaryCounts(toolCalls)).toEqual({
+			total: 3,
+			pending: 0,
+			success: 2,
+			failed: 1,
+		});
+		expect(buildToolCallSummary(toolCalls)).toBe(
+			"工具调用 · 3 项 · 2 成功 · 1 失败",
+		);
+	});
+
+	test("includes pending count while tools are still running", () => {
+		const toolCalls: ToolCallRecord[] = [
+			{
+				tool: "subtitles_extract_transcript",
+				params: {},
+				result: { status: "success", data: {} },
+			},
+			{
+				tool: "timeline_get_summary",
+				params: {},
+			},
+		];
+
+		expect(buildToolCallSummary(toolCalls)).toBe(
+			"工具调用 · 2 项 · 1 成功 · 0 失败 · 1 进行中",
+		);
+	});
+
 	test("groups MG background job progress by parallel task", () => {
 		const toolCall: ToolCallRecord = {
 			tool: "shotlyx_generate_mg_composition",

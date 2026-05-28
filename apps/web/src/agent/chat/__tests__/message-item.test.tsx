@@ -1,9 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MessageItem } from "@/agent/chat/message-item";
+import {
+	MessageItem,
+	getMessageActionRenderKey,
+} from "@/agent/chat/message-item";
 import type { ChatMessage } from "@/agent/chat/types";
 
 describe("MessageItem", () => {
+	test("uses render keys that remain unique for duplicate action ids", () => {
+		expect(
+			[
+				{ id: "option-b-roll" },
+				{ id: "option-b-roll" },
+			].map((action, index) => getMessageActionRenderKey({ action, index })),
+		).toEqual(["option-b-roll:0", "option-b-roll:1"]);
+	});
+
 	test("renders assistant content as markdown", () => {
 		const message: ChatMessage = {
 			id: "assistant-markdown",

@@ -228,25 +228,48 @@ function getToolKey({
 	return `${index}:${toolCall.tool}`;
 }
 
-function buildSummary(toolCalls: ToolCallRecord[]): string {
-	const total = toolCalls.length;
-	const pending = toolCalls.filter(
-		(toolCall) => getToolStatus(toolCall) === "pending",
-	);
-	const failed = toolCalls.filter(
-		(toolCall) => getToolStatus(toolCall) === "error",
-	);
-	const successCount = total - pending.length - failed.length;
+export interface ToolCallSummaryCounts {
+	total: number;
+	pending: number;
+	success: number;
+	failed: number;
+}
 
-	if (pending.length > 0) {
-		const latestProgress = pending[0] ? getLatestProgress(pending[0]) : null;
-		const progressLabel = latestProgress?.label;
-		return `工具调用 · ${total} 项 · ${progressLabel ?? `正在执行 ${pending[0]?.tool ?? "工具"}`}`;
+export function getToolCallSummaryCounts(
+	toolCalls: ToolCallRecord[],
+): ToolCallSummaryCounts {
+	const total = toolCalls.length;
+	let pending = 0;
+	let failed = 0;
+	for (const toolCall of toolCalls) {
+		const status = getToolStatus(toolCall);
+		if (status === "pending") {
+			pending += 1;
+		} else if (status === "error") {
+			failed += 1;
+		}
 	}
-	if (failed.length > 0) {
-		return `工具调用 · ${total} 项 · ${successCount} 成功 · ${failed.length} 失败`;
+	return {
+		total,
+		pending,
+		success: total - pending - failed,
+		failed,
+	};
+}
+
+export function buildToolCallSummary(toolCalls: ToolCallRecord[]): string {
+	const { total, pending, success, failed } =
+		getToolCallSummaryCounts(toolCalls);
+	const parts = [
+		"工具调用",
+		`${total} 项`,
+		`${success} 成功`,
+		`${failed} 失败`,
+	];
+	if (pending > 0) {
+		parts.push(`${pending} 进行中`);
 	}
-	return `工具调用 · ${total} 项 · 全部完成`;
+	return parts.join(" · ");
 }
 
 function buildCompactToolNames(toolCalls: ToolCallRecord[]): string {
@@ -275,7 +298,7 @@ export function ToolCallGroup({ toolCalls }: ToolCallGroupProps) {
 	const hasError = toolCalls.some(
 		(toolCall) => getToolStatus(toolCall) === "error",
 	);
-	const summary = useMemo(() => buildSummary(toolCalls), [toolCalls]);
+	const summary = useMemo(() => buildToolCallSummary(toolCalls), [toolCalls]);
 	const compactToolNames = useMemo(
 		() => buildCompactToolNames(toolCalls),
 		[toolCalls],
@@ -291,7 +314,6 @@ export function ToolCallGroup({ toolCalls }: ToolCallGroupProps) {
 		.join("|");
 	const isOpen = hasPending || expandedSignature === statusSignature;
 	const selectedIndex = getSelectedIndex({ toolCalls, selectedToolKey });
-	const SummaryIcon = hasPending ? Loader2 : hasError ? XCircle : CheckCircle2;
 
 	return (
 		<div className="mt-2 w-full overflow-hidden rounded-sm border border-cyan-300/15 bg-neutral-950/55">
@@ -305,16 +327,6 @@ export function ToolCallGroup({ toolCalls }: ToolCallGroupProps) {
 				}}
 				className="flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-neutral-900/80"
 			>
-				<SummaryIcon
-					size={14}
-					className={`shrink-0 ${
-						hasPending
-							? "animate-spin text-blue-400"
-							: hasError
-								? "text-red-400"
-								: "text-emerald-400"
-					}`}
-				/>
 				<div className="min-w-0 flex-1">
 					<div className="truncate text-xs font-medium text-neutral-200">
 						{summary}

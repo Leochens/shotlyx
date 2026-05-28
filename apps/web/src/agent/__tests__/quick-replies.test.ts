@@ -57,6 +57,34 @@ describe("quick replies", () => {
 		});
 	});
 
+	test("keeps option ids unique when labels repeat", () => {
+		const actions = normalizeQuickReplyActions({
+			assistantText: "你想怎么安排 B-roll？",
+			response: {
+				shouldOffer: true,
+				options: [
+					{
+						label: "B-roll",
+						value: "先搜索可用的 B-roll 素材。",
+					},
+					{
+						label: "B-roll",
+						value: "按字幕时间点生成 B-roll 计划。",
+					},
+				],
+			},
+		});
+
+		expect(actions.map((action) => action.id)).toEqual([
+			"option-b-roll",
+			"option-b-roll-2",
+			"option-other",
+		]);
+		expect(new Set(actions.map((action) => action.id)).size).toBe(
+			actions.length,
+		);
+	});
+
 	test("backfills option descriptions from the assistant's numbered choices", () => {
 		const actions = normalizeQuickReplyActions({
 			assistantText: [

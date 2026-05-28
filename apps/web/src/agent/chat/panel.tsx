@@ -1154,7 +1154,13 @@ export function ChatPanel() {
 		});
 	};
 
-	const handleActionClick = async (actionId: string) => {
+	const handleActionClick = async ({
+		actionId,
+		action,
+	}: {
+		actionId: string;
+		action?: MessageAction;
+	}) => {
 		if (!editor) return;
 
 		if (actionId.startsWith("option-")) {
@@ -1165,9 +1171,10 @@ export function ChatPanel() {
 				.find(
 					(m) => m.role === "assistant" && m.actions?.some((a) => a.isOption),
 				);
-			const selectedAction = lastAssistant?.actions?.find(
-				(a) => a.id === actionId,
-			);
+			const selectedAction =
+				action?.isOption === true
+					? action
+					: lastAssistant?.actions?.find((a) => a.id === actionId);
 			const label = selectedAction?.label ?? selectedValue;
 			if (selectedAction?.value === "__other__") {
 				setInput("");
@@ -1527,7 +1534,9 @@ export function ChatPanel() {
 						>
 							<MessageItem
 								message={msg}
-								onActionClick={handleActionClick}
+								onActionClick={(request) => {
+									void handleActionClick(request);
+								}}
 								onOptionCustomAnswer={handleClarificationAnswer}
 								onClarificationAnswer={handleClarificationAnswer}
 								onToolAction={(request) =>

@@ -73,13 +73,33 @@ function findAssistantOptionDescription({
 	return matchedChoice?.description ?? assistantChoices[index]?.description;
 }
 
-function makeOptionId({ label, index }: { label: string; index: number }) {
+function makeBaseOptionId({ label, index }: { label: string; index: number }) {
 	const asciiSlug = label
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, "-")
 		.replace(/^-+|-+$/g, "")
 		.slice(0, 36);
 	return `option-${asciiSlug || `choice-${index + 1}`}`;
+}
+
+function makeUniqueOptionId({
+	label,
+	index,
+	usedIds,
+}: {
+	label: string;
+	index: number;
+	usedIds: Set<string>;
+}) {
+	const baseId = makeBaseOptionId({ label, index });
+	let id = baseId;
+	let suffix = 2;
+	while (usedIds.has(id)) {
+		id = `${baseId}-${suffix}`;
+		suffix += 1;
+	}
+	usedIds.add(id);
+	return id;
 }
 
 function usesChinese(text: string): boolean {
@@ -111,6 +131,7 @@ export function normalizeQuickReplyActions({
 	if (!response.shouldOffer) return [];
 
 	const seen = new Set<string>();
+	const usedIds = new Set<string>();
 	const actions: MessageAction[] = [];
 	const assistantChoices = parseAssistantOptionDescriptions({ assistantText });
 
@@ -122,7 +143,11 @@ export function normalizeQuickReplyActions({
 		if (seen.has(key)) continue;
 		seen.add(key);
 		actions.push({
-			id: makeOptionId({ label, index: actions.length }),
+			id: makeUniqueOptionId({
+				label,
+				index: actions.length,
+				usedIds,
+			}),
 			label,
 			value,
 			description: option.description

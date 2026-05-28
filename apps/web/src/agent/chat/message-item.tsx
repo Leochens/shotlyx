@@ -14,6 +14,7 @@ import { ReferenceChipList } from "./reference-chip";
 import { ClarificationCard } from "./clarification-card";
 import { ReactMarkdownWrapper } from "@/components/ui/react-markdown-wrapper";
 import type { AgentTokenUsageTotals } from "@/agent/token-usage";
+import type { MessageAction } from "@/agent/controller/types";
 
 const LONG_ASSISTANT_CONTENT_THRESHOLD = 1800;
 const LONG_ASSISTANT_CONTENT_PREVIEW_LENGTH = 1200;
@@ -113,12 +114,25 @@ function TokenUsageSummary({
 
 interface MessageItemProps {
 	message: ChatMessage;
-	onActionClick?: (actionId: string) => void;
+	onActionClick?: (request: {
+		actionId: string;
+		action?: MessageAction;
+	}) => void;
 	onOptionCustomAnswer?: (answer: string) => void;
 	onClarificationAnswer?: (answer: string) => void;
 	onToolAction?: (request: ToolCallActionRequest) => Promise<ToolActionResult>;
 	onRetry?: () => void;
 	isStreaming?: boolean;
+}
+
+export function getMessageActionRenderKey({
+	action,
+	index,
+}: {
+	action: Pick<MessageAction, "id">;
+	index: number;
+}): string {
+	return `${action.id}:${index}`;
 }
 
 export function MessageItem({
@@ -289,23 +303,27 @@ export function MessageItem({
 					<div className="mt-2 w-full">
 						{isOptions ? (
 							<div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,13.5rem),1fr))] gap-2.5">
-								{message.actions!.map((action) => (
+								{message.actions!.map((action, index) => (
 									<OptionCard
-										key={action.id}
+										key={getMessageActionRenderKey({ action, index })}
 										option={action}
-										onSelect={() => onActionClick?.(action.id)}
+										onSelect={() =>
+											onActionClick?.({ actionId: action.id, action })
+										}
 										onCustomSubmit={onOptionCustomAnswer}
 									/>
 								))}
 							</div>
 						) : (
 							<div className="flex flex-wrap gap-2">
-								{message.actions!.map((action) => (
+								{message.actions!.map((action, index) => (
 									<button
-										key={action.id}
+										key={getMessageActionRenderKey({ action, index })}
 										data-testid={`action-${action.id}`}
 										type="button"
-										onClick={() => onActionClick?.(action.id)}
+										onClick={() =>
+											onActionClick?.({ actionId: action.id, action })
+										}
 										className={`rounded-lg px-3.5 py-2 text-xs font-medium transition-colors ${
 											action.variant === "primary"
 												? "bg-blue-600 text-white hover:bg-blue-500"
