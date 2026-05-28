@@ -9,6 +9,10 @@ import {
 } from "./composition-prompt";
 import type { GenerateShotlyxMGComponentOptions } from "./generator";
 import {
+	createShotlyxStarExplosionEffectDocument,
+	isStarExplosionEffectRequest,
+} from "./procedural-effects";
+import {
 	buildRemotionSkillContextSummary,
 	formatRemotionSkillSummary,
 	type RemotionSkillContextSummary,
@@ -366,6 +370,53 @@ async function tryCreateTemplateDocumentForJob({
 	}
 }
 
+async function tryCreateProceduralEffectDocumentForJob({
+	job,
+	component,
+	componentIndex,
+	componentCount,
+}: {
+	job: ShotlyxMGJob;
+	component: ShotlyxMGCompositionComponentPlan;
+	componentIndex: number;
+	componentCount: number;
+}): Promise<ShotlyxRemotionComponentDocument | null> {
+	const { templateMode } = normalizeShotlyxMGTemplateSelection({
+		templateMode: job.input.templateMode,
+		templateId: job.input.templateId,
+		defaultTemplateMode: "off",
+	});
+	if (templateMode === "force") return null;
+	if (!isStarExplosionEffectRequest({ prompt: job.input.prompt })) return null;
+	emit({
+		job,
+		event: {
+			type: "progress",
+			jobId: job.id,
+			label: `使用自定义 Remotion 特效生成第 ${componentIndex + 1}/${componentCount} 个组件`,
+			status: "running",
+			detail: `procedural-star-explosion · ${component.label}`,
+			index: componentIndex,
+			total: componentCount,
+			taskId: component.id,
+			taskLabel: component.label,
+		},
+	});
+	return createShotlyxStarExplosionEffectDocument({
+		prompt: job.input.prompt,
+		taskId: component.id,
+		componentIndex,
+		componentCount,
+		durationSeconds: getJobComponentDurationSeconds({
+			input: job.input,
+			index: componentIndex,
+			total: componentCount,
+		}),
+		aspectRatio: job.input.aspectRatio ?? "16:9",
+		transparentBackground: job.input.transparentBackground !== false,
+	});
+}
+
 function emit({ job, event }: { job: ShotlyxMGJob; event: ShotlyxMGJobEvent }) {
 	job.events.push(event);
 	logJobEvent({ event });
@@ -540,6 +591,33 @@ async function generateMGComponentForJob({
 			taskLabel,
 		},
 	});
+
+	const proceduralDocument = await tryCreateProceduralEffectDocumentForJob({
+		job,
+		component,
+		componentIndex,
+		componentCount,
+	});
+	if (proceduralDocument) {
+		if (shouldCancelJob({ job })) {
+			throw new Error("Shotlyx MG job cancelled");
+		}
+		emit({
+			job,
+			event: {
+				type: "component-complete",
+				jobId: job.id,
+				label: `已生成${proceduralDocument.name}`,
+				status: "success",
+				index: componentIndex,
+				total: componentCount,
+				taskId,
+				taskLabel,
+				document: proceduralDocument,
+			},
+		});
+		return proceduralDocument;
+	}
 
 	const templateResult = await tryCreateTemplateDocumentForJob({
 		job,

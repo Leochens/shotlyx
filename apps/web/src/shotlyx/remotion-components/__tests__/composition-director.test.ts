@@ -88,19 +88,47 @@ describe("Shotlyx MG composition director", () => {
 		});
 
 		expect(plan.components.map((component) => component.id)).toEqual([
-			"concept",
-			"main-mechanism",
-			"callouts",
-			"final-summary",
+			"star-charge",
+			"star-burst",
+			"star-scatter",
+			"star-afterglow",
 		]);
 	});
 
 	test.each([
-		"做一个数据感科技背景转场，蓝色光效和扫描线，不出现任何文字",
-		"生成一个产品发布复杂 MG 动画，星形粒子、镜头推进、空间轨迹，不要套固定标题模板",
-		"做一个三个步骤流程：上传、AI 分析、导出成片，用动态图形表现流程",
-		"Stable Diffusion 风格的星光粒子动画，透明背景，不出现文字",
-	])("keeps non-template smart requests custom: %s", (prompt) => {
+		{
+			prompt: "做一个数据感科技背景转场，蓝色光效和扫描线，不出现任何文字",
+			expectedIds: [
+				"star-charge",
+				"star-burst",
+				"star-scatter",
+				"star-afterglow",
+			],
+		},
+		{
+			prompt:
+				"生成一个产品发布复杂 MG 动画，星形粒子、镜头推进、空间轨迹，不要套固定标题模板",
+			expectedIds: [
+				"star-charge",
+				"star-burst",
+				"star-scatter",
+				"star-afterglow",
+			],
+		},
+		{
+			prompt: "做一个三个步骤流程：上传、AI 分析、导出成片，用动态图形表现流程",
+			expectedIds: ["concept", "main-mechanism", "callouts", "final-summary"],
+		},
+		{
+			prompt: "Stable Diffusion 风格的星光粒子动画，透明背景，不出现文字",
+			expectedIds: [
+				"star-charge",
+				"star-burst",
+				"star-scatter",
+				"star-afterglow",
+			],
+		},
+	])("keeps non-template smart requests custom: $prompt", ({ prompt, expectedIds }) => {
 		const plan = createShotlyxMGCompositionPlan({
 			prompt,
 			componentCount: 4,
@@ -108,12 +136,7 @@ describe("Shotlyx MG composition director", () => {
 			styleGuide: SMART_MG_COMPOSITION_STYLE_GUIDE,
 		});
 
-		expect(plan.components.map((component) => component.id)).toEqual([
-			"concept",
-			"main-mechanism",
-			"callouts",
-			"final-summary",
-		]);
+		expect(plan.components.map((component) => component.id)).toEqual(expectedIds);
 	});
 
 	test("can plan more than five MG components without truncating", () => {

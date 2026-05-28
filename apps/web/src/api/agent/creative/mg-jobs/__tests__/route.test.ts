@@ -469,11 +469,59 @@ describe("Shotlyx MG job routes", () => {
 		unsubscribe();
 
 		const completed = events.find((event) => event.type === "completed");
-		expect(calls).toHaveLength(4);
+		expect(calls).toHaveLength(0);
 		expect(completed?.documents).toHaveLength(4);
 		expect(
 			events.some((event) => event.label?.includes("使用内置 MG 模板")),
 		).toBe(false);
+	});
+
+	test("MG composition jobs complete star explosion as custom procedural Remotion without model calls", async () => {
+		const events: Array<{ label?: string; type?: string; documents?: unknown[] }> =
+			[];
+		const { jobId } = createShotlyxMGJob({
+			input: {
+				prompt: "生成一个星星爆炸的 MG 特效动画，纯视觉，不出现文字，透明背景",
+				durationSeconds: 5,
+				aspectRatio: "16:9",
+				componentCount: 4,
+				styleGuide: SMART_MG_COMPOSITION_STYLE_GUIDE,
+				templateMode: "auto",
+				transparentBackground: true,
+			},
+			generateDocumentFn: async () => {
+				throw new Error("model should not be called for star explosion");
+			},
+		});
+		const unsubscribe = subscribeShotlyxMGJob({
+			jobId,
+			onEvent: (event) => {
+				events.push(event);
+			},
+		});
+
+		await waitForCondition({
+			condition: () =>
+				events.some(
+					(event) => event.type === "completed" || event.type === "error",
+				),
+		});
+		unsubscribe();
+
+		const completed = events.find((event) => event.type === "completed");
+		expect(completed?.documents).toHaveLength(4);
+		const documents = completed?.documents ?? [];
+		expect(
+			documents.every((document) =>
+				isRecord(document) &&
+				typeof document.name === "string" &&
+				document.name.includes("自定义特效 · 星星爆炸"),
+			),
+		).toBe(true);
+		expect(
+			events.some((event) => event.label?.includes("使用内置 MG 模板")),
+		).toBe(false);
+		expect(events.some((event) => event.type === "error")).toBe(false);
 	});
 
 	test.each([

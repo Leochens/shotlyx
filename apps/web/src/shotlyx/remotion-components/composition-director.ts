@@ -443,6 +443,67 @@ function createDefaultPlan({
 	};
 }
 
+function createPureVisualEffectPlan({
+	prompt,
+	componentCount,
+	durationSeconds,
+	styleGuide,
+}: CreateShotlyxMGCompositionPlanOptions): ShotlyxMGCompositionDirectorPlan {
+	return {
+		title: "纯视觉 Remotion MG 特效",
+		visualStyle:
+			styleGuide?.trim() ||
+			"透明叠加的高质量粒子特效，发光、冲击波、拖尾和余韵清晰可见",
+		narrativeArc: `围绕“${prompt.slice(0, 48)}”拆成能量聚集、核心爆发、粒子扩散和余韵消散四个视觉阶段，不出现文字。`,
+		components: sliceComponents({
+			componentCount,
+			durationSeconds,
+			components: [
+				{
+					id: "star-charge",
+					label: "能量聚集层",
+					focus: "只表现光点向中心汇聚、旋转加速和亮度抬升，不出现任何文字或标题。",
+					visualRole: "外圈星点、中心能量核、轻微旋转和聚集轨迹。",
+					durationSeconds: 2.2,
+					screenTiming: "",
+					animationDirection: "粒子从四周向中心收束，中心辉光逐步增强。",
+					qualityBar: "必须是纯视觉粒子层，透明背景，不能出现占位文字。",
+				},
+				{
+					id: "star-burst",
+					label: "星核爆发层",
+					focus: "表现中心瞬间爆发、白热星核、多层冲击波和径向光线。",
+					visualRole: "中心强光、同心冲击波、径向射线和高亮粒子。",
+					durationSeconds: 1.8,
+					screenTiming: "",
+					animationDirection: "中心闪光后向外爆开，冲击波快速扩散。",
+					qualityBar: "爆发瞬间要明确有冲击力，但不能绘制实底背景。",
+				},
+				{
+					id: "star-scatter",
+					label: "星尘扩散层",
+					focus: "表现粒子带拖尾向四周飞散，速度逐渐减弱，形成星尘轨迹。",
+					visualRole: "多尺寸粒子、拖尾线、冷暖色过渡和速度层次。",
+					durationSeconds: 2.6,
+					screenTiming: "",
+					animationDirection: "粒子从中心向外扩散并逐渐减速、变暗。",
+					qualityBar: "需要足够粒子密度和拖尾，不要只画一个圆圈。",
+				},
+				{
+					id: "star-afterglow",
+					label: "余韵消散层",
+					focus: "表现爆炸后的余光、少量闪烁星点和最终透明淡出。",
+					visualRole: "低透明辉光、稀疏星点、渐弱冲击波和空间留白。",
+					durationSeconds: 2.2,
+					screenTiming: "",
+					animationDirection: "残留粒子慢速漂移，辉光和星点逐步淡出。",
+					qualityBar: "结尾必须自然收束到透明，不出现文字总结。",
+				},
+			],
+		}),
+	};
+}
+
 function resolveFocusedTemplateRequest(
 	text: string,
 ): FocusedTemplatePlanId | null {
@@ -587,7 +648,7 @@ export function createShotlyxMGCompositionPlan({
 		});
 	}
 	if (isPureVisualEffectRequest(normalized)) {
-		return createDefaultPlan({
+		return createPureVisualEffectPlan({
 			prompt,
 			componentCount: safeComponentCount,
 			durationSeconds,
