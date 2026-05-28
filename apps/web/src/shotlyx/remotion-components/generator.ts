@@ -18,6 +18,8 @@ import {
 	SHOTLYX_REMOTION_COMPONENT_RUNTIME,
 	type ShotlyxMGAspectRatio,
 	type ShotlyxMGPropDefinition,
+	type ShotlyxMGPropRole,
+	type ShotlyxMGPropType,
 	type ShotlyxMGPropValue,
 	type ShotlyxRemotionComponentDocument,
 	type ShotlyxRemotionComponentManifest,
@@ -31,6 +33,104 @@ const DEFAULT_FPS = 30;
 const DEFAULT_DURATION_SECONDS = 6;
 const MAX_OUTPUT_TOKENS = 12000;
 const RENDER_VALIDATION_FRAME_COUNT = 4;
+const GENERATED_PROP_TYPE_ALIASES: Record<string, ShotlyxMGPropType> = {
+	array: "table",
+	asset: "image",
+	avatar: "image",
+	bool: "boolean",
+	boolean: "boolean",
+	checkbox: "boolean",
+	choice: "select",
+	choices: "select",
+	color: "color",
+	colorhex: "color",
+	colour: "color",
+	copy: "text",
+	data: "table",
+	dataset: "table",
+	double: "number",
+	dropdown: "select",
+	enum: "select",
+	float: "number",
+	font: "font",
+	fontfamily: "font",
+	hex: "color",
+	hexcolor: "color",
+	icon: "image",
+	image: "image",
+	imageurl: "image",
+	img: "image",
+	int: "number",
+	integer: "number",
+	label: "text",
+	list: "table",
+	logo: "image",
+	media: "image",
+	number: "number",
+	numeric: "number",
+	object: "table",
+	option: "select",
+	palette: "color",
+	photo: "image",
+	picture: "image",
+	range: "number",
+	record: "table",
+	richtext: "text",
+	rows: "table",
+	select: "select",
+	slider: "number",
+	source: "image",
+	src: "image",
+	string: "text",
+	switch: "boolean",
+	text: "text",
+	textarea: "text",
+	title: "text",
+	toggle: "boolean",
+	typeface: "font",
+	typography: "font",
+	url: "image",
+	zarray: "table",
+	zboolean: "boolean",
+	zenum: "select",
+	znumber: "number",
+	zobject: "table",
+	zrecord: "table",
+	zstring: "text",
+};
+const GENERATED_PROP_ROLE_ALIASES: Record<string, ShotlyxMGPropRole> = {
+	animation: "motion",
+	asset: "asset",
+	assets: "asset",
+	color: "style",
+	colors: "style",
+	content: "content",
+	copy: "content",
+	data: "data",
+	dataset: "data",
+	design: "style",
+	font: "typography",
+	fonts: "typography",
+	image: "asset",
+	images: "asset",
+	layout: "style",
+	media: "asset",
+	motion: "motion",
+	parameter: "style",
+	parameters: "style",
+	prop: "style",
+	props: "style",
+	style: "style",
+	styling: "style",
+	table: "data",
+	text: "content",
+	timing: "motion",
+	type: "typography",
+	typography: "typography",
+	video: "asset",
+	visual: "style",
+	visuals: "style",
+};
 
 const generatedScalarValueSchema = z.union([
 	z.string(),
@@ -184,6 +284,8 @@ function buildUserPrompt({
 		"Always include durationSeconds, fps, width, height, aspectRatio, and thumbnailFrame. Use null if a value should use the requested default.",
 		"Choose thumbnailFrame as the representative frame for the asset cover: pick a frame where the animation content is visible and characteristic, not an empty intro frame.",
 		"Every propsSchema item must include min, max, step, options, and columns. Use null when the field does not apply.",
+		'Every propsSchema[].type must be exactly one of: "text", "number", "color", "font", "boolean", "select", "image", "table".',
+		'Every propsSchema[].role must be exactly one of: "content", "style", "typography", "motion", "data", "asset".',
 		"Do not return a separate defaults object. Put each editable default only in propsSchema[].default.",
 		'For table defaults, return rows as arrays, for example [["2014", 1364], ["2023", 1410]], not objects.',
 		'When rendering table rows, use the same column labels from propsSchema.columns, for example row["year"] and row["population"]. Chinese column labels must also be read by bracket syntax, for example row["病害名称"].',
@@ -512,6 +614,238 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function normalizeAliasToken(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const normalized = value
+		.trim()
+		.toLowerCase()
+		.replace(/^z\./, "z")
+		.replace(/\(\)$/, "")
+		.replace(/[^a-z0-9]+/g, "");
+	return normalized || undefined;
+}
+
+function isShotlyxPropTypeToken(token: string): token is ShotlyxMGPropType {
+	switch (token) {
+		case "text":
+		case "number":
+		case "color":
+		case "font":
+		case "boolean":
+		case "select":
+		case "image":
+		case "table":
+			return true;
+		default:
+			return false;
+	}
+}
+
+function isShotlyxPropRoleToken(token: string): token is ShotlyxMGPropRole {
+	switch (token) {
+		case "content":
+		case "style":
+		case "typography":
+		case "motion":
+		case "data":
+		case "asset":
+			return true;
+		default:
+			return false;
+	}
+}
+
+function textIncludesAny({
+	text,
+	terms,
+}: {
+	text: string;
+	terms: string[];
+}): boolean {
+	return terms.some((term) => text.includes(term));
+}
+
+function propContextText({
+	key,
+	label,
+	type,
+	role,
+}: {
+	key: unknown;
+	label: unknown;
+	type?: unknown;
+	role?: unknown;
+}): string {
+	return [key, label, type, role]
+		.filter((value): value is string => typeof value === "string")
+		.join(" ")
+		.toLowerCase();
+}
+
+function isColorLikeProp({
+	key,
+	label,
+	defaultValue,
+}: {
+	key: unknown;
+	label: unknown;
+	defaultValue: unknown;
+}): boolean {
+	const text = propContextText({ key, label });
+	return (
+		textIncludesAny({
+			text,
+			terms: ["color", "colour", "accent", "background", "backdrop", "fill"],
+		}) ||
+		(typeof defaultValue === "string" &&
+			/^(?:#(?:[0-9a-f]{3,8})|rgba?\(|hsla?\()/i.test(defaultValue.trim()))
+	);
+}
+
+function isImageLikeProp({
+	key,
+	label,
+	type,
+	role,
+}: {
+	key: unknown;
+	label: unknown;
+	type?: unknown;
+	role?: unknown;
+}): boolean {
+	return textIncludesAny({
+		text: propContextText({ key, label, type, role }),
+		terms: [
+			"asset",
+			"avatar",
+			"icon",
+			"image",
+			"img",
+			"logo",
+			"media",
+			"photo",
+			"picture",
+			"src",
+			"url",
+		],
+	});
+}
+
+function isMotionLikeProp({
+	key,
+	label,
+	role,
+}: {
+	key: unknown;
+	label: unknown;
+	role?: unknown;
+}): boolean {
+	return textIncludesAny({
+		text: propContextText({ key, label, role }),
+		terms: [
+			"animation",
+			"delay",
+			"duration",
+			"easing",
+			"motion",
+			"speed",
+			"spring",
+			"stagger",
+			"timing",
+		],
+	});
+}
+
+function isTypographyLikeProp({
+	key,
+	label,
+	role,
+}: {
+	key: unknown;
+	label: unknown;
+	role?: unknown;
+}): boolean {
+	return textIncludesAny({
+		text: propContextText({ key, label, role }),
+		terms: ["font", "typeface", "typography"],
+	});
+}
+
+function normalizeGeneratedPropTypeAlias({
+	key,
+	label,
+	type,
+	role,
+	defaultValue,
+	columns,
+}: {
+	key: unknown;
+	label: unknown;
+	type: unknown;
+	role: unknown;
+	defaultValue: unknown;
+	columns: unknown;
+}): ShotlyxMGPropType {
+	if (
+		Array.isArray(columns) ||
+		(Array.isArray(defaultValue) &&
+			defaultValue.some((row) => Array.isArray(row)))
+	) {
+		return "table";
+	}
+
+	const token = normalizeAliasToken(type);
+	const aliased = token
+		? (GENERATED_PROP_TYPE_ALIASES[token] ??
+			(isShotlyxPropTypeToken(token) ? token : undefined))
+		: undefined;
+	if (aliased && aliased !== "text") return aliased;
+	if (aliased === "text" && isImageLikeProp({ key, label, type, role })) {
+		return "image";
+	}
+	if (aliased === "text" && isColorLikeProp({ key, label, defaultValue })) {
+		return "color";
+	}
+	if (aliased === "text" && isTypographyLikeProp({ key, label, role })) {
+		return "font";
+	}
+	if (aliased) return aliased;
+
+	if (isImageLikeProp({ key, label, type, role })) return "image";
+	if (isColorLikeProp({ key, label, defaultValue })) return "color";
+	if (isTypographyLikeProp({ key, label, role })) return "font";
+	if (typeof defaultValue === "number") return "number";
+	if (typeof defaultValue === "boolean") return "boolean";
+	return "text";
+}
+
+function normalizeGeneratedPropRoleAlias({
+	key,
+	label,
+	role,
+	type,
+}: {
+	key: unknown;
+	label: unknown;
+	role: unknown;
+	type: ShotlyxMGPropType;
+}): ShotlyxMGPropRole {
+	const token = normalizeAliasToken(role);
+	const aliased = token
+		? (GENERATED_PROP_ROLE_ALIASES[token] ??
+			(isShotlyxPropRoleToken(token) ? token : undefined))
+		: undefined;
+	if (aliased) return aliased;
+	if (type === "table") return "data";
+	if (type === "image") return "asset";
+	if (type === "font") return "typography";
+	if (isMotionLikeProp({ key, label, role })) return "motion";
+	if (type === "color" || type === "select" || type === "boolean") {
+		return "style";
+	}
+	return "content";
+}
+
 function humanizePropKey({ key }: { key: string }): string {
 	const spaced = key
 		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -562,24 +896,41 @@ function normalizeRawGeneratedComponent(value: unknown): unknown {
 				typeof prop.key === "string" && prop.key.trim()
 					? prop.key.trim()
 					: prop.key;
+			const propLabel =
+				typeof prop.label === "string" && prop.label.trim()
+					? prop.label.trim()
+					: typeof propKey === "string"
+						? humanizePropKey({ key: propKey })
+						: prop.label;
+			const columns = Array.isArray(prop.columns)
+				? prop.columns.map((column, index) =>
+						normalizeColumnLabel({ value: column, index }),
+					)
+				: null;
+			const propType = normalizeGeneratedPropTypeAlias({
+				key: propKey,
+				label: propLabel,
+				type: prop.type,
+				role: prop.role,
+				defaultValue: prop.default,
+				columns,
+			});
 			return {
 				...prop,
 				key: propKey,
-				label:
-					typeof prop.label === "string" && prop.label.trim()
-						? prop.label.trim()
-						: typeof propKey === "string"
-							? humanizePropKey({ key: propKey })
-							: prop.label,
+				label: propLabel,
+				type: propType,
+				role: normalizeGeneratedPropRoleAlias({
+					key: propKey,
+					label: propLabel,
+					role: prop.role,
+					type: propType,
+				}),
 				min: "min" in prop ? prop.min : null,
 				max: "max" in prop ? prop.max : null,
 				step: "step" in prop ? prop.step : null,
 				options: "options" in prop ? prop.options : null,
-				columns: Array.isArray(prop.columns)
-					? prop.columns.map((column, index) =>
-							normalizeColumnLabel({ value: column, index }),
-						)
-					: null,
+				columns,
 			};
 		});
 	}

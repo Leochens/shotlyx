@@ -354,6 +354,104 @@ export default function ShotlyxComponent(props: Props) {
 		]);
 	});
 
+	test("normalizes common generated prop type and role aliases before schema validation", async () => {
+		const generateTextMock = mock(async () => ({
+			output: {
+				name: "Alias Props",
+				durationSeconds: 6,
+				fps: 30,
+				width: 1920,
+				height: 1080,
+				aspectRatio: "16:9",
+				thumbnailFrame: null,
+				componentSource: `
+type Props = { title: string; accentColor: string; motionSpeed: number; rows: Array<{ year: string; value: number }>; logoUrl: string };
+
+export default function ShotlyxComponent(props: Props) {
+	const { AbsoluteFill, useCurrentFrame, interpolate, Img } = Remotion;
+	const frame = useCurrentFrame();
+	const opacity = interpolate(frame, [0, 20], [0, 1], { extrapolateRight: "clamp" });
+	return (
+		<AbsoluteFill style={{ opacity, color: props.accentColor, transform: \`scale(\${1 + props.motionSpeed * 0.01})\` }}>
+			<div>{props.title}</div>
+			{props.rows.map((row) => <div key={row.year}>{row.year}: {row.value}</div>)}
+			{props.logoUrl ? <Img src={props.logoUrl} /> : null}
+		</AbsoluteFill>
+	);
+}
+`,
+				propsSchema: [
+					{
+						key: "title",
+						label: "Title",
+						type: "string",
+						role: "text",
+						default: "Hello MG",
+					},
+					{
+						key: "accentColor",
+						label: "Accent",
+						type: "hex",
+						role: "visual",
+						default: "#38bdf8",
+					},
+					{
+						key: "motionSpeed",
+						label: "Motion Speed",
+						type: "float",
+						role: "animation",
+						default: 2,
+					},
+					{
+						key: "rows",
+						label: "Rows",
+						type: "array",
+						role: "dataset",
+						columns: ["year", "value"],
+						default: [
+							["2024", 12],
+							["2025", 18],
+						],
+					},
+					{
+						key: "logoUrl",
+						label: "Logo URL",
+						type: "url",
+						role: "media",
+						default: "",
+					},
+				],
+			},
+		}));
+
+		const document = await generateShotlyxMGComponentDocument({
+			model: fakeModel(),
+			generateTextFn:
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				generateTextMock as unknown as NonNullable<
+					GenerateShotlyxMGComponentOptions["generateTextFn"]
+				>,
+			prompt: "做一个带标题、数据和 Logo 的 MG",
+			durationSeconds: 6,
+			aspectRatio: "16:9",
+			repairAttempts: 0,
+		});
+
+		expect(
+			document.propsSchema.map((prop) => [prop.key, prop.type, prop.role]),
+		).toEqual([
+			["title", "text", "content"],
+			["accentColor", "color", "style"],
+			["motionSpeed", "number", "motion"],
+			["rows", "table", "data"],
+			["logoUrl", "image", "asset"],
+		]);
+		expect(document.defaultProps.rows).toEqual([
+			{ year: "2024", value: 12 },
+			{ year: "2025", value: 18 },
+		]);
+	});
+
 	test("rejects duplicate generated prop keys before saving an asset", async () => {
 		const generateTextMock = mock(async () => ({
 			output: {
