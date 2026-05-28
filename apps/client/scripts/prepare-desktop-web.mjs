@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const clientDir = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -15,6 +15,24 @@ const standaloneDir = path.join(desktopDistPath, "standalone");
 const staticDir = path.join(desktopDistPath, "static");
 const publicDir = path.join(webDir, "public");
 const outputDir = path.join(clientDir, ".desktop-web");
+const textFileExtensions = new Set([
+	".cjs",
+	".css",
+	".html",
+	".js",
+	".json",
+	".map",
+	".mjs",
+	".txt",
+	".xml",
+	".yaml",
+	".yml",
+]);
+const removableBuildArtifacts = [
+	"apps/web/e2e",
+	"apps/web/playwright-report",
+	"apps/web/tsconfig.tsbuildinfo",
+];
 
 async function assertDirectory(directory, label) {
 	const stat = await fs.stat(directory).catch(() => null);
@@ -82,6 +100,52 @@ async function exposeBunHoistedDependencies(bundleDir) {
 	);
 }
 
+async function sanitizeLocalBuildPaths(directory) {
+	const replacements = [
+		[pathToFileURL(repoRoot).href, "file:///shotlyx-source"],
+		[repoRoot, "/shotlyx-source"],
+	];
+
+	async function visit(currentDirectory) {
+		const entries = await fs.readdir(currentDirectory, { withFileTypes: true });
+		await Promise.all(
+			entries.map(async (entry) => {
+				const entryPath = path.join(currentDirectory, entry.name);
+				if (entry.isDirectory()) {
+					await visit(entryPath);
+					return;
+				}
+				if (!entry.isFile() || !textFileExtensions.has(path.extname(entry.name))) {
+					return;
+				}
+
+				const original = await fs.readFile(entryPath, "utf8").catch(() => null);
+				if (original === null) return;
+				let next = original;
+				for (const [needle, replacement] of replacements) {
+					next = next.split(needle).join(replacement);
+				}
+				if (next !== original) {
+					await fs.writeFile(entryPath, next);
+				}
+			}),
+		);
+	}
+
+	await visit(directory);
+}
+
+async function removeNonRuntimeBuildArtifacts(bundleDir) {
+	await Promise.all(
+		removableBuildArtifacts.map((relativePath) =>
+			fs.rm(path.join(bundleDir, relativePath), {
+				recursive: true,
+				force: true,
+			}),
+		),
+	);
+}
+
 export async function prepareDesktopWebBundle() {
 	await assertDirectory(standaloneDir, "Next standalone output");
 	await assertDirectory(staticDir, "Next static output");
@@ -111,6 +175,8 @@ export async function prepareDesktopWebBundle() {
 			dereference: true,
 		});
 		await exposeBunHoistedDependencies(outputDir);
+		await removeNonRuntimeBuildArtifacts(outputDir);
+		await sanitizeLocalBuildPaths(outputDir);
 	} finally {
 		await fs.rm(tempRoot, { recursive: true, force: true });
 	}
