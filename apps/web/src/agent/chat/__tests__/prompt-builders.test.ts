@@ -36,4 +36,21 @@ describe("chat prompt builders", () => {
 		expect(prompt).toContain("自动缩短到 1-2s");
 		expect(prompt).not.toContain("shotlyx_generate_hyperframes_overlay");
 	});
+
+	test("builds a Remotion MG prompt that forces a selected builtin template", () => {
+		const prompt = buildRemotionMGCompositionPrompt({
+			description: "做一个标题大字展示",
+			templateLabel: "标题大字展示",
+			styleGuide: "大标题、副标题、标签和高亮扫线的透明 MG 标题模板。",
+			componentCount: 1,
+			aspectRatio: "16:9",
+			durationSeconds: 5,
+			templateMode: "force",
+			templateId: "title-reveal",
+		});
+
+		expect(prompt).toContain('"templateMode":"force"');
+		expect(prompt).toContain('"templateId":"title-reveal"');
+		expect(prompt).toContain("必须传入 templateMode 和 templateId");
+	});
 });

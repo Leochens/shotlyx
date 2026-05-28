@@ -27,6 +27,10 @@ import {
 	type RemotionSkillContextSummary,
 } from "@/shotlyx/remotion-components/skill-context";
 import {
+	SHOTLYX_MG_TEMPLATE_IDS,
+	type ShotlyxMGTemplateId,
+} from "@/shotlyx/remotion-components/template-registry";
+import {
 	SHOTLYX_REMOTION_COMPONENT_RUNTIME,
 	isShotlyxRemotionMGAsset,
 	type ShotlyxMGAsset,
@@ -68,6 +72,13 @@ type Orientation = (typeof ORIENTATIONS)[number];
 type AspectRatio = (typeof ASPECT_RATIOS)[number];
 type SeedanceVideoAspectRatio = (typeof SEEDANCE_VIDEO_ASPECT_RATIOS)[number];
 type SeedanceVideoDuration = (typeof SEEDANCE_VIDEO_DURATIONS)[number];
+
+type ShotlyxMGTemplateMode = "off" | "auto" | "force";
+
+type ShotlyxMGJobRouteOptions = GenerateShotlyxMGComponentOptions & {
+	templateMode?: ShotlyxMGTemplateMode;
+	templateId?: ShotlyxMGTemplateId;
+};
 type ImageSize = (typeof IMAGE_SIZES)[number];
 
 interface ImportedCreativeAssetResult {
@@ -163,6 +174,14 @@ function isAspectRatio(value: string): value is AspectRatio {
 	return ASPECT_RATIOS.some((item) => item === value);
 }
 
+function isShotlyxMGTemplateId(value: string): value is ShotlyxMGTemplateId {
+	return SHOTLYX_MG_TEMPLATE_IDS.some((item) => item === value);
+}
+
+function isShotlyxMGTemplateMode(value: string): value is ShotlyxMGTemplateMode {
+	return value === "off" || value === "auto" || value === "force";
+}
+
 function isSeedanceVideoAspectRatio(
 	value: string,
 ): value is SeedanceVideoAspectRatio {
@@ -223,6 +242,32 @@ function optionalAspectRatioParam(
 	if (!isAspectRatio(value)) {
 		throw new Error(
 			`类型不匹配："aspectRatio" 必须为以下之一：${ASPECT_RATIOS.join(", ")}`,
+		);
+	}
+	return value;
+}
+
+function optionalShotlyxMGTemplateIdParam(
+	params: Record<string, unknown>,
+): ShotlyxMGTemplateId | undefined {
+	const value = optionalStringParam(params, "templateId");
+	if (value === undefined) return undefined;
+	if (!isShotlyxMGTemplateId(value)) {
+		throw new Error(
+			`类型不匹配："templateId" 必须为以下之一：${SHOTLYX_MG_TEMPLATE_IDS.join(", ")}`,
+		);
+	}
+	return value;
+}
+
+function optionalShotlyxMGTemplateModeParam(
+	params: Record<string, unknown>,
+): ShotlyxMGTemplateMode | undefined {
+	const value = optionalStringParam(params, "templateMode");
+	if (value === undefined) return undefined;
+	if (!isShotlyxMGTemplateMode(value)) {
+		throw new Error(
+			'类型不匹配："templateMode" 必须为 off、auto 或 force',
 		);
 	}
 	return value;
@@ -1469,7 +1514,7 @@ function buildShotlyxMGJobRouteBody({
 	args,
 	componentCount,
 }: {
-	args: GenerateShotlyxMGComponentOptions;
+	args: ShotlyxMGJobRouteOptions;
 	componentCount: number;
 }): Record<string, unknown> {
 	return {
@@ -1482,6 +1527,8 @@ function buildShotlyxMGJobRouteBody({
 		repairAttempts: args.repairAttempts,
 		preferPlainJson: args.preferPlainJson,
 		maxOutputTokens: args.maxOutputTokens,
+		templateMode: args.templateMode,
+		templateId: args.templateId,
 	};
 }
 
@@ -1490,7 +1537,7 @@ async function startShotlyxMGJobViaRoute({
 	fetchFn,
 	componentCount,
 }: {
-	args: GenerateShotlyxMGComponentOptions;
+	args: ShotlyxMGJobRouteOptions;
 	fetchFn: CreativeFetchFn;
 	componentCount: number;
 }): Promise<{ jobId: string }> {
@@ -2574,6 +2621,18 @@ export function buildCreativeTools({
 					description: "拆分生成的小组件数量，默认 4。没有固定上限",
 					optional: true,
 				},
+				templateMode: {
+					type: "string",
+					description:
+						"内置 MG 模板模式：auto 优先模板并可降级自由生成；force 强制使用 templateId；off 关闭模板库。",
+					optional: true,
+				},
+				templateId: {
+					type: "string",
+					description:
+						"指定内置模板 ID：title-reveal、metric-emphasis、annotation-callout、data-table。仅当用户在模板选择器中选定具体模板时传入。",
+					optional: true,
+				},
 				startTimeSeconds: {
 					type: "number",
 					description:
@@ -2618,6 +2677,9 @@ export function buildCreativeTools({
 					key: "componentCount",
 				});
 				const aspectRatio = optionalAspectRatioParam(params) ?? "16:9";
+				const templateMode =
+					optionalShotlyxMGTemplateModeParam(params) ?? "auto";
+				const templateId = optionalShotlyxMGTemplateIdParam(params);
 				const styleGuide = resolveMGCompositionStyleGuide({
 					styleGuide: optionalStringParam(params, "styleGuide"),
 					componentCount,
@@ -2672,6 +2734,8 @@ export function buildCreativeTools({
 							repairAttempts: 1,
 							preferPlainJson: false,
 							maxOutputTokens: 8000,
+							templateMode,
+							templateId,
 						},
 						fetchFn: creativeDeps.fetchFn,
 						componentCount,

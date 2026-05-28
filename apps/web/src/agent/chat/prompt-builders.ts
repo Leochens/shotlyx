@@ -29,6 +29,8 @@ export function buildRemotionMGCompositionPrompt({
 	componentCount,
 	aspectRatio,
 	durationSeconds,
+	templateMode,
+	templateId,
 }: {
 	description: string;
 	templateLabel: string;
@@ -36,6 +38,8 @@ export function buildRemotionMGCompositionPrompt({
 	componentCount: number;
 	aspectRatio: string;
 	durationSeconds: number;
+	templateMode?: "off" | "auto" | "force";
+	templateId?: string;
 }): string {
 	return buildShotlyxMGCompositionAgentPrompt({
 		description,
@@ -44,5 +48,7 @@ export function buildRemotionMGCompositionPrompt({
 		componentCount,
 		aspectRatio,
 		durationSeconds,
+		templateMode,
+		templateId,
 	});
 }

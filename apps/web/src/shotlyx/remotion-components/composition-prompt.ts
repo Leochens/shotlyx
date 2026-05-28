@@ -38,6 +38,8 @@ export function buildShotlyxMGCompositionAgentPrompt({
 	componentCount,
 	aspectRatio,
 	durationSeconds,
+	templateMode,
+	templateId,
 }: {
 	description: string;
 	templateLabel: string;
@@ -45,6 +47,8 @@ export function buildShotlyxMGCompositionAgentPrompt({
 	componentCount: number;
 	aspectRatio: string;
 	durationSeconds: number;
+	templateMode?: "off" | "auto" | "force";
+	templateId?: string;
 }): string {
 	const toolArgs = {
 		aspectRatio,
@@ -53,6 +57,8 @@ export function buildShotlyxMGCompositionAgentPrompt({
 		styleGuide,
 		transparentBackground: true,
 		insertToTimeline: true,
+		...(templateMode ? { templateMode } : {}),
+		...(templateId ? { templateId } : {}),
 	};
 	return [
 		"使用 Shotlyx Remotion Component 组合生成复杂 MG 动画。",
@@ -61,6 +67,9 @@ export function buildShotlyxMGCompositionAgentPrompt({
 		`模板：${templateLabel}。`,
 		`参数：比例 ${aspectRatio}，小组件目标/上限 ${durationSeconds}s，透明背景 true。${SHORT_BEAT_RULE}`,
 		`工具参数：${JSON.stringify(toolArgs)}`,
+		templateId
+			? `用户已选择内置模板 ${templateId}；调用工具时必须传入 templateMode 和 templateId，不要改成其它模板或自由生成。`
+			: "",
 		"如果描述缺少具体业务内容、关键文案、数据或视觉方向，只问一个简短问题让用户选择风格/目标；不要直接生成空模板或占位内容。",
 		"请调用 shotlyx_generate_mg_composition，并把生成的 Remotion MG 组件插入当前时间线。startTimeSeconds 可以省略让工具自动排队；如果传入则必须是数字，不能传 undefined。",
 		COMPONENT_ROLES_RULE,

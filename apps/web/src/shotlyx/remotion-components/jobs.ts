@@ -26,6 +26,7 @@ export interface ShotlyxMGJobInput extends Omit<
 > {
 	componentCount?: number;
 	templateMode?: "off" | "auto" | "force";
+	templateId?: ShotlyxMGTemplateId;
 }
 
 export type ShotlyxMGJobStatus =
@@ -300,9 +301,11 @@ async function tryCreateTemplateDocumentForJob({
 } | null> {
 	const templateMode = job.input.templateMode ?? "off";
 	if (templateMode === "off") return null;
-	const templateId = resolveShotlyxMGTemplateForTask({
-		taskId: component.id,
-	});
+	const templateId =
+		job.input.templateId ??
+		resolveShotlyxMGTemplateForTask({
+			taskId: component.id,
+		});
 	if (!templateId) {
 		if (templateMode === "force") {
 			throw new Error(`No builtin MG template covers task "${component.id}"`);
@@ -574,7 +577,11 @@ async function generateMGComponentForJob({
 
 	while (true) {
 		try {
-			const { templateMode: _templateMode, ...generatorInput } = job.input;
+			const {
+				templateMode: _templateMode,
+				templateId: _templateId,
+				...generatorInput
+			} = job.input;
 			document = await generateDocumentWithTimeout({
 				job,
 				generateDocumentFn,

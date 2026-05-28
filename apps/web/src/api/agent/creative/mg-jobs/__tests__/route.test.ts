@@ -338,6 +338,44 @@ describe("Shotlyx MG job routes", () => {
 		).toBe(true);
 	});
 
+	test("MG composition jobs can force one selected builtin template", async () => {
+		const calls: Array<{ prompt: string }> = [];
+		const events: Array<{ label?: string; type?: string; documents?: unknown[] }> =
+			[];
+		const { jobId } = createShotlyxMGJob({
+			input: {
+				prompt: "生成标题大字展示，标题是 从 Vibe 到 Harness",
+				durationSeconds: 5,
+				aspectRatio: "16:9",
+				componentCount: 1,
+				templateMode: "force",
+				templateId: "metric-emphasis",
+			},
+			generateDocumentFn: async (args) => {
+				calls.push({ prompt: args.prompt });
+				throw new Error("model should not be called when template is forced");
+			},
+		});
+		const unsubscribe = subscribeShotlyxMGJob({
+			jobId,
+			onEvent: (event) => {
+				events.push(event);
+			},
+		});
+
+		await waitForCondition({
+			condition: () => events.some((event) => event.type === "completed"),
+		});
+		unsubscribe();
+
+		const completed = events.find((event) => event.type === "completed");
+		const [document] = completed?.documents ?? [];
+		expect(calls).toHaveLength(0);
+		expect(document).toMatchObject({
+			name: "内置模板 · 重点指标突出",
+		});
+	});
+
 	test("DELETE returns 404 for an unknown job", async () => {
 		const response = await DELETE(
 			new ApiRequest("http://localhost/api/agent/creative/mg-jobs/missing"),

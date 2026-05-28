@@ -1,6 +1,7 @@
 import { getMGModelBundle } from "@/agent/ai-sdk/providers";
 import { generateShotlyxMGComponentDocument } from "@/shotlyx/remotion-components/generator";
 import { createShotlyxMGJob } from "@/shotlyx/remotion-components/jobs";
+import { SHOTLYX_MG_TEMPLATE_IDS } from "@/shotlyx/remotion-components/template-registry";
 import { type ApiRequest, ApiResponse } from "@/platform/http";
 import { z } from "zod";
 
@@ -14,6 +15,7 @@ export const shotlyxMGJobRequestSchema = z.object({
 	transparentBackground: z.boolean().optional(),
 	componentCount: z.number().int().min(1).optional(),
 	templateMode: z.enum(["off", "auto", "force"]).optional(),
+	templateId: z.enum(SHOTLYX_MG_TEMPLATE_IDS).optional(),
 	repairAttempts: z.number().int().min(0).max(3).optional(),
 	preferPlainJson: z.boolean().optional(),
 	maxOutputTokens: z.number().int().min(512).max(8000).optional(),
