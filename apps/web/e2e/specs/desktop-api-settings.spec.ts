@@ -37,6 +37,37 @@ if (!isRunningUnderBunTest) {
 		await expect(page.getByText("Ark API key")).toBeVisible();
 	});
 
+	test("desktop launch skips setup when Agent LLM API config exists", async ({
+		page,
+	}) => {
+		if (!process.env.SHOTLYX_DESKTOP_CONFIG_PATH) {
+			throw new Error("SHOTLYX_DESKTOP_CONFIG_PATH is required");
+		}
+		writeFileSync(
+			process.env.SHOTLYX_DESKTOP_CONFIG_PATH,
+			JSON.stringify(
+				{
+					version: 1,
+					updatedAt: new Date().toISOString(),
+					values: {
+						AGENT_RUNTIME: "api",
+						AGENT_LLM_PROVIDER: "openai",
+						AGENT_LLM_KEY: "e2e-agent-key",
+						AGENT_LLM_MODEL: "gpt-4o-mini",
+					},
+				},
+				null,
+				2,
+			),
+		);
+
+		await page.goto("/desktop");
+		await expect(page).toHaveURL(/\/projects$/);
+		await expect(
+			page.getByRole("button", { name: "Create your first project" }),
+		).toBeVisible();
+	});
+
 	test("desktop welcome setup saves and reveals API BYOK config", async ({
 		page,
 	}) => {

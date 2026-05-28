@@ -29,14 +29,72 @@ import {
 import { Toaster } from "./components/ui/sonner";
 import { TooltipProvider } from "./components/ui/tooltip";
 
+type DesktopConfigStatusGroup = {
+	configured: boolean;
+	required: boolean;
+};
+
+function hasRequiredDesktopStatus(status: DesktopConfigStatusGroup[]): boolean {
+	const requiredGroups = status.filter((group) => group.required);
+	return (
+		requiredGroups.length > 0 &&
+		requiredGroups.every((group) => group.configured)
+	);
+}
+
+function isDesktopConfigStatusGroup(
+	value: unknown,
+): value is DesktopConfigStatusGroup {
+	if (typeof value !== "object" || value === null) return false;
+	return (
+		typeof Reflect.get(value, "configured") === "boolean" &&
+		typeof Reflect.get(value, "required") === "boolean"
+	);
+}
+
+function getDesktopStatusFromResponse(
+	response: unknown,
+): DesktopConfigStatusGroup[] {
+	if (typeof response !== "object" || response === null) return [];
+	const status = Reflect.get(response, "status");
+	return Array.isArray(status) ? status.filter(isDesktopConfigStatusGroup) : [];
+}
+
 function DesktopRedirect() {
 	useEffect(() => {
-		window.location.replace("/settings/api");
+		let cancelled = false;
+
+		async function redirectForDesktopConfig() {
+			try {
+				const response = await fetch("/api/desktop/config", {
+					cache: "no-store",
+				});
+				if (!response.ok) {
+					throw new Error(`Desktop config request failed: ${response.status}`);
+				}
+				const status = getDesktopStatusFromResponse(await response.json());
+				const target = hasRequiredDesktopStatus(status)
+					? "/projects"
+					: "/settings/api";
+				if (!cancelled) {
+					window.location.replace(target);
+				}
+			} catch {
+				if (!cancelled) {
+					window.location.replace("/settings/api");
+				}
+			}
+		}
+
+		void redirectForDesktopConfig();
+		return () => {
+			cancelled = true;
+		};
 	}, []);
 
 	return (
 		<div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
-			Opening Shotlyx setup...
+			Opening Shotlyx Desktop...
 		</div>
 	);
 }
@@ -67,11 +125,11 @@ function AsyncRoute({
 }) {
 	const renderRef = useRef(render);
 	const [state, setState] = useState<
-		| { status: "loading" }
-		| { status: "ready"; node: ReactNode }
-		| { status: "not-found" }
-		| { status: "error"; message: string }
-	>({ status: "loading" });
+		| { routeKey: string; status: "loading" }
+		| { routeKey: string; status: "ready"; node: ReactNode }
+		| { routeKey: string; status: "not-found" }
+		| { routeKey: string; status: "error"; message: string }
+	>({ routeKey, status: "loading" });
 
 	useEffect(() => {
 		renderRef.current = render;
@@ -79,18 +137,18 @@ function AsyncRoute({
 
 	useEffect(() => {
 		let cancelled = false;
-		setState({ status: "loading" });
 		Promise.resolve(renderRef.current())
 			.then((node) => {
-				if (!cancelled) setState({ status: "ready", node });
+				if (!cancelled) setState({ routeKey, status: "ready", node });
 			})
 			.catch((error: unknown) => {
 				if (cancelled) return;
 				if (isRouteNotFoundError(error)) {
-					setState({ status: "not-found" });
+					setState({ routeKey, status: "not-found" });
 					return;
 				}
 				setState({
+					routeKey,
 					status: "error",
 					message: error instanceof Error ? error.message : String(error),
 				});
@@ -100,6 +158,13 @@ function AsyncRoute({
 		};
 	}, [routeKey]);
 
+	if (state.routeKey !== routeKey) {
+		return (
+			<div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+				Loading...
+			</div>
+		);
+	}
 	if (state.status === "ready") return state.node;
 	if (state.status === "not-found") return <NotFoundRoute />;
 	if (state.status === "error") {
