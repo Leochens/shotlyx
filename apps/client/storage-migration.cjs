@@ -20,6 +20,18 @@ const LEGACY_ORIGIN_PREFIXES = [
 const PROJECT_DB_SIGNATURE = Buffer.from("video-editor-projects");
 const PROJECT_RECORD_SIGNATURE = Buffer.from("currentSceneId");
 
+function sanitizeOriginPart(value) {
+	return value.replace(/[^a-zA-Z0-9.-]/g, "_");
+}
+
+function getStorageOriginPrefix(url) {
+	const parsedUrl = new URL(url);
+	const scheme = sanitizeOriginPart(parsedUrl.protocol.replace(/:$/, ""));
+	const host = sanitizeOriginPart(parsedUrl.hostname);
+	const port = parsedUrl.port || "0";
+	return `${scheme}_${host}_${port}`;
+}
+
 function getIndexedDBOriginPaths({ userDataPath, originPrefix }) {
 	const indexedDBDir = path.join(userDataPath, "IndexedDB");
 	return {
@@ -106,14 +118,18 @@ function getLegacyUserDataPaths({ appDataPath, currentUserDataPath }) {
 	]);
 }
 
-function listLegacyIndexedDBSources({ appDataPath, currentUserDataPath }) {
+function listLegacyIndexedDBSources({
+	appDataPath,
+	currentUserDataPath,
+	targetOriginPrefix = TARGET_DESKTOP_ORIGIN_PREFIX,
+}) {
 	const roots = getLegacyUserDataPaths({ appDataPath, currentUserDataPath });
 	const sources = [];
 	for (const userDataPath of roots) {
 		for (const originPrefix of LEGACY_ORIGIN_PREFIXES) {
 			if (
 				pathsAreSame(userDataPath, currentUserDataPath) &&
-				originPrefix === TARGET_DESKTOP_ORIGIN_PREFIX
+				originPrefix === targetOriginPrefix
 			) {
 				continue;
 			}
@@ -143,10 +159,37 @@ function copyDirectory({ from, to }) {
 	});
 }
 
-function writeMigrationMarker({ currentUserDataPath, source }) {
+function backupTargetDirectory({ targetPaths }) {
+	const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+	const backupRoot = path.join(
+		path.dirname(path.dirname(targetPaths.leveldbDir)),
+		`shotlyx-migration-backup-${timestamp}`,
+	);
+	const backup = {
+		blobDir: path.join(backupRoot, path.basename(targetPaths.blobDir)),
+		leveldbDir: path.join(backupRoot, path.basename(targetPaths.leveldbDir)),
+		root: backupRoot,
+	};
+	copyDirectory({ from: targetPaths.leveldbDir, to: backup.leveldbDir });
+	copyDirectory({ from: targetPaths.blobDir, to: backup.blobDir });
+	return backup;
+}
+
+function getMigrationMarkerPath({ currentUserDataPath, targetOriginPrefix }) {
+	return path.join(
+		currentUserDataPath,
+		`desktop-storage-migration-${targetOriginPrefix}.json`,
+	);
+}
+
+function writeMigrationMarker({
+	currentUserDataPath,
+	source,
+	targetOriginPrefix,
+}) {
 	fs.mkdirSync(currentUserDataPath, { recursive: true });
 	fs.writeFileSync(
-		path.join(currentUserDataPath, MIGRATION_MARKER_FILE),
+		getMigrationMarkerPath({ currentUserDataPath, targetOriginPrefix }),
 		JSON.stringify(
 			{
 				migratedAt: new Date().toISOString(),
@@ -155,7 +198,7 @@ function writeMigrationMarker({ currentUserDataPath, source }) {
 					userDataPath: source.userDataPath,
 				},
 				target: {
-					originPrefix: TARGET_DESKTOP_ORIGIN_PREFIX,
+					originPrefix: targetOriginPrefix,
 					userDataPath: currentUserDataPath,
 				},
 				version: 1,
@@ -166,44 +209,64 @@ function writeMigrationMarker({ currentUserDataPath, source }) {
 	);
 }
 
-function migrateLegacyDesktopStorage({ appDataPath, currentUserDataPath }) {
+function migrateLegacyDesktopStorage({
+	appDataPath,
+	currentUserDataPath,
+	targetOriginPrefix = TARGET_DESKTOP_ORIGIN_PREFIX,
+}) {
 	if (process.env.SHOTLYX_DISABLE_STORAGE_MIGRATION === "1") {
 		return { status: "skipped", reason: "disabled" };
 	}
 
-	const markerPath = path.join(currentUserDataPath, MIGRATION_MARKER_FILE);
+	const markerPath = getMigrationMarkerPath({
+		currentUserDataPath,
+		targetOriginPrefix,
+	});
 	if (fs.existsSync(markerPath)) {
 		return { status: "skipped", reason: "already_migrated" };
 	}
 
 	const targetPaths = getIndexedDBOriginPaths({
 		userDataPath: currentUserDataPath,
-		originPrefix: TARGET_DESKTOP_ORIGIN_PREFIX,
+		originPrefix: targetOriginPrefix,
 	});
-	if (hasProjectData(targetPaths)) {
-		return { status: "skipped", reason: "target_has_projects" };
-	}
+	const targetScore = readProjectSignatureScore(targetPaths.leveldbDir);
 
 	const source = listLegacyIndexedDBSources({
 		appDataPath,
 		currentUserDataPath,
+		targetOriginPrefix,
 	})[0];
 	if (!source) {
 		return { status: "skipped", reason: "no_legacy_projects" };
 	}
+	if (targetScore > 0 && source.score <= targetScore) {
+		return {
+			status: "skipped",
+			reason: "target_has_projects",
+			sourceScore: source.score,
+			targetScore,
+		};
+	}
 
+	const backup = hasProjectData(targetPaths)
+		? backupTargetDirectory({ targetPaths })
+		: null;
 	copyDirectory({ from: source.leveldbDir, to: targetPaths.leveldbDir });
 	copyDirectory({ from: source.blobDir, to: targetPaths.blobDir });
-	writeMigrationMarker({ currentUserDataPath, source });
+	writeMigrationMarker({ currentUserDataPath, source, targetOriginPrefix });
 
 	return {
+		...(backup && { backup }),
 		status: "migrated",
 		source: {
 			originPrefix: source.originPrefix,
+			score: source.score,
 			userDataPath: source.userDataPath,
 		},
 		target: {
-			originPrefix: TARGET_DESKTOP_ORIGIN_PREFIX,
+			originPrefix: targetOriginPrefix,
+			previousScore: targetScore,
 			userDataPath: currentUserDataPath,
 		},
 	};
@@ -212,6 +275,7 @@ function migrateLegacyDesktopStorage({ appDataPath, currentUserDataPath }) {
 module.exports = {
 	TARGET_DESKTOP_ORIGIN_PREFIX,
 	getIndexedDBOriginPaths,
+	getStorageOriginPrefix,
 	listLegacyIndexedDBSources,
 	migrateLegacyDesktopStorage,
 };

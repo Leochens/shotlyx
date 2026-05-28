@@ -2,7 +2,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { app, BrowserWindow, dialog, net, protocol, shell } = require("electron");
-const { migrateLegacyDesktopStorage } = require("./storage-migration.cjs");
+const {
+	getStorageOriginPrefix,
+	migrateLegacyDesktopStorage,
+} = require("./storage-migration.cjs");
 
 let autoUpdater = null;
 try {
@@ -55,12 +58,12 @@ function configureAppIdentity() {
 }
 
 function migrateLegacyStorageIfNeeded() {
-	if (!shouldUseLocalRenderer()) return;
-
 	try {
+		const targetOriginPrefix = getStorageOriginPrefix(getStartUrl());
 		const result = migrateLegacyDesktopStorage({
 			appDataPath: app.getPath("appData"),
 			currentUserDataPath: app.getPath("userData"),
+			targetOriginPrefix,
 		});
 		if (result.status === "migrated") {
 			console.log(
