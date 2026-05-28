@@ -13,6 +13,7 @@ export const shotlyxMGJobRequestSchema = z.object({
 	styleGuide: z.string().optional(),
 	transparentBackground: z.boolean().optional(),
 	componentCount: z.number().int().min(1).optional(),
+	templateMode: z.enum(["off", "auto", "force"]).optional(),
 	repairAttempts: z.number().int().min(0).max(3).optional(),
 	preferPlainJson: z.boolean().optional(),
 	maxOutputTokens: z.number().int().min(512).max(8000).optional(),
@@ -37,7 +38,10 @@ export async function POST(request: ApiRequest) {
 
 	const mgModel = getMGModelBundle();
 	const job = createShotlyxMGJob({
-		input: parsed.data,
+		input: {
+			...parsed.data,
+			templateMode: parsed.data.templateMode ?? "auto",
+		},
 		generateDocumentFn: (args) =>
 			generateShotlyxMGComponentDocument({
 				...args,

@@ -301,6 +301,43 @@ describe("Shotlyx MG job routes", () => {
 		).toBe(true);
 	});
 
+	test("MG composition jobs can use builtin templates without calling the model generator", async () => {
+		const calls: Array<{ prompt: string }> = [];
+		const events: Array<{ label?: string; type?: string; documents?: unknown[] }> =
+			[];
+		const { jobId } = createShotlyxMGJob({
+			input: {
+				prompt: "生成一个数据展示 MG，标题是 从 Vibe 到 Harness，突出 2026",
+				durationSeconds: 5,
+				aspectRatio: "16:9",
+				componentCount: 2,
+				templateMode: "auto",
+			},
+			generateDocumentFn: async (args) => {
+				calls.push({ prompt: args.prompt });
+				throw new Error("model should not be needed for covered templates");
+			},
+		});
+		const unsubscribe = subscribeShotlyxMGJob({
+			jobId,
+			onEvent: (event) => {
+				events.push(event);
+			},
+		});
+
+		await waitForCondition({
+			condition: () => events.some((event) => event.type === "completed"),
+		});
+		unsubscribe();
+
+		const completed = events.find((event) => event.type === "completed");
+		expect(calls).toHaveLength(0);
+		expect(completed?.documents).toHaveLength(2);
+		expect(
+			events.some((event) => event.label?.includes("使用内置 MG 模板")),
+		).toBe(true);
+	});
+
 	test("DELETE returns 404 for an unknown job", async () => {
 		const response = await DELETE(
 			new ApiRequest("http://localhost/api/agent/creative/mg-jobs/missing"),

@@ -1,3 +1,7 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { generateText, type LanguageModel } from "ai";
 import { transform } from "esbuild";
 import * as ReactRuntime from "react";
@@ -214,6 +218,20 @@ export interface GenerateShotlyxMGComponentOptions {
 	transparentBackground?: boolean;
 }
 
+export interface CreateShotlyxRemotionComponentDocumentOptions {
+	name: string;
+	componentSource: string;
+	propsSchema: ShotlyxMGPropDefinition[];
+	sourcePrompt: string;
+	durationSeconds: number;
+	aspectRatio: ShotlyxMGAspectRatio;
+	fps?: number;
+	width?: number;
+	height?: number;
+	thumbnailFrame?: number;
+	transparentBackground?: boolean;
+}
+
 function canvasSizeForAspectRatio({
 	aspectRatio,
 }: {
@@ -330,10 +348,21 @@ async function compileRemotionComponentModule({
 	return result.code;
 }
 
-function buildDataModuleUrl({ source }: { source: string }): string {
-	return `data:text/javascript;base64,${Buffer.from(source, "utf8").toString(
-		"base64",
-	)}`;
+async function importModuleFromSource({
+	source,
+	id,
+}: {
+	source: string;
+	id: string;
+}): Promise<unknown> {
+	const tempDir = await mkdtemp(join(tmpdir(), "shotlyx-mg-validation-"));
+	const filePath = join(tempDir, `${id}.mjs`);
+	try {
+		await writeFile(filePath, source, "utf8");
+		return await import(`${pathToFileURL(filePath).href}?t=${Date.now()}`);
+	} finally {
+		await rm(tempDir, { recursive: true, force: true });
+	}
 }
 
 function getRenderValidationFrames({
@@ -432,10 +461,10 @@ async function assertRenderableShotlyxRemotionComponent({
 				Video: StubVideo,
 			},
 		});
-		const moduleUrl = buildDataModuleUrl({
-			source: `${document.compiledModule}\n//# sourceURL=shotlyx-mg-render-validation-${document.manifest?.id ?? "component"}.mjs`,
+		const mod = await importModuleFromSource({
+			source: document.compiledModule,
+			id: `shotlyx-mg-render-validation-${document.manifest?.id ?? "component"}`,
 		});
-		const mod: unknown = await import(/* webpackIgnore: true */ moduleUrl);
 		const Component =
 			typeof mod === "object" && mod !== null
 				? Reflect.get(mod, "default")
@@ -611,6 +640,74 @@ function buildManifest({
 		thumbnailPath: "thumbnail.png",
 		sourcePrompt: document.sourcePrompt,
 	};
+}
+
+export async function createShotlyxRemotionComponentDocument({
+	name,
+	componentSource,
+	propsSchema,
+	sourcePrompt,
+	durationSeconds,
+	aspectRatio,
+	fps = DEFAULT_FPS,
+	width,
+	height,
+	thumbnailFrame,
+	transparentBackground = true,
+}: CreateShotlyxRemotionComponentDocumentOptions): Promise<ShotlyxRemotionComponentDocument> {
+	const requestedSize = canvasSizeForAspectRatio({ aspectRatio });
+	const resolvedWidth = width ?? requestedSize.width;
+	const resolvedHeight = height ?? requestedSize.height;
+	const durationInFrames = Math.max(1, Math.round(durationSeconds * fps));
+	const resolvedThumbnailFrame =
+		thumbnailFrame === undefined
+			? Math.floor(durationInFrames * 0.45)
+			: Math.max(0, Math.min(durationInFrames - 1, thumbnailFrame));
+	assertUniqueGeneratedPropKeys({ propsSchema });
+	const defaultProps = buildDefaultPropsFromSchema({
+		propsSchema,
+	});
+	const compiledModule = await compileRemotionComponentModule({
+		source: componentSource,
+	});
+	const withoutManifest = {
+		version: 1 as const,
+		runtime: SHOTLYX_REMOTION_COMPONENT_RUNTIME,
+		name,
+		durationSeconds,
+		fps,
+		width: resolvedWidth,
+		height: resolvedHeight,
+		aspectRatio,
+		transparentBackground,
+		componentSource,
+		compiledModule,
+		propsSchema,
+		defaultProps,
+		sourcePrompt,
+		thumbnailFrame: resolvedThumbnailFrame,
+	};
+	const document: ShotlyxRemotionComponentDocument = {
+		...withoutManifest,
+		manifest: buildManifest({
+			id: generateUUID(),
+			document: withoutManifest,
+		}),
+	};
+	assertValidShotlyxRemotionComponentAssetDocument(document);
+	const dataContractValidation = validateShotlyxRemotionComponentDataContract({
+		source: document.componentSource,
+		propsSchema: document.propsSchema,
+	});
+	if (!dataContractValidation.valid) {
+		throw new Error(
+			`Invalid Shotlyx Remotion component data contract: ${dataContractValidation.errors.join(
+				"; ",
+			)}`,
+		);
+	}
+	await assertRenderableShotlyxRemotionComponent({ document });
+	return document;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1097,65 +1194,32 @@ export async function generateShotlyxMGComponentDocument({
 				1,
 				Math.round(normalizedDuration * fps),
 			);
-			const thumbnailFrame =
-				generated.thumbnailFrame === null
-					? Math.floor(durationInFrames * 0.45)
-					: Math.min(durationInFrames - 1, generated.thumbnailFrame);
-			const propsSchema = normalizeGeneratedPropsSchema({
-				propsSchema: generated.propsSchema,
-				transparentBackground,
-			});
-			assertUniqueGeneratedPropKeys({ propsSchema });
-			const defaultProps = buildDefaultPropsFromSchema({
-				propsSchema,
-			});
-			const compiledModule = await compileRemotionComponentModule({
-				source: generated.componentSource,
-			});
-			const withoutManifest = {
-				version: 1 as const,
-				runtime: SHOTLYX_REMOTION_COMPONENT_RUNTIME,
-				name: generated.name,
-				durationSeconds: normalizedDuration,
-				fps,
-				width,
-				height,
-				aspectRatio: normalizedAspectRatio,
-				transparentBackground,
-				componentSource: generated.componentSource,
-				compiledModule,
-				propsSchema,
-				defaultProps,
-				sourcePrompt: prompt,
-				thumbnailFrame,
-			};
-			const document: ShotlyxRemotionComponentDocument = {
-				...withoutManifest,
-				manifest: buildManifest({
-					id: generateUUID(),
-					document: withoutManifest,
-				}),
-			};
-			assertValidShotlyxRemotionComponentAssetDocument(document);
-			const dataContractValidation =
-				validateShotlyxRemotionComponentDataContract({
-					source: document.componentSource,
-					propsSchema: document.propsSchema,
+				const thumbnailFrame =
+					generated.thumbnailFrame === null
+						? Math.floor(durationInFrames * 0.45)
+						: Math.min(durationInFrames - 1, generated.thumbnailFrame);
+				const propsSchema = normalizeGeneratedPropsSchema({
+					propsSchema: generated.propsSchema,
+					transparentBackground,
 				});
-			if (!dataContractValidation.valid) {
-				throw new Error(
-					`Invalid Shotlyx Remotion component data contract: ${dataContractValidation.errors.join(
-						"; ",
-					)}`,
-				);
-			}
-			await assertRenderableShotlyxRemotionComponent({ document });
-			return document;
-		} catch (error) {
-			lastError = error;
-			validationErrors = [
-				error instanceof Error ? error.message : String(error),
-			];
+				return await createShotlyxRemotionComponentDocument({
+					name: generated.name,
+					durationSeconds: normalizedDuration,
+					fps,
+					width,
+					height,
+					aspectRatio: normalizedAspectRatio,
+					transparentBackground,
+					componentSource: generated.componentSource,
+					propsSchema,
+					sourcePrompt: prompt,
+					thumbnailFrame,
+				});
+			} catch (error) {
+				lastError = error;
+				validationErrors = [
+					error instanceof Error ? error.message : String(error),
+				];
 			if (
 				!usePlainJson &&
 				(isStructuredOutputSchemaError(error) ||

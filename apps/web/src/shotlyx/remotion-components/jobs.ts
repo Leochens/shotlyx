@@ -1,5 +1,8 @@
 import { generateUUID } from "@/utils/id";
-import { createShotlyxMGCompositionPlan } from "./composition-director";
+import {
+	createShotlyxMGCompositionPlan,
+	type ShotlyxMGCompositionComponentPlan,
+} from "./composition-director";
 import {
 	buildShotlyxMGCompositionGenerationGuidance,
 	resolveMGCompositionStyleGuide,
@@ -10,6 +13,11 @@ import {
 	formatRemotionSkillSummary,
 	type RemotionSkillContextSummary,
 } from "./skill-context";
+import {
+	createShotlyxMGTemplateDocument,
+	resolveShotlyxMGTemplateForTask,
+	type ShotlyxMGTemplateId,
+} from "./template-library";
 import type { ShotlyxRemotionComponentDocument } from "./types";
 
 export interface ShotlyxMGJobInput extends Omit<
@@ -17,6 +25,7 @@ export interface ShotlyxMGJobInput extends Omit<
 	"model" | "generateTextFn"
 > {
 	componentCount?: number;
+	templateMode?: "off" | "auto" | "force";
 }
 
 export type ShotlyxMGJobStatus =
@@ -275,6 +284,77 @@ function logComponentGenerationError({
 	});
 }
 
+async function tryCreateTemplateDocumentForJob({
+	job,
+	component,
+	componentIndex,
+	componentCount,
+}: {
+	job: ShotlyxMGJob;
+	component: ShotlyxMGCompositionComponentPlan;
+	componentIndex: number;
+	componentCount: number;
+}): Promise<{
+	document: ShotlyxRemotionComponentDocument;
+	templateId: ShotlyxMGTemplateId;
+} | null> {
+	const templateMode = job.input.templateMode ?? "off";
+	if (templateMode === "off") return null;
+	const templateId = resolveShotlyxMGTemplateForTask({
+		taskId: component.id,
+	});
+	if (!templateId) {
+		if (templateMode === "force") {
+			throw new Error(`No builtin MG template covers task "${component.id}"`);
+		}
+		return null;
+	}
+	emit({
+		job,
+		event: {
+			type: "progress",
+			jobId: job.id,
+			label: `使用内置 MG 模板生成第 ${componentIndex + 1}/${componentCount} 个组件`,
+			status: "running",
+			detail: `${templateId} · ${component.label}`,
+			index: componentIndex,
+			total: componentCount,
+			taskId: component.id,
+			taskLabel: component.label,
+		},
+	});
+	try {
+		const document = await createShotlyxMGTemplateDocument({
+			templateId,
+			prompt: job.input.prompt,
+			taskLabel: component.label,
+			taskFocus: component.focus,
+			durationSeconds: getJobComponentDurationSeconds({
+				input: job.input,
+				index: componentIndex,
+				total: componentCount,
+			}),
+			aspectRatio: job.input.aspectRatio ?? "16:9",
+			transparentBackground: job.input.transparentBackground !== false,
+		});
+		return { document, templateId };
+	} catch (error) {
+		if (templateMode === "force") throw error;
+		logComponentGenerationError({
+			job,
+			componentIndex,
+			componentCount,
+			taskId: component.id,
+			taskLabel: component.label,
+			error,
+			message: getErrorMessage(error),
+			retrying: true,
+			repairingSpecificError: false,
+		});
+		return null;
+	}
+}
+
 function emit({ job, event }: { job: ShotlyxMGJob; event: ShotlyxMGJobEvent }) {
 	job.events.push(event);
 	logJobEvent({ event });
@@ -420,8 +500,7 @@ async function generateMGComponentForJob({
 	componentCount,
 	componentTimeoutMs,
 	componentRetryAttempts,
-	taskId,
-	taskLabel,
+	component,
 }: {
 	job: ShotlyxMGJob;
 	generateDocumentFn: GenerateShotlyxMGJobDocumentFn;
@@ -429,12 +508,13 @@ async function generateMGComponentForJob({
 	componentCount: number;
 	componentTimeoutMs: number;
 	componentRetryAttempts: number;
-	taskId: string;
-	taskLabel: string;
+	component: ShotlyxMGCompositionComponentPlan;
 }): Promise<ShotlyxRemotionComponentDocument> {
 	if (shouldCancelJob({ job })) {
 		throw new Error("Shotlyx MG job cancelled");
 	}
+	const taskId = component.id;
+	const taskLabel = component.label;
 
 	emit({
 		job,
@@ -449,6 +529,33 @@ async function generateMGComponentForJob({
 			taskLabel,
 		},
 	});
+
+	const templateResult = await tryCreateTemplateDocumentForJob({
+		job,
+		component,
+		componentIndex,
+		componentCount,
+	});
+	if (templateResult) {
+		if (shouldCancelJob({ job })) {
+			throw new Error("Shotlyx MG job cancelled");
+		}
+		emit({
+			job,
+			event: {
+				type: "component-complete",
+				jobId: job.id,
+				label: `已生成${templateResult.document.name}`,
+				status: "success",
+				index: componentIndex,
+				total: componentCount,
+				taskId,
+				taskLabel,
+				document: templateResult.document,
+			},
+		});
+		return templateResult.document;
+	}
 
 	const styleGuide = resolveMGCompositionStyleGuide({
 		styleGuide: job.input.styleGuide,
@@ -467,6 +574,7 @@ async function generateMGComponentForJob({
 
 	while (true) {
 		try {
+			const { templateMode: _templateMode, ...generatorInput } = job.input;
 			document = await generateDocumentWithTimeout({
 				job,
 				generateDocumentFn,
@@ -474,7 +582,7 @@ async function generateMGComponentForJob({
 				componentCount,
 				timeoutMs: componentTimeoutMs,
 				args: {
-					...job.input,
+					...generatorInput,
 					styleGuide,
 					durationSeconds: getJobComponentDurationSeconds({
 						input: job.input,
@@ -664,8 +772,7 @@ async function runShotlyxMGJob({
 						componentCount,
 						componentTimeoutMs,
 						componentRetryAttempts,
-						taskId: component.id,
-						taskLabel: component.label,
+						component,
 					}),
 			),
 		});
