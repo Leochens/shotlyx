@@ -23,6 +23,12 @@ export interface CreateShotlyxMGCompositionPlanOptions {
 	styleGuide?: string;
 }
 
+type FocusedTemplatePlanId =
+	| "title-reveal"
+	| "metric-emphasis"
+	| "annotation-callout"
+	| "data-table";
+
 function includesAny({
 	text,
 	values,
@@ -31,6 +37,22 @@ function includesAny({
 	values: string[];
 }): boolean {
 	return values.some((value) => text.includes(value.toLowerCase()));
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function includesAnyEnglishTerm({
+	text,
+	values,
+}: {
+	text: string;
+	values: string[];
+}): boolean {
+	return values.some((value) =>
+		new RegExp(`\\b${escapeRegExp(value.toLowerCase())}\\b`).test(text),
+	);
 }
 
 function durationForComponent({
@@ -199,6 +221,97 @@ function createAiAgentPlan({
 	};
 }
 
+function createFocusedTemplatePlan({
+	templateId,
+	componentCount,
+	durationSeconds,
+	styleGuide,
+}: {
+	templateId: FocusedTemplatePlanId;
+	componentCount: number;
+	durationSeconds?: number;
+	styleGuide?: string;
+}): ShotlyxMGCompositionDirectorPlan {
+	const specs: Record<
+		FocusedTemplatePlanId,
+		{
+			title: string;
+			narrativeArc: string;
+			component: ShotlyxMGCompositionComponentPlan;
+		}
+	> = {
+		"title-reveal": {
+			title: "标题大字展示 Remotion MG",
+			narrativeArc: "用一个明确标题模板完成标题、副标题和装饰线入场。",
+			component: {
+				id: "title-reveal",
+				label: "标题大字展示",
+				focus: "提取用户给出的主标题、副标题和短标签，用大字标题建立主题。",
+				visualRole: "大标题、副标题、短标签、细线和高亮扫线。",
+				durationSeconds: 2.8,
+				screenTiming: "",
+				animationDirection: "标题缩放淡入，副标题随后滑入，高亮线轻扫。",
+				qualityBar: "必须使用用户给出的真实标题，不能出现标题占位文案。",
+			},
+		},
+		"metric-emphasis": {
+			title: "重点指标突出 Remotion MG",
+			narrativeArc: "用一个指标模板突出关键数字、标签和说明文字。",
+			component: {
+				id: "metric-emphasis",
+				label: "重点指标突出",
+				focus: "提取用户给出的关键指标、数值和说明，用大数字和计数动效突出。",
+				visualRole: "大数字、指标标签、说明文字、强调线和轻量光效。",
+				durationSeconds: 2.4,
+				screenTiming: "",
+				animationDirection: "数字计数入场，强调线和光晕同步收束。",
+				qualityBar: "指标值必须来自用户需求，不能生成“数值”等占位内容。",
+			},
+		},
+		"annotation-callout": {
+			title: "圆圈方框标注 Remotion MG",
+			narrativeArc: "用一个标注模板突出目标文字、圈选/框选和 callout。",
+			component: {
+				id: "annotation-callout",
+				label: "圆圈方框标注",
+				focus: "提取用户指定的目标内容和标注文案，用圆圈、方框或箭头强调。",
+				visualRole: "目标文本、圆圈/方框、箭头和短 callout。",
+				durationSeconds: 1.8,
+				screenTiming: "",
+				animationDirection: "目标先出现，再绘制标注形状，最后弹出 callout。",
+				qualityBar: "必须有明确被标注对象，避免泛泛装饰线条。",
+			},
+		},
+		"data-table": {
+			title: "数据表格图 Remotion MG",
+			narrativeArc: "用一个表格模板展示列标题、数据行和重点行。",
+			component: {
+				id: "data-table",
+				label: "数据表格图",
+				focus: "把用户给出的数据整理成可读表格、榜单或多行结构。",
+				visualRole: "列标题、三到五行表格、重点行高亮和趋势符号。",
+				durationSeconds: 3.8,
+				screenTiming: "",
+				animationDirection: "表头先出现，数据行依次滑入，重点行轻微高亮。",
+				qualityBar: "表格列名和行内容必须结构化、可编辑且对齐清楚。",
+			},
+		},
+	};
+	const spec = specs[templateId];
+	return {
+		title: spec.title,
+		visualStyle:
+			styleGuide?.trim() ||
+			"透明 Remotion 视频图形包装，强层级、清晰文字和克制动效",
+		narrativeArc: spec.narrativeArc,
+		components: sliceComponents({
+			componentCount,
+			durationSeconds,
+			components: [spec.component],
+		}),
+	};
+}
+
 function createChartPlan({
 	componentCount,
 	durationSeconds,
@@ -330,6 +443,61 @@ function createDefaultPlan({
 	};
 }
 
+function resolveFocusedTemplateRequest(
+	text: string,
+): FocusedTemplatePlanId | null {
+	if (
+		includesAny({
+			text,
+			values: ["数据表格图", "数据表格", "表格图", "数据表"],
+		}) ||
+		includesAnyEnglishTerm({ text, values: ["data table", "table"] })
+	) {
+		return "data-table";
+	}
+	if (
+		includesAny({
+			text,
+			values: [
+				"圆圈方框标注",
+				"圆圈标注",
+				"方框标注",
+				"圈出",
+				"框选",
+				"箭头标注",
+			],
+		}) ||
+		includesAnyEnglishTerm({ text, values: ["callout"] })
+	) {
+		return "annotation-callout";
+	}
+	if (
+		includesAny({
+			text,
+			values: [
+				"重点指标突出",
+				"重点指标",
+				"指标突出",
+				"大数字",
+				"计数动效",
+			],
+		}) ||
+		includesAnyEnglishTerm({ text, values: ["kpi", "metric"] })
+	) {
+		return "metric-emphasis";
+	}
+	if (
+		includesAny({
+			text,
+			values: ["标题大字展示", "标题大字", "大字展示", "标题展示"],
+		}) ||
+		includesAnyEnglishTerm({ text, values: ["title reveal"] })
+	) {
+		return "title-reveal";
+	}
+	return null;
+}
+
 function isPureVisualEffectRequest(text: string): boolean {
 	return includesAny({
 		text,
@@ -356,6 +524,39 @@ function isPureVisualEffectRequest(text: string): boolean {
 	});
 }
 
+function isStructuredDataTemplateRequest(text: string): boolean {
+	return includesAny({
+		text,
+		values: [
+			"数据展示",
+			"数据图表",
+			"图表",
+			"折线图",
+			"折线",
+			"柱状图",
+			"柱状",
+			"饼图",
+			"趋势图",
+			"表格",
+			"排名",
+			"排行榜",
+			"指标",
+		],
+	}) ||
+		includesAnyEnglishTerm({
+			text,
+			values: [
+				"kpi",
+				"dashboard",
+				"chart",
+				"line chart",
+				"bar chart",
+				"table",
+				"metric",
+			],
+		});
+}
+
 export function createShotlyxMGCompositionPlan({
 	prompt,
 	componentCount,
@@ -364,6 +565,15 @@ export function createShotlyxMGCompositionPlan({
 }: CreateShotlyxMGCompositionPlanOptions): ShotlyxMGCompositionDirectorPlan {
 	const normalized = prompt.toLowerCase();
 	const safeComponentCount = Math.max(Math.floor(componentCount), 1);
+	const focusedTemplateId = resolveFocusedTemplateRequest(normalized);
+	if (focusedTemplateId) {
+		return createFocusedTemplatePlan({
+			templateId: focusedTemplateId,
+			componentCount: safeComponentCount,
+			durationSeconds,
+			styleGuide,
+		});
+	}
 	if (
 		includesAny({
 			text: normalized,
@@ -384,12 +594,7 @@ export function createShotlyxMGCompositionPlan({
 			styleGuide,
 		});
 	}
-	if (
-		includesAny({
-			text: normalized,
-			values: ["图表", "数据", "chart", "dashboard", "折线", "柱状"],
-		})
-	) {
+	if (isStructuredDataTemplateRequest(normalized)) {
 		return createChartPlan({
 			componentCount: safeComponentCount,
 			durationSeconds,

@@ -49,9 +49,60 @@ describe("Shotlyx MG composition director", () => {
 		expect(plan.components[2]?.screenTiming).toBe("5.2s-7.0s");
 	});
 
+	test.each([
+		{
+			prompt: "标题大字展示：主标题「中国人口十年变局」，副标题 2015-2025",
+			expectedId: "title-reveal",
+		},
+		{
+			prompt: "重点指标突出：GMV 120 万，增长 35%，用大数字计数动效展示",
+			expectedId: "metric-emphasis",
+		},
+		{
+			prompt: "圆圈方框标注：圈出 2022 年首次负增长，并用箭头标注原因",
+			expectedId: "annotation-callout",
+		},
+		{
+			prompt: "数据表格图：列出 2024、2025、2026 三行数据和增长率",
+			expectedId: "data-table",
+		},
+	])("plans exact builtin template requests as $expectedId", ({ prompt, expectedId }) => {
+		const plan = createShotlyxMGCompositionPlan({
+			prompt,
+			componentCount: 1,
+			durationSeconds: 5,
+			styleGuide: SMART_MG_COMPOSITION_STYLE_GUIDE,
+		});
+
+		expect(plan.components.map((component) => component.id)).toEqual([
+			expectedId,
+		]);
+	});
+
 	test("does not let generic smart style guidance reclassify pure visual effects as data templates", () => {
 		const plan = createShotlyxMGCompositionPlan({
 			prompt: "生成一个数据雨和星星爆炸的纯视觉粒子 MG 动画，不出现文字",
+			componentCount: 4,
+			durationSeconds: 5,
+			styleGuide: SMART_MG_COMPOSITION_STYLE_GUIDE,
+		});
+
+		expect(plan.components.map((component) => component.id)).toEqual([
+			"concept",
+			"main-mechanism",
+			"callouts",
+			"final-summary",
+		]);
+	});
+
+	test.each([
+		"做一个数据感科技背景转场，蓝色光效和扫描线，不出现任何文字",
+		"生成一个产品发布复杂 MG 动画，星形粒子、镜头推进、空间轨迹，不要套固定标题模板",
+		"做一个三个步骤流程：上传、AI 分析、导出成片，用动态图形表现流程",
+		"Stable Diffusion 风格的星光粒子动画，透明背景，不出现文字",
+	])("keeps non-template smart requests custom: %s", (prompt) => {
+		const plan = createShotlyxMGCompositionPlan({
+			prompt,
 			componentCount: 4,
 			durationSeconds: 5,
 			styleGuide: SMART_MG_COMPOSITION_STYLE_GUIDE,

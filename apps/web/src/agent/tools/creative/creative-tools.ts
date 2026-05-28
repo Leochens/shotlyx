@@ -2624,7 +2624,7 @@ export function buildCreativeTools({
 				templateMode: {
 					type: "string",
 					description:
-						"内置 MG 模板模式：auto 优先模板并可降级自由生成；force 强制使用 templateId；off 关闭模板库。只要传入 templateId，系统会按 force 处理。",
+						"内置 MG 模板模式：auto 仅在需求高置信匹配标题、指标、标注、表格或结构化图表时使用模板，否则自由生成；force 强制使用 templateId；off 关闭模板库。只要传入 templateId，系统会按 force 处理。",
 					optional: true,
 				},
 				templateId: {

@@ -69,11 +69,6 @@ const BUILTIN_TEMPLATES: ShotlyxMGTemplateMetadata[] = [
 ];
 
 const TASK_TEMPLATE_MAP: Record<string, ShotlyxMGTemplateId> = {
-	"agent-concept": "title-reveal",
-	"agent-loop": "annotation-callout",
-	"agent-memory": "data-table",
-	"agent-summary": "title-reveal",
-	"agent-tools": "annotation-callout",
 	"data-table": "data-table",
 	"metric-emphasis": "metric-emphasis",
 	"annotation-callout": "annotation-callout",

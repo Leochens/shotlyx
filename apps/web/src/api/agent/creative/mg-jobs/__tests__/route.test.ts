@@ -3,7 +3,10 @@ import { SMART_MG_COMPOSITION_STYLE_GUIDE } from "@/shotlyx/remotion-components/
 import {
 	clearShotlyxMGJobs,
 	createShotlyxMGJob,
+	type GenerateShotlyxMGJobDocumentFn,
 	subscribeShotlyxMGJob,
+	type ShotlyxMGJobEvent,
+	type ShotlyxMGJobInput,
 } from "@/shotlyx/remotion-components/jobs";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { ApiRequest } from "@/platform/http";
@@ -64,6 +67,89 @@ function getCompletedDocumentNames({
 				: null,
 		)
 		.filter((name): name is string => typeof name === "string");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isShotlyxMGJobEvent(value: unknown): value is ShotlyxMGJobEvent {
+	return (
+		isRecord(value) &&
+		typeof value.type === "string" &&
+		typeof value.jobId === "string"
+	);
+}
+
+async function readSSEJobEvents(response: Response): Promise<ShotlyxMGJobEvent[]> {
+	const text = await response.text();
+	return text
+		.split("\n\n")
+		.map((block) =>
+			block
+				.split("\n")
+				.find((line) => line.startsWith("data: ")),
+		)
+		.filter((line): line is string => typeof line === "string")
+		.map((line) => {
+			const parsed: unknown = JSON.parse(line.slice("data: ".length));
+			if (!isShotlyxMGJobEvent(parsed)) {
+				throw new Error("Invalid SSE MG job event");
+			}
+			return parsed;
+		});
+}
+
+async function withMissingLLMConfig<T>(fn: () => Promise<T>): Promise<T> {
+	const keys = [
+		"AGENT_MG_KEY",
+		"AGENT_LLM_KEY",
+		"SHOTLYX_DESKTOP",
+		"VITE_SHOTLYX_DESKTOP",
+	] as const;
+	const previous = new Map<string, string | undefined>();
+	for (const key of keys) {
+		previous.set(key, process.env[key]);
+		delete process.env[key];
+	}
+	try {
+		return await fn();
+	} finally {
+		for (const key of keys) {
+			const value = previous.get(key);
+			if (value === undefined) {
+				delete process.env[key];
+			} else {
+				process.env[key] = value;
+			}
+		}
+	}
+}
+
+async function runCompletedMGJob({
+	input,
+	generateDocumentFn,
+}: {
+	input: ShotlyxMGJobInput;
+	generateDocumentFn: GenerateShotlyxMGJobDocumentFn;
+}): Promise<ShotlyxMGJobEvent[]> {
+	const events: ShotlyxMGJobEvent[] = [];
+	const { jobId } = createShotlyxMGJob({
+		input,
+		generateDocumentFn,
+	});
+	const unsubscribe = subscribeShotlyxMGJob({
+		jobId,
+		onEvent: (event) => {
+			events.push(event);
+		},
+	});
+
+	await waitForCondition({
+		condition: () => events.some((event) => event.type === "completed"),
+	});
+	unsubscribe();
+	return events;
 }
 
 describe("Shotlyx MG job routes", () => {
@@ -149,6 +235,52 @@ describe("Shotlyx MG job routes", () => {
 			events.some((event) => event.detail?.includes("remotion-dev/skills")),
 		).toBe(true);
 		await response.body?.cancel();
+	});
+
+	test("POST streams exact auto-template jobs without model config", async () => {
+		await withMissingLLMConfig(async () => {
+			const response = await POST(
+				new ApiRequest("http://localhost/api/agent/creative/mg-jobs", {
+					method: "POST",
+					body: JSON.stringify({
+						prompt:
+							"标题大字展示：主标题「中国人口十年变局」，副标题 2015-2025",
+						durationSeconds: 5,
+						aspectRatio: "16:9",
+						componentCount: 1,
+						templateMode: "auto",
+					}),
+				}),
+			);
+
+			expect(response.status).toBe(200);
+			const payload: unknown = await response.json();
+			if (!isRecord(payload) || typeof payload.jobId !== "string") {
+				throw new Error("Invalid MG job start response");
+			}
+			const { jobId } = payload;
+			const eventsResponse = await GET(
+				new ApiRequest(
+					`http://localhost/api/agent/creative/mg-jobs/${jobId}/events`,
+				),
+				{
+					params: Promise.resolve({ jobId }),
+				},
+			);
+
+			expect(eventsResponse.status).toBe(200);
+			expect(eventsResponse.headers.get("Content-Type")).toBe(
+				"text/event-stream",
+			);
+			const events = await readSSEJobEvents(eventsResponse);
+
+			expect(getCompletedDocumentNames({ events })).toEqual([
+				"内置模板 · 标题大字展示",
+			]);
+			expect(
+				events.some((event) => event.label?.includes("使用内置 MG 模板")),
+			).toBe(true);
+		});
 	});
 
 	test("MG composition jobs start component work in parallel and publish a completed result barrier", async () => {
@@ -339,6 +471,87 @@ describe("Shotlyx MG job routes", () => {
 		const completed = events.find((event) => event.type === "completed");
 		expect(calls).toHaveLength(4);
 		expect(completed?.documents).toHaveLength(4);
+		expect(
+			events.some((event) => event.label?.includes("使用内置 MG 模板")),
+		).toBe(false);
+	});
+
+	test.each([
+		{
+			prompt: "标题大字展示：主标题「中国人口十年变局」，副标题 2015-2025",
+			expectedName: "内置模板 · 标题大字展示",
+		},
+		{
+			prompt: "重点指标突出：GMV 120 万，增长 35%，用大数字计数动效展示",
+			expectedName: "内置模板 · 重点指标突出",
+		},
+		{
+			prompt: "圆圈方框标注：圈出 2022 年首次负增长，并用箭头标注原因",
+			expectedName: "内置模板 · 圆圈方框标注",
+		},
+		{
+			prompt: "数据表格图：列出 2024、2025、2026 三行数据和增长率",
+			expectedName: "内置模板 · 数据表格图",
+		},
+	])(
+		"MG composition jobs use templates only for exact template-fit requests: $expectedName",
+		async ({ prompt, expectedName }) => {
+			const calls: Array<{ prompt: string }> = [];
+			const events = await runCompletedMGJob({
+				input: {
+					prompt,
+					durationSeconds: 5,
+					aspectRatio: "16:9",
+					componentCount: 1,
+					styleGuide: SMART_MG_COMPOSITION_STYLE_GUIDE,
+					templateMode: "auto",
+				},
+				generateDocumentFn: async (args) => {
+					calls.push({ prompt: args.prompt });
+					throw new Error("model should not be needed for exact templates");
+				},
+			});
+
+			expect(calls).toHaveLength(0);
+			expect(getCompletedDocumentNames({ events })).toEqual([expectedName]);
+			expect(
+				events.some((event) => event.label?.includes("使用内置 MG 模板")),
+			).toBe(true);
+		},
+	);
+
+	test.each([
+		"数据感科技开场，蓝色扫描线和网格空间，适合品牌片",
+		"做一个三个步骤流程：上传、AI 分析、导出成片，用动态图形表现流程",
+		"生成一个复杂产品发布 MG 动画，镜头推进、空间轨迹、闪光登场，不要标题文字",
+		"介绍 AI Agent 运行原理，包含感知、思考、行动、工具调用和记忆",
+		"Stable Diffusion 风格的星光粒子动画，透明背景，不出现文字",
+	])("MG composition jobs keep low-confidence auto requests custom: %s", async (prompt) => {
+		const calls: Array<{ prompt: string }> = [];
+		const events = await runCompletedMGJob({
+			input: {
+				prompt,
+				durationSeconds: 5,
+				aspectRatio: "16:9",
+				componentCount: 3,
+				styleGuide: SMART_MG_COMPOSITION_STYLE_GUIDE,
+				templateMode: "auto",
+			},
+			generateDocumentFn: async (args) => {
+				calls.push({ prompt: args.prompt });
+				return {
+					...shotlyxBattleCardFixture,
+					name: `自定义 MG ${calls.length}`,
+				};
+			},
+		});
+
+		expect(calls).toHaveLength(3);
+		expect(getCompletedDocumentNames({ events })).toEqual([
+			"自定义 MG 1",
+			"自定义 MG 2",
+			"自定义 MG 3",
+		]);
 		expect(
 			events.some((event) => event.label?.includes("使用内置 MG 模板")),
 		).toBe(false);

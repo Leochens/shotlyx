@@ -60,6 +60,18 @@ describe("Shotlyx MG template library", () => {
 		}
 	});
 
+	test("does not resolve narrative agent director tasks to builtin templates", () => {
+		for (const taskId of [
+			"agent-concept",
+			"agent-loop",
+			"agent-tools",
+			"agent-memory",
+			"agent-summary",
+		]) {
+			expect(resolveShotlyxMGTemplateForTask({ taskId })).toBe(null);
+		}
+	});
+
 	test("normalizes a selected template id into forced template mode", () => {
 		expect(
 			normalizeShotlyxMGTemplateSelection({

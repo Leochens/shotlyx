@@ -41,7 +41,6 @@ export async function POST(request: ApiRequest) {
 		);
 	}
 
-	const mgModel = getMGModelBundle();
 	const templateSelection = normalizeShotlyxMGTemplateSelection({
 		templateMode: parsed.data.templateMode,
 		templateId: parsed.data.templateId,
@@ -52,12 +51,14 @@ export async function POST(request: ApiRequest) {
 			...parsed.data,
 			...templateSelection,
 		},
-		generateDocumentFn: (args) =>
-			generateShotlyxMGComponentDocument({
+		generateDocumentFn: (args) => {
+			const mgModel = getMGModelBundle();
+			return generateShotlyxMGComponentDocument({
 				...args,
 				model: mgModel.model,
 				providerConfig: mgModel.config,
-			}),
+			});
+		},
 	});
 
 	return ApiResponse.json(job);
