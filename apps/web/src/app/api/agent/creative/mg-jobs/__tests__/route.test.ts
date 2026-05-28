@@ -41,7 +41,11 @@ async function waitForCondition({
 	}
 }
 
-function getCompletedDocumentNames({ events }: { events: unknown[] }): string[] {
+function getCompletedDocumentNames({
+	events,
+}: {
+	events: unknown[];
+}): string[] {
 	const completed = events.find(
 		(event) =>
 			typeof event === "object" &&
@@ -196,6 +200,56 @@ describe("Shotlyx MG job routes", () => {
 			"组件 2",
 			"组件 3",
 		]);
+	});
+
+	test("MG composition jobs pass smart MG guidance into component generation", async () => {
+		const calls: Array<{ prompt: string; styleGuide?: string }> = [];
+		const events: unknown[] = [];
+		const { jobId } = createShotlyxMGJob({
+			input: {
+				prompt: "生成近十年中国人口变化折线图",
+				durationSeconds: 5,
+				aspectRatio: "16:9",
+				componentCount: 2,
+			},
+			generateDocumentFn: async (args) => {
+				calls.push({
+					prompt: args.prompt,
+					styleGuide: args.styleGuide,
+				});
+				return {
+					...shotlyxBattleCardFixture,
+					name: `组件 ${calls.length}`,
+				};
+			},
+		});
+		const unsubscribe = subscribeShotlyxMGJob({
+			jobId,
+			onEvent: (event) => {
+				events.push(event);
+			},
+		});
+
+		await waitForCondition({
+			condition: () =>
+				events.some(
+					(event) =>
+						typeof event === "object" &&
+						event !== null &&
+						"type" in event &&
+						event.type === "completed",
+				),
+		});
+		unsubscribe();
+
+		expect(calls).toHaveLength(2);
+		expect(calls[0]?.styleGuide).toContain("Remotion 视频图形包装风格");
+		expect(calls[0]?.prompt).toContain(
+			"只允许使用 Remotion / Shotlyx Component",
+		);
+		expect(calls[0]?.prompt).toContain("所有业务文字、数值、表格行");
+		expect(calls[0]?.prompt).toContain("不能保留");
+		expect(calls[0]?.prompt).toContain("像高质量视频图形包装");
 	});
 
 	test("DELETE returns 404 for an unknown job", async () => {

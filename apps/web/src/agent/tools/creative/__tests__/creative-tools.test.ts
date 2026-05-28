@@ -1228,6 +1228,68 @@ describe("buildCreativeTools", () => {
 		expect(result.elementId).toBe("shotlyx-route-el-1");
 	});
 
+	test("shotlyx_generate_mg_composition adds smart MG guidance when called directly", async () => {
+		const upsertShotlyxMGAsset = mock(() => undefined);
+		const generateShotlyxMGComponent = mock(
+			async ({
+				prompt,
+				durationSeconds,
+			}: {
+				prompt: string;
+				durationSeconds?: number;
+			}) => ({
+				...shotlyxBattleCardFixture,
+				name: `智能组合层 ${prompt.includes("标题大字展示") ? "1" : "x"}`,
+				durationSeconds: durationSeconds ?? 5,
+				sourcePrompt: prompt,
+			}),
+		);
+
+		const tools = buildCreativeTools({
+			editor: asEditorCore({
+				project: {
+					getActiveOrNull: () => ({ metadata: { id: "project-1" } }),
+					upsertShotlyxMGAsset,
+				},
+				scenes: {
+					getActiveSceneOrNull: () => null,
+				},
+				selection: {
+					getSelectedElements: () => [],
+				},
+				playback: {
+					getCurrentTime: () => 0,
+				},
+			}),
+			deps: {
+				generateShotlyxMGComponentFn: generateShotlyxMGComponent,
+			},
+		});
+
+		const generateTool = tools.find(
+			(tool) => tool.name === "shotlyx_generate_mg_composition",
+		);
+		await generateTool?.handler({
+			prompt: "生成一个近十年来中国人口变化的折线图",
+			durationSeconds: 5,
+			aspectRatio: "16:9",
+			insertToTimeline: false,
+		});
+
+		expect(generateShotlyxMGComponent).toHaveBeenCalledTimes(4);
+		const firstCall = generateShotlyxMGComponent.mock.calls[0]?.[0];
+		if (typeof firstCall !== "object" || firstCall === null) {
+			throw new Error("Expected first MG generation call");
+		}
+		const firstPrompt = Reflect.get(firstCall, "prompt");
+		const firstStyleGuide = Reflect.get(firstCall, "styleGuide");
+		expect(firstStyleGuide).toContain("Remotion 视频图形包装风格");
+		expect(Reflect.get(firstCall, "transparentBackground")).toBe(true);
+		expect(firstPrompt).toContain("只允许使用 Remotion / Shotlyx Component");
+		expect(firstPrompt).toContain("不能保留");
+		expect(firstPrompt).toContain("像高质量视频图形包装");
+	});
+
 	test("shotlyx_generate_mg_composition emits progress while saving multiple editable assets", async () => {
 		let selectedElements: Array<{ trackId: string; elementId: string }> = [];
 		const scene = {
@@ -1243,37 +1305,37 @@ describe("buildCreativeTools", () => {
 				audio: [],
 			},
 		};
-			const insertElement = mock(
-				({ element }: { element: Omit<TimelineElement, "id"> }) => {
-					const elementId = `shotlyx-el-${scene.tracks.overlay[0]!.elements.length + 1}`;
+		const insertElement = mock(
+			({ element }: { element: Omit<TimelineElement, "id"> }) => {
+				const elementId = `shotlyx-el-${scene.tracks.overlay[0]!.elements.length + 1}`;
 				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 				const insertedElement = {
 					...element,
 					id: elementId,
 				} as unknown as TimelineElement;
-					scene.tracks.overlay[0]!.elements.push(insertedElement);
-					selectedElements = [{ trackId: "graphic-track", elementId }];
-				},
-			);
-			const upsertShotlyxMGAsset = mock(() => undefined);
-			const generateShotlyxMGComponent = mock(
-				async ({
-					prompt,
-					durationSeconds,
-				}: {
-					prompt: string;
-					durationSeconds?: number;
-				}) => ({
-					...shotlyxBattleCardFixture,
-					name: prompt.includes("标题大字展示")
-						? "标题大字层"
-						: prompt.includes("重点突出展示")
-							? "人口指标层"
-							: "洞察标注层",
-					durationSeconds: durationSeconds ?? 8,
-					sourcePrompt: prompt,
-				}),
-			);
+				scene.tracks.overlay[0]!.elements.push(insertedElement);
+				selectedElements = [{ trackId: "graphic-track", elementId }];
+			},
+		);
+		const upsertShotlyxMGAsset = mock(() => undefined);
+		const generateShotlyxMGComponent = mock(
+			async ({
+				prompt,
+				durationSeconds,
+			}: {
+				prompt: string;
+				durationSeconds?: number;
+			}) => ({
+				...shotlyxBattleCardFixture,
+				name: prompt.includes("标题大字展示")
+					? "标题大字层"
+					: prompt.includes("重点突出展示")
+						? "人口指标层"
+						: "洞察标注层",
+				durationSeconds: durationSeconds ?? 8,
+				sourcePrompt: prompt,
+			}),
+		);
 		const progressEvents: Array<{
 			label?: string;
 			status?: string;
@@ -1319,19 +1381,19 @@ describe("buildCreativeTools", () => {
 					progressEvents.push(event);
 				},
 			},
-			);
+		);
 
-			expect(generateShotlyxMGComponent).toHaveBeenCalledTimes(3);
-			expect(generateShotlyxMGComponent.mock.calls[0]?.[0]).toMatchObject({
-				durationSeconds: 2.8,
-				transparentBackground: true,
-			});
-			expect(
-				generateShotlyxMGComponent.mock.calls.map(
-					(call) => call[0]?.durationSeconds,
-				),
-			).toEqual([2.8, 2.4, 1.8]);
-			expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(3);
+		expect(generateShotlyxMGComponent).toHaveBeenCalledTimes(3);
+		expect(generateShotlyxMGComponent.mock.calls[0]?.[0]).toMatchObject({
+			durationSeconds: 2.8,
+			transparentBackground: true,
+		});
+		expect(
+			generateShotlyxMGComponent.mock.calls.map(
+				(call) => call[0]?.durationSeconds,
+			),
+		).toEqual([2.8, 2.4, 1.8]);
+		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(3);
 		expect(insertElement).toHaveBeenCalledTimes(3);
 		expect(result).toMatchObject({
 			runtime: "shotlyx-mg-composition-v1",
@@ -1372,26 +1434,26 @@ describe("buildCreativeTools", () => {
 		expect(
 			progressEvents.some((event) => event.label === "已加载 Remotion Skill"),
 		).toBe(true);
-			expect(
-				progressEvents.some((event) => event.label === "已规划 MG Director 分镜"),
-			).toBe(true);
-			expect(
-				progressEvents.some((event) => event.label === "生成标题大字展示"),
-			).toBe(true);
-			expect(
-				progressEvents.some((event) => event.label === "已生成标题大字层"),
-			).toBe(true);
+		expect(
+			progressEvents.some((event) => event.label === "已规划 MG Director 分镜"),
+		).toBe(true);
+		expect(
+			progressEvents.some((event) => event.label === "生成标题大字展示"),
+		).toBe(true);
+		expect(
+			progressEvents.some((event) => event.label === "已生成标题大字层"),
+		).toBe(true);
 		expect(
 			progressEvents.some((event) => event.label === "已生成洞察标注层"),
 		).toBe(true);
 		expect(scene.tracks.overlay[0]!.elements).toHaveLength(3);
 		expect(
 			scene.tracks.overlay[0]!.elements.map((element) => element.startTime),
-			).toEqual([
-				0,
-				Math.round(2.8 * MEDIA_TIME_TICKS_PER_SECOND),
-				Math.round(5.2 * MEDIA_TIME_TICKS_PER_SECOND),
-			]);
+		).toEqual([
+			0,
+			Math.round(2.8 * MEDIA_TIME_TICKS_PER_SECOND),
+			Math.round(5.2 * MEDIA_TIME_TICKS_PER_SECOND),
+		]);
 		expect(insertElement.mock.calls[0]?.[0].placement).toEqual({
 			mode: "explicit",
 			trackId: "graphic-track",

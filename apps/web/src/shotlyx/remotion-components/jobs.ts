@@ -1,5 +1,9 @@
 import { generateUUID } from "@/utils/id";
 import { createShotlyxMGCompositionPlan } from "./composition-director";
+import {
+	buildShotlyxMGCompositionGenerationGuidance,
+	resolveMGCompositionStyleGuide,
+} from "./composition-prompt";
 import type { GenerateShotlyxMGComponentOptions } from "./generator";
 import {
 	buildRemotionSkillContextSummary,
@@ -88,15 +92,27 @@ function buildComponentPrompt({
 	total: number;
 }): string {
 	if (total <= 1) return input.prompt;
+	const styleGuide = resolveMGCompositionStyleGuide({
+		styleGuide: input.styleGuide,
+		componentCount: total,
+	});
 	const directorPlan = createShotlyxMGCompositionPlan({
 		prompt: input.prompt,
 		componentCount: total,
 		durationSeconds: input.durationSeconds,
-		styleGuide: input.styleGuide,
+		styleGuide,
 	});
 	const component = directorPlan.components[index];
 	if (!component) return input.prompt;
 	return [
+		buildShotlyxMGCompositionGenerationGuidance({
+			description: input.prompt,
+			aspectRatio: input.aspectRatio ?? "16:9",
+			durationSeconds: component.durationSeconds,
+			componentCount: total,
+			styleGuide,
+			transparentBackground: input.transparentBackground !== false,
+		}),
 		`组合式 Shotlyx MG 总需求：${input.prompt}`,
 		`Director 总体概念：${directorPlan.title}`,
 		`Director 视觉风格：${directorPlan.visualStyle}`,
@@ -127,13 +143,19 @@ function getJobComponentDurationSeconds({
 	total: number;
 }): number | undefined {
 	if (total <= 1) return input.durationSeconds;
+	const styleGuide = resolveMGCompositionStyleGuide({
+		styleGuide: input.styleGuide,
+		componentCount: total,
+	});
 	const directorPlan = createShotlyxMGCompositionPlan({
 		prompt: input.prompt,
 		componentCount: total,
 		durationSeconds: input.durationSeconds,
-		styleGuide: input.styleGuide,
+		styleGuide,
 	});
-	return directorPlan.components[index]?.durationSeconds ?? input.durationSeconds;
+	return (
+		directorPlan.components[index]?.durationSeconds ?? input.durationSeconds
+	);
 }
 
 function buildFallbackComponentPrompt({
@@ -190,13 +212,7 @@ function isSpecificRepairableMGError(message: string): boolean {
 	);
 }
 
-function emit({
-	job,
-	event,
-}: {
-	job: ShotlyxMGJob;
-	event: ShotlyxMGJobEvent;
-}) {
+function emit({ job, event }: { job: ShotlyxMGJob; event: ShotlyxMGJobEvent }) {
 	job.events.push(event);
 	logJobEvent({ event });
 	for (const subscriber of job.subscribers) {
@@ -371,6 +387,10 @@ async function generateMGComponentForJob({
 		},
 	});
 
+	const styleGuide = resolveMGCompositionStyleGuide({
+		styleGuide: job.input.styleGuide,
+		componentCount,
+	});
 	const basePrompt = buildComponentPrompt({
 		input: job.input,
 		index: componentIndex,
@@ -392,6 +412,7 @@ async function generateMGComponentForJob({
 				timeoutMs: componentTimeoutMs,
 				args: {
 					...job.input,
+					styleGuide,
 					durationSeconds: getJobComponentDurationSeconds({
 						input: job.input,
 						index: componentIndex,
@@ -511,9 +532,13 @@ async function runShotlyxMGJob({
 		Math.max(job.input.componentCount ?? 1, 1),
 		5,
 	);
+	const styleGuide = resolveMGCompositionStyleGuide({
+		styleGuide: job.input.styleGuide,
+		componentCount,
+	});
 	const remotionSkill = buildRemotionSkillContextSummary({
 		prompt: job.input.prompt,
-		styleGuide: job.input.styleGuide,
+		styleGuide,
 	});
 	emitRemotionSkillContext({
 		job,
@@ -523,7 +548,7 @@ async function runShotlyxMGJob({
 		prompt: job.input.prompt,
 		componentCount,
 		durationSeconds: job.input.durationSeconds,
-		styleGuide: job.input.styleGuide,
+		styleGuide,
 	});
 	emit({
 		job,
@@ -554,18 +579,17 @@ async function runShotlyxMGJob({
 	try {
 		const documents = await runParallelJobTasks({
 			tasks: directorPlan.components.slice(0, componentCount).map(
-				(component, index) =>
-					() =>
-						generateMGComponentForJob({
-							job,
-							generateDocumentFn,
-							componentIndex: index,
-							componentCount,
-							componentTimeoutMs,
-							componentRetryAttempts,
-							taskId: component.id,
-							taskLabel: component.label,
-						}),
+				(component, index) => () =>
+					generateMGComponentForJob({
+						job,
+						generateDocumentFn,
+						componentIndex: index,
+						componentCount,
+						componentTimeoutMs,
+						componentRetryAttempts,
+						taskId: component.id,
+						taskLabel: component.label,
+					}),
 			),
 		});
 		if (shouldCancelJob({ job })) {

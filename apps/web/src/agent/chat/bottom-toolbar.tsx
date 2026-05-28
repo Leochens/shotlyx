@@ -39,6 +39,11 @@ import {
 	buildRemotionMGCompositionPrompt,
 	buildSeedanceMediaPrompt,
 } from "./prompt-builders";
+import {
+	DEFAULT_MG_COMPOSITION_COMPONENT_COUNT,
+	SMART_MG_COMPOSITION_TEMPLATE_LABEL,
+	SMART_MG_COMPOSITION_STYLE_GUIDE,
+} from "@/shotlyx/remotion-components/composition-prompt";
 
 interface BottomToolbarProps {
 	input: string;
@@ -58,10 +63,9 @@ const MG_DURATIONS = [3, 5, 8, 10] as const;
 const REMOTION_MG_TEMPLATE_OPTIONS = [
 	{
 		value: "smart-composition",
-		label: "智能组合",
-		componentCount: 4,
-		styleGuide:
-			"Remotion 视频图形包装风格。根据需求自动拆分标题、重点强调、标注、数据图表、步骤流程和结论收束；避免网页卡片感，优先大层级、强对比、可读数据、细描边、留白和克制动效。",
+		label: SMART_MG_COMPOSITION_TEMPLATE_LABEL,
+		componentCount: DEFAULT_MG_COMPOSITION_COMPONENT_COUNT,
+		styleGuide: SMART_MG_COMPOSITION_STYLE_GUIDE,
 	},
 	{
 		value: "data-dashboard",

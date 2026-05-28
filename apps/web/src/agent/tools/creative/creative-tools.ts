@@ -10,6 +10,11 @@ import {
 	type ShotlyxMGCompositionComponentPlan,
 	type ShotlyxMGCompositionDirectorPlan,
 } from "@/shotlyx/remotion-components/composition-director";
+import {
+	DEFAULT_MG_COMPOSITION_COMPONENT_COUNT,
+	buildShotlyxMGCompositionGenerationGuidance,
+	resolveMGCompositionStyleGuide,
+} from "@/shotlyx/remotion-components/composition-prompt";
 import { registerShotlyxMGAsset } from "@/shotlyx/remotion-components/asset-store";
 import type { GenerateShotlyxMGComponentOptions } from "@/shotlyx/remotion-components/generator";
 import {
@@ -346,6 +351,8 @@ function buildCompositionComponentPrompt({
 	component,
 	componentIndex,
 	totalComponents,
+	aspectRatio,
+	styleGuide,
 	transparentBackground,
 }: {
 	prompt: string;
@@ -353,9 +360,19 @@ function buildCompositionComponentPrompt({
 	component: ShotlyxMGCompositionComponentPlan;
 	componentIndex: number;
 	totalComponents: number;
+	aspectRatio: string;
+	styleGuide?: string;
 	transparentBackground: boolean;
 }): string {
 	return [
+		buildShotlyxMGCompositionGenerationGuidance({
+			description: prompt,
+			aspectRatio,
+			durationSeconds: component.durationSeconds,
+			componentCount: totalComponents,
+			styleGuide,
+			transparentBackground,
+		}),
 		`组合式 Shotlyx MG 总需求：${prompt}`,
 		`Director 总体概念：${directorPlan.title}`,
 		`Director 视觉风格：${directorPlan.visualStyle}`,
@@ -2429,12 +2446,12 @@ export function buildCreativeTools({
 				styleGuide: {
 					type: "string",
 					description:
-						"可选风格或品牌约束。只有用户明确给出、项目已有品牌上下文，或上层 Agent 判断必须确认时才提供。",
+						"可选风格或品牌约束。省略时使用智能组合的 Shotlyx Remotion 视频图形包装风格。",
 					optional: true,
 				},
 				componentCount: {
 					type: "number",
-					description: "拆分生成的小组件数量，默认 3，最大 5",
+					description: "拆分生成的小组件数量，默认 4，最大 5",
 					optional: true,
 				},
 				startTimeSeconds: {
@@ -2477,12 +2494,15 @@ export function buildCreativeTools({
 					"componentCount",
 				);
 				const componentCount = requirePositiveInteger({
-					value: componentCountValue ?? 3,
+					value: componentCountValue ?? DEFAULT_MG_COMPOSITION_COMPONENT_COUNT,
 					key: "componentCount",
 					max: 5,
 				});
 				const aspectRatio = optionalAspectRatioParam(params) ?? "16:9";
-				const styleGuide = optionalStringParam(params, "styleGuide");
+				const styleGuide = resolveMGCompositionStyleGuide({
+					styleGuide: optionalStringParam(params, "styleGuide"),
+					componentCount,
+				});
 				const transparentBackground =
 					optionalBooleanParam(params, "transparentBackground") ?? true;
 				const insertToTimeline =
@@ -2611,6 +2631,8 @@ export function buildCreativeTools({
 								component,
 								componentIndex: index,
 								totalComponents: componentPlans.length,
+								aspectRatio,
+								styleGuide,
 								transparentBackground,
 							}),
 							durationSeconds: component.durationSeconds,
@@ -3174,30 +3196,29 @@ export function buildCreativeTools({
 						);
 					}
 					const updatedAt = new Date().toISOString();
-					const nextAsset: ShotlyxMGAsset =
-						{
-							...shotlyxAsset,
+					const nextAsset: ShotlyxMGAsset = {
+						...shotlyxAsset,
+						name: nextName,
+						document: {
+							...shotlyxAsset.document,
 							name: nextName,
-							document: {
-								...shotlyxAsset.document,
-								name: nextName,
-								durationSeconds: nextDuration,
-								transparentBackground: nextTransparentBackground,
-								defaultProps: nextDefaultProps,
-								manifest: shotlyxAsset.document.manifest
-									? {
-											...shotlyxAsset.document.manifest,
-											name: nextName,
-											durationSeconds: nextDuration,
-											transparentBackground: nextTransparentBackground,
-											durationInFrames: Math.round(
-												nextDuration * shotlyxAsset.document.fps,
-											),
-										}
-									: undefined,
-							},
-							updatedAt,
-						};
+							durationSeconds: nextDuration,
+							transparentBackground: nextTransparentBackground,
+							defaultProps: nextDefaultProps,
+							manifest: shotlyxAsset.document.manifest
+								? {
+										...shotlyxAsset.document.manifest,
+										name: nextName,
+										durationSeconds: nextDuration,
+										transparentBackground: nextTransparentBackground,
+										durationInFrames: Math.round(
+											nextDuration * shotlyxAsset.document.fps,
+										),
+									}
+								: undefined,
+						},
+						updatedAt,
+					};
 					editor.project.upsertShotlyxMGAsset({ asset: nextAsset });
 					return {
 						updated: true,
