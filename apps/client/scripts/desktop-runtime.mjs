@@ -2,8 +2,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 
-export const DEFAULT_WEB_URL = "http://127.0.0.1:3100/desktop";
-const DEFAULT_DESKTOP_PORT = new URL(DEFAULT_WEB_URL).port;
+export const DEFAULT_WEB_URL = "http://127.0.0.1:5173/desktop";
 
 export function getDesktopRuntime(
 	webUrl = process.env.SHOTLYX_WEB_URL ?? DEFAULT_WEB_URL,
@@ -24,17 +23,14 @@ export function getDesktopRuntime(
 }
 
 export function createDesktopEnv(runtime = getDesktopRuntime()) {
-	const defaultDistDir =
-		runtime.port === DEFAULT_DESKTOP_PORT
-			? ".next-desktop"
-			: ".next-desktop-alt";
-
 	return {
 		...process.env,
 		PORT: process.env.PORT ?? runtime.port,
 		SHOTLYX_DESKTOP: "1",
-		SHOTLYX_DESKTOP_DIST_DIR:
-			process.env.SHOTLYX_DESKTOP_DIST_DIR ?? defaultDistDir,
+		SHOTLYX_RENDERER_ORIGIN:
+			process.env.SHOTLYX_RENDERER_ORIGIN ?? runtime.origin,
+		NEXT_PUBLIC_SHOTLYX_API_ORIGIN:
+			process.env.NEXT_PUBLIC_SHOTLYX_API_ORIGIN ?? "app://shotlyx",
 		NEXT_PUBLIC_SHOTLYX_DESKTOP: "1",
 		NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL ?? runtime.origin,
 		NEXT_PUBLIC_MARBLE_API_URL:

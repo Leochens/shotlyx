@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants } from "node:fs";
+import { accessSync, constants, readdirSync } from "node:fs";
 import path from "node:path";
 import type { ModelMessage } from "ai";
 import type { FunctionSchema } from "@/agent/mcp/schema";
@@ -133,10 +133,62 @@ function homePath({
 	return home ? path.join(home, ...segments) : null;
 }
 
+function nodeVersionManagerBinDirs({
+	env,
+	rootSegments,
+	binSegments,
+}: {
+	env: Record<string, string | undefined>;
+	rootSegments: string[];
+	binSegments: string[];
+}): string[] {
+	const root = homePath({ env, segments: rootSegments });
+	if (!root) return [];
+
+	try {
+		return readdirSync(root, { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => path.join(root, entry.name, ...binSegments))
+			.filter((binDir) => isExecutable(path.join(binDir, "node")))
+			.sort()
+			.reverse();
+	} catch {
+		return [];
+	}
+}
+
+function nodeRuntimePathDirs(
+	env: Record<string, string | undefined>,
+): string[] {
+	return [
+		...nodeVersionManagerBinDirs({
+			env,
+			rootSegments: [".nvm", "versions", "node"],
+			binSegments: ["bin"],
+		}),
+		...nodeVersionManagerBinDirs({
+			env,
+			rootSegments: [".fnm", "node-versions"],
+			binSegments: ["installation", "bin"],
+		}),
+		...nodeVersionManagerBinDirs({
+			env,
+			rootSegments: [".local", "share", "fnm", "node-versions"],
+			binSegments: ["installation", "bin"],
+		}),
+	];
+}
+
 function commonRuntimePathDirs(
 	env: Record<string, string | undefined>,
 ): string[] {
 	const extras = [
+		homePath({ env, segments: [".local", "bin"] }),
+		homePath({ env, segments: [".bun", "bin"] }),
+		homePath({ env, segments: [".volta", "bin"] }),
+		homePath({ env, segments: [".asdf", "shims"] }),
+		homePath({ env, segments: [".nodenv", "shims"] }),
+		...nodeRuntimePathDirs(env),
 		"/opt/homebrew/bin",
 		"/opt/homebrew/sbin",
 		"/usr/local/bin",
@@ -145,11 +197,6 @@ function commonRuntimePathDirs(
 		"/bin",
 		"/usr/sbin",
 		"/sbin",
-		homePath({ env, segments: [".local", "bin"] }),
-		homePath({ env, segments: [".bun", "bin"] }),
-		homePath({ env, segments: [".volta", "bin"] }),
-		homePath({ env, segments: [".asdf", "shims"] }),
-		homePath({ env, segments: [".nodenv", "shims"] }),
 	].filter(Boolean);
 	return Array.from(new Set(extras));
 }

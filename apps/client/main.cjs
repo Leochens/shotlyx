@@ -1,7 +1,7 @@
 const fs = require("node:fs");
-const net = require("node:net");
 const path = require("node:path");
-const { app, BrowserWindow, dialog, shell, utilityProcess } = require("electron");
+const { pathToFileURL } = require("node:url");
+const { app, BrowserWindow, dialog, net, protocol, shell } = require("electron");
 
 let autoUpdater = null;
 try {
@@ -11,143 +11,174 @@ try {
 }
 
 const PRODUCT_NAME = "Shotlyx Desktop";
-const DEFAULT_URL = "http://127.0.0.1:3100/desktop";
-const PACKAGED_SERVER_PORT = 3100;
-const SERVER_READY_TIMEOUT_MS = 120_000;
+const LOCAL_PROTOCOL = "app";
+const LOCAL_PROTOCOL_HOST = "shotlyx";
+const LOCAL_RENDERER_URL = "app://shotlyx/desktop";
 const RENDERER_EXIT_TIMEOUT_MS = 8_000;
+let apiHandlerPromise = null;
 
-let packagedWebUrl = null;
-let packagedServerProcess = null;
-let packagedServerExit = null;
-let isQuitting = false;
+protocol.registerSchemesAsPrivileged([
+	{
+		scheme: LOCAL_PROTOCOL,
+		privileges: {
+			standard: true,
+			secure: true,
+			supportFetchAPI: true,
+			corsEnabled: true,
+			stream: true,
+		},
+	},
+]);
 
 function getStartUrl() {
-	return packagedWebUrl || process.env.SHOTLYX_WEB_URL || DEFAULT_URL;
+	return process.env.SHOTLYX_WEB_URL || LOCAL_RENDERER_URL;
+}
+
+function shouldUseLocalRenderer() {
+	return getStartUrl().startsWith(`${LOCAL_PROTOCOL}://`);
 }
 
 function delay(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isPortAvailable(port) {
-	return new Promise((resolve) => {
-		const server = net.createServer();
-		server.once("error", () => resolve(false));
-		server.once("listening", () => {
-			server.close(() => resolve(true));
-		});
-		server.listen(port, "127.0.0.1");
+function getRendererRoot() {
+	if (process.env.SHOTLYX_RENDERER_DIR) {
+		return process.env.SHOTLYX_RENDERER_DIR;
+	}
+	if (app.isPackaged) {
+		return path.join(process.resourcesPath, "desktop-web");
+	}
+	return path.join(__dirname, ".desktop-web");
+}
+
+function getApiBundlePath() {
+	if (process.env.SHOTLYX_API_BUNDLE) {
+		return process.env.SHOTLYX_API_BUNDLE;
+	}
+	if (app.isPackaged) {
+		return path.join(process.resourcesPath, "desktop-api", "desktop-api.mjs");
+	}
+	return path.join(__dirname, ".desktop-api", "desktop-api.mjs");
+}
+
+function responseWithStatus(message, status) {
+	return new Response(message, {
+		status,
+		headers: { "content-type": "text/plain; charset=utf-8" },
 	});
 }
 
-function getPackagedServerPath() {
-	return path.join(
-		process.resourcesPath,
-		"desktop-web",
-		"apps",
-		"web",
-		"server.js",
-	);
-}
-
-function getDesktopConfigPath() {
+function isInsideDirectory({ filePath, directory }) {
+	const relativePath = path.relative(directory, filePath);
 	return (
-		process.env.SHOTLYX_DESKTOP_CONFIG_PATH ||
-		path.join(app.getPath("userData"), "desktop-api-config.json")
+		relativePath === "" ||
+		(!relativePath.startsWith("..") && !path.isAbsolute(relativePath))
 	);
 }
 
-function createPackagedServerEnv(port) {
-	const origin = `http://127.0.0.1:${port}`;
-	return {
-		...process.env,
-		NODE_ENV: "production",
-		HOSTNAME: "127.0.0.1",
-		PORT: String(port),
-		SHOTLYX_DESKTOP: "1",
-		SHOTLYX_DESKTOP_CONFIG_PATH: getDesktopConfigPath(),
-		NEXT_PUBLIC_SHOTLYX_DESKTOP: "1",
-		NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || origin,
-		NEXT_PUBLIC_MARBLE_API_URL:
-			process.env.NEXT_PUBLIC_MARBLE_API_URL || origin,
-		BETTER_AUTH_SECRET:
-			process.env.BETTER_AUTH_SECRET || "shotlyx-desktop-local-secret",
-		UPSTASH_REDIS_REST_URL:
-			process.env.UPSTASH_REDIS_REST_URL || "http://127.0.0.1:8079",
-		UPSTASH_REDIS_REST_TOKEN:
-			process.env.UPSTASH_REDIS_REST_TOKEN || "shotlyx-desktop",
-		MARBLE_WORKSPACE_KEY:
-			process.env.MARBLE_WORKSPACE_KEY || "shotlyx-desktop",
-	};
+function isStaticAssetPath(pathname) {
+	return (
+		pathname.startsWith("/assets/") ||
+		pathname.startsWith("/fonts/") ||
+		pathname.startsWith("/images/") ||
+		pathname.startsWith("/videos/") ||
+		pathname === "/favicon.ico" ||
+		pathname === "/robots.txt" ||
+		pathname === "/sitemap.xml"
+	);
 }
 
-async function waitForPackagedServer(configUrl) {
-	const started = Date.now();
-	while (Date.now() - started < SERVER_READY_TIMEOUT_MS) {
-		if (packagedServerExit) {
-			throw new Error(
-				`Desktop web server exited before it became ready (code ${packagedServerExit.code ?? "unknown"}).`,
-			);
+async function serveRendererFile(filePath) {
+	return net.fetch(pathToFileURL(filePath).toString());
+}
+
+async function loadApiHandler() {
+	if (!apiHandlerPromise) {
+		const apiBundlePath = getApiBundlePath();
+		if (!fs.existsSync(apiBundlePath)) {
+			throw new Error(`Shotlyx desktop API bundle is missing: ${apiBundlePath}`);
+		}
+		apiHandlerPromise = import(pathToFileURL(apiBundlePath).toString()).then(
+			(module) => {
+				if (typeof module.handleElectronApiRequest !== "function") {
+					throw new Error("Desktop API bundle does not export a handler.");
+				}
+				return module.handleElectronApiRequest;
+			},
+		);
+	}
+	return apiHandlerPromise;
+}
+
+async function handleLocalApiRequest(request) {
+	try {
+		const handler = await loadApiHandler();
+		return await handler(request);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.error(`Shotlyx desktop API failed: ${message}`);
+		return Response.json(
+			{ error: "desktop_api_unavailable", message },
+			{ status: 500 },
+		);
+	}
+}
+
+function registerLocalRendererProtocol() {
+	protocol.handle(LOCAL_PROTOCOL, async (request) => {
+		const rendererRoot = getRendererRoot();
+		const url = new URL(request.url);
+		if (url.host !== LOCAL_PROTOCOL_HOST) {
+			return responseWithStatus("Not found", 404);
 		}
 
+		let pathname;
 		try {
-			const response = await fetch(configUrl, {
-				cache: "no-store",
-				signal: AbortSignal.timeout(2_000),
-			});
-			if (response.ok) return;
+			pathname = decodeURIComponent(url.pathname);
 		} catch {
-			// Keep waiting until the standalone Next server is ready.
+			return responseWithStatus("Bad request", 400);
 		}
 
-		await delay(800);
-	}
+		if (pathname.startsWith("/api/")) {
+			return handleLocalApiRequest(request);
+		}
 
-	throw new Error(`Timed out waiting for ${configUrl}`);
-}
-
-async function startPackagedServer() {
-	if (!app.isPackaged) return process.env.SHOTLYX_WEB_URL || DEFAULT_URL;
-
-	const serverPath = getPackagedServerPath();
-	if (!fs.existsSync(serverPath)) {
-		throw new Error(`Packaged web server is missing: ${serverPath}`);
-	}
-
-	const port = PACKAGED_SERVER_PORT;
-	if (!(await isPortAvailable(port))) {
-		throw new Error(
-			`Port ${port} is already in use. Shotlyx keeps this port stable so local projects and media stay on the same browser storage origin. Close the other process and restart Shotlyx.`,
-		);
-	}
-	const origin = `http://127.0.0.1:${port}`;
-	const configUrl = `${origin}/api/desktop/config`;
-
-	packagedServerProcess = utilityProcess.fork(serverPath, [], {
-		cwd: path.dirname(serverPath),
-		env: createPackagedServerEnv(port),
-		stdio: "ignore",
-		serviceName: "Shotlyx Desktop Web Server",
-	});
-
-	packagedServerProcess.on("exit", (code) => {
-		packagedServerExit = { code, signal: null };
-		if (!isQuitting) {
-			console.error(
-				`Shotlyx desktop web server exited with code ${code ?? "unknown"}`,
+		const indexPath = path.join(rendererRoot, "index.html");
+		if (!fs.existsSync(indexPath)) {
+			return responseWithStatus(
+				`Shotlyx renderer bundle is missing: ${indexPath}`,
+				500,
 			);
 		}
-	});
 
-	packagedServerProcess.on("error", (type, location) => {
-		packagedServerExit = { code: null, signal: null };
-		console.error(
-			`Failed to start Shotlyx desktop web server: ${type}${location ? ` at ${location}` : ""}`,
-		);
-	});
+		if (pathname === "/" || pathname === "") {
+			return serveRendererFile(indexPath);
+		}
 
-	await waitForPackagedServer(configUrl);
-	return `${origin}/desktop`;
+		const requestedPath = path.resolve(rendererRoot, pathname.slice(1));
+		if (!isInsideDirectory({ filePath: requestedPath, directory: rendererRoot })) {
+			return responseWithStatus("Forbidden", 403);
+		}
+
+		const stat = fs.existsSync(requestedPath) ? fs.statSync(requestedPath) : null;
+		if (stat?.isFile()) {
+			return serveRendererFile(requestedPath);
+		}
+
+		if (isStaticAssetPath(pathname)) {
+			return responseWithStatus("Not found", 404);
+		}
+
+		return serveRendererFile(indexPath);
+	});
+}
+
+function assertLocalRendererAvailable() {
+	const indexPath = path.join(getRendererRoot(), "index.html");
+	if (!fs.existsSync(indexPath)) {
+		throw new Error(`Shotlyx renderer bundle is missing: ${indexPath}`);
+	}
 }
 
 function prepareRendererForClose(win) {
@@ -270,9 +301,12 @@ if (!hasSingleInstanceLock) {
 		win.focus();
 	});
 
-	app.whenReady().then(async () => {
+	app.whenReady().then(() => {
 		try {
-			packagedWebUrl = await startPackagedServer();
+			registerLocalRendererProtocol();
+			if (shouldUseLocalRenderer()) {
+				assertLocalRendererAvailable();
+			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			dialog.showErrorBox(`${PRODUCT_NAME} failed to start`, message);
@@ -290,16 +324,6 @@ if (!hasSingleInstanceLock) {
 		});
 	});
 }
-
-app.on("before-quit", () => {
-	isQuitting = true;
-});
-
-app.on("will-quit", () => {
-	if (packagedServerProcess?.pid) {
-		packagedServerProcess.kill();
-	}
-});
 
 app.on("window-all-closed", () => {
 	if (process.platform !== "darwin") {

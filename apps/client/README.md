@@ -1,8 +1,8 @@
 # Shotlyx Desktop Packaging
 
 The desktop app is packaged with `electron-builder`. Packaged builds embed the
-Next.js standalone output from `apps/web/.next-desktop` and start it locally when
-the app launches.
+Vite renderer output from `apps/web/dist` and load it through Electron's local
+`app://shotlyx` protocol. Packaged builds do not start a localhost web server.
 
 ## Local packages
 

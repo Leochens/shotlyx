@@ -122,6 +122,68 @@ exit 0
 		}
 	});
 
+	test("runs env-node CLI shims when node only exists under nvm", async () => {
+		const previousHome = process.env.HOME;
+		const previousPath = process.env.PATH;
+		const homeDir = path.join(tempDir, "home");
+		const nvmBin = path.join(
+			homeDir,
+			".nvm",
+			"versions",
+			"node",
+			"v22.12.0",
+			"bin",
+		);
+		const appBin = path.join(homeDir, ".npm-global", "bin");
+		mkdirSync(nvmBin, { recursive: true });
+		mkdirSync(appBin, { recursive: true });
+		process.env.HOME = homeDir;
+		process.env.PATH = "/usr/bin:/bin";
+		try {
+			const fakeNode = path.join(nvmBin, "node");
+			writeFileSync(
+				fakeNode,
+				`#!/usr/bin/env bash
+if [[ "$2" == "--version" ]]; then echo "nvm node resolved"; exit 0; fi
+exit 0
+`,
+				"utf8",
+			);
+			chmodSync(fakeNode, 0o755);
+			const fakeClaude = path.join(appBin, "claude");
+			writeFileSync(
+				fakeClaude,
+				`#!/usr/bin/env node
+`,
+				"utf8",
+			);
+			chmodSync(fakeClaude, 0o755);
+
+			const agents = await detectLocalCliAgents({
+				env: {
+					PATH: "/usr/bin:/bin",
+					SHOTLYX_CLAUDE_BIN: fakeClaude,
+				},
+			});
+
+			expect(agents.find((agent) => agent.id === "claude")).toMatchObject({
+				available: true,
+				version: "nvm node resolved",
+			});
+		} finally {
+			if (previousHome === undefined) {
+				delete process.env.HOME;
+			} else {
+				process.env.HOME = previousHome;
+			}
+			if (previousPath === undefined) {
+				delete process.env.PATH;
+			} else {
+				process.env.PATH = previousPath;
+			}
+		}
+	});
+
 	test("builds safe stdin-based commands for Claude Code and Codex", () => {
 		expect(
 			buildLocalCliCommand({

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { createDesktopEnv } from "./desktop-runtime.mjs";
+import { prepareDesktopApiBundle } from "./prepare-desktop-api.mjs";
 import { prepareDesktopWebBundle } from "./prepare-desktop-web.mjs";
 
 const clientDir = path.resolve(
@@ -14,7 +15,13 @@ function runWebBuild() {
 	return new Promise((resolve, reject) => {
 		const buildProcess = spawn("bun", ["run", "--cwd", "apps/web", "build"], {
 			cwd: repoRoot,
-			env: createDesktopEnv(),
+			env: {
+				...createDesktopEnv(),
+				SHOTLYX_RENDERER_ORIGIN: "app://shotlyx",
+				NEXT_PUBLIC_SHOTLYX_API_ORIGIN: "app://shotlyx",
+				NEXT_PUBLIC_SITE_URL: "app://shotlyx",
+				NEXT_PUBLIC_MARBLE_API_URL: "app://shotlyx",
+			},
 			stdio: "inherit",
 		});
 
@@ -29,10 +36,42 @@ function runWebBuild() {
 	});
 }
 
+function runApiBuild() {
+	return new Promise((resolve, reject) => {
+		const buildProcess = spawn(
+			"bun",
+			["run", "--cwd", "apps/web", "build:desktop-api"],
+			{
+				cwd: repoRoot,
+				env: {
+					...createDesktopEnv(),
+					SHOTLYX_RENDERER_ORIGIN: "app://shotlyx",
+					NEXT_PUBLIC_SHOTLYX_API_ORIGIN: "app://shotlyx",
+					NEXT_PUBLIC_SITE_URL: "app://shotlyx",
+					NEXT_PUBLIC_MARBLE_API_URL: "app://shotlyx",
+				},
+				stdio: "inherit",
+			},
+		);
+
+		buildProcess.on("error", reject);
+		buildProcess.on("exit", (code) => {
+			if (code === 0 || code === null) {
+				resolve();
+			} else {
+				reject(new Error(`Desktop API build exited with code ${code}`));
+			}
+		});
+	});
+}
+
 try {
 	await runWebBuild();
-	const preparedPath = await prepareDesktopWebBundle();
-	console.log(`Prepared desktop web bundle at ${preparedPath}`);
+	await runApiBuild();
+	const preparedRendererPath = await prepareDesktopWebBundle();
+	const preparedApiPath = await prepareDesktopApiBundle();
+	console.log(`Prepared desktop renderer bundle at ${preparedRendererPath}`);
+	console.log(`Prepared desktop API bundle at ${preparedApiPath}`);
 } catch (error) {
 	console.error(error);
 	process.exit(1);

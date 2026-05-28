@@ -7,6 +7,7 @@ import {
 	getDesktopRuntime,
 	getElectronCommand,
 } from "./desktop-runtime.mjs";
+import { prepareDesktopApiBundle } from "./prepare-desktop-api.mjs";
 
 const clientDir = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -18,38 +19,6 @@ const hasExplicitWebUrl = Boolean(process.env.SHOTLYX_WEB_URL);
 let runtime = getDesktopRuntime();
 let desktopEnv = createDesktopEnv(runtime);
 let webProcessExitCode = null;
-
-async function readServerStatus(targetRuntime = runtime) {
-	try {
-		const response = await fetch(targetRuntime.configUrl, {
-			cache: "no-store",
-			signal: AbortSignal.timeout(2_000),
-		});
-		if (response.ok) return "ready";
-
-		try {
-			const data = await response.json();
-			if (
-				typeof data === "object" &&
-				data !== null &&
-				"error" in data &&
-				typeof data.error === "string" &&
-				data.error.includes("desktop_config_disabled")
-			) {
-				return "wrong-mode";
-			}
-		} catch {
-			// The endpoint exists but did not return the desktop config payload.
-		}
-		return "not-ready";
-	} catch {
-		return "offline";
-	}
-}
-
-async function isServerReady() {
-	return (await readServerStatus()) === "ready";
-}
 
 function isPortAvailable(targetRuntime) {
 	return new Promise((resolve) => {
@@ -69,38 +38,18 @@ function runtimeWithPort(port) {
 }
 
 async function resolveRuntime() {
-	const status = await readServerStatus(runtime);
-	if (status === "ready") {
+	if (hasExplicitWebUrl) {
 		return { shouldStartServer: false };
 	}
 
-	if (hasExplicitWebUrl) {
-		if (status === "wrong-mode") {
-			throw new Error(
-				`${runtime.origin} is running, but not in Shotlyx desktop mode. Stop that server or set SHOTLYX_WEB_URL to a free port.`,
-			);
-		}
-		return { shouldStartServer: true };
-	}
-
-	if (status === "offline" && (await isPortAvailable(runtime))) {
+	if (await isPortAvailable(runtime)) {
 		return { shouldStartServer: true };
 	}
 
 	const firstPort = Number(runtime.port);
 	for (let port = firstPort + 1; port <= firstPort + 20; port += 1) {
 		const candidate = runtimeWithPort(port);
-		const candidateStatus = await readServerStatus(candidate);
-		if (candidateStatus === "ready") {
-			runtime = candidate;
-			desktopEnv = createDesktopEnv(runtime);
-			console.log(`Using existing desktop server at ${runtime.origin}`);
-			return { shouldStartServer: false };
-		}
-		if (
-			candidateStatus === "offline" &&
-			(await isPortAvailable(candidate))
-		) {
+		if (await isPortAvailable(candidate)) {
 			console.log(
 				`${runtime.origin} is already in use; starting Shotlyx Desktop on ${candidate.origin}`,
 			);
@@ -115,18 +64,28 @@ async function resolveRuntime() {
 	);
 }
 
-async function waitForServer() {
+async function waitForRenderer() {
 	const started = Date.now();
 	while (Date.now() - started < 120_000) {
 		if (webProcessExitCode !== null) {
 			throw new Error(
-				`Next.js dev server exited before desktop mode became ready (code ${webProcessExitCode}).`,
+				`Vite dev server exited before Shotlyx Desktop became ready (code ${webProcessExitCode}).`,
 			);
 		}
-		if (await isServerReady()) return;
-		await new Promise((resolve) => setTimeout(resolve, 800));
+
+		try {
+			const response = await fetch(runtime.webUrl, {
+				cache: "no-store",
+				signal: AbortSignal.timeout(2_000),
+			});
+			if (response.ok) return;
+		} catch {
+			// Keep waiting for Vite to start.
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, 500));
 	}
-	throw new Error(`Timed out waiting for ${runtime.configUrl}`);
+	throw new Error(`Timed out waiting for ${runtime.webUrl}`);
 }
 
 let webProcess = null;
@@ -137,12 +96,53 @@ function shutdown() {
 	if (webProcess && !webProcess.killed) webProcess.kill();
 }
 
+function runApiBuild() {
+	return new Promise((resolve, reject) => {
+		const buildProcess = spawn(
+			"bun",
+			["run", "--cwd", "apps/web", "build:desktop-api"],
+			{
+				cwd: repoRoot,
+				env: {
+					...desktopEnv,
+					SHOTLYX_RENDERER_ORIGIN: "app://shotlyx",
+					NEXT_PUBLIC_SHOTLYX_API_ORIGIN: "app://shotlyx",
+					NEXT_PUBLIC_SITE_URL: "app://shotlyx",
+					NEXT_PUBLIC_MARBLE_API_URL: "app://shotlyx",
+				},
+				stdio: "inherit",
+			},
+		);
+
+		buildProcess.on("error", reject);
+		buildProcess.on("exit", (code) => {
+			if (code === 0 || code === null) {
+				resolve();
+			} else {
+				reject(new Error(`Desktop API build exited with code ${code}`));
+			}
+		});
+	});
+}
+
 const { shouldStartServer } = await resolveRuntime();
+
+await runApiBuild();
+await prepareDesktopApiBundle();
 
 if (shouldStartServer) {
 	webProcess = spawn(
 		"bun",
-		["run", "dev", "--", "--hostname", runtime.hostname, "--port", runtime.port],
+		[
+			"run",
+			"dev",
+			"--",
+			"--host",
+			runtime.hostname,
+			"--port",
+			runtime.port,
+			"--strictPort",
+		],
 		{
 			cwd: path.join(repoRoot, "apps/web"),
 			env: desktopEnv,
@@ -150,7 +150,7 @@ if (shouldStartServer) {
 		},
 	);
 	webProcess.on("error", (error) => {
-		console.error(`Failed to start Next.js dev server: ${error.message}`);
+		console.error(`Failed to start Vite dev server: ${error.message}`);
 		shutdown();
 		process.exit(1);
 	});
@@ -163,7 +163,7 @@ if (shouldStartServer) {
 	});
 }
 
-await waitForServer();
+await waitForRenderer();
 
 electronProcess = spawn(
 	electronCommand.command,

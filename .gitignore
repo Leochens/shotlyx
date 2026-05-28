@@ -36,7 +36,10 @@ playwright-report/
 test-results/
 **/test-results/
 apps/client/.desktop-web/
+apps/client/.desktop-api/
 apps/client/release/
+apps/web/dist/
+apps/web/dist-electron/
 
 # content-collections
 .content-collections

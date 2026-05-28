@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 const isDesktopE2E = process.env.SHOTLYX_DESKTOP === "1";
 const e2ePort = process.env.PLAYWRIGHT_PORT ?? "3000";
 const baseURL = `http://127.0.0.1:${e2ePort}`;
-const webServerCommand = `bun run dev -- --hostname 127.0.0.1 --port ${e2ePort}`;
+const webServerCommand = `bun run dev -- --host 127.0.0.1 --port ${e2ePort} --strictPort`;
 
 export default defineConfig({
 	testDir: "./e2e/specs",
