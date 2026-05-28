@@ -20,21 +20,37 @@ describe("Shotlyx MG composition director", () => {
 		expect(plan.components[1]?.focus).toContain("感知");
 		expect(plan.components[2]?.focus).toContain("Function Calling");
 		expect(plan.components[3]?.qualityBar).toContain("闭环");
+		expect(plan.components.map((component) => component.durationSeconds)).toEqual([
+			3,
+			4.2,
+			3.8,
+			3.6,
+		]);
 	});
 
 	test("keeps chart requests focused on data hierarchy", () => {
 		const plan = createShotlyxMGCompositionPlan({
 			prompt: "做一个中国人口近十年变化折线图 MG",
-			componentCount: 3,
+			componentCount: 4,
 			durationSeconds: 8,
 		});
 
 		expect(plan.components.map((component) => component.id)).toEqual([
-			"context-background",
-			"data-main",
-			"insight-callout",
+			"title-reveal",
+			"metric-emphasis",
+			"annotation-callout",
+			"data-table",
 		]);
-		expect(plan.components[1]?.qualityBar).toContain("propsSchema table");
-		expect(plan.components[2]?.screenTiming).toBe("16.0s-24.0s");
+		expect(plan.components[0]?.label).toContain("标题");
+		expect(plan.components[1]?.label).toContain("重点");
+		expect(plan.components[2]?.qualityBar).toContain("圆圈或方框");
+		expect(plan.components[3]?.qualityBar).toContain("propsSchema table");
+		expect(plan.components.map((component) => component.durationSeconds)).toEqual([
+			2.8,
+			2.4,
+			1.8,
+			3.8,
+		]);
+		expect(plan.components[2]?.screenTiming).toBe("5.2s-7.0s");
 	});
 });

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { clearShotlyxMGAssets } from "@/shotlyx/remotion-components";
-import { generateShotlyxHyperFramesDocument } from "@/shotlyx/hyperframes/generator";
 import { shotlyxBattleCardFixture } from "@/shotlyx/remotion-components/fixtures/battle-card";
 import type { EditorCore } from "@/core";
 import type { TimelineElement } from "@/timeline";
@@ -551,98 +550,6 @@ describe("buildCreativeTools", () => {
 		expect(result.editableProps.some((prop) => prop.key === "title")).toBe(
 			true,
 		);
-		const insertedGraphic = scene.tracks.overlay[0]!.elements[0] as
-			| (TimelineElement & {
-					definitionId?: string;
-					motionGraphicAssetId?: string;
-			  })
-			| undefined;
-		expect(insertedGraphic?.definitionId).toBe("shotlyx-remotion-component");
-		expect(insertedGraphic?.motionGraphicAssetId).toBe(result.shotlyxMGAssetId);
-	});
-
-	test("shotlyx_generate_hyperframes_overlay saves a template asset and inserts it", async () => {
-		let selectedElements: Array<{ trackId: string; elementId: string }> = [];
-		const scene = {
-			tracks: {
-				main: { id: "main", type: "video", elements: [] },
-				overlay: [
-					{
-						id: "graphic-track",
-						type: "graphic",
-						elements: [] as TimelineElement[],
-					},
-				],
-				audio: [],
-			},
-		};
-		const insertElement = mock(
-			({ element }: { element: Omit<TimelineElement, "id"> }) => {
-				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-				const insertedElement = {
-					...element,
-					id: "hyperframes-el-1",
-				} as unknown as TimelineElement;
-				scene.tracks.overlay[0]!.elements.push(insertedElement);
-				selectedElements = [
-					{ trackId: "graphic-track", elementId: "hyperframes-el-1" },
-				];
-			},
-		);
-		const upsertShotlyxMGAsset = mock(() => undefined);
-		const generateHyperFrames = mock(generateShotlyxHyperFramesDocument);
-
-		const tools = buildCreativeTools({
-			editor: asEditorCore({
-				project: {
-					getActiveOrNull: () => ({ metadata: { id: "project-1" } }),
-					upsertShotlyxMGAsset,
-				},
-				scenes: {
-					getActiveSceneOrNull: () => scene,
-				},
-				selection: {
-					getSelectedElements: () => selectedElements,
-				},
-				playback: {
-					getCurrentTime: () => 0,
-				},
-				timeline: {
-					insertElement,
-				},
-			}),
-			deps: {
-				generateShotlyxHyperFramesFn: generateHyperFrames,
-			},
-		});
-
-		const generateTool = tools.find(
-			(tool) => tool.name === "shotlyx_generate_hyperframes_overlay",
-		);
-		const result = requireShotlyxMGComponentResult(
-			await generateTool?.handler({
-				prompt: "给人物右侧加一个数据流箭头提示关键步骤",
-				durationSeconds: 5,
-				aspectRatio: "16:9",
-				templateId: "data-drift-ai",
-			}),
-		);
-
-		expect(generateHyperFrames).toHaveBeenCalledTimes(1);
-		expect(generateHyperFrames.mock.calls[0]?.[0]).toMatchObject({
-			prompt: "给人物右侧加一个数据流箭头提示关键步骤",
-			durationSeconds: 5,
-			aspectRatio: "16:9",
-			templateId: "data-drift-ai",
-			transparentBackground: true,
-		});
-		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(1);
-		expect(insertElement).toHaveBeenCalledTimes(1);
-		expect(result.runtime).toBe("shotlyx-hyperframes-overlay-v1");
-		expect(result.inserted).toBe(true);
-		expect(
-			result.editableProps.some((prop) => prop.key === "accentColor"),
-		).toBe(true);
 		const insertedGraphic = scene.tracks.overlay[0]!.elements[0] as
 			| (TimelineElement & {
 					definitionId?: string;
@@ -1336,31 +1243,37 @@ describe("buildCreativeTools", () => {
 				audio: [],
 			},
 		};
-		const insertElement = mock(
-			({ element }: { element: Omit<TimelineElement, "id"> }) => {
-				const elementId = `shotlyx-el-${scene.tracks.overlay[0]!.elements.length + 1}`;
+			const insertElement = mock(
+				({ element }: { element: Omit<TimelineElement, "id"> }) => {
+					const elementId = `shotlyx-el-${scene.tracks.overlay[0]!.elements.length + 1}`;
 				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 				const insertedElement = {
 					...element,
 					id: elementId,
 				} as unknown as TimelineElement;
-				scene.tracks.overlay[0]!.elements.push(insertedElement);
-				selectedElements = [{ trackId: "graphic-track", elementId }];
-			},
-		);
-		const upsertShotlyxMGAsset = mock(() => undefined);
-		const generateShotlyxMGComponent = mock(
-			async ({ prompt }: { prompt: string }) => ({
-				...shotlyxBattleCardFixture,
-				name: prompt.includes("数据背景层")
-					? "深色背景层"
-					: prompt.includes("数据主体层")
-						? "人口折线图层"
-						: "洞察标注层",
-				durationSeconds: 8,
-				sourcePrompt: prompt,
-			}),
-		);
+					scene.tracks.overlay[0]!.elements.push(insertedElement);
+					selectedElements = [{ trackId: "graphic-track", elementId }];
+				},
+			);
+			const upsertShotlyxMGAsset = mock(() => undefined);
+			const generateShotlyxMGComponent = mock(
+				async ({
+					prompt,
+					durationSeconds,
+				}: {
+					prompt: string;
+					durationSeconds?: number;
+				}) => ({
+					...shotlyxBattleCardFixture,
+					name: prompt.includes("标题大字展示")
+						? "标题大字层"
+						: prompt.includes("重点突出展示")
+							? "人口指标层"
+							: "洞察标注层",
+					durationSeconds: durationSeconds ?? 8,
+					sourcePrompt: prompt,
+				}),
+			);
 		const progressEvents: Array<{
 			label?: string;
 			status?: string;
@@ -1406,13 +1319,19 @@ describe("buildCreativeTools", () => {
 					progressEvents.push(event);
 				},
 			},
-		);
+			);
 
-		expect(generateShotlyxMGComponent).toHaveBeenCalledTimes(3);
-		expect(generateShotlyxMGComponent.mock.calls[0]?.[0]).toMatchObject({
-			transparentBackground: true,
-		});
-		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(3);
+			expect(generateShotlyxMGComponent).toHaveBeenCalledTimes(3);
+			expect(generateShotlyxMGComponent.mock.calls[0]?.[0]).toMatchObject({
+				durationSeconds: 2.8,
+				transparentBackground: true,
+			});
+			expect(
+				generateShotlyxMGComponent.mock.calls.map(
+					(call) => call[0]?.durationSeconds,
+				),
+			).toEqual([2.8, 2.4, 1.8]);
+			expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(3);
 		expect(insertElement).toHaveBeenCalledTimes(3);
 		expect(result).toMatchObject({
 			runtime: "shotlyx-mg-composition-v1",
@@ -1427,40 +1346,52 @@ describe("buildCreativeTools", () => {
 			},
 			directorPlan: {
 				components: [
-					expect.objectContaining({ id: "context-background" }),
-					expect.objectContaining({ id: "data-main" }),
-					expect.objectContaining({ id: "insight-callout" }),
+					expect.objectContaining({
+						id: "title-reveal",
+						durationSeconds: 2.8,
+					}),
+					expect.objectContaining({
+						id: "metric-emphasis",
+						durationSeconds: 2.4,
+					}),
+					expect.objectContaining({
+						id: "annotation-callout",
+						durationSeconds: 1.8,
+					}),
 				],
 			},
 			components: [
-				{ name: "深色背景层" },
-				{ name: "人口折线图层" },
-				{ name: "洞察标注层" },
+				expect.objectContaining({ name: "标题大字层", durationSeconds: 2.8 }),
+				expect.objectContaining({ name: "人口指标层", durationSeconds: 2.4 }),
+				expect.objectContaining({
+					name: "洞察标注层",
+					durationSeconds: 1.8,
+				}),
 			],
 		});
 		expect(
 			progressEvents.some((event) => event.label === "已加载 Remotion Skill"),
 		).toBe(true);
-		expect(
-			progressEvents.some((event) => event.label === "已规划 MG Director 分镜"),
-		).toBe(true);
-		expect(
-			progressEvents.some((event) => event.label === "生成数据背景层"),
-		).toBe(true);
-		expect(
-			progressEvents.some((event) => event.label === "已生成深色背景层"),
-		).toBe(true);
+			expect(
+				progressEvents.some((event) => event.label === "已规划 MG Director 分镜"),
+			).toBe(true);
+			expect(
+				progressEvents.some((event) => event.label === "生成标题大字展示"),
+			).toBe(true);
+			expect(
+				progressEvents.some((event) => event.label === "已生成标题大字层"),
+			).toBe(true);
 		expect(
 			progressEvents.some((event) => event.label === "已生成洞察标注层"),
 		).toBe(true);
 		expect(scene.tracks.overlay[0]!.elements).toHaveLength(3);
 		expect(
 			scene.tracks.overlay[0]!.elements.map((element) => element.startTime),
-		).toEqual([
-			0,
-			8 * MEDIA_TIME_TICKS_PER_SECOND,
-			16 * MEDIA_TIME_TICKS_PER_SECOND,
-		]);
+			).toEqual([
+				0,
+				Math.round(2.8 * MEDIA_TIME_TICKS_PER_SECOND),
+				Math.round(5.2 * MEDIA_TIME_TICKS_PER_SECOND),
+			]);
 		expect(insertElement.mock.calls[0]?.[0].placement).toEqual({
 			mode: "explicit",
 			trackId: "graphic-track",

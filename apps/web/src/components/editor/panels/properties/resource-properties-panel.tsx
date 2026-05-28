@@ -268,8 +268,8 @@ function getShotlyxMGRendererLabel({
 	asset,
 }: {
 	asset: ShotlyxMGAsset;
-}): "HyperFrames" | "Remotion" {
-	return isShotlyxHyperFramesAsset(asset) ? "HyperFrames" : "Remotion";
+}): "Remotion" | "Legacy" {
+	return isShotlyxHyperFramesAsset(asset) ? "Legacy" : "Remotion";
 }
 
 function getShotlyxMGRendererDescription({
@@ -278,7 +278,7 @@ function getShotlyxMGRendererDescription({
 	asset: ShotlyxMGAsset;
 }): string {
 	return isShotlyxHyperFramesAsset(asset)
-		? "HyperFrames HTML overlay"
+		? "Legacy MG overlay"
 		: "Remotion React component";
 }
 
@@ -338,12 +338,6 @@ function ShotlyxMGResourceProperties({ asset }: { asset: ShotlyxMGAsset }) {
 							value={getShotlyxMGRendererDescription({ asset })}
 						/>
 						<ReadonlyField label="Runtime ID" value={asset.runtime} />
-						{isShotlyxHyperFramesAsset(asset) ? (
-							<ReadonlyField
-								label="Template"
-								value={asset.document.templateId}
-							/>
-						) : null}
 						<ReadonlyField
 							label="Duration"
 							value={formatDuration(asset.document.durationSeconds)}
@@ -376,9 +370,9 @@ function ShotlyxMGResourceProperties({ asset }: { asset: ShotlyxMGAsset }) {
 	);
 }
 
-function RendererBadge({ label }: { label: "HyperFrames" | "Remotion" }) {
+function RendererBadge({ label }: { label: "Remotion" | "Legacy" }) {
 	const className =
-		label === "HyperFrames"
+		label === "Legacy"
 			? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100"
 			: "border-violet-300/30 bg-violet-300/10 text-violet-100";
 

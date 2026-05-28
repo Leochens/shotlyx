@@ -92,13 +92,14 @@ function drawFallback({
 
 export const shotlyxMGGraphicDefinition: GraphicDefinition = {
 	id: SHOTLYX_MG_GRAPHIC_DEFINITION_ID,
-	name: "Shotlyx Remotion Component",
+	name: "Shotlyx Remotion MG",
 	category: "motion-graphic",
 	keywords: [
 		"shotlyx",
 		"mg",
 		"motion graphic",
 		"remotion",
+		"overlay",
 		"component",
 		"ai",
 	],

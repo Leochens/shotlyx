@@ -20,7 +20,7 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain("shotlyx_generate_mg_composition");
 		expect(prompt).toContain("Shotlyx Component MG");
 		expect(prompt).toContain(
-			"Do not ask for style choices just because the user mentioned MG animation",
+			"ask one concise style/template question when the user has not selected a Remotion preset",
 		);
 		expect(prompt).toContain(
 			"Do not format stock media candidates as Markdown lists",
@@ -48,6 +48,12 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain(
 			"When one user request asks for subtitles, voiceover, and MG",
 		);
+		expect(prompt).toContain("Remotion/Shotlyx Component MG is the only MG generation path");
+		expect(prompt).toContain(
+			"Do not use HTML/GSAP overlay generators for MG",
+		);
+		expect(prompt).toContain("never leave placeholder copy");
+		expect(prompt).toContain("duration as flexible");
 		expect(prompt).toContain("generate subtitles first");
 		expect(prompt).toContain("then generate the voiceover");
 		expect(prompt).toContain("then create MG from the timed subtitle segments");

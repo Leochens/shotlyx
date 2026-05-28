@@ -104,15 +104,36 @@ function buildComponentPrompt({
 		`现在只生成第 ${index + 1}/${total} 个小组件：${component.label}。`,
 		`组件职责：${component.focus}`,
 		`视觉角色：${component.visualRole}`,
+		`组件建议时长：${component.durationSeconds.toFixed(1)}s`,
 		`时间位置：${component.screenTiming}`,
 		`动效方向：${component.animationDirection}`,
 		`质量底线：${component.qualityBar}`,
+		"节奏要求：短促标注/箭头/圆圈可以只做 1-2 秒，不要为了填满默认时长而空等；如果该组件持续多秒，必须包含入场、保持期的轻微运动或强调、以及必要的退场，不能 1 秒动完后剩余时间空白。",
 		"这个组件会和其他小组件叠加使用，所以只输出自己负责的视觉层，不要试图完成整个动画。",
 		input.transparentBackground === false
 			? "背景模式：允许根据设计需要绘制完整背景。"
 			: "背景模式：透明。不要绘制全画布黑底/实底，只输出可叠加到视频上的局部图形、文字、线条和强调层。",
 		"所有用户后续可能修改的文字、颜色、数据、数值和显示开关都必须进入 propsSchema。",
 	].join("\n");
+}
+
+function getJobComponentDurationSeconds({
+	input,
+	index,
+	total,
+}: {
+	input: ShotlyxMGJobInput;
+	index: number;
+	total: number;
+}): number | undefined {
+	if (total <= 1) return input.durationSeconds;
+	const directorPlan = createShotlyxMGCompositionPlan({
+		prompt: input.prompt,
+		componentCount: total,
+		durationSeconds: input.durationSeconds,
+		styleGuide: input.styleGuide,
+	});
+	return directorPlan.components[index]?.durationSeconds ?? input.durationSeconds;
 }
 
 function buildFallbackComponentPrompt({
@@ -371,6 +392,11 @@ async function generateMGComponentForJob({
 				timeoutMs: componentTimeoutMs,
 				args: {
 					...job.input,
+					durationSeconds: getJobComponentDurationSeconds({
+						input: job.input,
+						index: componentIndex,
+						total: componentCount,
+					}),
 					prompt:
 						totalAttempt === 0
 							? basePrompt

@@ -269,6 +269,126 @@ export default function ShotlyxComponent(props: Props) {
 		);
 	});
 
+	test("normalizes missing prop labels and object table columns", async () => {
+		const generateTextMock = mock(async () => ({
+			output: {
+				name: "Revenue Table",
+				durationSeconds: 6,
+				fps: 30,
+				width: 1920,
+				height: 1080,
+				aspectRatio: "16:9",
+				componentSource: `
+type Props = { rows: Array<{ metric: string; value: string; change: string }>; accentColor: string };
+
+export default function ShotlyxComponent(props: Props) {
+	const { AbsoluteFill, useCurrentFrame, interpolate } = Remotion;
+	const frame = useCurrentFrame();
+	const opacity = interpolate(frame, [0, 20], [0, 1], { extrapolateRight: "clamp" });
+	return (
+		<AbsoluteFill style={{ opacity, color: props.accentColor }}>
+			{props.rows.map((row) => <div key={row.metric}>{row.metric}: {row.value} {row.change}</div>)}
+		</AbsoluteFill>
+	);
+}
+`,
+				propsSchema: [
+					{
+						key: "rows",
+						type: "table",
+						role: "data",
+						columns: [
+							{ key: "metric", label: "指标" },
+							{ key: "value", label: "数值" },
+							{ key: "change", label: "变化" },
+						],
+						default: [
+							["收入", "128万", "增长24%"],
+							["留存率", "68%", "提升12%"],
+						],
+					},
+					{
+						key: "accentColor",
+						type: "color",
+						role: "style",
+						default: "#38bdf8",
+					},
+				],
+			},
+		}));
+
+		const document = await generateShotlyxMGComponentDocument({
+			model: fakeModel(),
+			generateTextFn:
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				generateTextMock as unknown as NonNullable<
+					GenerateShotlyxMGComponentOptions["generateTextFn"]
+				>,
+			prompt: "做一个三行数据表格",
+			durationSeconds: 6,
+			aspectRatio: "16:9",
+		});
+
+		expect(document.propsSchema[0]).toMatchObject({
+			key: "rows",
+			label: "Rows",
+			columns: ["metric", "value", "change"],
+		});
+		expect(document.propsSchema[1]).toMatchObject({
+			key: "accentColor",
+			label: "Accent Color",
+		});
+		expect(document.defaultProps.rows).toEqual([
+			{ metric: "收入", value: "128万", change: "增长24%" },
+			{ metric: "留存率", value: "68%", change: "提升12%" },
+		]);
+	});
+
+	test("rejects duplicate generated prop keys before saving an asset", async () => {
+		const generateTextMock = mock(async () => ({
+			output: {
+				name: "Duplicate Props",
+				durationSeconds: 5,
+				fps: 30,
+				width: 1920,
+				height: 1080,
+				aspectRatio: "16:9",
+				componentSource: typewriterSource,
+				propsSchema: [
+					{
+						key: "title",
+						label: "Title",
+						type: "text",
+						role: "content",
+						default: "Hello MG",
+					},
+					{
+						key: "title",
+						label: "Duplicate title",
+						type: "text",
+						role: "content",
+						default: "Duplicate",
+					},
+				],
+			},
+		}));
+
+		await expect(
+			generateShotlyxMGComponentDocument({
+				model: fakeModel(),
+				generateTextFn:
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+					generateTextMock as unknown as NonNullable<
+						GenerateShotlyxMGComponentOptions["generateTextFn"]
+					>,
+				prompt: "做一个重复 key 的 MG",
+				durationSeconds: 5,
+				aspectRatio: "16:9",
+				repairAttempts: 0,
+			}),
+		).rejects.toThrow('propsSchema duplicate key "title"');
+	});
+
 	test("falls back to plain JSON generation when provider rejects response_format schema", async () => {
 		let calls = 0;
 		const generateTextMock = mock(async (options: { output?: unknown }) => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-	buildHyperFramesMGPrompt,
+	buildRemotionMGCompositionPrompt,
 	buildSeedanceMediaPrompt,
 } from "../prompt-builders";
 
@@ -16,18 +16,24 @@ describe("chat prompt builders", () => {
 		).toContain("creative_generate_seedance_video");
 	});
 
-	test("builds a HyperFrames MG prompt with the selected template", () => {
-		const prompt = buildHyperFramesMGPrompt({
-			description: "给字幕关键词加箭头和圆圈",
-			templateId: "data-drift-ai",
-			templateLabel: "Data Drift AI",
+	test("builds a Remotion MG composition prompt with the selected template", () => {
+		const prompt = buildRemotionMGCompositionPrompt({
+			description: "给数据视频加标题、圆圈和表格",
+			templateLabel: "数据图表",
+			styleGuide: "高级数据展示 MG 模板",
+			componentCount: 4,
 			aspectRatio: "16:9",
 			durationSeconds: 5,
 		});
 
-		expect(prompt).toContain("shotlyx_generate_hyperframes_overlay");
-		expect(prompt).toContain('"templateId": "data-drift-ai"');
-		expect(prompt).toContain('"transparentBackground": true');
-		expect(prompt).toContain("Data Drift AI");
+		expect(prompt).toContain("shotlyx_generate_mg_composition");
+		expect(prompt).toContain("数据图表");
+		expect(prompt).toContain('"componentCount":4');
+		expect(prompt).toContain("propsSchema/defaultProps");
+		expect(prompt).toContain("只允许使用 Remotion / Shotlyx Component");
+		expect(prompt).toContain("稳定唯一 key");
+		expect(prompt).toContain("只问一个简短问题让用户选择风格/目标");
+		expect(prompt).toContain("自动缩短到 1-2s");
+		expect(prompt).not.toContain("shotlyx_generate_hyperframes_overlay");
 	});
 });

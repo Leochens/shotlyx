@@ -175,7 +175,7 @@ export function ShotlyxMGAssetDialog({
 						<div className="rounded-md border border-neutral-800 bg-neutral-900/70 p-3">
 							<p className="text-xs font-medium text-neutral-300">
 								{isShotlyxHyperFramesAsset(asset)
-									? "Shotlyx HyperFrames Overlay"
+									? "Shotlyx Legacy MG Overlay"
 									: "Shotlyx Remotion Component"}
 							</p>
 							<p className="mt-1 text-xs text-neutral-500">

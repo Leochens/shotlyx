@@ -136,6 +136,7 @@ function buildSystemPrompt({ skillContext }: { skillContext: string }): string {
 		"For table row rendering, always read cells with the exact declared column key. Use bracket access like row[\"核心症状\"] for non-English labels; never invent aliases such as row.symptom unless the column is literally named symptom.",
 		"Never use fetch, XMLHttpRequest, WebSocket, eval, Function, document, window, localStorage, sessionStorage, indexedDB, require, or dynamic import.",
 		"Animations must be deterministic from frame number and props. No randomness unless derived from deterministic props.",
+		'Never use placeholder copy such as "标题", "标题强调", "Subtitle", "Focus here", "Lorem", or "Example". Extract concrete copy, numbers, and row data from the user request.',
 		skillContext,
 	].join("\n");
 }
@@ -161,6 +162,8 @@ function buildUserPrompt({
 	return [
 		`User request: ${prompt}`,
 		`Duration: ${durationSeconds}s`,
+		"Treat Duration as the real visible runtime for this component, not just an intro. If the main reveal finishes early, keep the design alive with subtle hold motion, pulsing highlights, cursor/scanline movement, counter shimmer, or a clean exit until the last frame. Do not leave the component blank or visually finished after the first second.",
+		"If this is a short beat such as a quick arrow, circle, box, sticker pop, or word punch, it is acceptable to return a shorter durationSeconds that matches the action instead of padding dead time.",
 		`Canvas: ${size.width}x${size.height}, aspect ${aspectRatio}, fps ${DEFAULT_FPS}`,
 		`Background: ${transparentBackground ? "transparent" : "solid/custom"}`,
 		transparentBackground
@@ -179,6 +182,7 @@ function buildUserPrompt({
 		"Do not return a separate defaults object. Put each editable default only in propsSchema[].default.",
 		'For table defaults, return rows as arrays, for example [["2014", 1364], ["2023", 1410]], not objects.',
 		'When rendering table rows, use the same column labels from propsSchema.columns, for example row["year"] and row["population"]. Chinese column labels must also be read by bracket syntax, for example row["病害名称"].',
+		'Never use placeholder copy such as "标题", "标题强调", "Subtitle", "Focus here", "Lorem", or "Example"; all visible text and table data must come from the user request.',
 		"For typewriter effects, implement real per-frame character reveal using useCurrentFrame(), not opacity-only fade.",
 		"For charts or data animations, animate paths/bars/labels with frame-based interpolation.",
 	]
@@ -317,6 +321,20 @@ function buildDefaultPropsFromSchema({
 	);
 }
 
+function assertUniqueGeneratedPropKeys({
+	propsSchema,
+}: {
+	propsSchema: ShotlyxMGPropDefinition[];
+}): void {
+	const seenPropKeys = new Set<string>();
+	for (const prop of propsSchema) {
+		if (seenPropKeys.has(prop.key)) {
+			throw new Error(`propsSchema duplicate key "${prop.key}"`);
+		}
+		seenPropKeys.add(prop.key);
+	}
+}
+
 function buildManifest({
 	id,
 	document,
@@ -348,6 +366,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function humanizePropKey({ key }: { key: string }): string {
+	const spaced = key
+		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+		.replace(/[_-]+/g, " ")
+		.trim();
+	if (!spaced) return "Property";
+	return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function normalizeColumnLabel({
+	value,
+	index,
+}: {
+	value: unknown;
+	index: number;
+}): string {
+	if (typeof value === "string" && value.trim()) {
+		return value.trim();
+	}
+	if (isRecord(value)) {
+		for (const key of ["key", "value", "label", "name"]) {
+			const candidate = value[key];
+			if (typeof candidate === "string" && candidate.trim()) {
+				return candidate.trim();
+			}
+		}
+	}
+	return `Column ${index + 1}`;
+}
+
 function normalizeRawGeneratedComponent(value: unknown): unknown {
 	if (!isRecord(value)) return value;
 	const normalized: Record<string, unknown> = { ...value };
@@ -364,13 +412,28 @@ function normalizeRawGeneratedComponent(value: unknown): unknown {
 	if (Array.isArray(normalized.propsSchema)) {
 		normalized.propsSchema = normalized.propsSchema.map((prop) => {
 			if (!isRecord(prop)) return prop;
+			const propKey =
+				typeof prop.key === "string" && prop.key.trim()
+					? prop.key.trim()
+					: prop.key;
 			return {
 				...prop,
+				key: propKey,
+				label:
+					typeof prop.label === "string" && prop.label.trim()
+						? prop.label.trim()
+						: typeof propKey === "string"
+							? humanizePropKey({ key: propKey })
+							: prop.label,
 				min: "min" in prop ? prop.min : null,
 				max: "max" in prop ? prop.max : null,
 				step: "step" in prop ? prop.step : null,
 				options: "options" in prop ? prop.options : null,
-				columns: "columns" in prop ? prop.columns : null,
+				columns: Array.isArray(prop.columns)
+					? prop.columns.map((column, index) =>
+							normalizeColumnLabel({ value: column, index }),
+						)
+					: null,
 			};
 		});
 	}
@@ -501,6 +564,7 @@ export async function generateShotlyxMGComponentDocument({
 				propsSchema: generated.propsSchema,
 				transparentBackground,
 			});
+			assertUniqueGeneratedPropKeys({ propsSchema });
 			const defaultProps = buildDefaultPropsFromSchema({
 				propsSchema,
 			});

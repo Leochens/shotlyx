@@ -5,7 +5,7 @@ export const OFFICIAL_REMOTION_SKILL_SOURCE = {
 	skillPath: "skills/remotion/SKILL.md",
 	installCommand:
 		"npx skills add https://github.com/remotion-dev/skills --skill remotion",
-	verifiedAt: "2026-05-18",
+	verifiedAt: "2026-05-28",
 } as const;
 
 export type OfficialRemotionSkillImpact =

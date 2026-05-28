@@ -6,10 +6,10 @@ import {
 	coerceShotlyxMGPropValue,
 } from "@/shotlyx/remotion-components/components/shotlyx-mg-asset-dialog";
 import { SHOTLYX_MG_GRAPHIC_DEFINITION_ID } from "@/shotlyx/remotion-components/project-assets";
-import type {
-	ShotlyxMGAsset,
-	ShotlyxMGPropDefinition,
-	ShotlyxMGPropValue,
+import {
+	type ShotlyxMGAsset,
+	type ShotlyxMGPropDefinition,
+	type ShotlyxMGPropValue,
 } from "@/shotlyx/remotion-components/types";
 import { useElementPlayhead } from "@/components/editor/panels/properties/hooks/use-element-playhead";
 import {
@@ -190,12 +190,12 @@ function ShotlyxMGInstanceSection({
 			sectionKey={`${element.id}:shotlyx-mg-props`}
 		>
 			<SectionHeader>
-				<SectionTitle>MG 参数</SectionTitle>
+				<SectionTitle>MG 参数 · Remotion</SectionTitle>
 			</SectionHeader>
 			<SectionContent>
 				<SectionFields>
-					{asset.document.propsSchema.map((prop) => (
-						<SectionField key={prop.key} label={prop.label}>
+					{asset.document.propsSchema.map((prop, index) => (
+						<SectionField key={`${prop.key}:${index}`} label={prop.label}>
 							<ShotlyxMGPropInput
 								prop={prop}
 								value={resolveShotlyxMGPropValue({
