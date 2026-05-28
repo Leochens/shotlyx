@@ -130,6 +130,24 @@ interface ShotlyxMGJobEvent {
 	error?: string;
 }
 
+interface ShotlyxMGJobFollowResult {
+	status: "completed";
+	documents: ShotlyxRemotionComponentDocument[];
+	saved: Array<{
+		assetId: string;
+		name: string;
+		trackId?: string;
+		elementId?: string;
+	}>;
+}
+
+class ShotlyxMGJobTerminalError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "ShotlyxMGJobTerminalError";
+	}
+}
+
 async function defaultProcessMediaAssetsFn(args: {
 	files: FileList | File[];
 }): Promise<ProcessedMediaAsset[]> {
@@ -1724,7 +1742,7 @@ function saveShotlyxMGDocumentToProject({
 	};
 }
 
-function followShotlyxMGJobInBackground({
+async function followShotlyxMGJobToCompletion({
 	editor,
 	fetchFn,
 	jobId,
@@ -1742,7 +1760,7 @@ function followShotlyxMGJobInBackground({
 	placementState?: ShotlyxMGTimelinePlacementState;
 	insertToTimeline: boolean;
 	context?: ToolExecutionContext;
-}): void {
+}): Promise<ShotlyxMGJobFollowResult> {
 	const completedComponentDocuments = new Map<
 		number,
 		{
@@ -1753,13 +1771,17 @@ function followShotlyxMGJobInBackground({
 		}
 	>();
 	const savedComponentIndexes = new Set<number>();
+	let terminalEvent: ShotlyxMGJobEvent | null = null;
+	let completedDocuments: ShotlyxRemotionComponentDocument[] = [];
+	let savedComponents: ShotlyxMGJobFollowResult["saved"] = [];
 	const saveCompletedDocuments = ({
 		documents,
 		total,
 	}: {
 		documents: ShotlyxRemotionComponentDocument[];
 		total?: number;
-	}) => {
+	}): ShotlyxMGJobFollowResult["saved"] => {
+		const savedResults: ShotlyxMGJobFollowResult["saved"] = [];
 		for (const [index, document] of documents.entries()) {
 			if (savedComponentIndexes.has(index)) continue;
 			savedComponentIndexes.add(index);
@@ -1788,7 +1810,9 @@ function followShotlyxMGJobInBackground({
 				taskLabel: componentMeta?.taskLabel,
 				taskIndex: index,
 			});
+			savedResults.push(saved);
 		}
+		return savedResults;
 	};
 	const handleAbort = () => {
 		void cancelShotlyxMGJobViaRoute({ jobId, fetchFn }).catch((error) => {
@@ -1801,107 +1825,192 @@ function followShotlyxMGJobInBackground({
 			});
 		});
 	};
+	const emitCancelledProgress = () => {
+		emitToolProgress({
+			context,
+			stage: "cancelled",
+			label: "MG 子智能体已停止",
+			status: "error",
+			jobId,
+		});
+	};
 	if (context?.signal?.aborted) {
 		handleAbort();
+		emitCancelledProgress();
+		throw new ShotlyxMGJobTerminalError("MG 子智能体已停止");
 	} else {
 		context?.signal?.addEventListener("abort", handleAbort, { once: true });
 	}
-	void followShotlyxMGJob({
-		jobId,
-		fetchFn,
-		signal: context?.signal,
-		onEvent: (event) => {
-			if (event.type === "component-complete" && event.document) {
-				const componentIndex = event.index ?? 0;
-				if (!completedComponentDocuments.has(componentIndex)) {
-					completedComponentDocuments.set(componentIndex, {
-						document: event.document,
-						label: event.label,
+
+	try {
+		await followShotlyxMGJob({
+			jobId,
+			fetchFn,
+			signal: context?.signal,
+			onEvent: (event) => {
+				if (event.type === "component-complete" && event.document) {
+					const componentIndex = event.index ?? 0;
+					if (!completedComponentDocuments.has(componentIndex)) {
+						completedComponentDocuments.set(componentIndex, {
+							document: event.document,
+							label: event.label,
+							taskId: event.taskId,
+							taskLabel: event.taskLabel,
+						});
+					}
+					emitToolProgress({
+						context,
+						stage: "generation",
+						label: event.label ?? `已生成${event.document.name}`,
+						status: "success",
+						current:
+							event.index === undefined ? undefined : event.index + 1,
+						total: event.total,
+						jobId: event.jobId,
 						taskId: event.taskId,
 						taskLabel: event.taskLabel,
+						taskIndex: componentIndex,
 					});
+					return;
+				}
+				if (event.type === "completed") {
+					terminalEvent = event;
+					completedDocuments =
+						event.documents && event.documents.length > 0
+							? event.documents
+							: [...completedComponentDocuments.entries()]
+									.sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
+									.map(([, item]) => item.document);
+					savedComponents = saveCompletedDocuments({
+						documents: completedDocuments,
+						total: event.total,
+					});
+					emitToolProgress({
+						context,
+						stage: event.type,
+						label: event.label ?? "MG 子智能体已完成",
+						status: event.status ?? "success",
+						detail: event.detail,
+						current: event.index,
+						total: event.total,
+						jobId: event.jobId,
+					});
+					return;
+				}
+				if (event.type === "error") {
+					terminalEvent = event;
+					emitToolProgress({
+						context,
+						stage: "generation",
+						label: event.label ?? "MG 子智能体失败",
+						status: "error",
+						detail: event.error,
+						jobId: event.jobId,
+					});
+					return;
+				}
+				if (event.type === "cancelled") {
+					terminalEvent = event;
 				}
 				emitToolProgress({
 					context,
-					stage: "generation",
-					label: event.label ?? `已生成${event.document.name}`,
-					status: "success",
+					stage: event.type,
+					label:
+						event.label ??
+						(event.type === "cancelled"
+							? "MG 子智能体已停止"
+							: "MG 子智能体运行中"),
+					status:
+						event.status ??
+						(event.type === "cancelled" ? "error" : "running"),
+					detail: event.detail,
 					current: event.index === undefined ? undefined : event.index + 1,
 					total: event.total,
 					jobId: event.jobId,
 					taskId: event.taskId,
 					taskLabel: event.taskLabel,
-					taskIndex: componentIndex,
+					taskIndex: event.index,
 				});
-				return;
-			}
-			if (event.type === "completed") {
-				const documents =
-					event.documents && event.documents.length > 0
-						? event.documents
-						: [...completedComponentDocuments.entries()]
-								.sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
-								.map(([, item]) => item.document);
-				saveCompletedDocuments({
-					documents,
-					total: event.total,
-				});
-				emitToolProgress({
-					context,
-					stage: event.type,
-					label: event.label ?? "MG 子智能体已完成",
-					status: event.status ?? "success",
-					detail: event.detail,
-					current: event.index,
-					total: event.total,
-					jobId: event.jobId,
-				});
-				return;
-			}
-			if (event.type === "error") {
-				emitToolProgress({
-					context,
-					stage: "generation",
-					label: event.label ?? "MG 子智能体失败",
-					status: "error",
-					detail: event.error,
-					jobId: event.jobId,
-				});
-				return;
-			}
-			emitToolProgress({
-				context,
-				stage: event.type,
-				label:
-					event.label ??
-					(event.type === "cancelled"
-						? "MG 子智能体已停止"
-						: "MG 子智能体运行中"),
-				status:
-					event.status ?? (event.type === "cancelled" ? "error" : "running"),
-				detail: event.detail,
-				current: event.index === undefined ? undefined : event.index + 1,
-				total: event.total,
-				jobId: event.jobId,
-				taskId: event.taskId,
-				taskLabel: event.taskLabel,
-				taskIndex: event.index,
-			});
-		},
-	})
-		.catch((error) => {
-			if (context?.signal?.aborted) return;
-			emitToolProgress({
-				context,
-				stage: "generation",
-				label: "MG 子智能体连接失败",
-				status: "error",
-				detail: getToolErrorDetail(error),
-			});
-		})
-		.finally(() => {
-			context?.signal?.removeEventListener("abort", handleAbort);
+			},
 		});
+	} catch (error) {
+		if (context?.signal?.aborted) {
+			emitCancelledProgress();
+			throw new ShotlyxMGJobTerminalError("MG 子智能体已停止");
+		}
+		throw error;
+	} finally {
+		context?.signal?.removeEventListener("abort", handleAbort);
+	}
+
+	if (!terminalEvent) {
+		throw new Error(
+			"provider_error: Shotlyx MG job ended without terminal status",
+		);
+	}
+	if (terminalEvent.type === "completed") {
+		return {
+			status: "completed",
+			documents: completedDocuments,
+			saved: savedComponents,
+		};
+	}
+	if (terminalEvent.type === "cancelled") {
+		throw new ShotlyxMGJobTerminalError(
+			terminalEvent.detail ?? terminalEvent.label ?? "MG 子智能体已停止",
+		);
+	}
+	throw new ShotlyxMGJobTerminalError(
+		terminalEvent.error ??
+			terminalEvent.detail ??
+			terminalEvent.label ??
+			"MG 子智能体失败",
+	);
+}
+
+function followShotlyxMGJobInBackground({
+	editor,
+	fetchFn,
+	jobId,
+	sourcePrompt,
+	startTime,
+	placementState,
+	insertToTimeline,
+	context,
+}: {
+	editor: EditorCore;
+	fetchFn: CreativeFetchFn;
+	jobId: string;
+	sourcePrompt: string;
+	startTime: MediaTime;
+	placementState?: ShotlyxMGTimelinePlacementState;
+	insertToTimeline: boolean;
+	context?: ToolExecutionContext;
+}): void {
+	void followShotlyxMGJobToCompletion({
+		editor,
+		fetchFn,
+		jobId,
+		sourcePrompt,
+		startTime,
+		placementState,
+		insertToTimeline,
+		context,
+	}).catch((error) => {
+		if (
+			context?.signal?.aborted ||
+			error instanceof ShotlyxMGJobTerminalError
+		) {
+			return;
+		}
+		emitToolProgress({
+			context,
+			stage: "generation",
+			label: "MG 子智能体连接失败",
+			status: "error",
+			detail: getToolErrorDetail(error),
+		});
+	});
 }
 
 export function resumeShotlyxMGJobInBackground({
@@ -2575,7 +2684,7 @@ export function buildCreativeTools({
 						current: 0,
 						total: componentCount,
 					});
-					followShotlyxMGJobInBackground({
+					const jobResult = await followShotlyxMGJobToCompletion({
 						editor,
 						fetchFn: creativeDeps.fetchFn,
 						jobId,
@@ -2585,14 +2694,20 @@ export function buildCreativeTools({
 						insertToTimeline,
 						context,
 					});
+					if (jobResult.documents.length === 0) {
+						throw new Error(
+							"provider_error: Shotlyx MG job completed without components",
+						);
+					}
 					return {
 						jobId,
 						name: buildCompositionName({ prompt }),
 						runtime: "shotlyx-mg-job-v1",
-						status: "running",
+						status: jobResult.status,
 						inserted: insertToTimeline,
 						startTimeSeconds: Number(startTime) / MEDIA_TIME_TICKS_PER_SECOND,
-						componentCount,
+						componentCount: jobResult.documents.length,
+						components: jobResult.saved,
 						transparentBackground,
 						remotionSkill,
 						directorPlan,
@@ -2857,7 +2972,7 @@ export function buildCreativeTools({
 						current: 0,
 						total: 1,
 					});
-					followShotlyxMGJobInBackground({
+					const jobResult = await followShotlyxMGJobToCompletion({
 						editor,
 						fetchFn: creativeDeps.fetchFn,
 						jobId,
@@ -2867,14 +2982,23 @@ export function buildCreativeTools({
 						insertToTimeline,
 						context,
 					});
+					const savedComponent = jobResult.saved[0];
+					if (!savedComponent) {
+						throw new Error(
+							"provider_error: Shotlyx MG job completed without components",
+						);
+					}
 					return {
 						jobId,
-						name: prompt,
+						name: savedComponent.name,
 						runtime: "shotlyx-mg-job-v1",
-						status: "running",
+						status: jobResult.status,
 						inserted: insertToTimeline,
 						startTimeSeconds: Number(startTime) / MEDIA_TIME_TICKS_PER_SECOND,
-						componentCount: 1,
+						componentCount: jobResult.documents.length,
+						shotlyxMGAssetId: savedComponent.assetId,
+						trackId: savedComponent.trackId,
+						elementId: savedComponent.elementId,
 						transparentBackground,
 					};
 				}

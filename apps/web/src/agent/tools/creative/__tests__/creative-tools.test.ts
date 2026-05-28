@@ -864,7 +864,7 @@ describe("buildCreativeTools", () => {
 		expect(result).toMatchObject({
 			jobId: "mg-job-1",
 			runtime: "shotlyx-mg-job-v1",
-			status: "running",
+			status: "completed",
 			inserted: true,
 		});
 		expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -884,10 +884,7 @@ describe("buildCreativeTools", () => {
 			maxOutputTokens: 8000,
 		});
 
-		await waitForCondition({
-			condition: () => upsertShotlyxMGAsset.mock.calls.length === 1,
-		});
-
+		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(1);
 		expect(insertElement).toHaveBeenCalledTimes(1);
 		expect(scene.tracks.overlay[0]!.elements[0]?.name).toBe("后端生成 MG");
 		expect(
@@ -989,10 +986,16 @@ describe("buildCreativeTools", () => {
 		const generateTool = tools.find(
 			(tool) => tool.name === "shotlyx_generate_mg_component",
 		);
-		await generateTool?.handler({
-			prompt: "生成 barrier MG",
-			durationSeconds: 5,
-			aspectRatio: "16:9",
+		let handlerResolved = false;
+		const resultPromise = Promise.resolve(
+			generateTool?.handler({
+				prompt: "生成 barrier MG",
+				durationSeconds: 5,
+				aspectRatio: "16:9",
+			}),
+		).then((result) => {
+			handlerResolved = true;
+			return result;
 		});
 
 		await waitForCondition({
@@ -1012,6 +1015,7 @@ describe("buildCreativeTools", () => {
 		});
 		await new Promise((resolve) => setTimeout(resolve, 0));
 
+		expect(handlerResolved).toBe(false);
 		expect(upsertShotlyxMGAsset).not.toHaveBeenCalled();
 		expect(insertElement).not.toHaveBeenCalled();
 
@@ -1030,12 +1034,86 @@ describe("buildCreativeTools", () => {
 		});
 		closeEvents();
 
-		await waitForCondition({
-			condition: () => upsertShotlyxMGAsset.mock.calls.length === 1,
+		const result = requireShotlyxMGJobResult(await resultPromise);
+		expect(result).toMatchObject({
+			jobId: "mg-job-barrier",
+			runtime: "shotlyx-mg-job-v1",
+			status: "completed",
+			inserted: true,
 		});
-
+		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(1);
 		expect(insertElement).toHaveBeenCalledTimes(1);
 		expect(scene.tracks.overlay[0]!.elements[0]?.name).toBe("barrier MG");
+	});
+
+	test("shotlyx_generate_mg_composition surfaces backend job errors to the caller", async () => {
+		const fetchMock = mock(
+			async (input: RequestInfo | URL, _init?: RequestInit) => {
+				if (String(input) === "/api/agent/creative/mg-jobs") {
+					return new Response(JSON.stringify({ jobId: "mg-job-error" }), {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					});
+				}
+				if (
+					String(input) === "/api/agent/creative/mg-jobs/mg-job-error/events"
+				) {
+					return sseResponse([
+						{
+							type: "started",
+							jobId: "mg-job-error",
+							label: "MG 子智能体已启动",
+							status: "running",
+						},
+						{
+							type: "error",
+							jobId: "mg-job-error",
+							label: "MG 子智能体失败",
+							status: "error",
+							error: "模型输出不可用",
+						},
+					]);
+				}
+				return new Response("not found", { status: 404 });
+			},
+		);
+
+		const tools = buildCreativeTools({
+			editor: asEditorCore({
+				project: {
+					getActiveOrNull: () => ({ metadata: { id: "project-1" } }),
+					upsertShotlyxMGAsset: mock(() => undefined),
+				},
+				scenes: {
+					getActiveSceneOrNull: () => null,
+				},
+				selection: {
+					getSelectedElements: () => [],
+				},
+				playback: {
+					getCurrentTime: () => 0,
+				},
+			}),
+			deps: {
+				fetchFn: fetchMock,
+			},
+		});
+		const generateTool = tools.find(
+			(tool) => tool.name === "shotlyx_generate_mg_composition",
+		);
+
+		await expect(
+			Promise.resolve(
+				generateTool?.handler({
+					prompt: "生成一个失败示例 MG",
+					durationSeconds: 5,
+					aspectRatio: "16:9",
+					componentCount: 2,
+					insertToTimeline: false,
+				}),
+			),
+		).rejects.toThrow("模型输出不可用");
+		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 
 	test("shotlyx_generate_mg_component does not duplicate timeline inserts when a job event is replayed", async () => {
@@ -1138,10 +1216,6 @@ describe("buildCreativeTools", () => {
 			prompt: "生成可重连 MG",
 			durationSeconds: 5,
 			aspectRatio: "16:9",
-		});
-
-		await waitForCondition({
-			condition: () => upsertShotlyxMGAsset.mock.calls.length >= 1,
 		});
 
 		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(1);
