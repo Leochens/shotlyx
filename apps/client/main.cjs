@@ -12,8 +12,9 @@ try {
 
 const PRODUCT_NAME = "Shotlyx Desktop";
 const DEFAULT_URL = "http://127.0.0.1:3100/desktop";
-const PACKAGED_SERVER_START_PORT = 3100;
+const PACKAGED_SERVER_PORT = 3100;
 const SERVER_READY_TIMEOUT_MS = 120_000;
+const RENDERER_EXIT_TIMEOUT_MS = 8_000;
 
 let packagedWebUrl = null;
 let packagedServerProcess = null;
@@ -37,13 +38,6 @@ function isPortAvailable(port) {
 		});
 		server.listen(port, "127.0.0.1");
 	});
-}
-
-async function findAvailablePort(startPort) {
-	for (let port = startPort; port <= startPort + 50; port += 1) {
-		if (await isPortAvailable(port)) return port;
-	}
-	throw new Error(`No free desktop server port found near ${startPort}.`);
 }
 
 function getPackagedServerPath() {
@@ -120,7 +114,12 @@ async function startPackagedServer() {
 		throw new Error(`Packaged web server is missing: ${serverPath}`);
 	}
 
-	const port = await findAvailablePort(PACKAGED_SERVER_START_PORT);
+	const port = PACKAGED_SERVER_PORT;
+	if (!(await isPortAvailable(port))) {
+		throw new Error(
+			`Port ${port} is already in use. Shotlyx keeps this port stable so local projects and media stay on the same browser storage origin. Close the other process and restart Shotlyx.`,
+		);
+	}
 	const origin = `http://127.0.0.1:${port}`;
 	const configUrl = `${origin}/api/desktop/config`;
 
@@ -149,6 +148,39 @@ async function startPackagedServer() {
 
 	await waitForPackagedServer(configUrl);
 	return `${origin}/desktop`;
+}
+
+function prepareRendererForClose(win) {
+	if (win.webContents.isDestroyed()) return Promise.resolve();
+
+	const prepareScript = `
+		(() => {
+			const prepare = globalThis.__SHOTLYX_PREPARE_EXIT__;
+			return typeof prepare === "function" ? prepare() : undefined;
+		})()
+	`;
+
+	return Promise.race([
+		win.webContents.executeJavaScript(prepareScript, true),
+		delay(RENDERER_EXIT_TIMEOUT_MS),
+	]).catch((error) => {
+		const message = error instanceof Error ? error.message : String(error);
+		console.warn(`Shotlyx renderer prepare-exit failed: ${message}`);
+	});
+}
+
+function installGracefulClose(win) {
+	let didPrepareClose = false;
+
+	win.on("close", (event) => {
+		if (didPrepareClose || win.webContents.isDestroyed()) return;
+
+		event.preventDefault();
+		prepareRendererForClose(win).finally(() => {
+			didPrepareClose = true;
+			win.close();
+		});
+	});
 }
 
 function syncWindowState(win) {
@@ -204,6 +236,7 @@ function createWindow() {
 	}
 
 	win.loadURL(getStartUrl());
+	installGracefulClose(win);
 }
 
 function configureAutoUpdater() {
@@ -225,28 +258,44 @@ function configureAutoUpdater() {
 
 app.setName(PRODUCT_NAME);
 
-app.whenReady().then(async () => {
-	try {
-		packagedWebUrl = await startPackagedServer();
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		dialog.showErrorBox(`${PRODUCT_NAME} failed to start`, message);
-		app.quit();
-		return;
-	}
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
-	createWindow();
-	configureAutoUpdater();
-
-	app.on("activate", () => {
-		if (BrowserWindow.getAllWindows().length === 0) {
-			createWindow();
-		}
+if (!hasSingleInstanceLock) {
+	app.quit();
+} else {
+	app.on("second-instance", () => {
+		const win = BrowserWindow.getAllWindows()[0];
+		if (!win) return;
+		if (win.isMinimized()) win.restore();
+		win.focus();
 	});
-});
+
+	app.whenReady().then(async () => {
+		try {
+			packagedWebUrl = await startPackagedServer();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			dialog.showErrorBox(`${PRODUCT_NAME} failed to start`, message);
+			app.quit();
+			return;
+		}
+
+		createWindow();
+		configureAutoUpdater();
+
+		app.on("activate", () => {
+			if (BrowserWindow.getAllWindows().length === 0) {
+				createWindow();
+			}
+		});
+	});
+}
 
 app.on("before-quit", () => {
 	isQuitting = true;
+});
+
+app.on("will-quit", () => {
 	if (packagedServerProcess?.pid) {
 		packagedServerProcess.kill();
 	}

@@ -265,6 +265,7 @@ describe("stock media tools", () => {
 		expect(addMediaAsset.mock.calls[0]?.[0]).toMatchObject({
 			projectId: "project-1",
 			asset: {
+				ephemeral: false,
 				externalSource: {
 					provider: "pixabay",
 					providerAssetId: "456",

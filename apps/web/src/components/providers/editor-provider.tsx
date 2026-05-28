@@ -20,6 +20,10 @@ interface EditorProviderProps {
 	children: React.ReactNode;
 }
 
+type ShotlyxRuntimeWindow = Window & {
+	__SHOTLYX_PREPARE_EXIT__?: () => Promise<void>;
+};
+
 export function EditorProvider({ projectId, children }: EditorProviderProps) {
 	const activeProject = useEditor((e) => e.project.getActiveOrNull());
 	const router = useRouter();
@@ -134,14 +138,26 @@ function EditorRuntimeBindings() {
 	);
 
 	useEffect(() => {
-		editor.command.isRippleEnabled = rippleEditingEnabled;
-	}, [editor, rippleEditingEnabled]);
+		EditorCore.getInstance().command.isRippleEnabled = rippleEditingEnabled;
+	}, [rippleEditingEnabled]);
+
+	useEffect(() => {
+		const runtimeWindow = window as ShotlyxRuntimeWindow;
+		runtimeWindow.__SHOTLYX_PREPARE_EXIT__ = () =>
+			editor.project.prepareExit();
+
+		return () => {
+			if (runtimeWindow.__SHOTLYX_PREPARE_EXIT__) {
+				delete runtimeWindow.__SHOTLYX_PREPARE_EXIT__;
+			}
+		};
+	}, [editor]);
 
 	useEffect(() => {
 		const handleBeforeUnload = (event: BeforeUnloadEvent) => {
 			if (!editor.save.getIsDirty()) return;
 			event.preventDefault();
-			(event as unknown as { returnValue: string }).returnValue = "";
+			event.returnValue = "";
 		};
 
 		window.addEventListener("beforeunload", handleBeforeUnload);

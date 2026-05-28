@@ -190,7 +190,10 @@ export function buildMediaTools(editor: EditorCore): Tool[] {
 
 				const result = await editor.media.addMediaAsset({
 					projectId: project.metadata.id,
-					asset,
+					asset: {
+						...asset,
+						ephemeral: false,
+					},
 				});
 
 				if (!result) {

@@ -2002,7 +2002,10 @@ async function importCreativeAsset({
 
 	const result = await editor.media.addMediaAsset({
 		projectId: project.metadata.id,
-		asset: mediaAsset,
+		asset: {
+			...mediaAsset,
+			ephemeral: false,
+		},
 	});
 	if (!result) {
 		throw new Error("媒体导入失败：保存创意资源时出错");

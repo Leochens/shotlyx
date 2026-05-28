@@ -375,6 +375,7 @@ async function importStockAsset({
 		projectId: project.metadata.id,
 		asset: {
 			...mediaAsset,
+			ephemeral: false,
 			externalSource: buildExternalSource(asset),
 		},
 	});

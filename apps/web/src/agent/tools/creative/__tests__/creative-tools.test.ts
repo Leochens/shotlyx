@@ -2233,6 +2233,12 @@ describe("buildCreativeTools", () => {
 		const result = await importTool?.handler({ assetId: asset.id });
 
 		expect(addMediaAsset).toHaveBeenCalledTimes(1);
+		expect(addMediaAsset.mock.calls[0]?.[0]).toMatchObject({
+			projectId: "project-1",
+			asset: {
+				ephemeral: false,
+			},
+		});
 		expect(result).toMatchObject({
 			mediaAssetId: "media-1",
 			name: "generated.png",
