@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { app, BrowserWindow, dialog, net, protocol, shell } = require("electron");
+const { migrateLegacyDesktopStorage } = require("./storage-migration.cjs");
 
 let autoUpdater = null;
 try {
@@ -50,6 +51,25 @@ function configureAppIdentity() {
 
 	if (isDevelopmentRuntime()) {
 		app.setPath("userData", path.join(app.getPath("appData"), DEV_PRODUCT_NAME));
+	}
+}
+
+function migrateLegacyStorageIfNeeded() {
+	if (!shouldUseLocalRenderer()) return;
+
+	try {
+		const result = migrateLegacyDesktopStorage({
+			appDataPath: app.getPath("appData"),
+			currentUserDataPath: app.getPath("userData"),
+		});
+		if (result.status === "migrated") {
+			console.log(
+				`Migrated Shotlyx desktop projects from ${result.source.userDataPath} (${result.source.originPrefix}) to ${result.target.originPrefix}.`,
+			);
+		}
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.warn(`Shotlyx desktop storage migration skipped: ${message}`);
 	}
 }
 
@@ -338,6 +358,7 @@ if (!hasSingleInstanceLock) {
 			return;
 		}
 
+		migrateLegacyStorageIfNeeded();
 		createWindow();
 		configureAutoUpdater();
 
