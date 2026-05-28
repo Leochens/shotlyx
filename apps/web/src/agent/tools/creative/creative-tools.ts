@@ -1515,6 +1515,7 @@ function buildShotlyxMGJobRouteBody({
 	const templateSelection = normalizeShotlyxMGTemplateSelection({
 		templateMode: args.templateMode,
 		templateId: args.templateId,
+		defaultTemplateMode: "off",
 	});
 	return {
 		prompt: args.prompt,
@@ -2677,7 +2678,7 @@ export function buildCreativeTools({
 				});
 				const aspectRatio = optionalAspectRatioParam(params) ?? "16:9";
 				const templateMode =
-					optionalShotlyxMGTemplateModeParam(params) ?? "auto";
+					optionalShotlyxMGTemplateModeParam(params) ?? "off";
 				const templateId = optionalShotlyxMGTemplateIdParam(params);
 				const styleGuide = resolveMGCompositionStyleGuide({
 					styleGuide: optionalStringParam(params, "styleGuide"),

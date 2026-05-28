@@ -45,6 +45,7 @@ export async function POST(request: ApiRequest) {
 	const templateSelection = normalizeShotlyxMGTemplateSelection({
 		templateMode: parsed.data.templateMode,
 		templateId: parsed.data.templateId,
+		defaultTemplateMode: "off",
 	});
 	const job = createShotlyxMGJob({
 		input: {

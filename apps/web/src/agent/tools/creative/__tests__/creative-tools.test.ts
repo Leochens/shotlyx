@@ -1116,6 +1116,82 @@ describe("buildCreativeTools", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 
+	test("shotlyx_generate_mg_composition defaults to custom generation when no template is selected", async () => {
+		const routeBodies: unknown[] = [];
+		const fetchMock = mock(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (String(input) === "/api/agent/creative/mg-jobs") {
+					routeBodies.push(
+						typeof init?.body === "string" ? JSON.parse(init.body) : null,
+					);
+					return new Response(JSON.stringify({ jobId: "mg-job-custom" }), {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					});
+				}
+				if (
+					String(input) === "/api/agent/creative/mg-jobs/mg-job-custom/events"
+				) {
+					return sseResponse([
+						{
+							type: "completed",
+							jobId: "mg-job-custom",
+							label: "MG 子智能体已完成",
+							status: "success",
+							documents: [
+								{
+									...shotlyxBattleCardFixture,
+									name: "自定义数字雨",
+									durationSeconds: 3,
+								},
+							],
+						},
+					]);
+				}
+				return new Response("not found", { status: 404 });
+			},
+		);
+
+		const tools = buildCreativeTools({
+			editor: asEditorCore({
+				project: {
+					getActiveOrNull: () => ({ metadata: { id: "project-1" } }),
+					upsertShotlyxMGAsset: mock(() => undefined),
+				},
+				scenes: {
+					getActiveSceneOrNull: () => null,
+				},
+				selection: {
+					getSelectedElements: () => [],
+				},
+				playback: {
+					getCurrentTime: () => 0,
+				},
+			}),
+			deps: {
+				fetchFn: fetchMock,
+			},
+		});
+		const generateTool = tools.find(
+			(tool) => tool.name === "shotlyx_generate_mg_composition",
+		);
+
+		await generateTool?.handler({
+			prompt: "Matrix-style digital rain character rain effect",
+			durationSeconds: 3,
+			aspectRatio: "16:9",
+			componentCount: 1,
+			insertToTimeline: false,
+		});
+
+		expect(routeBodies[0]).toMatchObject({
+			templateMode: "off",
+		});
+		expect(routeBodies[0]).not.toMatchObject({
+			templateId: expect.any(String),
+		});
+	});
+
 	test("shotlyx_generate_mg_composition ignores non-builtin template ids for custom generation", async () => {
 		const routeBodies: unknown[] = [];
 		const fetchMock = mock(
