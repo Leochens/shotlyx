@@ -111,7 +111,7 @@ async function resolveRuntime() {
 	}
 
 	throw new Error(
-		`No free desktop dev port found near ${runtime.origin}. Stop the server using port ${runtime.port} or set SHOTLYX_WEB_URL=http://127.0.0.1:PORT/settings/api.`,
+		`No free desktop dev port found near ${runtime.origin}. Stop the server using port ${runtime.port} or set SHOTLYX_WEB_URL=http://127.0.0.1:PORT/desktop.`,
 	);
 }
 

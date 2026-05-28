@@ -1,0 +1,29 @@
+# Shotlyx Desktop Packaging
+
+The desktop app is packaged with `electron-builder`. Packaged builds embed the
+Next.js standalone output from `apps/web/.next-desktop` and start it locally when
+the app launches.
+
+## Local packages
+
+```sh
+bun run --cwd apps/client dist:mac
+bun run --cwd apps/client dist:win
+```
+
+`dist:all` runs both macOS and Windows targets from one command. Building Windows
+installers on macOS can require Wine; a Windows CI runner is usually more
+predictable.
+
+## GitHub updater
+
+The updater uses GitHub Releases through `electron-updater` and the publish
+configuration in `electron-builder.yml`.
+
+```sh
+GH_TOKEN=... bun run --cwd apps/client publish:mac
+GH_TOKEN=... bun run --cwd apps/client publish:win
+```
+
+macOS auto-update requires a signed app. Set the normal Apple Developer signing
+and notarization environment variables in CI before publishing release builds.

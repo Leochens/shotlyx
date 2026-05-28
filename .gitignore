@@ -35,6 +35,8 @@ playwright-report/
 **/playwright-report/
 test-results/
 **/test-results/
+apps/client/.desktop-web/
+apps/client/release/
 
 # content-collections
 .content-collections

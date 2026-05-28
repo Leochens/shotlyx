@@ -1,4 +1,5 @@
 import { normalizePixelateBlockSize } from "@/effects/definitions/pixelate";
+import type { ScalarAnimationChannel } from "@/animation/types";
 import type {
 	CreateEffectElement,
 	CreateGraphicElement,
@@ -51,7 +52,7 @@ function buildScalarAnimation({
 	values,
 }: {
 	values: Array<{ id: string; timeSeconds: number; value: number }>;
-}) {
+}): ScalarAnimationChannel {
 	return {
 		keys: values.map((key, index) => ({
 			id: key.id,

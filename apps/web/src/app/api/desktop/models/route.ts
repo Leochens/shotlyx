@@ -54,7 +54,7 @@ function getHeaders({
 }: {
 	provider: z.infer<typeof requestSchema>["provider"];
 	apiKey: string;
-}) {
+}): Record<string, string> {
 	if (provider === "google") return {};
 	if (provider === "anthropic") {
 		return {

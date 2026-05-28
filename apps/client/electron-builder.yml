@@ -1,0 +1,49 @@
+appId: ai.shotlyx.desktop
+productName: Shotlyx Desktop
+artifactName: Shotlyx-Desktop-${version}-${os}-${arch}.${ext}
+copyright: Copyright (c) 2026 GuanTou Lab
+asar: true
+compression: normal
+electronUpdaterCompatibility: ">= 2.16"
+afterPack: scripts/after-pack.cjs
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - main.cjs
+  - package.json
+  - build/icon.png
+
+mac:
+  category: public.app-category.video
+  icon: build/icon.icns
+  hardenedRuntime: true
+  target:
+    - dmg
+    - zip
+
+dmg:
+  title: Shotlyx Desktop ${version}
+  icon: build/icon.icns
+
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+    - zip
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Shotlyx Desktop
+
+publish:
+  provider: github
+  owner: Leochens
+  repo: shotlyx
+  releaseType: release

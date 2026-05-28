@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import {
 	ArrowLeft,
 	Bot,
@@ -1139,6 +1139,20 @@ function formatHowTo({
 }
 
 export default function DesktopApiSettingsPage() {
+	return (
+		<Suspense
+			fallback={
+				<div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+					Loading settings...
+				</div>
+			}
+		>
+			<DesktopApiSettingsPageContent />
+		</Suspense>
+	);
+}
+
+function DesktopApiSettingsPageContent() {
 	const { locale } = useAppLocale();
 	const pageCopy = DESKTOP_SETUP_COPY[locale];
 	const searchParams = useSearchParams();
