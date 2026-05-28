@@ -99,6 +99,7 @@ describe("generateShotlyxMGComponentDocument", () => {
 				expect(system).toContain("CSS transitions");
 				expect(system).toContain("Tailwind animation classes are forbidden");
 				expect(system).toContain("Do not add import statements");
+				expect(system).toContain("__filename");
 				expect(system).toContain("Transparent-background MG is the default");
 				expect(system).toContain(
 					"Do not create full-canvas or decorative backgrounds unless the user explicitly asks for one",

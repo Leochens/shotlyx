@@ -240,6 +240,7 @@ function buildSystemPrompt({ skillContext }: { skillContext: string }): string {
 		"For table props, declare columns and use default as an array of row arrays in the same column order. The runtime will convert them to row objects.",
 		'For table row rendering, always read cells with the exact declared column key. Use bracket access like row["核心症状"] for non-English labels; never invent aliases such as row.symptom unless the column is literally named symptom.',
 		"Never use fetch, XMLHttpRequest, WebSocket, eval, Function, document, window, localStorage, sessionStorage, indexedDB, require, or dynamic import.",
+		"Never use Node.js or CommonJS globals such as __filename, __dirname, process, Buffer, module, exports, or import.meta.",
 		"Animations must be deterministic from frame number and props. No randomness unless derived from deterministic props.",
 		'Never use placeholder copy such as "标题", "标题强调", "Subtitle", "Focus here", "Lorem", or "Example". Extract concrete copy, numbers, and row data from the user request.',
 		skillContext,

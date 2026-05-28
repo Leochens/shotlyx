@@ -186,6 +186,22 @@ export default function ShotlyxComponent() {
 		expect(result.errors.join("\n")).toContain("unsupported API: Audio");
 	});
 
+	test("rejects Node and CommonJS globals in generated source", () => {
+		const result = validateShotlyxRemotionComponentSource({
+			source: `
+export default function ShotlyxComponent() {
+	const { AbsoluteFill, useCurrentFrame } = Remotion;
+	const frame = useCurrentFrame();
+	const assetPath = __filename + String(frame);
+	return <AbsoluteFill>{assetPath}</AbsoluteFill>;
+}
+`,
+		});
+
+		expect(result.valid).toBe(false);
+		expect(result.errors.join("\n")).toContain("CommonJS global: __filename");
+	});
+
 	test("requires defaultProps to cover every editable prop", () => {
 		expect(() =>
 			assertValidShotlyxRemotionComponentAssetDocument({
