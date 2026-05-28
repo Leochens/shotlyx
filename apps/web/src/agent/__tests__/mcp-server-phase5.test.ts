@@ -13,7 +13,9 @@ import type { MediaAsset } from "@/media/types";
 import type { TProject } from "@/project/types";
 
 function mockMediaTimeFromSeconds({ seconds }: { seconds: number }): MediaTime {
-	return Math.round(seconds * MEDIA_TIME_TICKS_PER_SECOND) as unknown as MediaTime;
+	return Math.round(
+		seconds * MEDIA_TIME_TICKS_PER_SECOND,
+	) as unknown as MediaTime;
 }
 
 interface MockEditorOverrides {
@@ -178,11 +180,54 @@ describe("timeline_insert_media", () => {
 		expect(insertElement.mock.calls.length).toBe(1);
 	});
 
-	test("error: missing trackId throws error", () => {
-		const { tool } = setup([]);
-		expect(() => tool?.handler({ mediaId: "m1", startTimeSeconds: 0 })).toThrow(
-			"trackId",
-		);
+	test("omitting trackId auto-places audio media on a compatible audio track", () => {
+		const asset: MediaAsset = {
+			id: "sfx-1",
+			name: "Soft pop",
+			type: "audio",
+			duration: 0.7,
+			url: "",
+			thumbnailUrl: null,
+			createdAt: new Date(),
+		};
+		const insertElement = mock(() => ({
+			elementId: "sfx-element-1",
+			trackId: "audio-track-1",
+		}));
+		const getTrackById = mock(() => {
+			throw new Error("track lookup should not run for automatic placement");
+		});
+		const editor = createMockEditor({
+			timeline: { insertElement, getTrackById },
+			media: {
+				getAssets: () => [asset],
+			},
+		});
+		const tools = buildTimelineTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find((t) => t.name === "timeline_insert_media");
+
+		const result = tool?.handler({
+			mediaId: "sfx-1",
+			startTimeSeconds: 3,
+		});
+
+		expect(result).toMatchObject({
+			trackId: "audio-track-1",
+			elementId: "sfx-element-1",
+			mediaId: "sfx-1",
+			placement: "auto",
+		});
+		expect(insertElement).toHaveBeenCalledWith({
+			element: expect.objectContaining({
+				type: "audio",
+				mediaId: "sfx-1",
+				sourceType: "upload",
+			}),
+			placement: { mode: "auto", trackType: "audio" },
+		});
 	});
 
 	test("error: missing mediaId throws error", () => {
@@ -282,8 +327,8 @@ describe("timeline_insert_text", () => {
 			element: {
 				type: "text",
 				name: "Text",
-					startTime: MEDIA_TIME_TICKS_PER_SECOND,
-					duration: 4 * MEDIA_TIME_TICKS_PER_SECOND,
+				startTime: MEDIA_TIME_TICKS_PER_SECOND,
+				duration: 4 * MEDIA_TIME_TICKS_PER_SECOND,
 				params: {
 					content: "花生：地下宝藏",
 					fontSize: 28,

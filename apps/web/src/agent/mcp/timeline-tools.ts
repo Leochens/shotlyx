@@ -21,6 +21,7 @@ const TRACK_TYPES = ["video", "text", "audio", "graphic", "effect"] as const;
 type TrackType = (typeof TRACK_TYPES)[number];
 const VISUAL_EFFECT_KINDS = ["arrow", "box", "circle", "mosaic"] as const;
 type VisualEffectKind = (typeof VISUAL_EFFECT_KINDS)[number];
+type MediaInsertTrackType = "video" | "audio";
 
 function isTrackType(value: unknown): value is TrackType {
 	return typeof value === "string" && TRACK_TYPES.some((t) => t === value);
@@ -31,6 +32,14 @@ function isVisualEffectKind(value: unknown): value is VisualEffectKind {
 		typeof value === "string" &&
 		VISUAL_EFFECT_KINDS.some((kind) => kind === value)
 	);
+}
+
+function getMediaInsertTrackType({
+	assetType,
+}: {
+	assetType: "audio" | "image" | "video";
+}): MediaInsertTrackType {
+	return assetType === "audio" ? "audio" : "video";
 }
 
 function isElementRefArray(value: unknown): value is Array<{
@@ -549,10 +558,15 @@ export function buildTimelineTools({
 		{
 			name: "timeline_insert_media",
 			description:
-				"Insert a media asset onto a track at a specific time. trackId and startTimeSeconds are required. mediaId can be omitted when the Agent context has a primary media asset reference. " +
-				"Use media_get_all to find mediaId, and timeline_get_summary to find trackId. To insert multiple assets, call this tool once per asset.",
+				"Insert a media asset at a specific time. mediaId can be omitted when the Agent context has a primary media asset reference. " +
+				"trackId is optional: omit it for short sound effects or general media insertion so Shotlyx reuses the first compatible track with no overlap and creates a new track only when needed. To insert multiple assets, call this tool once per asset.",
 			parameters: {
-				trackId: { type: "string", description: "Target track ID" },
+				trackId: {
+					type: "string",
+					description:
+						"Optional target track ID. Omit for automatic placement, especially for short sound effects.",
+					optional: true,
+				},
 				mediaId: {
 					type: "string",
 					description: "Media asset ID to insert",
@@ -571,9 +585,11 @@ export function buildTimelineTools({
 			},
 			mutating: true,
 			preconditions: (params) =>
-				checkTrackExists(editor, String(params.trackId)),
+				typeof params.trackId === "string"
+					? checkTrackExists(editor, params.trackId)
+					: { ok: true },
 			handler: (params) => {
-				const trackId = requireStringParam(params, "trackId");
+				const trackId = optionalStringParam(params, "trackId");
 				const mediaId =
 					optionalStringParam(params, "mediaId") ?? getPrimaryMediaAssetId();
 				if (!mediaId) {
@@ -589,23 +605,24 @@ export function buildTimelineTools({
 					throw new Error(`片段不存在：找不到媒体资源 "${mediaId}"`);
 				}
 
-				const track = editor.timeline.getTrackById({ trackId });
-				if (!track) {
-					throw new Error(`轨道不存在：找不到轨道 "${trackId}"`);
-				}
+				if (trackId) {
+					const track = editor.timeline.getTrackById({ trackId });
+					if (!track) {
+						throw new Error(`轨道不存在：找不到轨道 "${trackId}"`);
+					}
 
-				// Check track compatibility
-				const trackType = track.type;
-				if (asset.type === "audio" && trackType !== "audio") {
-					throw new Error(`类型不匹配：无法将音频插入 ${trackType} 轨道`);
-				}
-				if (
-					(asset.type === "video" || asset.type === "image") &&
-					trackType !== "video"
-				) {
-					throw new Error(
-						`类型不匹配：无法将 ${asset.type} 插入 ${trackType} 轨道`,
-					);
+					const trackType = track.type;
+					if (asset.type === "audio" && trackType !== "audio") {
+						throw new Error(`类型不匹配：无法将音频插入 ${trackType} 轨道`);
+					}
+					if (
+						(asset.type === "video" || asset.type === "image") &&
+						trackType !== "video"
+					) {
+						throw new Error(
+							`类型不匹配：无法将 ${asset.type} 插入 ${trackType} 轨道`,
+						);
+					}
 				}
 
 				const startTime = mediaTimeFromSeconds({ seconds: startTimeSeconds });
@@ -646,16 +663,26 @@ export function buildTimelineTools({
 					};
 				}
 
-				editor.timeline.insertElement({
+				const insertion = editor.timeline.insertElement({
 					element,
-					placement: { mode: "explicit", trackId },
+					placement: trackId
+						? { mode: "explicit", trackId }
+						: {
+								mode: "auto",
+								trackType: getMediaInsertTrackType({
+									assetType: asset.type,
+								}),
+							},
 				});
+				const insertedTrackId = insertion?.trackId ?? trackId ?? null;
 
 				return {
-					trackId,
+					trackId: insertedTrackId,
+					elementId: insertion?.elementId,
 					mediaId,
 					startTime: startTimeSeconds,
 					duration: durationSeconds ?? asset.duration,
+					placement: trackId ? "explicit" : "auto",
 				};
 			},
 		},
