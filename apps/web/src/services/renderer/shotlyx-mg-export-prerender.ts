@@ -14,6 +14,7 @@ import type {
 	SceneTracks,
 	TimelineTrack,
 } from "@/timeline/types";
+import { estimateExportRemainingSeconds } from "@/export/progress";
 import { getShotlyxMGExportSourceRect } from "./nodes/graphic-node";
 import type { ImageSequenceFrame } from "./nodes/image-sequence-node";
 
@@ -45,6 +46,51 @@ interface ShotlyxMGRenderFrameSequenceResponse {
 	width: number;
 }
 
+type ShotlyxMGRenderStreamEvent =
+	| {
+			type: "started";
+			durationSeconds: number;
+			fps: number;
+			frameCount: number;
+			height: number;
+			width: number;
+	  }
+	| {
+			type: "progress";
+			frameCount: number;
+			framesRendered: number;
+			progress: number;
+	  }
+	| {
+			type: "frame";
+			data: string;
+			frame: number;
+			mimeType: "image/png";
+	  }
+	| {
+			type: "completed";
+			durationSeconds: number;
+			fps: number;
+			frameCount: number;
+			height: number;
+			width: number;
+	  }
+	| {
+			type: "error";
+			error: string;
+	  };
+
+export interface ShotlyxMGExportPrerenderProgress {
+	estimatedRemainingSeconds?: number | null;
+	frameCount?: number;
+	frameIndex?: number;
+	frameProgress?: number;
+	progress: number;
+	segmentCount: number;
+	segmentIndex: number;
+	segmentName: string;
+}
+
 function isShotlyxMGRenderFrameSequenceResponse(
 	value: unknown,
 ): value is ShotlyxMGRenderFrameSequenceResponse {
@@ -58,6 +104,20 @@ function isShotlyxMGRenderFrameSequenceResponse(
 		Array.isArray(frames) &&
 		typeof Reflect.get(value, "height") === "number" &&
 		typeof Reflect.get(value, "width") === "number"
+	);
+}
+
+function isShotlyxMGRenderStreamEvent(
+	value: unknown,
+): value is ShotlyxMGRenderStreamEvent {
+	if (typeof value !== "object" || value === null) return false;
+	const type = Reflect.get(value, "type");
+	return (
+		type === "started" ||
+		type === "progress" ||
+		type === "frame" ||
+		type === "completed" ||
+		type === "error"
 	);
 }
 
@@ -163,24 +223,206 @@ export function collectShotlyxMGExportPrerenderJobs({
 	return jobs;
 }
 
+function clampProgress(progress: number): number {
+	if (!Number.isFinite(progress)) return 0;
+	return Math.min(1, Math.max(0, progress));
+}
+
+function createFrameSequenceFromPayload({
+	mediaId,
+	payload,
+}: {
+	mediaId: string;
+	payload: ShotlyxMGRenderFrameSequenceResponse;
+}): ShotlyxMGFrameSequenceRender {
+	const frames = payload.frames
+		.slice()
+		.sort((left, right) => left.frame - right.frame)
+		.map((frame) => {
+			const binary = Uint8Array.from(atob(frame.data), (char) =>
+				char.charCodeAt(0),
+			);
+			const file = new File([binary], `${mediaId}-${frame.frame}.png`, {
+				type: frame.mimeType,
+				lastModified: Date.now(),
+			});
+			return {
+				file,
+				url: URL.createObjectURL(file),
+			};
+		});
+
+	return {
+		id: mediaId,
+		name: mediaId,
+		type: "shotlyx-mg-frame-sequence",
+		frames,
+		width: payload.width,
+		height: payload.height,
+		duration: payload.durationSeconds,
+		ephemeral: true,
+	};
+}
+
+async function readShotlyxMGRenderFrameSequence({
+	mediaId,
+	onProgress,
+	response,
+}: {
+	mediaId: string;
+	onProgress?: (event: {
+		frameCount?: number;
+		frameIndex?: number;
+		frameProgress?: number;
+	}) => void;
+	response: Response;
+}): Promise<ShotlyxMGFrameSequenceRender> {
+	const contentType = response.headers.get("Content-Type") ?? "";
+	if (!contentType.includes("application/x-ndjson") || !response.body) {
+		const payload: unknown = await response.json();
+		if (!isShotlyxMGRenderFrameSequenceResponse(payload)) {
+			throw new Error("Remotion MG prerender returned an unsupported payload");
+		}
+		return createFrameSequenceFromPayload({ mediaId, payload });
+	}
+
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+	const frames: ShotlyxMGRenderFrameSequenceResponse["frames"] = [];
+	let summary: Omit<ShotlyxMGRenderFrameSequenceResponse, "frames"> | null = null;
+
+	const handleLine = (line: string) => {
+		const trimmed = line.trim();
+		if (!trimmed) return;
+		const parsed: unknown = JSON.parse(trimmed);
+		if (!isShotlyxMGRenderStreamEvent(parsed)) {
+			throw new Error("Remotion MG prerender returned an invalid stream event");
+		}
+		if (parsed.type === "error") {
+			throw new Error(parsed.error);
+		}
+		if (parsed.type === "started") {
+			summary = {
+				type: "shotlyx-mg-frame-sequence",
+				durationSeconds: parsed.durationSeconds,
+				fps: parsed.fps,
+				frameCount: parsed.frameCount,
+				height: parsed.height,
+				width: parsed.width,
+			};
+			onProgress?.({
+				frameCount: parsed.frameCount,
+				frameIndex: 0,
+				frameProgress: 0,
+			});
+			return;
+		}
+		if (parsed.type === "progress") {
+			const frameProgress = clampProgress(parsed.progress);
+			onProgress?.({
+				frameCount: parsed.frameCount,
+				frameIndex: parsed.framesRendered,
+				frameProgress,
+			});
+			return;
+		}
+		if (parsed.type === "frame") {
+			frames.push({
+				data: parsed.data,
+				frame: parsed.frame,
+				mimeType: parsed.mimeType,
+			});
+			return;
+		}
+		summary = {
+			type: "shotlyx-mg-frame-sequence",
+			durationSeconds: parsed.durationSeconds,
+			fps: parsed.fps,
+			frameCount: parsed.frameCount,
+			height: parsed.height,
+			width: parsed.width,
+		};
+		onProgress?.({
+			frameCount: parsed.frameCount,
+			frameIndex: parsed.frameCount,
+			frameProgress: 1,
+		});
+	};
+
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		buffer += decoder.decode(value, { stream: true });
+		let newlineIndex = buffer.indexOf("\n");
+		while (newlineIndex >= 0) {
+			handleLine(buffer.slice(0, newlineIndex));
+			buffer = buffer.slice(newlineIndex + 1);
+			newlineIndex = buffer.indexOf("\n");
+		}
+	}
+	buffer += decoder.decode();
+	handleLine(buffer);
+
+	if (!summary) {
+		throw new Error("Remotion MG prerender finished without a summary event");
+	}
+
+	return createFrameSequenceFromPayload({
+		mediaId,
+		payload: {
+			...summary,
+			frames,
+		},
+	});
+}
+
 async function renderShotlyxMGSegment({
 	fps,
 	index,
 	job,
+	onProgress,
 	signal,
 	total,
 }: {
 	fps: FrameRate;
 	index: number;
 	job: ShotlyxMGExportPrerenderJob;
+	onProgress?: (event: ShotlyxMGExportPrerenderProgress) => void;
 	signal?: AbortSignal;
 	total: number;
 }): Promise<ShotlyxMGFrameSequenceRender> {
 	const startedAt = Date.now();
+	const mediaId = `shotlyx-mg-render-${job.trackId}-${job.element.id}`;
+	const emitProgress = ({
+		frameCount,
+		frameIndex,
+		frameProgress,
+	}: {
+		frameCount?: number;
+		frameIndex?: number;
+		frameProgress?: number;
+	}) => {
+		const safeFrameProgress = clampProgress(frameProgress ?? 0);
+		onProgress?.({
+			estimatedRemainingSeconds: estimateExportRemainingSeconds({
+				elapsedMs: Date.now() - startedAt,
+				progress: safeFrameProgress,
+			}),
+			frameCount,
+			frameIndex,
+			frameProgress: safeFrameProgress,
+			progress: (index + safeFrameProgress) / total,
+			segmentCount: total,
+			segmentIndex: index,
+			segmentName: job.asset.name,
+		});
+	};
 	console.info(
 		`[shotlyx-mg-export] request ${index + 1}/${total} ${job.asset.name} ` +
 			`duration=${job.durationSeconds.toFixed(2)}s source=${job.sourceWidth}x${job.sourceHeight}`,
 	);
+	emitProgress({ frameProgress: 0 });
 	const response = await fetch("/api/desktop/remotion/mg-render", {
 		method: "POST",
 		headers: {
@@ -211,37 +453,19 @@ async function renderShotlyxMGSegment({
 		);
 	}
 
-	const payload: unknown = await response.json();
-	if (!isShotlyxMGRenderFrameSequenceResponse(payload)) {
-		throw new Error("Remotion MG prerender returned an unsupported payload");
-	}
-	const mediaId = `shotlyx-mg-render-${job.trackId}-${job.element.id}`;
-	const frames = payload.frames.map((frame) => {
-		const binary = Uint8Array.from(atob(frame.data), (char) =>
-			char.charCodeAt(0),
-		);
-		const file = new File([binary], `${mediaId}-${frame.frame}.png`, {
-			type: frame.mimeType,
-			lastModified: Date.now(),
-		});
-		return {
-			file,
-			url: URL.createObjectURL(file),
-		};
+	const render = await readShotlyxMGRenderFrameSequence({
+		mediaId,
+		onProgress: emitProgress,
+		response,
 	});
 	console.info(
 		`[shotlyx-mg-export] received ${index + 1}/${total} ${job.asset.name} ` +
-			`frames=${payload.frameCount} elapsedMs=${Date.now() - startedAt}`,
+			`frames=${render.frames.length} elapsedMs=${Date.now() - startedAt}`,
 	);
 	return {
-		id: mediaId,
+		...render,
 		name: `${job.asset.name} · export render`,
-		type: "shotlyx-mg-frame-sequence",
-		frames,
-		width: payload.width,
-		height: payload.height,
 		duration: job.durationSeconds,
-		ephemeral: true,
 	};
 }
 
@@ -255,7 +479,7 @@ export async function prerenderShotlyxMGExportSegments({
 }: {
 	fps: FrameRate;
 	mediaAssets: MediaAsset[];
-	onProgress?: (progress: number) => void;
+	onProgress?: (event: ShotlyxMGExportPrerenderProgress) => void;
 	shotlyxMGAssets: ShotlyxMGAsset[];
 	signal?: AbortSignal;
 	tracks: SceneTracks;
@@ -281,16 +505,22 @@ export async function prerenderShotlyxMGExportSegments({
 		`[shotlyx-mg-export] prerender start segments=${jobs.length} ` +
 			`source=${jobs[0]?.sourceWidth ?? 0}x${jobs[0]?.sourceHeight ?? 0}`,
 	);
-	onProgress?.(0.05);
+	onProgress?.({
+		frameProgress: 0,
+		progress: 0,
+		segmentCount: jobs.length,
+		segmentIndex: 0,
+		segmentName: jobs[0]?.asset.name ?? "",
+	});
 	const renderedAssets: ShotlyxMGFrameSequenceRender[] = [];
 	for (let index = 0; index < jobs.length; index += 1) {
 		const job = jobs[index];
 		if (!job) continue;
-		onProgress?.((index + 0.1) / jobs.length);
 		const asset = await renderShotlyxMGSegment({
 			fps,
 			index,
 			job,
+			onProgress,
 			signal,
 			total: jobs.length,
 		});
@@ -302,7 +532,16 @@ export async function prerenderShotlyxMGExportSegments({
 			}),
 			asset,
 		);
-		onProgress?.((index + 1) / jobs.length);
+		onProgress?.({
+			estimatedRemainingSeconds: null,
+			frameCount: asset.frames.length,
+			frameIndex: asset.frames.length,
+			frameProgress: 1,
+			progress: (index + 1) / jobs.length,
+			segmentCount: jobs.length,
+			segmentIndex: index,
+			segmentName: job.asset.name,
+		});
 	}
 	console.info(
 		`[shotlyx-mg-export] prerender done segments=${renderedAssets.length}`,

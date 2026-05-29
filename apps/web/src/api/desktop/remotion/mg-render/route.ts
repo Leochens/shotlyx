@@ -272,6 +272,78 @@ function createRenderProgressLogger({
 	};
 }
 
+type ShotlyxMGRenderStreamEvent =
+	| {
+			type: "started";
+			durationSeconds: number;
+			fps: number;
+			frameCount: number;
+			height: number;
+			width: number;
+	  }
+	| {
+			type: "progress";
+			frameCount: number;
+			framesRendered: number;
+			progress: number;
+	  }
+	| {
+			type: "frame";
+			data: string;
+			frame: number;
+			mimeType: "image/png";
+	  }
+	| {
+			type: "completed";
+			durationSeconds: number;
+			fps: number;
+			frameCount: number;
+			height: number;
+			width: number;
+	  }
+	| {
+			type: "error";
+			error: string;
+	  };
+
+function createRenderEventStream({
+	headers,
+	run,
+}: {
+	headers: HeadersInit;
+	run: (send: (event: ShotlyxMGRenderStreamEvent) => void) => Promise<void>;
+}) {
+	const encoder = new TextEncoder();
+	let isClosed = false;
+	const body = new ReadableStream({
+		start(controller) {
+			const send = (event: ShotlyxMGRenderStreamEvent) => {
+				if (isClosed) return;
+				controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+			};
+
+			void run(send)
+				.catch((error) => {
+					const message = error instanceof Error ? error.message : String(error);
+					console.error("[shotlyx-mg-export] render stream failed:", error);
+					send({ type: "error", error: message });
+				})
+				.finally(() => {
+					if (isClosed) return;
+					isClosed = true;
+					controller.close();
+				});
+		},
+		cancel() {
+			isClosed = true;
+		},
+	});
+
+	const responseHeaders = new Headers(headers);
+	responseHeaders.set("Content-Type", "application/x-ndjson; charset=utf-8");
+	return new Response(body, { headers: responseHeaders });
+}
+
 export async function POST(request: Request) {
 	if (!isDesktopMode()) return disabledResponse();
 
@@ -302,111 +374,124 @@ export async function POST(request: Request) {
 		1,
 		Math.floor(parsed.data.element.duration / ticksPerFrame),
 	);
-	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "shotlyx-mg-"));
-	const entryPoint = path.join(tempDir, "entry.mjs");
+	const inputProps = buildFramePayload({
+		asset,
+		durationInFrames,
+		element: parsed.data.element,
+		fps,
+	});
 	const startedAt = Date.now();
 
-	try {
-		console.info(
-			`[shotlyx-mg-export] render start ${asset.name} ` +
-				`frames=${durationInFrames} fps=${fps} source=${parsed.data.sourceWidth}x${parsed.data.sourceHeight}`,
-		);
-		await fs.writeFile(
-			path.join(tempDir, "ShotlyxComponent.mjs"),
-			buildComponentModule({ asset }),
-			"utf8",
-		);
-		await fs.writeFile(
-			entryPoint,
-			buildEntryModule({
-				durationInFrames,
-				fps,
-				sourceHeight: parsed.data.sourceHeight,
-				sourceWidth: parsed.data.sourceWidth,
-			}),
-			"utf8",
-		);
+	return createRenderEventStream({
+		headers: {
+			"X-Shotlyx-MG-Frames": String(durationInFrames),
+			"X-Shotlyx-MG-Source-Height": String(parsed.data.sourceHeight),
+			"X-Shotlyx-MG-Source-Width": String(parsed.data.sourceWidth),
+			"X-Shotlyx-MG-Render-Input-Bytes": String(
+				sanitizeJsString(inputProps).length,
+			),
+		},
+		run: async (send) => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "shotlyx-mg-"));
+			const entryPoint = path.join(tempDir, "entry.mjs");
 
-		const [{ bundle }, { renderFrames, selectComposition }] = await Promise.all([
-			import("@remotion/bundler"),
-			import("@remotion/renderer"),
-		]);
-		const serveUrl = await bundle({
-			entryPoint,
-			ignoreRegisterRootWarning: true,
-		});
-		const inputProps = buildFramePayload({
-			asset,
-			durationInFrames,
-			element: parsed.data.element,
-			fps,
-		});
-		const composition = await selectComposition({
-			serveUrl,
-			id: "ShotlyxMGSegment",
-			inputProps,
-			logLevel: "warn",
-		});
-
-		const frames: Array<{
-			data: string;
-			frame: number;
-			mimeType: "image/png";
-		}> = [];
-		const logFrameProgress = createRenderProgressLogger({
-			assetName: asset.name,
-			durationInFrames,
-		});
-
-		await renderFrames({
-			serveUrl,
-			composition,
-			inputProps,
-			imageFormat: "png",
-			outputDir: null,
-			muted: true,
-			logLevel: "warn",
-			concurrency: 1,
-			onFrameBuffer: (buffer, frame) => {
-				frames.push({
-					data: buffer.toString("base64"),
-					frame,
-					mimeType: "image/png",
+			try {
+				console.info(
+					`[shotlyx-mg-export] render start ${asset.name} ` +
+						`frames=${durationInFrames} fps=${fps} source=${parsed.data.sourceWidth}x${parsed.data.sourceHeight}`,
+				);
+				send({
+					type: "started",
+					durationSeconds: durationInFrames / fps,
+					fps,
+					frameCount: durationInFrames,
+					height: parsed.data.sourceHeight,
+					width: parsed.data.sourceWidth,
 				});
-			},
-			onFrameUpdate: (framesRendered) => {
-				logFrameProgress(framesRendered);
-			},
-			onStart: () => undefined,
-		});
+				await fs.writeFile(
+					path.join(tempDir, "ShotlyxComponent.mjs"),
+					buildComponentModule({ asset }),
+					"utf8",
+				);
+				await fs.writeFile(
+					entryPoint,
+					buildEntryModule({
+						durationInFrames,
+						fps,
+						sourceHeight: parsed.data.sourceHeight,
+						sourceWidth: parsed.data.sourceWidth,
+					}),
+					"utf8",
+				);
 
-		frames.sort((left, right) => left.frame - right.frame);
-		console.info(
-			`[shotlyx-mg-export] render done ${asset.name} ` +
-				`frames=${frames.length} elapsedMs=${Date.now() - startedAt}`,
-		);
-		return Response.json(
-			{
-				type: "shotlyx-mg-frame-sequence",
-				durationSeconds: durationInFrames / fps,
-				fps,
-				frameCount: frames.length,
-				frames,
-				height: parsed.data.sourceHeight,
-				width: parsed.data.sourceWidth,
-			},
-			{
-				headers: {
-					"X-Shotlyx-MG-Frames": String(durationInFrames),
-					"X-Shotlyx-MG-Source-Height": String(parsed.data.sourceHeight),
-					"X-Shotlyx-MG-Source-Width": String(parsed.data.sourceWidth),
-					"X-Shotlyx-MG-Render-Input-Bytes": String(
-						sanitizeJsString(inputProps).length,
-					),
-				},
-			},
-		);
-	} finally {
-		await fs.rm(tempDir, { force: true, recursive: true }).catch(() => {});
-	}
+				const [{ bundle }, { renderFrames, selectComposition }] =
+					await Promise.all([
+						import("@remotion/bundler"),
+						import("@remotion/renderer"),
+					]);
+				const serveUrl = await bundle({
+					entryPoint,
+					ignoreRegisterRootWarning: true,
+				});
+				const composition = await selectComposition({
+					serveUrl,
+					id: "ShotlyxMGSegment",
+					inputProps,
+					logLevel: "warn",
+				});
+
+				const logFrameProgress = createRenderProgressLogger({
+					assetName: asset.name,
+					durationInFrames,
+				});
+
+				await renderFrames({
+					serveUrl,
+					composition,
+					inputProps,
+					imageFormat: "png",
+					outputDir: null,
+					muted: true,
+					logLevel: "warn",
+					concurrency: 1,
+					onFrameBuffer: (buffer, frame) => {
+						send({
+							type: "frame",
+							data: buffer.toString("base64"),
+							frame,
+							mimeType: "image/png",
+						});
+					},
+					onFrameUpdate: (framesRendered) => {
+						logFrameProgress(framesRendered);
+						send({
+							type: "progress",
+							frameCount: durationInFrames,
+							framesRendered,
+							progress: Math.min(
+								1,
+								Math.max(0, framesRendered / durationInFrames),
+							),
+						});
+					},
+					onStart: () => undefined,
+				});
+
+				console.info(
+					`[shotlyx-mg-export] render done ${asset.name} ` +
+						`frames=${durationInFrames} elapsedMs=${Date.now() - startedAt}`,
+				);
+				send({
+					type: "completed",
+					durationSeconds: durationInFrames / fps,
+					fps,
+					frameCount: durationInFrames,
+					height: parsed.data.sourceHeight,
+					width: parsed.data.sourceWidth,
+				});
+			} finally {
+				await fs.rm(tempDir, { force: true, recursive: true }).catch(() => {});
+			}
+		},
+	});
 }

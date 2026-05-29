@@ -188,10 +188,29 @@ export class RendererManager {
 				await prerenderShotlyxMGExportSegments({
 					fps: exportFps,
 					mediaAssets,
-					onProgress: (progress) => {
+					onProgress: (event) => {
+						const segmentProgress =
+							event.frameProgress ??
+							Math.min(
+								1,
+								Math.max(
+									0,
+									event.progress * event.segmentCount - event.segmentIndex,
+								),
+							);
 						onProgress?.({
-							progress: progress * 0.15,
+							progress: event.progress * 0.15,
 							stage: "prerendering-mg",
+							subProgress: {
+								current: event.frameIndex,
+								estimatedRemainingSeconds:
+									event.estimatedRemainingSeconds ?? null,
+								label: event.segmentName,
+								progress: segmentProgress,
+								stepCount: event.segmentCount,
+								stepIndex: event.segmentIndex,
+								total: event.frameCount,
+							},
 						});
 					},
 					shotlyxMGAssets: activeProject.shotlyxMGAssets ?? [],
@@ -201,7 +220,11 @@ export class RendererManager {
 
 			let audioBuffer: AudioBuffer | null = null;
 			if (includeAudio) {
-				onProgress?.({ progress: 0.2, stage: "mixing-audio" });
+				onProgress?.({
+					progress: 0.2,
+					stage: "mixing-audio",
+					subProgress: null,
+				});
 				audioBuffer = await createTimelineAudioBuffer({
 					tracks,
 					mediaAssets: exportMediaAssets,
@@ -235,7 +258,11 @@ export class RendererManager {
 					prerenderWeight +
 					audioWeight +
 					progress * (1 - prerenderWeight - audioWeight);
-				onProgress?.({ progress: adjustedProgress, stage: "encoding" });
+				onProgress?.({
+					progress: adjustedProgress,
+					stage: "encoding",
+					subProgress: null,
+				});
 			});
 
 			let cancelled = false;
@@ -249,6 +276,7 @@ export class RendererManager {
 			onProgress?.({
 				progress: (shotlyxMGRenderMap.size > 0 ? 0.15 : 0.01) + (includeAudio ? 0.05 : 0),
 				stage: "encoding",
+				subProgress: null,
 			});
 			const cancelInterval = setInterval(checkExporterCancel, 100);
 

@@ -8,8 +8,11 @@ const { shotlyxBattleCardFixture } =
 	await import("@/shotlyx/remotion-components/fixtures/battle-card");
 const { buildShotlyxMGElementFromAsset, shotlyxMediaTimeFromSeconds } =
 	await import("@/shotlyx/remotion-components/project-assets");
-const { buildShotlyxMGExportRenderKey, collectShotlyxMGExportPrerenderJobs } =
-	await import("../shotlyx-mg-export-prerender");
+const {
+	buildShotlyxMGExportRenderKey,
+	collectShotlyxMGExportPrerenderJobs,
+	prerenderShotlyxMGExportSegments,
+} = await import("../shotlyx-mg-export-prerender");
 const { buildScene } = await import("../scene-builder");
 const { GraphicNode } = await import("../nodes/graphic-node");
 const { VideoNode } = await import("../nodes/video-node");
@@ -115,5 +118,107 @@ describe("Shotlyx MG export prerender mapping", () => {
 
 		expect(scene.children[0]).toBeInstanceOf(VideoNode);
 		expect(scene.children[0]).not.toBeInstanceOf(GraphicNode);
+	});
+
+	test("surfaces frame-level progress while reading streamed MG prerender frames", async () => {
+		const previousDesktopFlag = process.env.VITE_SHOTLYX_DESKTOP;
+		const previousFetch = globalThis.fetch;
+		const previousCreateObjectURL = URL.createObjectURL;
+		process.env.VITE_SHOTLYX_DESKTOP = "1";
+		URL.createObjectURL = mock(() => "blob:shotlyx-mg-frame");
+		const { asset, element, tracks } = buildTracks();
+		const progressEvents: unknown[] = [];
+		const encoder = new TextEncoder();
+		globalThis.fetch = mock(async () => {
+			const stream = new ReadableStream({
+				start(controller) {
+					for (const event of [
+						{
+							type: "started",
+							durationSeconds: 2,
+							fps: 30,
+							frameCount: 2,
+							width: 1920,
+							height: 1080,
+						},
+						{
+							type: "progress",
+							framesRendered: 1,
+							frameCount: 2,
+							progress: 0.5,
+						},
+						{
+							type: "frame",
+							frame: 0,
+							data: btoa("frame-0"),
+							mimeType: "image/png",
+						},
+						{
+							type: "progress",
+							framesRendered: 2,
+							frameCount: 2,
+							progress: 1,
+						},
+						{
+							type: "frame",
+							frame: 1,
+							data: btoa("frame-1"),
+							mimeType: "image/png",
+						},
+						{
+							type: "completed",
+							durationSeconds: 2,
+							fps: 30,
+							frameCount: 2,
+							width: 1920,
+							height: 1080,
+						},
+					]) {
+						controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+					}
+					controller.close();
+				},
+			});
+			return new Response(stream, {
+				headers: { "Content-Type": "application/x-ndjson" },
+			});
+		});
+
+		try {
+			const result = await prerenderShotlyxMGExportSegments({
+				fps: 30,
+				mediaAssets: [],
+				onProgress: (event) => progressEvents.push(event),
+				shotlyxMGAssets: [asset],
+				tracks,
+			});
+
+			const render = result.renderMap.get(
+				buildShotlyxMGExportRenderKey({
+					elementId: element.id,
+					trackId: "graphic-track",
+				}),
+			);
+			expect(render?.type).toBe("shotlyx-mg-frame-sequence");
+			expect(render && "frames" in render ? render.frames : []).toHaveLength(2);
+			expect(progressEvents).toContainEqual(
+				expect.objectContaining({
+					frameCount: 2,
+					frameIndex: 1,
+					frameProgress: 0.5,
+					segmentCount: 1,
+					segmentIndex: 0,
+					segmentName: "Interview Result MG",
+				}),
+			);
+		} finally {
+			globalThis.fetch = previousFetch;
+			URL.createObjectURL = previousCreateObjectURL;
+			if (previousDesktopFlag === undefined) {
+				delete process.env.VITE_SHOTLYX_DESKTOP;
+			} else {
+				process.env.VITE_SHOTLYX_DESKTOP = previousDesktopFlag;
+			}
+		}
 	});
 });

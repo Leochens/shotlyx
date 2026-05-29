@@ -20,6 +20,7 @@ import type {
 	TTimelineViewState,
 } from "@/project/types";
 import type { ExportOptions, ExportResult, ExportState } from "@/export";
+import { estimateExportRemainingSeconds } from "@/export/progress";
 import { storageService } from "@/services/storage/service";
 import { toast } from "sonner";
 import { generateUUID } from "@/utils/id";
@@ -238,24 +239,39 @@ export class ProjectManager {
 	async export({ options }: { options: ExportOptions }): Promise<ExportResult> {
 		this.exportCancelRequested = false;
 		this.exportState = {
+			estimatedRemainingSeconds: null,
 			isExporting: true,
 			progress: 0,
 			stage: "preparing",
+			subProgress: null,
 			result: null,
 		};
 		this.notify();
 
+		const exportStartedAt = Date.now();
 		const result = await this.editor.renderer.exportProject({
 			options,
-			onProgress: ({ progress, stage }) => {
+			onProgress: (update) => {
+				const { estimatedRemainingSeconds, progress, stage, subProgress } =
+					update;
 				const nextProgress = Math.max(
 					this.exportState.progress,
 					Math.min(1, Math.max(0, progress)),
 				);
+				const shouldUpdateSubProgress = "subProgress" in update;
 				this.exportState = {
 					...this.exportState,
+					estimatedRemainingSeconds:
+						estimatedRemainingSeconds ??
+						estimateExportRemainingSeconds({
+							elapsedMs: Date.now() - exportStartedAt,
+							progress: nextProgress,
+						}),
 					progress: nextProgress,
 					stage: stage ?? this.exportState.stage,
+					subProgress: shouldUpdateSubProgress
+						? subProgress ?? null
+						: this.exportState.subProgress,
 				};
 				this.notify();
 			},
@@ -263,9 +279,11 @@ export class ProjectManager {
 		});
 
 		this.exportState = {
+			estimatedRemainingSeconds: null,
 			isExporting: false,
 			progress: this.exportState.progress,
 			result,
+			subProgress: null,
 		};
 		this.notify();
 
@@ -277,7 +295,13 @@ export class ProjectManager {
 	}
 
 	clearExportState(): void {
-		this.exportState = { isExporting: false, progress: 0, result: null };
+		this.exportState = {
+			estimatedRemainingSeconds: null,
+			isExporting: false,
+			progress: 0,
+			result: null,
+			subProgress: null,
+		};
 		this.notify();
 	}
 

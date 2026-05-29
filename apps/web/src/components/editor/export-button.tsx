@@ -21,6 +21,11 @@ import {
 	getExportFileExtension,
 	downloadBuffer,
 } from "@/export";
+import {
+	formatExportRemainingTime,
+	formatExportSubProgressLabel,
+	getExportSubProgressPercent,
+} from "@/export/progress";
 import { Check, Copy, Download, RotateCcw } from "lucide-react";
 import {
 	EXPORT_FORMAT_VALUES,
@@ -121,7 +126,14 @@ function ExportDialog({
 	const dialogCopy = copy.editor.exportDialog;
 	const activeProject = useEditor((e) => e.project.getActive());
 	const exportState = useEditor((e) => e.project.getExportState());
-	const { isExporting, progress, result: exportResult, stage } = exportState;
+	const {
+		estimatedRemainingSeconds,
+		isExporting,
+		progress,
+		result: exportResult,
+		stage,
+		subProgress,
+	} = exportState;
 	const [format, setFormat] = useState<ExportFormat>(
 		DEFAULT_EXPORT_OPTIONS.format,
 	);
@@ -164,6 +176,37 @@ function ExportDialog({
 	const handleCancel = () => {
 		editor.project.cancelExport();
 	};
+	const remainingTimeLabel = formatExportRemainingTime({
+		copy: dialogCopy.subProgress.timeUnits,
+		seconds: estimatedRemainingSeconds,
+	});
+	const subProgressLabel = subProgress
+		? formatExportSubProgressLabel({
+				copy: dialogCopy.subProgress,
+				subProgress,
+			})
+		: null;
+	const subProgressPercent = subProgress
+		? getExportSubProgressPercent({ subProgress })
+		: null;
+	const subProgressStepLabel =
+		subProgress &&
+		typeof subProgress.stepIndex === "number" &&
+		typeof subProgress.stepCount === "number"
+			? `${dialogCopy.subProgress.mgSegment} ${subProgress.stepIndex + 1}/${subProgress.stepCount}`
+			: null;
+	const subProgressFrameLabel =
+		subProgress &&
+		typeof subProgress.current === "number" &&
+		typeof subProgress.total === "number"
+			? `${dialogCopy.subProgress.frame} ${subProgress.current}/${subProgress.total}`
+			: null;
+	const subProgressRemainingLabel = subProgress
+		? formatExportRemainingTime({
+				copy: dialogCopy.subProgress.timeUnits,
+				seconds: subProgress.estimatedRemainingSeconds,
+			})
+		: null;
 
 	return (
 		<DialogContent
@@ -298,10 +341,56 @@ function ExportDialog({
 										<p className="text-muted-foreground text-sm">
 											{Math.round(progress * 100)}%
 										</p>
+										{remainingTimeLabel && (
+											<p className="text-muted-foreground text-xs">
+												{dialogCopy.subProgress.estimatedRemaining}{" "}
+												{remainingTimeLabel}
+											</p>
+										)}
 										<p className="text-muted-foreground text-sm">100%</p>
 									</div>
 									<Progress value={progress * 100} className="w-full" />
 								</div>
+
+								{subProgress && subProgressLabel && (
+									<div className="rounded-md border border-border/60 bg-muted/20 p-2">
+										<div className="flex items-center justify-between gap-3 text-xs">
+											<p className="text-muted-foreground">
+												{subProgressStepLabel ?? subProgress.label}
+											</p>
+											<p className="text-muted-foreground shrink-0">
+												{subProgressPercent}%
+											</p>
+										</div>
+										{subProgressStepLabel && subProgress.label && (
+											<p
+												className="text-muted-foreground mt-1 truncate text-xs"
+												title={subProgressLabel}
+											>
+												{subProgress.label}
+											</p>
+										)}
+										{(subProgressFrameLabel || subProgressRemainingLabel) && (
+											<div className="mt-1 flex items-center justify-between gap-3 text-[11px]">
+												{subProgressFrameLabel && (
+													<p className="text-muted-foreground">
+														{subProgressFrameLabel}
+													</p>
+												)}
+												{subProgressRemainingLabel && (
+													<p className="text-muted-foreground shrink-0">
+														{dialogCopy.subProgress.estimatedRemaining}{" "}
+														{subProgressRemainingLabel}
+													</p>
+												)}
+											</div>
+										)}
+										<Progress
+											value={(subProgressPercent ?? 0)}
+											className="mt-2 h-1.5 w-full"
+										/>
+									</div>
+								)}
 
 								<Button
 									variant="outline"

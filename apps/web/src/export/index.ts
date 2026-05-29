@@ -35,13 +35,27 @@ export type ExportStage =
 
 export interface ExportProgressUpdate {
 	progress: number;
+	estimatedRemainingSeconds?: number | null;
 	stage?: ExportStage;
+	subProgress?: ExportSubProgress | null;
+}
+
+export interface ExportSubProgress {
+	current?: number;
+	estimatedRemainingSeconds?: number | null;
+	label?: string;
+	progress: number;
+	stepCount?: number;
+	stepIndex?: number;
+	total?: number;
 }
 
 export interface ExportState {
+	estimatedRemainingSeconds?: number | null;
 	isExporting: boolean;
 	progress: number;
 	stage?: ExportStage;
+	subProgress?: ExportSubProgress | null;
 	result: ExportResult | null;
 }
 

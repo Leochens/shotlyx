@@ -419,32 +419,142 @@ async function exportProjectToWebM({
 }: {
 	page: Page;
 	testInfo: TestInfo;
-}): Promise<string> {
+}): Promise<{
+	exportPath: string;
+	progressSnapshots: Array<{
+		progress: number;
+		stage?: string;
+		subProgress?: {
+			current?: number;
+			progress: number;
+			stepCount?: number;
+			stepIndex?: number;
+			total?: number;
+		} | null;
+	}>;
+}> {
 	const exportPath = testInfo.outputPath("remotion-mg-export.webm");
-	const result = await page.evaluate(async () => {
-		const { EditorCore } = await import("/src/core/index.ts");
-		const editor = EditorCore.getInstance();
-		const activeProject = editor.project.getActive();
-		const exportResult = await editor.project.export({
-			options: {
-				format: "webm",
-				quality: "low",
-				fps: activeProject.settings.fps,
-				includeAudio: false,
-			},
-		});
-		if (!exportResult.success || !exportResult.buffer) {
-			throw new Error(exportResult.error || "Export did not produce a buffer");
-		}
-		return Array.from(new Uint8Array(exportResult.buffer));
+	await page
+		.locator('button[aria-label="Export"], button[aria-label="导出"]')
+		.first()
+		.click();
+	await page.evaluate(() => {
+		const windowWithExport = window as typeof window & {
+			__shotlyxE2EExportPromise?: Promise<{
+				bytes: number[];
+				progressSnapshots: Array<{
+					progress: number;
+					stage?: string;
+					subProgress?: {
+						current?: number;
+						progress: number;
+						stepCount?: number;
+						stepIndex?: number;
+						total?: number;
+					} | null;
+				}>;
+			}>;
+		};
+		windowWithExport.__shotlyxE2EExportPromise = (async () => {
+			const { EditorCore } = await import("/src/core/index.ts");
+			const editor = EditorCore.getInstance();
+			const activeProject = editor.project.getActive();
+			const progressSnapshots: Array<{
+				progress: number;
+				stage?: string;
+				subProgress?: {
+					current?: number;
+					progress: number;
+					stepCount?: number;
+					stepIndex?: number;
+					total?: number;
+				} | null;
+			}> = [];
+			const unsubscribe = editor.project.subscribe(() => {
+				const state = editor.project.getExportState();
+				if (state.stage !== "prerendering-mg" || !state.subProgress) return;
+				progressSnapshots.push({
+					progress: state.progress,
+					stage: state.stage,
+					subProgress: {
+						current: state.subProgress.current,
+						progress: state.subProgress.progress,
+						stepCount: state.subProgress.stepCount,
+						stepIndex: state.subProgress.stepIndex,
+						total: state.subProgress.total,
+					},
+				});
+			});
+			try {
+				const exportResult = await editor.project.export({
+					options: {
+						format: "webm",
+						quality: "low",
+						fps: activeProject.settings.fps,
+						includeAudio: false,
+					},
+				});
+				if (!exportResult.success || !exportResult.buffer) {
+					throw new Error(
+						exportResult.error || "Export did not produce a buffer",
+					);
+				}
+				return {
+					bytes: Array.from(new Uint8Array(exportResult.buffer)),
+					progressSnapshots,
+				};
+			} finally {
+				unsubscribe();
+			}
+		})();
 	});
-	const buffer = Buffer.from(result);
+	await expect(
+		page.getByText(/Rendering MG segments|正在渲染 MG 片段/),
+	).toBeVisible({
+		timeout: 30_000,
+	});
+	await expect(page.getByText(/MG segment \d+\/\d+|MG 片段 \d+\/\d+/)).toBeVisible({
+		timeout: 30_000,
+	});
+	await expect(page.getByText(/Estimated remaining|预计剩余/)).toBeVisible({
+		timeout: 30_000,
+	});
+	const progressBuffer = await page.getByRole("dialog").screenshot({
+		path: testInfo.outputPath("remotion-mg-export-progress.png"),
+	});
+	await testInfo.attach("remotion-mg-export-progress.png", {
+		body: progressBuffer,
+		contentType: "image/png",
+	});
+	const result = await page.evaluate(async () => {
+		const promise = (
+			window as typeof window & {
+				__shotlyxE2EExportPromise?: Promise<{
+					bytes: number[];
+					progressSnapshots: Array<{
+						progress: number;
+						stage?: string;
+						subProgress?: {
+							current?: number;
+							progress: number;
+							stepCount?: number;
+							stepIndex?: number;
+							total?: number;
+						} | null;
+					}>;
+				}>;
+			}
+		).__shotlyxE2EExportPromise;
+		if (!promise) throw new Error("Export promise was not started");
+		return await promise;
+	});
+	const buffer = Buffer.from(result.bytes);
 	writeFileSync(exportPath, buffer);
 	await testInfo.attach("remotion-mg-export.webm", {
 		body: buffer,
 		contentType: "video/webm",
 	});
-	return exportPath;
+	return { exportPath, progressSnapshots: result.progressSnapshots };
 }
 
 test.describe("Remotion MG desktop export", () => {
@@ -523,7 +633,19 @@ test.describe("Remotion MG desktop export", () => {
 			jobCount: 3,
 		});
 
-		const exportPath = await exportProjectToWebM({ page, testInfo });
+		const { exportPath, progressSnapshots } = await exportProjectToWebM({
+			page,
+			testInfo,
+		});
+		expect(progressSnapshots.length).toBeGreaterThan(0);
+		expect(
+			progressSnapshots.some(
+				(snapshot) =>
+					snapshot.subProgress?.total &&
+					snapshot.subProgress.current &&
+					snapshot.subProgress.current > 0,
+			),
+		).toBe(true);
 		const metadata = JSON.parse(
 			execFileSync("ffprobe", [
 				"-v",
