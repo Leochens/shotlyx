@@ -23,7 +23,6 @@ import {
 	PreviewViewportProvider,
 	usePreviewViewportState,
 } from "./preview-viewport";
-import { ShotlyxRemotionPreviewOverlay } from "@/shotlyx/remotion-components/components/preview-overlay";
 
 function usePreviewSize() {
 	const canvasSize = useEditor(
@@ -147,12 +146,7 @@ function PreviewCanvas({
 	const viewportSize = useContainerSize({ containerRef: viewportRef });
 	const editor = useEditor();
 	const activeProject = useEditor((e) => e.project.getActive());
-	const tracks = useEditor(
-		(e) => e.timeline.getPreviewTracks() ?? e.scenes.getActiveScene().tracks,
-	);
-	const mediaAssets = useEditor((e) => e.media.getAssets());
 	const renderTree = useEditor((e) => e.renderer.getRenderTree());
-	const [remotionPreviewTime, setRemotionPreviewTime] = useState(0);
 	const viewport = usePreviewViewportState({
 		canvasHeight: nativeHeight,
 		canvasWidth: nativeWidth,
@@ -167,7 +161,7 @@ function PreviewCanvas({
 			width: nativeWidth,
 			height: nativeHeight,
 			fps: activeProject.settings.fps,
-			renderShotlyxMG: false,
+			renderShotlyxMG: true,
 		});
 	}, [nativeWidth, nativeHeight, activeProject.settings.fps]);
 
@@ -200,16 +194,9 @@ function PreviewCanvas({
 			(TICKS_PER_SECOND * renderer.fps.denominator) / renderer.fps.numerator,
 		);
 		const frame = Math.floor(renderTime / ticksPerFrame);
-		setRemotionPreviewTime((current) =>
-			current === renderTime ? current : renderTime,
-		);
-
 		if (renderingRef.current) return;
 
-		if (
-			frame === lastFrameRef.current &&
-			renderTree === lastSceneRef.current
-		) {
+		if (frame === lastFrameRef.current && renderTree === lastSceneRef.current) {
 			return;
 		}
 
@@ -224,7 +211,7 @@ function PreviewCanvas({
 			.finally(() => {
 				renderingRef.current = false;
 			});
-		}, [renderer, renderTree, editor.playback, editor.timeline]);
+	}, [renderer, renderTree, editor.playback, editor.timeline]);
 
 	useRafLoop(render);
 
@@ -326,31 +313,18 @@ function PreviewCanvas({
 								<div
 									ref={canvasMountRef}
 									className="absolute block border"
-								style={{
-									left: viewport.sceneLeft,
-									top: viewport.sceneTop,
-									width: viewport.sceneWidth,
-									height: viewport.sceneHeight,
-									background:
-										activeProject.settings.background.type === "blur"
-											? "transparent"
-											: activeProject?.settings.background.color,
-										}}
-									/>
-									{nativeWidth && nativeHeight ? (
-										<ShotlyxRemotionPreviewOverlay
-											tracks={tracks}
-											currentTime={remotionPreviewTime}
-											canvasSize={{ width: nativeWidth, height: nativeHeight }}
-											mediaAssets={mediaAssets}
-											shotlyxMGAssets={activeProject.shotlyxMGAssets ?? []}
-											sceneLeft={viewport.sceneLeft}
-											sceneTop={viewport.sceneTop}
-											sceneWidth={viewport.sceneWidth}
-											sceneHeight={viewport.sceneHeight}
-										/>
-									) : null}
-									<PreviewOverlayLayer
+									style={{
+										left: viewport.sceneLeft,
+										top: viewport.sceneTop,
+										width: viewport.sceneWidth,
+										height: viewport.sceneHeight,
+										background:
+											activeProject.settings.background.type === "blur"
+												? "transparent"
+												: activeProject?.settings.background.color,
+									}}
+								/>
+								<PreviewOverlayLayer
 									instances={overlayInstances}
 									plane="under-interaction"
 								/>

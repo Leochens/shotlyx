@@ -100,6 +100,40 @@ describe("Shotlyx Remotion generator", () => {
 		expect(document.compiledModule).toContain("ShotlyxComponent");
 	});
 
+	test("normalizes duplicate default export statements", async () => {
+		const document = await createShotlyxRemotionComponentDocument({
+			name: "Duplicate Default Export",
+			componentSource: `
+type Props = { title: string };
+
+export default function ShotlyxComponent(props: Props) {
+	const frame = useCurrentFrame();
+	const opacity = interpolate(frame, [0, 18], [0, 1], { extrapolateRight: "clamp" });
+	return <AbsoluteFill style={{ opacity }}>{props.title}</AbsoluteFill>;
+}
+
+export default ShotlyxComponent;
+export { ShotlyxComponent as default };
+export default React.memo(ShotlyxComponent);
+`,
+			propsSchema: [
+				{
+					key: "title",
+					label: "Title",
+					type: "text",
+					role: "content",
+					default: "Hello",
+				},
+			],
+			sourcePrompt: "测试重复 default export",
+			durationSeconds: 4,
+			aspectRatio: "16:9",
+		});
+
+		expect(document.componentSource.match(/export\s+default/g)?.length).toBe(1);
+		expect(document.compiledModule).toContain("ShotlyxComponent");
+	});
+
 	test("rejects unsafe generated component source", async () => {
 		await expect(
 			createShotlyxRemotionComponentDocument({

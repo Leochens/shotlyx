@@ -919,6 +919,7 @@ export class ProjectManager {
 			width: canvasSize.width,
 			height: canvasSize.height,
 			fps: this.active.settings.fps,
+			renderShotlyxMG: true,
 		});
 
 		const tempCanvas = document.createElement("canvas");

@@ -8,10 +8,7 @@ import {
 import { effectsRegistry, resolveEffectPasses } from "@/effects";
 import type { Effect, EffectPass } from "@/effects/types";
 import { getSourceTimeAtClipTime } from "@/retime";
-import {
-	DEFAULT_GRAPHIC_SOURCE_SIZE,
-	resolveGraphicElementParamsAtTime,
-} from "@/graphics";
+import { resolveGraphicElementParamsAtTime } from "@/graphics";
 import {
 	buildTextBackgroundFromElement,
 	getTextMeasurementContext,
@@ -34,6 +31,7 @@ import {
 } from "./nodes/effect-layer-node";
 import {
 	GraphicNode,
+	getGraphicNodeSourceSize,
 	type ResolvedGraphicNodeState,
 } from "./nodes/graphic-node";
 import { ImageNode, loadImageSource } from "./nodes/image-node";
@@ -206,7 +204,9 @@ async function resolveVideoNode({
 	const frame = await videoCache.getFrameAt({
 		mediaId: node.params.mediaId,
 		file: node.params.file,
-		time: mediaTimeToSeconds({ time: roundMediaTime({ time: sourceTimeTicks }) }),
+		time: mediaTimeToSeconds({
+			time: roundMediaTime({ time: sourceTimeTicks }),
+		}),
 	});
 	if (!frame) {
 		return null;
@@ -294,11 +294,15 @@ function resolveGraphicNode({
 	node: GraphicNode;
 	context: ResolveContext;
 }): ResolvedGraphicNodeState | null {
+	const sourceSize = getGraphicNodeSourceSize({
+		definitionId: node.params.definitionId,
+		renderer: context.renderer,
+	});
 	const visualState = resolveVisualState({
 		params: node.params,
 		context,
-		sourceWidth: DEFAULT_GRAPHIC_SOURCE_SIZE,
-		sourceHeight: DEFAULT_GRAPHIC_SOURCE_SIZE,
+		sourceWidth: sourceSize.width,
+		sourceHeight: sourceSize.height,
 	});
 	if (!visualState) {
 		return null;
@@ -306,6 +310,8 @@ function resolveGraphicNode({
 
 	return {
 		...visualState,
+		sourceWidth: sourceSize.width,
+		sourceHeight: sourceSize.height,
 		resolvedParams: resolveGraphicElementParamsAtTime({
 			element: node.params,
 			localTime: visualState.localTime,
@@ -446,7 +452,9 @@ async function resolveBackdropSource({
 		const frame = await videoCache.getFrameAt({
 			mediaId: node.params.mediaId,
 			file: node.params.file,
-			time: mediaTimeToSeconds({ time: roundMediaTime({ time: sourceTimeTicks }) }),
+			time: mediaTimeToSeconds({
+				time: roundMediaTime({ time: sourceTimeTicks }),
+			}),
 		});
 		if (!frame) {
 			return null;

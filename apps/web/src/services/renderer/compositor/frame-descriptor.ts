@@ -25,7 +25,6 @@ import type {
 	TextureCanvasDrawFn,
 	TextureUploadDescriptor,
 } from "./types";
-import { DEFAULT_GRAPHIC_SOURCE_SIZE } from "@/graphics";
 
 export async function buildFrameDescriptor({
 	node,
@@ -227,6 +226,8 @@ async function collectVisualSourceNode({
 			? await node.getSource({
 					resolvedParams: node.resolved.resolvedParams,
 					renderShotlyxMG: renderer.renderShotlyxMG,
+					sourceWidth: node.resolved.sourceWidth,
+					sourceHeight: node.resolved.sourceHeight,
 				})
 			: node.resolved.source;
 	if (!source) {
@@ -235,11 +236,11 @@ async function collectVisualSourceNode({
 
 	const sourceWidth =
 		node instanceof GraphicNode
-			? DEFAULT_GRAPHIC_SOURCE_SIZE
+			? node.resolved.sourceWidth
 			: (node.resolved as ResolvedVisualSourceNodeState).sourceWidth;
 	const sourceHeight =
 		node instanceof GraphicNode
-			? DEFAULT_GRAPHIC_SOURCE_SIZE
+			? node.resolved.sourceHeight
 			: (node.resolved as ResolvedVisualSourceNodeState).sourceHeight;
 
 	const textureId = `${path}:source`;

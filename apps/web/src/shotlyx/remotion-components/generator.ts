@@ -85,11 +85,56 @@ function canvasSizeForAspectRatio({
 	return { width: 1920, height: 1080 };
 }
 
-function stripDefaultExport({ source }: { source: string }): string {
-	return source.replace(
-		/export\s+default\s+function\s+ShotlyxComponent\b/,
-		"function ShotlyxComponent",
+function isStandaloneDefaultExportStart({ line }: { line: string }): boolean {
+	const trimmedLine = line.trim();
+	if (
+		/^export\s+default\s+function\s+ShotlyxComponent\b/.test(trimmedLine)
+	) {
+		return false;
+	}
+	return (
+		/^export\s+default\b/.test(trimmedLine) ||
+		/^export\s*\{[^}]*\bdefault\b[^}]*\}\s*;?\s*$/.test(trimmedLine)
 	);
+}
+
+function isDefaultExportStatementComplete({ line }: { line: string }): boolean {
+	const trimmedLine = line.trim();
+	return (
+		trimmedLine.endsWith(";") ||
+		/^export\s*\{[^}]*\bdefault\b[^}]*\}\s*;?\s*$/.test(trimmedLine) ||
+		/^export\s+default\s+[A-Za-z_$][\w$.$]*\s*$/.test(trimmedLine)
+	);
+}
+
+function stripStandaloneDefaultExports({ source }: { source: string }): string {
+	const normalizedLines: string[] = [];
+	let skippingDefaultExport = false;
+	for (const line of source.split("\n")) {
+		if (skippingDefaultExport) {
+			if (isDefaultExportStatementComplete({ line })) {
+				skippingDefaultExport = false;
+			}
+			continue;
+		}
+		if (isStandaloneDefaultExportStart({ line })) {
+			if (!isDefaultExportStatementComplete({ line })) {
+				skippingDefaultExport = true;
+			}
+			continue;
+		}
+		normalizedLines.push(line);
+	}
+	return normalizedLines.join("\n").trim();
+}
+
+function stripDefaultExport({ source }: { source: string }): string {
+	return stripStandaloneDefaultExports({
+		source: source.replace(
+			/export\s+default\s+function\s+ShotlyxComponent\b/,
+			"function ShotlyxComponent",
+		),
+	});
 }
 
 function updateSourceBraceDepth({
@@ -165,11 +210,18 @@ function normalizeGeneratedComponentSource({ source }: { source: string }): stri
 	const normalizedLines: string[] = [];
 	let braceDepth = 0;
 	let skippingImportDeclaration = false;
+	let skippingDefaultExport = false;
 	for (const line of source.split("\n")) {
 		const trimmedLine = line.trim();
 		if (skippingImportDeclaration) {
 			if (trimmedLine.endsWith(";")) {
 				skippingImportDeclaration = false;
+			}
+			continue;
+		}
+		if (skippingDefaultExport) {
+			if (isDefaultExportStatementComplete({ line })) {
+				skippingDefaultExport = false;
 			}
 			continue;
 		}
@@ -180,6 +232,12 @@ function normalizeGeneratedComponentSource({ source }: { source: string }): stri
 			continue;
 		}
 		if (braceDepth === 0) {
+			if (isStandaloneDefaultExportStart({ line })) {
+				if (!isDefaultExportStatementComplete({ line })) {
+					skippingDefaultExport = true;
+				}
+				continue;
+			}
 			const normalizedDestructuringLine =
 				normalizeTopLevelRemotionDestructuring({ line });
 			if (normalizedDestructuringLine !== null) {

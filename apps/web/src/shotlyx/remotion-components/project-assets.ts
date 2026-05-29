@@ -112,12 +112,12 @@ export function buildShotlyxMGElementFromAsset({
 		motionGraphicAssetId: asset.id,
 		motionGraphicBaseParams: buildShotlyxMGGraphicParams({ asset }),
 		startTime,
-			duration,
-			trimStart: ZERO_SHOTLYX_MEDIA_TIME,
-			trimEnd: ZERO_SHOTLYX_MEDIA_TIME,
-			params: buildDefaultShotlyxMGElementParams({ asset }),
-			animations: buildShotlyxMGProgressAnimation({ duration }),
-		};
+		duration,
+		trimStart: ZERO_SHOTLYX_MEDIA_TIME,
+		trimEnd: ZERO_SHOTLYX_MEDIA_TIME,
+		params: buildDefaultShotlyxMGElementParams({ asset }),
+		animations: buildShotlyxMGProgressAnimation({ duration }),
+	};
 }
 
 export function buildShotlyxMGStickerId({

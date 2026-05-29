@@ -1,4 +1,5 @@
 import { createCanvasSurface } from "../canvas-utils";
+import type { CanvasRenderer } from "../canvas-renderer";
 import {
 	DEFAULT_GRAPHIC_SOURCE_SIZE,
 	getGraphicDefinition,
@@ -20,6 +21,37 @@ export interface GraphicNodeParams extends VisualNodeParams {
 
 export interface ResolvedGraphicNodeState extends ResolvedVisualNodeState {
 	resolvedParams: ParamValues;
+	sourceWidth: number;
+	sourceHeight: number;
+}
+
+const MAX_SHOTLYX_MG_SOURCE_SIZE = 4096;
+
+export function getGraphicNodeSourceSize({
+	definitionId,
+	renderer,
+}: {
+	definitionId: string;
+	renderer: CanvasRenderer;
+}): { width: number; height: number } {
+	if (
+		definitionId !== SHOTLYX_MG_GRAPHIC_DEFINITION_ID ||
+		!renderer.renderShotlyxMG
+	) {
+		return {
+			width: DEFAULT_GRAPHIC_SOURCE_SIZE,
+			height: DEFAULT_GRAPHIC_SOURCE_SIZE,
+		};
+	}
+
+	const size = Math.max(
+		DEFAULT_GRAPHIC_SOURCE_SIZE,
+		Math.min(
+			MAX_SHOTLYX_MG_SOURCE_SIZE,
+			Math.ceil(Math.max(renderer.width, renderer.height)),
+		),
+	);
+	return { width: size, height: size };
 }
 
 export class GraphicNode extends VisualNode<
@@ -37,9 +69,13 @@ export class GraphicNode extends VisualNode<
 	async getSource({
 		resolvedParams,
 		renderShotlyxMG,
+		sourceWidth,
+		sourceHeight,
 	}: {
 		resolvedParams: ParamValues;
 		renderShotlyxMG: boolean;
+		sourceWidth: number;
+		sourceHeight: number;
 	}): Promise<OffscreenCanvas | null> {
 		if (
 			this.params.definitionId === SHOTLYX_MG_GRAPHIC_DEFINITION_ID &&
@@ -54,21 +90,23 @@ export class GraphicNode extends VisualNode<
 		const cacheKey = JSON.stringify({
 			definitionId: this.params.definitionId,
 			params: resolvedParams,
+			sourceWidth,
+			sourceHeight,
 		});
 		if (this.cachedSource && this.cachedKey === cacheKey) {
 			return this.cachedSource;
 		}
 
 		const { canvas, context } = createCanvasSurface({
-			width: DEFAULT_GRAPHIC_SOURCE_SIZE,
-			height: DEFAULT_GRAPHIC_SOURCE_SIZE,
+			width: sourceWidth,
+			height: sourceHeight,
 		});
 
 		await definition.render({
 			ctx: context,
 			params: resolvedParams,
-			width: DEFAULT_GRAPHIC_SOURCE_SIZE,
-			height: DEFAULT_GRAPHIC_SOURCE_SIZE,
+			width: sourceWidth,
+			height: sourceHeight,
 		});
 
 		this.cachedKey = cacheKey;

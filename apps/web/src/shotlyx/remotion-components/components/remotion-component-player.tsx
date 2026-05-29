@@ -46,17 +46,23 @@ function isRemotionComponent(
 }
 
 function withRemotionBareBindings({ moduleSource }: { moduleSource: string }) {
-	if (
-		moduleSource.includes(
-			"const { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video } = Remotion;",
-		)
-	) {
-		return moduleSource;
+	const prelude: string[] = [];
+	if (!/\b(?:const|let|var)\s+React\b/.test(moduleSource)) {
+		prelude.push(
+			"const React = globalThis.__SHOTLYX_REMOTION_RUNTIME__.React;",
+		);
 	}
-	return [
-		"const { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video } = globalThis.__SHOTLYX_REMOTION_RUNTIME__.Remotion;",
-		moduleSource,
-	].join("\n");
+	if (!/\b(?:const|let|var)\s+Remotion\b/.test(moduleSource)) {
+		prelude.push(
+			"const Remotion = globalThis.__SHOTLYX_REMOTION_RUNTIME__.Remotion;",
+		);
+	}
+	if (!/\b(?:const|let|var)\s*\{[^}]*\}\s*=\s*Remotion\b/.test(moduleSource)) {
+		prelude.push(
+			"const { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video } = Remotion;",
+		);
+	}
+	return [...prelude, moduleSource].join("\n");
 }
 
 function RemotionErrorFallback({ error }: { error: Error }) {

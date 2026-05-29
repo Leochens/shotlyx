@@ -2,11 +2,11 @@ import * as ReactRuntime from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Easing, interpolate, spring } from "remotion";
-import { resolveShotlyxMGInputProps, resolveShotlyxMGPlayerBackground } from "./media-props";
 import {
-	isShotlyxRemotionMGAsset,
-	type ShotlyxRemotionMGAsset,
-} from "./types";
+	resolveShotlyxMGInputProps,
+	resolveShotlyxMGPlayerBackground,
+} from "./media-props";
+import { isShotlyxRemotionMGAsset, type ShotlyxRemotionMGAsset } from "./types";
 
 interface RemotionCanvasModuleCacheEntry {
 	component: ReactRuntime.ComponentType<Record<string, unknown>>;
@@ -18,6 +18,98 @@ interface RemotionCanvasModuleCacheEntry {
 }
 
 const moduleCache = new Map<string, Promise<RemotionCanvasModuleCacheEntry>>();
+const RemotionFrameContext = ReactRuntime.createContext(0);
+
+function escapeHtmlAttribute(value: string): string {
+	return value
+		.replaceAll("&", "&amp;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;");
+}
+
+function getHtmlAttribute({
+	tag,
+	name,
+}: {
+	tag: string;
+	name: string;
+}): string | null {
+	const match = tag.match(
+		new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i"),
+	);
+	return match?.[1] ?? match?.[2] ?? null;
+}
+
+function buildSvgImageTag({ svgMarkup }: { svgMarkup: string }): string {
+	const openingTag = svgMarkup.match(/^<svg\b[^>]*>/i)?.[0] ?? "";
+	const attrs: string[] = ['alt=""'];
+	const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+		svgMarkup,
+	)}`;
+	attrs.push(`src="${escapeHtmlAttribute(src)}"`);
+
+	for (const name of ["class", "style", "width", "height"] as const) {
+		const value = getHtmlAttribute({ tag: openingTag, name });
+		if (value !== null) {
+			attrs.push(`${name}="${escapeHtmlAttribute(value)}"`);
+		}
+	}
+
+	return `<img ${attrs.join(" ")} />`;
+}
+
+function findClosingSvgIndex({
+	markup,
+	startIndex,
+}: {
+	markup: string;
+	startIndex: number;
+}): number {
+	const tagPattern = /<\/?svg\b[^>]*>/gi;
+	tagPattern.lastIndex = startIndex;
+	let depth = 0;
+	for (const match of markup.matchAll(tagPattern)) {
+		const tag = match[0];
+		if (tag.startsWith("</")) {
+			depth -= 1;
+			if (depth === 0) {
+				return match.index + tag.length;
+			}
+			continue;
+		}
+		depth += tag.endsWith("/>") ? 0 : 1;
+	}
+	return -1;
+}
+
+export function inlineSvgMarkupToImageTags({ markup }: { markup: string }) {
+	let result = "";
+	let cursor = 0;
+	const openPattern = /<svg\b[^>]*>/gi;
+	while (true) {
+		openPattern.lastIndex = cursor;
+		const match = openPattern.exec(markup);
+		if (!match) {
+			result += markup.slice(cursor);
+			break;
+		}
+
+		const startIndex = match.index;
+		const endIndex = findClosingSvgIndex({ markup, startIndex });
+		if (endIndex < 0) {
+			result += markup.slice(cursor);
+			break;
+		}
+
+		result += markup.slice(cursor, startIndex);
+		result += buildSvgImageTag({
+			svgMarkup: markup.slice(startIndex, endIndex),
+		});
+		cursor = endIndex;
+	}
+	return result;
+}
 
 function clamp01(value: number): number {
 	return Math.max(0, Math.min(1, value));
@@ -33,23 +125,27 @@ function getNumberParam({
 	fallback: number;
 }): number {
 	const value = params[key];
-	return typeof value === "number" && Number.isFinite(value)
-		? value
-		: fallback;
+	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function withRemotionBareBindings({ moduleSource }: { moduleSource: string }) {
-	if (
-		moduleSource.includes(
-			"const { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video } = Remotion;",
-		)
-	) {
-		return moduleSource;
+	const prelude: string[] = [];
+	if (!/\b(?:const|let|var)\s+React\b/.test(moduleSource)) {
+		prelude.push(
+			"const React = globalThis.__SHOTLYX_REMOTION_RUNTIME__.React;",
+		);
 	}
-	return [
-		"const { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video } = globalThis.__SHOTLYX_REMOTION_RUNTIME__.Remotion;",
-		moduleSource,
-	].join("\n");
+	if (!/\b(?:const|let|var)\s+Remotion\b/.test(moduleSource)) {
+		prelude.push(
+			"const Remotion = globalThis.__SHOTLYX_REMOTION_RUNTIME__.Remotion;",
+		);
+	}
+	if (!/\b(?:const|let|var)\s*\{[^}]*\}\s*=\s*Remotion\b/.test(moduleSource)) {
+		prelude.push(
+			"const { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video } = Remotion;",
+		);
+	}
+	return [...prelude, moduleSource].join("\n");
 }
 
 function StubAbsoluteFill({
@@ -74,8 +170,35 @@ function StubAbsoluteFill({
 	);
 }
 
-function StubSequence({ children }: { children?: ReactNode }) {
-	return ReactRuntime.createElement(ReactRuntime.Fragment, null, children);
+function useCanvasCurrentFrame(): number {
+	return ReactRuntime.useContext(RemotionFrameContext);
+}
+
+function StubSequence({
+	children,
+	durationInFrames,
+	from = 0,
+}: {
+	children?: ReactNode;
+	durationInFrames?: number;
+	from?: number;
+}) {
+	const parentFrame = useCanvasCurrentFrame();
+	const sequenceStart = Number.isFinite(from) ? from : 0;
+	const localFrame = parentFrame - sequenceStart;
+	if (localFrame < 0) return null;
+	if (
+		typeof durationInFrames === "number" &&
+		Number.isFinite(durationInFrames) &&
+		localFrame >= durationInFrames
+	) {
+		return null;
+	}
+	return ReactRuntime.createElement(
+		RemotionFrameContext.Provider,
+		{ value: localFrame },
+		children,
+	);
 }
 
 function StubImg({ src, style }: { src?: unknown; style?: CSSProperties }) {
@@ -132,7 +255,7 @@ function buildRemotionCanvasRuntime({
 		Remotion: {
 			AbsoluteFill: StubAbsoluteFill,
 			Sequence: StubSequence,
-			useCurrentFrame: () => frameState.frame,
+			useCurrentFrame: useCanvasCurrentFrame,
 			useVideoConfig: () => ({
 				id: frameState.asset.name,
 				width: frameState.asset.document.width,
@@ -250,7 +373,9 @@ async function loadSvgImageSource({
 		const response = await fetch(dataUrl);
 		return await createImageBitmap(await response.blob());
 	}
-	throw new Error("No browser image decoder is available for Shotlyx MG export");
+	throw new Error(
+		"No browser image decoder is available for Shotlyx MG export",
+	);
 }
 
 function buildForeignObjectSvg({
@@ -264,12 +389,14 @@ function buildForeignObjectSvg({
 }): string {
 	const { width, height } = asset.document;
 	const backgroundStyle =
-		background && background !== "transparent" ? `background:${background};` : "";
+		background && background !== "transparent"
+			? `background:${background};`
+			: "";
 	return [
 		`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
 		`<foreignObject x="0" y="0" width="${width}" height="${height}">`,
 		`<div xmlns="http://www.w3.org/1999/xhtml" style="position:relative;width:${width}px;height:${height}px;overflow:hidden;${backgroundStyle}">`,
-		markup,
+		inlineSvgMarkupToImageTags({ markup }),
 		"</div>",
 		"</foreignObject>",
 		"</svg>",
@@ -312,7 +439,11 @@ export async function renderShotlyxMGAssetToCanvas({
 		runtime: buildRemotionCanvasRuntime({ frameState: entry.frameState }),
 		fn: () =>
 			renderToStaticMarkup(
-				ReactRuntime.createElement(entry.component, inputProps),
+				ReactRuntime.createElement(
+					RemotionFrameContext.Provider,
+					{ value: currentFrame },
+					ReactRuntime.createElement(entry.component, inputProps),
+				),
 			),
 	});
 	const svg = buildForeignObjectSvg({
