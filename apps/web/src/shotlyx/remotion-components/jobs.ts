@@ -113,6 +113,8 @@ function buildComponentPrompt({
 		componentCount: total,
 		durationSeconds: input.durationSeconds,
 		styleGuide,
+		aspectRatio: input.aspectRatio ?? "16:9",
+		transparentBackground: input.transparentBackground !== false,
 	});
 	const component = directorPlan.components[index];
 	if (!component) return input.prompt;
@@ -134,15 +136,22 @@ function buildComponentPrompt({
 		`组合式 Shotlyx MG 总需求：${input.prompt}`,
 		`Director 总体概念：${directorPlan.title}`,
 		`Director 视觉风格：${directorPlan.visualStyle}`,
+		`Director styleTokens：${JSON.stringify(directorPlan.styleTokens)}`,
 		`Director 叙事弧线：${directorPlan.narrativeArc}`,
+		`Director 时间线：${directorPlan.timelineMode}，总时长 ${directorPlan.totalDurationSeconds.toFixed(2)}s / ${directorPlan.totalDurationFrames} frames。`,
 		`现在只生成第 ${index + 1}/${total} 个小组件：${component.label}。`,
+		`Scene ID：${component.sceneId}`,
+		`生成策略：${component.generationMode}${component.templateId ? `，templateId=${component.templateId}` : "，无 templateId，必须自定义写 Remotion 代码"}`,
 		`组件职责：${component.focus}`,
 		`视觉角色：${component.visualRole}`,
-		`组件建议时长：${component.durationSeconds.toFixed(1)}s`,
-		`时间位置：${component.screenTiming}`,
+		`组件 timing：${JSON.stringify(component.timing)}`,
+		`组件 propsIntent：${JSON.stringify(component.propsIntent)}`,
+		`转场：in=${component.transitionIn}, out=${component.transitionOut}`,
+		`背景/文字策略：${component.backgroundMode} / ${component.textPolicy}`,
 		`动效方向：${component.animationDirection}`,
 		`质量底线：${component.qualityBar}`,
-			"节奏要求：短促局部强调可以只做 1-2 秒，不要为了填满默认时长而空等；如果该组件持续多秒，必须包含入场、保持期的轻微运动或强调、以及必要的退场，不能 1 秒动完后剩余时间空白。",
+		`必须通过的校验：${component.validationChecks.join(", ")}`,
+		"节奏要求：短促局部强调可以只做 1-2 秒，不要为了填满默认时长而空等；如果该组件持续多秒，必须包含入场、保持期的轻微运动或强调、以及必要的退场，不能 1 秒动完后剩余时间空白。",
 		"这个组件会和其他小组件叠加使用，所以只输出自己负责的视觉层，不要试图完成整个动画。",
 		input.transparentBackground === false
 			? "背景模式：允许根据设计需要绘制完整背景。"
@@ -194,9 +203,12 @@ function getJobComponentDurationSeconds({
 		componentCount: total,
 		durationSeconds: input.durationSeconds,
 		styleGuide,
+		aspectRatio: input.aspectRatio ?? "16:9",
+		transparentBackground: input.transparentBackground !== false,
 	});
 	return (
-		directorPlan.components[index]?.durationSeconds ?? input.durationSeconds
+		directorPlan.components[index]?.timing.durationSeconds ??
+		input.durationSeconds
 	);
 }
 
@@ -314,7 +326,9 @@ async function tryCreateTemplateDocumentForJob({
 	if (templateMode !== "force") return null;
 	const templateId = selectedTemplateId;
 	if (!templateId) {
-		throw new Error(`No builtin MG template selected for task "${component.id}"`);
+		throw new Error(
+			`No builtin MG template selected for task "${component.sceneId}"`,
+		);
 	}
 	emit({
 		job,
@@ -326,7 +340,7 @@ async function tryCreateTemplateDocumentForJob({
 			detail: `${templateId} · ${component.label}`,
 			index: componentIndex,
 			total: componentCount,
-			taskId: component.id,
+			taskId: component.sceneId,
 			taskLabel: component.label,
 		},
 	});
@@ -351,7 +365,7 @@ async function tryCreateTemplateDocumentForJob({
 			job,
 			componentIndex,
 			componentCount,
-			taskId: component.id,
+			taskId: component.sceneId,
 			taskLabel: component.label,
 			error,
 			message: getErrorMessage(error),
@@ -520,7 +534,7 @@ async function generateMGComponentForJob({
 	if (shouldCancelJob({ job })) {
 		throw new Error("Shotlyx MG job cancelled");
 	}
-	const taskId = component.id;
+	const taskId = component.sceneId;
 	const taskLabel = component.label;
 
 	emit({
@@ -735,6 +749,8 @@ async function runShotlyxMGJob({
 		componentCount,
 		durationSeconds: job.input.durationSeconds,
 		styleGuide,
+		aspectRatio: job.input.aspectRatio ?? "16:9",
+		transparentBackground: job.input.transparentBackground !== false,
 	});
 	emit({
 		job,

@@ -5,7 +5,8 @@ export const SMART_MG_COMPOSITION_STYLE_GUIDE =
 
 export const DEFAULT_MG_COMPOSITION_COMPONENT_COUNT = 4;
 
-const SHORT_BEAT_RULE = "短促局部强调、轨迹、脉冲或关键词打点可以自动缩短到 1-2s。";
+const SHORT_BEAT_RULE =
+	"短促局部强调、轨迹、脉冲或关键词打点可以自动缩短到 1-2s。";
 
 const COMPONENT_ROLES_RULE =
 	"按需求拆成多个连续小组件。Director 只负责切片，不指定模板类型；每个小组件都要由子 Agent 从原始需求中自行决定一个唯一视觉意图，不能默认套用标题、指标、标注、表格、流程、结论等固定角色。";
@@ -69,7 +70,7 @@ export function buildShotlyxMGCompositionAgentPrompt({
 		"只允许使用 Remotion / Shotlyx Component；不要使用 HTML、GSAP 或旧模板覆盖层。",
 		`描述：${description}`,
 		`模板：${templateLabel}。`,
-		`参数：比例 ${aspectRatio}，小组件目标/上限 ${durationSeconds}s，透明背景 true。${SHORT_BEAT_RULE}`,
+		`参数：比例 ${aspectRatio}，组合总时长/目标 ${durationSeconds}s，透明背景 true。${SHORT_BEAT_RULE}`,
 		`工具参数：${JSON.stringify(toolArgs)}`,
 		templateId
 			? `用户已选择内置模板 ${templateId}；调用工具时必须传入 templateMode:"force" 和 templateId，不要改成其它模板或自由生成。`
@@ -108,7 +109,7 @@ export function buildShotlyxMGCompositionGenerationGuidance({
 		"Shotlyx Remotion Component MG 生成规范：",
 		"只允许使用 Remotion / Shotlyx Component；不要使用 HTML、GSAP 或旧模板覆盖层。",
 		`描述：${description}`,
-		`参数：比例 ${aspectRatio}，小组件目标/上限 ${durationText}，透明背景 ${transparentBackground ? "true" : "false"}。${SHORT_BEAT_RULE}`,
+		`参数：比例 ${aspectRatio}，当前小组件时长 ${durationText}，透明背景 ${transparentBackground ? "true" : "false"}。${SHORT_BEAT_RULE}`,
 		`风格：${resolvedStyleGuide}`,
 		COMPONENT_ROLES_RULE,
 		EDITABLE_PROPS_RULE,

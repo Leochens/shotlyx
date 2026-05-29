@@ -178,7 +178,9 @@ function isShotlyxMGTemplateId(value: string): value is ShotlyxMGTemplateId {
 	return SHOTLYX_MG_TEMPLATE_IDS.some((item) => item === value);
 }
 
-function isShotlyxMGTemplateMode(value: string): value is ShotlyxMGTemplateMode {
+function isShotlyxMGTemplateMode(
+	value: string,
+): value is ShotlyxMGTemplateMode {
 	return value === "off" || value === "auto" || value === "force";
 }
 
@@ -261,9 +263,7 @@ function optionalShotlyxMGTemplateModeParam(
 	const value = optionalStringParam(params, "templateMode");
 	if (value === undefined) return undefined;
 	if (!isShotlyxMGTemplateMode(value)) {
-		throw new Error(
-			'类型不匹配："templateMode" 必须为 off、auto 或 force',
-		);
+		throw new Error('类型不匹配："templateMode" 必须为 off、auto 或 force');
 	}
 	return value;
 }
@@ -449,14 +449,21 @@ function buildCompositionComponentPrompt({
 		`组合式 Shotlyx MG 总需求：${prompt}`,
 		`Director 总体概念：${directorPlan.title}`,
 		`Director 视觉风格：${directorPlan.visualStyle}`,
+		`Director styleTokens：${JSON.stringify(directorPlan.styleTokens)}`,
 		`Director 叙事弧线：${directorPlan.narrativeArc}`,
+		`Director 时间线：${directorPlan.timelineMode}，总时长 ${directorPlan.totalDurationSeconds.toFixed(2)}s / ${directorPlan.totalDurationFrames} frames。`,
 		`现在只生成第 ${componentIndex + 1}/${totalComponents} 个小组件：${component.label}。`,
+		`Scene ID：${component.sceneId}`,
+		`生成策略：${component.generationMode}${component.templateId ? `，templateId=${component.templateId}` : "，无 templateId，必须自定义写 Remotion 代码"}`,
 		`组件职责：${component.focus}`,
 		`视觉角色：${component.visualRole}`,
-		`组件建议时长：${component.durationSeconds.toFixed(1)}s`,
-		`时间位置：${component.screenTiming}`,
+		`组件 timing：${JSON.stringify(component.timing)}`,
+		`组件 propsIntent：${JSON.stringify(component.propsIntent)}`,
+		`转场：in=${component.transitionIn}, out=${component.transitionOut}`,
+		`背景/文字策略：${component.backgroundMode} / ${component.textPolicy}`,
 		`动效方向：${component.animationDirection}`,
 		`质量底线：${component.qualityBar}`,
+		`必须通过的校验：${component.validationChecks.join(", ")}`,
 		"节奏要求：短促局部强调可以只做 1-2 秒，不要为了填满默认时长而空等；如果该组件持续多秒，必须包含入场、保持期的轻微运动或强调、以及必要的退场，不能 1 秒动完后剩余时间空白。",
 		"这个组件会和其他小组件叠加使用，所以只输出自己负责的视觉层，不要试图完成整个动画。",
 		transparentBackground
@@ -2020,8 +2027,7 @@ async function followShotlyxMGJobToCompletion({
 							? "MG 子智能体已停止"
 							: "MG 子智能体运行中"),
 					status:
-						event.status ??
-						(event.type === "cancelled" ? "error" : "running"),
+						event.status ?? (event.type === "cancelled" ? "error" : "running"),
 					detail: event.detail,
 					current: event.index === undefined ? undefined : event.index + 1,
 					total: event.total,
@@ -2641,10 +2647,10 @@ export function buildCreativeTools({
 				};
 			},
 		},
-			{
-				name: "shotlyx_generate_mg_composition",
-				description:
-					"默认 MG 生成工具。将复杂自定义 MG 拆成多个可编辑 Shotlyx Remotion Component 小组件逐个生成、保存到 Assets，并可叠加插入时间线。用于任意自定义视频图形、视觉特效、数据表达、讲解动画和多层动态图形。",
+		{
+			name: "shotlyx_generate_mg_composition",
+			description:
+				"默认 MG 生成工具。将复杂自定义 MG 拆成多个可编辑 Shotlyx Remotion Component 小组件逐个生成、保存到 Assets，并可叠加插入时间线。用于任意自定义视频图形、视觉特效、数据表达、讲解动画和多层动态图形。",
 			parameters: {
 				prompt: {
 					type: "string",
@@ -2654,7 +2660,7 @@ export function buildCreativeTools({
 				durationSeconds: {
 					type: "number",
 					description:
-						"每个小组件的动画时长秒数，默认由生成器决定，最大 120 秒",
+						"组合总时长秒数。生成器会按 componentCount 分配到各小组件，最大 120 秒",
 					optional: true,
 				},
 				aspectRatio: {
@@ -2682,7 +2688,7 @@ export function buildCreativeTools({
 				templateId: {
 					type: "string",
 					description:
-						"指定内置模板 ID：title-reveal、metric-emphasis、annotation-callout、data-table。仅当用户在模板选择器中选定具体模板并使用 templateMode force 时传入。",
+						"指定已注册内置模板 ID。仅当用户在模板选择器中选定具体模板并使用 templateMode force 时传入；自定义 MG 不要传。",
 					optional: true,
 				},
 				startTimeSeconds: {
@@ -2762,6 +2768,8 @@ export function buildCreativeTools({
 					componentCount,
 					durationSeconds,
 					styleGuide,
+					aspectRatio,
+					transparentBackground,
 				});
 				emitToolProgress({
 					context,
@@ -2930,7 +2938,7 @@ export function buildCreativeTools({
 					}
 
 					const componentResult = {
-						componentId: component.id,
+						componentId: component.sceneId,
 						label: component.label,
 						focus: component.focus,
 						visualRole: component.visualRole,
