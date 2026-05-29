@@ -457,7 +457,7 @@ function buildCompositionComponentPrompt({
 		`时间位置：${component.screenTiming}`,
 		`动效方向：${component.animationDirection}`,
 		`质量底线：${component.qualityBar}`,
-		"节奏要求：短促标注/箭头/圆圈可以只做 1-2 秒，不要为了填满默认时长而空等；如果该组件持续多秒，必须包含入场、保持期的轻微运动或强调、以及必要的退场，不能 1 秒动完后剩余时间空白。",
+		"节奏要求：短促局部强调可以只做 1-2 秒，不要为了填满默认时长而空等；如果该组件持续多秒，必须包含入场、保持期的轻微运动或强调、以及必要的退场，不能 1 秒动完后剩余时间空白。",
 		"这个组件会和其他小组件叠加使用，所以只输出自己负责的视觉层，不要试图完成整个动画。",
 		transparentBackground
 			? "背景模式：透明。不要绘制全画布黑底/实底，只输出可叠加到视频上的局部图形、文字、线条和强调层。"
@@ -2641,10 +2641,10 @@ export function buildCreativeTools({
 				};
 			},
 		},
-		{
-			name: "shotlyx_generate_mg_composition",
-			description:
-				"默认 MG 生成工具。将复杂自定义 MG 拆成多个可编辑 Shotlyx Remotion Component 小组件逐个生成、保存到 Assets，并可叠加插入时间线。用于标题大字、重点突出、箭头/圆圈/方框标注、数据可视化、数据表格、图表和多层讲解动画。",
+			{
+				name: "shotlyx_generate_mg_composition",
+				description:
+					"默认 MG 生成工具。将复杂自定义 MG 拆成多个可编辑 Shotlyx Remotion Component 小组件逐个生成、保存到 Assets，并可叠加插入时间线。用于任意自定义视频图形、视觉特效、数据表达、讲解动画和多层动态图形。",
 			parameters: {
 				prompt: {
 					type: "string",

@@ -31,13 +31,14 @@ describe("chat prompt builders", () => {
 		expect(prompt).toContain('"componentCount":4');
 		expect(prompt).toContain("propsSchema/defaultProps");
 		expect(prompt).toContain("只允许使用 Remotion / Shotlyx Component");
-		expect(prompt).toContain("稳定唯一 key");
-		expect(prompt).toContain("只问一个简短问题让用户选择风格/目标");
-		expect(prompt).toContain("自动缩短到 1-2s");
-		expect(prompt).toContain('templateMode:"auto" 不是强制使用内置模板');
-		expect(prompt).toContain('改传 templateMode:"off"');
-		expect(prompt).not.toContain("shotlyx_generate_hyperframes_overlay");
-	});
+			expect(prompt).toContain("稳定唯一 key");
+			expect(prompt).toContain("只问一个简短问题让用户选择风格/目标");
+			expect(prompt).toContain("自动缩短到 1-2s");
+			expect(prompt).toContain("默认不要使用内置模板");
+			expect(prompt).toContain('templateMode:"force"');
+			expect(prompt).toContain("不指定模板类型");
+			expect(prompt).not.toContain("shotlyx_generate_hyperframes_overlay");
+		});
 
 	test("builds a Remotion MG prompt that forces a selected builtin template", () => {
 		const prompt = buildRemotionMGCompositionPrompt({

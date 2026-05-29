@@ -35,13 +35,13 @@ export interface MGTemplatePickerOption {
 
 export function buildMGTemplatePickerOptions(): MGTemplatePickerOption[] {
 	return [
-		{
-			value: "smart-composition",
-			label: SMART_MG_COMPOSITION_TEMPLATE_LABEL,
-			description: "自动拆分标题、重点、标注、表格等多个 MG 小组件。",
-			componentCount: DEFAULT_MG_COMPOSITION_COMPONENT_COUNT,
-			styleGuide: SMART_MG_COMPOSITION_STYLE_GUIDE,
-			templateMode: "auto",
+			{
+				value: "smart-composition",
+				label: SMART_MG_COMPOSITION_TEMPLATE_LABEL,
+				description: "自由拆分多个自定义 MG 小组件，不预设模板角色。",
+				componentCount: DEFAULT_MG_COMPOSITION_COMPONENT_COUNT,
+				styleGuide: SMART_MG_COMPOSITION_STYLE_GUIDE,
+				templateMode: "auto",
 		},
 		...listShotlyxMGTemplates().map((template) => ({
 			value: template.id,

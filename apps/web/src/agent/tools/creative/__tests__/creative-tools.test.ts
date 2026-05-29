@@ -1544,24 +1544,25 @@ describe("buildCreativeTools", () => {
 			},
 		);
 		const upsertShotlyxMGAsset = mock(() => undefined);
-		const generateShotlyxMGComponent = mock(
-			async ({
-				prompt,
-				durationSeconds,
-			}: {
-				prompt: string;
-				durationSeconds?: number;
-			}) => ({
-				...shotlyxBattleCardFixture,
-				name: prompt.includes("标题大字展示")
-					? "标题大字层"
-					: prompt.includes("重点突出展示")
-						? "人口指标层"
-						: "洞察标注层",
-				durationSeconds: durationSeconds ?? 8,
-				sourcePrompt: prompt,
-			}),
-		);
+			const generateShotlyxMGComponent = mock(
+				async ({
+					prompt,
+					durationSeconds,
+				}: {
+					prompt: string;
+					durationSeconds?: number;
+				}) => {
+					const explicitName = prompt
+						.match(/MG asset name:\s*([^\n]+)/)?.[1]
+						?.trim();
+					return {
+						...shotlyxBattleCardFixture,
+						name: explicitName ?? "自定义 MG",
+						durationSeconds: durationSeconds ?? 8,
+						sourcePrompt: prompt,
+					};
+				},
+			);
 		const progressEvents: Array<{
 			label?: string;
 			status?: string;
@@ -1609,18 +1610,21 @@ describe("buildCreativeTools", () => {
 			},
 		);
 
-		expect(generateShotlyxMGComponent).toHaveBeenCalledTimes(3);
-		expect(generateShotlyxMGComponent.mock.calls[0]?.[0]).toMatchObject({
-			durationSeconds: 2.8,
-			transparentBackground: true,
-		});
-		expect(
-			generateShotlyxMGComponent.mock.calls.map(
-				(call) => call[0]?.durationSeconds,
-			),
-		).toEqual([2.8, 2.4, 1.8]);
-		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(3);
-		expect(insertElement).toHaveBeenCalledTimes(0);
+			expect(generateShotlyxMGComponent).toHaveBeenCalledTimes(3);
+			expect(generateShotlyxMGComponent.mock.calls[0]?.[0]).toMatchObject({
+				durationSeconds: 8,
+				transparentBackground: true,
+			});
+			expect(generateShotlyxMGComponent.mock.calls[0]?.[0]?.prompt).toContain(
+				"不要从固定模板类型中选择",
+			);
+			expect(
+				generateShotlyxMGComponent.mock.calls.map(
+					(call) => call[0]?.durationSeconds,
+				),
+			).toEqual([8, 8, 8]);
+			expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(3);
+			expect(insertElement).toHaveBeenCalledTimes(0);
 		expect(result).toMatchObject({
 			runtime: "shotlyx-mg-composition-v1",
 			inserted: false,
@@ -1633,45 +1637,61 @@ describe("buildCreativeTools", () => {
 				]),
 			},
 			directorPlan: {
+					components: [
+						expect.objectContaining({
+							id: "custom-segment-1",
+							durationSeconds: 8,
+						}),
+						expect.objectContaining({
+							id: "custom-segment-2",
+							durationSeconds: 8,
+						}),
+						expect.objectContaining({
+							id: "custom-segment-3",
+							durationSeconds: 8,
+						}),
+					],
+				},
 				components: [
 					expect.objectContaining({
-						id: "title-reveal",
-						durationSeconds: 2.8,
+						componentId: "custom-segment-1",
+						label: "自定义片段 1/3",
+						name: expect.stringContaining("自定义片段 1/3"),
+						durationSeconds: 8,
 					}),
 					expect.objectContaining({
-						id: "metric-emphasis",
-						durationSeconds: 2.4,
+						componentId: "custom-segment-2",
+						label: "自定义片段 2/3",
+						name: expect.stringContaining("自定义片段 2/3"),
+						durationSeconds: 8,
 					}),
 					expect.objectContaining({
-						id: "annotation-callout",
-						durationSeconds: 1.8,
+						componentId: "custom-segment-3",
+						label: "自定义片段 3/3",
+						name: expect.stringContaining("自定义片段 3/3"),
+						durationSeconds: 8,
 					}),
 				],
-			},
-			components: [
-				expect.objectContaining({ name: "标题大字层", durationSeconds: 2.8 }),
-				expect.objectContaining({ name: "人口指标层", durationSeconds: 2.4 }),
-				expect.objectContaining({
-					name: "洞察标注层",
-					durationSeconds: 1.8,
-				}),
-			],
-		});
+			});
 		expect(
 			progressEvents.some((event) => event.label === "已加载 Remotion Skill"),
 		).toBe(true);
 		expect(
 			progressEvents.some((event) => event.label === "已规划 MG Director 分镜"),
 		).toBe(true);
-		expect(
-			progressEvents.some((event) => event.label === "生成标题大字展示"),
-		).toBe(true);
-		expect(
-			progressEvents.some((event) => event.label === "已生成标题大字层"),
-		).toBe(true);
-		expect(
-			progressEvents.some((event) => event.label === "已生成洞察标注层"),
-		).toBe(true);
+			expect(
+				progressEvents.some((event) => event.label === "生成自定义片段 1/3"),
+			).toBe(true);
+			expect(
+				progressEvents.some((event) =>
+					event.label?.includes("已生成自定义片段 1/3"),
+				),
+			).toBe(true);
+			expect(
+				progressEvents.some((event) =>
+					event.label?.includes("已生成自定义片段 3/3"),
+				),
+			).toBe(true);
 		expect(scene.tracks.overlay[0]!.elements).toHaveLength(0);
 		expect(insertElement).not.toHaveBeenCalled();
 	});

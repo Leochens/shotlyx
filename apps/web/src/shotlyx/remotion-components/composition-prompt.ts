@@ -1,23 +1,23 @@
 export const SMART_MG_COMPOSITION_TEMPLATE_LABEL = "智能组合";
 
 export const SMART_MG_COMPOSITION_STYLE_GUIDE =
-	"Remotion 视频图形包装风格。根据需求自动拆分标题、重点强调、标注、数据图表、步骤流程和结论收束；避免网页卡片感，优先大层级、强对比、可读数据、细描边、留白和克制动效。";
+	"Remotion 视频图形包装风格。根据用户需求自行设计每个片段的视觉意图、构图、运动机制和信息层级；避免网页卡片感，优先强主体、强对比、可读信息、细节克制和持续动效。";
 
 export const DEFAULT_MG_COMPOSITION_COMPONENT_COUNT = 4;
 
-const SHORT_BEAT_RULE = "短促箭头、圆圈、框选、关键词打点可以自动缩短到 1-2s。";
+const SHORT_BEAT_RULE = "短促局部强调、轨迹、脉冲或关键词打点可以自动缩短到 1-2s。";
 
 const COMPONENT_ROLES_RULE =
-	"按需求拆成 3-5 个连续小组件，每个小组件只负责一个明确视觉意图：内容型动画可用标题大字、重点指标、箭头/圆圈/方框标注、数据图表/表格、步骤流程或结论收束；纯视觉/粒子/转场/无文字特效应拆成聚集、爆发、扩散、余韵等视觉阶段，不要硬套标题/指标/图表模板。";
+	"按需求拆成多个连续小组件。Director 只负责切片，不指定模板类型；每个小组件都要由子 Agent 从原始需求中自行决定一个唯一视觉意图，不能默认套用标题、指标、标注、表格、流程、结论等固定角色。";
 
 const EDITABLE_PROPS_RULE =
 	"所有业务文字、数值、表格行、颜色、开关和动效强度都必须进入 propsSchema/defaultProps；每个 propsSchema 项必须有稳定唯一 key、清晰 label，table columns 必须是字符串数组。";
 
 const PLACEHOLDER_RULE =
-	"不能保留“标题”“标题强调”“Subtitle”“Focus here”“指标名”“数值”“Lorem”“Example”等占位文案；如果用户没有给具体文案，先用需求中可推断的业务词，不要直接照抄模板；如果用户明确要求纯视觉或无文字，不要新增任何文字 props。";
+	"不能保留任何占位文案；如果用户没有给具体文案，先用需求中可推断的业务词；如果用户明确要求纯视觉或无文字，不要新增任何文字 props。";
 
 const VIDEO_GRAPHICS_STYLE_RULE =
-	"视觉风格要求：像高质量视频图形包装，而不是网页卡片或后台 dashboard 截图；优先大层级、强对比、留白、细描边、扫描线、计数动效、路径/描边动画和清晰数据对齐。若组件持续多秒，必须有轻微持续动效或退场，不能 1 秒动完后空等。";
+	"视觉风格要求：像高质量视频图形包装，而不是网页卡片或后台 dashboard 截图；使用与需求匹配的层级、对比、留白、路径、粒子、图形、数据或文字系统。若组件持续多秒，必须有轻微持续动效或退场，不能 1 秒动完后空等。";
 
 const AUTO_TEMPLATE_RULE =
 	'默认不要使用内置模板。只有用户在模板选择器里明确选中模板时，才传 templateMode:"force" 和 templateId；其它所有 MG 需求都传 templateMode:"off" 或省略模板参数，让工具自定义生成 Remotion Component。';

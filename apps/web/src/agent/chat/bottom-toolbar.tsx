@@ -247,7 +247,7 @@ export function BottomToolbar({
 							event.preventDefault();
 							handleMGSubmit();
 						}}
-						placeholder="描述你想生成的 MG 动画、箭头、框选、圆圈或字幕强调..."
+							placeholder="描述你想生成的 MG 动画、视觉特效或字幕强调..."
 						rows={2}
 						className="max-h-28 min-h-14 w-full resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
 					/>

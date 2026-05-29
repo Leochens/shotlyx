@@ -142,7 +142,7 @@ function buildComponentPrompt({
 		`时间位置：${component.screenTiming}`,
 		`动效方向：${component.animationDirection}`,
 		`质量底线：${component.qualityBar}`,
-		"节奏要求：短促标注/箭头/圆圈可以只做 1-2 秒，不要为了填满默认时长而空等；如果该组件持续多秒，必须包含入场、保持期的轻微运动或强调、以及必要的退场，不能 1 秒动完后剩余时间空白。",
+			"节奏要求：短促局部强调可以只做 1-2 秒，不要为了填满默认时长而空等；如果该组件持续多秒，必须包含入场、保持期的轻微运动或强调、以及必要的退场，不能 1 秒动完后剩余时间空白。",
 		"这个组件会和其他小组件叠加使用，所以只输出自己负责的视觉层，不要试图完成整个动画。",
 		input.transparentBackground === false
 			? "背景模式：允许根据设计需要绘制完整背景。"
@@ -169,7 +169,9 @@ function buildMGComponentAssetName({
 		.trim()
 		.slice(0, 18)
 		.trim();
-	const suffix = total > 1 ? ` ${index + 1}/${total}` : "";
+	const positionText = `${index + 1}/${total}`;
+	const labelHasPosition = component.label.includes(positionText);
+	const suffix = total > 1 && !labelHasPosition ? ` ${positionText}` : "";
 	return `${component.label}${suffix}${subject ? ` · ${subject}` : ""}`;
 }
 
