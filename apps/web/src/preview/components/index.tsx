@@ -23,6 +23,7 @@ import {
 	PreviewViewportProvider,
 	usePreviewViewportState,
 } from "./preview-viewport";
+import { ShotlyxRemotionPreviewOverlay } from "@/shotlyx/remotion-components/components/preview-overlay";
 
 function usePreviewSize() {
 	const canvasSize = useEditor(
@@ -147,6 +148,12 @@ function PreviewCanvas({
 	const editor = useEditor();
 	const activeProject = useEditor((e) => e.project.getActive());
 	const renderTree = useEditor((e) => e.renderer.getRenderTree());
+	const tracks = useEditor(
+		(e) => e.timeline.getPreviewTracks() ?? e.scenes.getActiveScene().tracks,
+	);
+	const mediaAssets = useEditor((e) => e.media.getAssets());
+	const shotlyxMGAssets = useEditor((e) => e.project.getShotlyxMGAssets());
+	const [remotionPreviewTime, setRemotionPreviewTime] = useState(0);
 	const viewport = usePreviewViewportState({
 		canvasHeight: nativeHeight,
 		canvasWidth: nativeWidth,
@@ -161,7 +168,7 @@ function PreviewCanvas({
 			width: nativeWidth,
 			height: nativeHeight,
 			fps: activeProject.settings.fps,
-			renderShotlyxMG: true,
+			renderShotlyxMG: false,
 		});
 	}, [nativeWidth, nativeHeight, activeProject.settings.fps]);
 
@@ -194,6 +201,9 @@ function PreviewCanvas({
 			(TICKS_PER_SECOND * renderer.fps.denominator) / renderer.fps.numerator,
 		);
 		const frame = Math.floor(renderTime / ticksPerFrame);
+		setRemotionPreviewTime((current) =>
+			current === renderTime ? current : renderTime,
+		);
 		if (renderingRef.current) return;
 
 		if (frame === lastFrameRef.current && renderTree === lastSceneRef.current) {
@@ -324,6 +334,19 @@ function PreviewCanvas({
 												: activeProject?.settings.background.color,
 									}}
 								/>
+								{nativeWidth && nativeHeight ? (
+									<ShotlyxRemotionPreviewOverlay
+										tracks={tracks}
+										currentTime={remotionPreviewTime}
+										canvasSize={{ width: nativeWidth, height: nativeHeight }}
+										mediaAssets={mediaAssets}
+										shotlyxMGAssets={shotlyxMGAssets}
+										sceneLeft={viewport.sceneLeft}
+										sceneTop={viewport.sceneTop}
+										sceneWidth={viewport.sceneWidth}
+										sceneHeight={viewport.sceneHeight}
+									/>
+								) : null}
 								<PreviewOverlayLayer
 									instances={overlayInstances}
 									plane="under-interaction"

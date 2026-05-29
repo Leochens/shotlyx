@@ -150,19 +150,30 @@ function withRemotionBareBindings({ moduleSource }: { moduleSource: string }) {
 
 function StubAbsoluteFill({
 	children,
+	className,
 	style,
+	...other
 }: {
 	children?: ReactNode;
+	className?: string;
 	style?: CSSProperties;
+	[key: string]: unknown;
 }) {
 	return ReactRuntime.createElement(
 		"div",
 		{
+			...other,
+			className,
 			style: {
 				position: "absolute",
-				inset: 0,
+				top: 0,
+				left: 0,
+				right: 0,
+				bottom: 0,
 				width: "100%",
 				height: "100%",
+				display: "flex",
+				flexDirection: "column",
 				...style,
 			},
 		},
@@ -176,17 +187,29 @@ function useCanvasCurrentFrame(): number {
 
 function StubSequence({
 	children,
+	className,
 	durationInFrames,
 	from = 0,
+	height,
+	hidden,
+	layout = "absolute-fill",
+	style,
+	width,
 }: {
 	children?: ReactNode;
+	className?: string;
 	durationInFrames?: number;
 	from?: number;
+	height?: number;
+	hidden?: boolean;
+	layout?: "absolute-fill" | "none";
+	style?: CSSProperties;
+	width?: number;
 }) {
 	const parentFrame = useCanvasCurrentFrame();
 	const sequenceStart = Number.isFinite(from) ? from : 0;
 	const localFrame = parentFrame - sequenceStart;
-	if (localFrame < 0) return null;
+	if (hidden || localFrame < 0) return null;
 	if (
 		typeof durationInFrames === "number" &&
 		Number.isFinite(durationInFrames) &&
@@ -194,10 +217,25 @@ function StubSequence({
 	) {
 		return null;
 	}
+	const content =
+		layout === "none"
+			? children
+			: ReactRuntime.createElement(
+					StubAbsoluteFill,
+					{
+						className,
+						style: {
+							...(width === undefined ? {} : { width }),
+							...(height === undefined ? {} : { height }),
+							...style,
+						},
+					},
+					children,
+				);
 	return ReactRuntime.createElement(
 		RemotionFrameContext.Provider,
 		{ value: localFrame },
-		children,
+		content,
 	);
 }
 
@@ -418,7 +456,29 @@ export async function renderShotlyxMGAssetToCanvas({
 }): Promise<void> {
 	ctx.clearRect(0, 0, width, height);
 	if (!isShotlyxRemotionMGAsset(asset)) return;
+	const markup = await renderShotlyxMGAssetToStaticMarkup({ asset, params });
+	const svg = buildForeignObjectSvg({
+		asset,
+		markup,
+		background: resolveShotlyxMGPlayerBackground({ asset, params }),
+	});
+	const image = await loadSvgImageSource({ svg });
+	try {
+		ctx.drawImage(image, 0, 0, width, height);
+	} finally {
+		if ("close" in image && typeof image.close === "function") {
+			image.close();
+		}
+	}
+}
 
+export async function renderShotlyxMGAssetToStaticMarkup({
+	asset,
+	params,
+}: {
+	asset: ShotlyxRemotionMGAsset;
+	params: Record<string, unknown>;
+}): Promise<string> {
 	const durationInFrames = Math.max(
 		1,
 		Math.round(asset.document.durationSeconds * asset.document.fps),
@@ -446,17 +506,5 @@ export async function renderShotlyxMGAssetToCanvas({
 				),
 			),
 	});
-	const svg = buildForeignObjectSvg({
-		asset,
-		markup,
-		background: resolveShotlyxMGPlayerBackground({ asset, params }),
-	});
-	const image = await loadSvgImageSource({ svg });
-	try {
-		ctx.drawImage(image, 0, 0, width, height);
-	} finally {
-		if ("close" in image && typeof image.close === "function") {
-			image.close();
-		}
-	}
+	return markup;
 }

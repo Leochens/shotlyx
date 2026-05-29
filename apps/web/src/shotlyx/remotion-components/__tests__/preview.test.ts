@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { getShotlyxMGThumbnailFrame } from "../preview";
 import { shotlyxBattleCardFixture } from "../fixtures/battle-card";
-import { inlineSvgMarkupToImageTags } from "../canvas-renderer";
-import type { ShotlyxMGAsset } from "../types";
+import {
+	inlineSvgMarkupToImageTags,
+	renderShotlyxMGAssetToStaticMarkup,
+} from "../canvas-renderer";
+import type { ShotlyxMGAsset, ShotlyxRemotionMGAsset } from "../types";
 
 function buildAsset({
 	thumbnailFrame,
@@ -58,5 +61,45 @@ describe("Shotlyx MG canvas rendering helpers", () => {
 		expect(src).toBeString();
 		expect(decodeURIComponent(src ?? "")).toContain("<circle");
 		expect(result).not.toContain("<svg");
+	});
+
+	test("mirrors Remotion AbsoluteFill and Sequence layout in canvas markup", async () => {
+		const asset: ShotlyxRemotionMGAsset = {
+			id: "shotlyx-mg-layout",
+			type: "shotlyx-remotion-component",
+			name: "Layout MG",
+			runtime: "shotlyx-remotion-component-v1",
+			document: {
+				...shotlyxBattleCardFixture,
+				compiledModule: [
+					"export default function LayoutMG() {",
+					"  return React.createElement(AbsoluteFill, {",
+					"    style: { alignItems: 'center', justifyContent: 'center' },",
+					"  }, React.createElement(Sequence, {",
+					"    from: 0,",
+					"    durationInFrames: 30,",
+					"    style: { opacity: 0.5, transform: 'translateX(10px)' },",
+					"  }, React.createElement('div', {",
+					"    style: { width: 100, height: 100, borderRadius: '50%', background: '#dc2626' },",
+					"  })));",
+					"}",
+				].join("\n"),
+			},
+			sourcePrompt: "layout mg",
+			createdAt: "",
+			updatedAt: "",
+		};
+
+		const markup = await renderShotlyxMGAssetToStaticMarkup({
+			asset,
+			params: { progress: 0.1 },
+		});
+
+		expect(markup).toContain("display:flex");
+		expect(markup).toContain("align-items:center");
+		expect(markup).toContain("justify-content:center");
+		expect(markup).toContain("opacity:0.5");
+		expect(markup).toContain("transform:translateX(10px)");
+		expect(markup).toContain("background:#dc2626");
 	});
 });
