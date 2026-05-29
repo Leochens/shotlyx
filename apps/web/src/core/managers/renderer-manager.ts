@@ -7,6 +7,7 @@ import { buildScene } from "@/services/renderer/scene-builder";
 import { createTimelineAudioBuffer } from "@/media/audio";
 import { formatTimecode } from "opencut-wasm";
 import { downloadBlob } from "@/utils/browser";
+import { prerenderShotlyxMGExportSegments } from "@/services/renderer/shotlyx-mg-export-prerender";
 
 type SnapshotResult =
 	| { success: true; blob: Blob; filename: string }
@@ -169,22 +170,50 @@ export class RendererManager {
 			const exportFps = fps ?? activeProject.settings.fps;
 			const canvasSize = activeProject.settings.canvasSize;
 
+			const abortController = new AbortController();
+			const checkCancel = () => {
+				if (onCancel?.()) {
+					abortController.abort();
+					return true;
+				}
+				return false;
+			};
+
+			if (checkCancel()) {
+				return { success: false, cancelled: true };
+			}
+
+			onProgress?.({ progress: 0.01 });
+			const { mediaAssets: exportMediaAssets, renderMap: shotlyxMGRenderMap } =
+				await prerenderShotlyxMGExportSegments({
+					canvasSize,
+					fps: exportFps,
+					mediaAssets,
+					onProgress: (progress) => {
+						onProgress?.({ progress: progress * 0.15 });
+					},
+					shotlyxMGAssets: activeProject.shotlyxMGAssets ?? [],
+					signal: abortController.signal,
+					tracks,
+				});
+
 			let audioBuffer: AudioBuffer | null = null;
 			if (includeAudio) {
-				onProgress?.({ progress: 0.05 });
+				onProgress?.({ progress: 0.2 });
 				audioBuffer = await createTimelineAudioBuffer({
 					tracks,
-					mediaAssets,
+					mediaAssets: exportMediaAssets,
 					duration,
 				});
 			}
 
 			const scene = buildScene({
 				tracks,
-				mediaAssets,
+				mediaAssets: exportMediaAssets,
 				duration,
 				canvasSize,
 				background: activeProject.settings.background,
+				shotlyxMGRenderMap,
 			});
 
 			const exporter = new SceneExporter({
@@ -198,21 +227,24 @@ export class RendererManager {
 			});
 
 			exporter.on("progress", (progress) => {
-				const adjustedProgress = includeAudio
-					? 0.05 + progress * 0.95
-					: progress;
+				const prerenderWeight = shotlyxMGRenderMap.size > 0 ? 0.15 : 0;
+				const audioWeight = includeAudio ? 0.05 : 0;
+				const adjustedProgress =
+					prerenderWeight +
+					audioWeight +
+					progress * (1 - prerenderWeight - audioWeight);
 				onProgress?.({ progress: adjustedProgress });
 			});
 
 			let cancelled = false;
-			const checkCancel = () => {
-				if (onCancel?.()) {
+			const checkExporterCancel = () => {
+				if (checkCancel()) {
 					cancelled = true;
 					exporter.cancel();
 				}
 			};
 
-			const cancelInterval = setInterval(checkCancel, 100);
+			const cancelInterval = setInterval(checkExporterCancel, 100);
 
 			try {
 				const buffer = await exporter.export({ rootNode: scene });

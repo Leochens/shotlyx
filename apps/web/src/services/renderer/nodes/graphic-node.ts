@@ -27,6 +27,19 @@ export interface ResolvedGraphicNodeState extends ResolvedVisualNodeState {
 
 const MAX_SHOTLYX_MG_SOURCE_SIZE = 4096;
 
+export function getShotlyxMGExportSourceSize({
+	width,
+	height,
+}: {
+	width: number;
+	height: number;
+}): number {
+	return Math.max(
+		DEFAULT_GRAPHIC_SOURCE_SIZE,
+		Math.min(MAX_SHOTLYX_MG_SOURCE_SIZE, Math.ceil(Math.max(width, height))),
+	);
+}
+
 export function getGraphicNodeSourceSize({
 	definitionId,
 	renderer,
@@ -44,13 +57,10 @@ export function getGraphicNodeSourceSize({
 		};
 	}
 
-	const size = Math.max(
-		DEFAULT_GRAPHIC_SOURCE_SIZE,
-		Math.min(
-			MAX_SHOTLYX_MG_SOURCE_SIZE,
-			Math.ceil(Math.max(renderer.width, renderer.height)),
-		),
-	);
+	const size = getShotlyxMGExportSourceSize({
+		width: renderer.width,
+		height: renderer.height,
+	});
 	return { width: size, height: size };
 }
 

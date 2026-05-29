@@ -3,6 +3,11 @@ import { defineConfig } from "vite";
 
 const sourceDir = path.resolve(__dirname, "src");
 const platformDir = path.resolve(sourceDir, "platform");
+const desktopApiExternals = [
+	"@remotion/bundler",
+	"@remotion/renderer",
+	"esbuild",
+];
 
 export default defineConfig({
 	publicDir: false,
@@ -27,7 +32,7 @@ export default defineConfig({
 		),
 	},
 	ssr: {
-		external: ["esbuild"],
+		external: desktopApiExternals,
 		noExternal: true,
 	},
 	build: {
@@ -37,7 +42,7 @@ export default defineConfig({
 		sourcemap: true,
 		target: "node20",
 		rollupOptions: {
-			external: ["esbuild"],
+			external: desktopApiExternals,
 			output: {
 				entryFileNames: "desktop-api.mjs",
 				format: "es",

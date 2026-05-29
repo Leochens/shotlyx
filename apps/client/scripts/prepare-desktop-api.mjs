@@ -103,7 +103,62 @@ async function copyPackageToDesktopApiNodeModules(packageRoot, packageName) {
 	});
 }
 
+async function copyPackageToDesktopApiPackageNodeModules({
+	dependencyName,
+	expectedVersion,
+	packageName,
+}) {
+	const dependencyRoot = await findBunPackageRoot(
+		dependencyName,
+		expectedVersion,
+	);
+	const destination = path.join(
+		outputDir,
+		"node_modules",
+		...packageName.split("/"),
+		"node_modules",
+		...dependencyName.split("/"),
+	);
+	await fs.mkdir(path.dirname(destination), { recursive: true });
+	await fs.rm(destination, { recursive: true, force: true });
+	await fs.cp(dependencyRoot, destination, {
+		recursive: true,
+		force: true,
+		dereference: true,
+	});
+}
+
 async function copyDesktopApiRuntimeDependencies() {
+	const copiedPackages = new Set();
+	async function copyPackageAndDependencies(packageName) {
+		if (copiedPackages.has(packageName)) return;
+		copiedPackages.add(packageName);
+
+		const packageRoot = await findBunPackageRoot(packageName);
+		await copyPackageToDesktopApiNodeModules(packageRoot, packageName);
+		const packageJson = await readJsonFile(
+			path.join(packageRoot, "package.json"),
+		);
+		const dependencyNames = [
+			...Object.keys(packageJson.dependencies ?? {}),
+			...Object.keys(packageJson.optionalDependencies ?? {}),
+			...Object.keys(packageJson.peerDependencies ?? {}),
+		];
+		for (const dependencyName of dependencyNames) {
+			try {
+				await copyPackageAndDependencies(dependencyName);
+			} catch (error) {
+				if (packageJson.optionalDependencies?.[dependencyName]) {
+					continue;
+				}
+				if (packageJson.peerDependencies?.[dependencyName]) {
+					continue;
+				}
+				throw error;
+			}
+		}
+	}
+
 	const esbuildRoot = await findBunPackageRoot("esbuild");
 	const esbuildPackage = await readJsonFile(
 		path.join(esbuildRoot, "package.json"),
@@ -121,6 +176,13 @@ async function copyDesktopApiRuntimeDependencies() {
 		platformPackageRoot,
 		platformPackageName,
 	);
+	await copyPackageAndDependencies("@remotion/bundler");
+	await copyPackageAndDependencies("@remotion/renderer");
+	await copyPackageToDesktopApiPackageNodeModules({
+		packageName: "@remotion/renderer",
+		dependencyName: "source-map",
+		expectedVersion: "0.8.0-beta.0",
+	});
 }
 
 export async function prepareDesktopApiBundle() {

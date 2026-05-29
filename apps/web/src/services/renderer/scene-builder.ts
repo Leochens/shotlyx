@@ -17,6 +17,10 @@ import {
 	readBlendModeFromParams,
 	readOpacityFromParams,
 } from "@/rendering";
+import {
+	getShotlyxMGExportRender,
+	type ShotlyxMGExportRenderMap,
+} from "./shotlyx-mg-export-prerender";
 
 const PREVIEW_MAX_IMAGE_SIZE = 2048;
 
@@ -35,11 +39,13 @@ function buildTrackNodes({
 	mediaMap,
 	canvasSize,
 	isPreview,
+	shotlyxMGRenderMap,
 }: {
 	tracks: TimelineTrack[];
 	mediaMap: Map<string, MediaAsset>;
 	canvasSize: TCanvasSize;
 	isPreview?: boolean;
+	shotlyxMGRenderMap?: ShotlyxMGExportRenderMap;
 }): AnyBaseNode[] {
 	const nodes: AnyBaseNode[] = [];
 
@@ -142,6 +148,31 @@ function buildTrackNodes({
 			}
 
 			if (element.type === "graphic") {
+				const renderedMG = getShotlyxMGExportRender({
+					elementId: element.id,
+					renderMap: shotlyxMGRenderMap,
+					trackId: track.id,
+				});
+				if (renderedMG?.file && renderedMG.url) {
+					nodes.push(
+						new VideoNode({
+							mediaId: renderedMG.id,
+							url: renderedMG.url,
+							file: renderedMG.file,
+							duration: element.duration,
+							timeOffset: element.startTime,
+							trimStart: 0,
+							trimEnd: 0,
+							transform: buildTransformFromParams({ params: element.params }),
+							animations: element.animations,
+							opacity: readOpacityFromParams({ params: element.params }),
+							blendMode: readBlendModeFromParams({ params: element.params }),
+							effects: element.effects ?? [],
+							masks: element.masks ?? [],
+						}),
+					);
+					continue;
+				}
 				nodes.push(
 					new GraphicNode({
 						definitionId: element.definitionId,
@@ -222,6 +253,7 @@ export type BuildSceneParams = {
 	duration: number;
 	background: TBackground;
 	isPreview?: boolean;
+	shotlyxMGRenderMap?: ShotlyxMGExportRenderMap;
 };
 
 export function buildScene({
@@ -231,6 +263,7 @@ export function buildScene({
 	duration,
 	background,
 	isPreview,
+	shotlyxMGRenderMap,
 }: BuildSceneParams) {
 	const rootNode = new RootNode({ duration });
 	const mediaMap = new Map(mediaAssets.map((m) => [m.id, m]));
@@ -247,6 +280,7 @@ export function buildScene({
 		mediaMap,
 		canvasSize,
 		isPreview,
+		shotlyxMGRenderMap,
 	});
 
 	if (background.type === "blur") {

@@ -21,6 +21,7 @@ import * as desktopAgentsRoute from "@/api/desktop/agents/route";
 import * as desktopConfigRoute from "@/api/desktop/config/route";
 import * as desktopConfigRevealRoute from "@/api/desktop/config/reveal/route";
 import * as desktopModelsRoute from "@/api/desktop/models/route";
+import * as desktopRemotionMgRenderRoute from "@/api/desktop/remotion/mg-render/route";
 import * as feedbackRoute from "@/api/feedback/route";
 import * as healthRoute from "@/api/health/route";
 import * as soundsSearchRoute from "@/api/sounds/search/route";
@@ -29,7 +30,10 @@ import { ApiRequest } from "@/platform/http";
 type RouteModule = Partial<
 	Record<
 		"DELETE" | "GET" | "PATCH" | "POST" | "PUT",
-		(request: ApiRequest, context?: RouteContext) => Response | Promise<Response>
+		(
+			request: ApiRequest,
+			context?: RouteContext,
+		) => Response | Promise<Response>
 	>
 >;
 
@@ -61,6 +65,7 @@ const staticRoutes = new Map<string, RouteModule>([
 	["/api/desktop/config", desktopConfigRoute],
 	["/api/desktop/config/reveal", desktopConfigRevealRoute],
 	["/api/desktop/models", desktopModelsRoute],
+	["/api/desktop/remotion/mg-render", desktopRemotionMgRenderRoute],
 	["/api/feedback", feedbackRoute],
 	["/api/health", healthRoute],
 	["/api/sounds/search", soundsSearchRoute],
@@ -71,9 +76,7 @@ function matchDynamicRoute(pathname: string): MatchedRoute | null {
 		return { module: authRoute };
 	}
 
-	let match = pathname.match(
-		/^\/api\/agent\/chat\/([^/]+)\/tool-result$/,
-	);
+	let match = pathname.match(/^\/api\/agent\/chat\/([^/]+)\/tool-result$/);
 	if (match?.[1]) {
 		return {
 			module: agentChatToolResultRoute,
@@ -97,9 +100,7 @@ function matchDynamicRoute(pathname: string): MatchedRoute | null {
 		};
 	}
 
-	match = pathname.match(
-		/^\/api\/agent\/creative\/video\/seedance\/([^/]+)$/,
-	);
+	match = pathname.match(/^\/api\/agent\/creative\/video\/seedance\/([^/]+)$/);
 	if (match?.[1]) {
 		return {
 			module: seedanceVideoTaskRoute,
@@ -126,20 +127,17 @@ function isRouteMethod(method: string): method is keyof RouteModule {
 	);
 }
 
-function jsonResponse({
-	body,
-	init,
-}: {
-	body: unknown;
-	init?: ResponseInit;
-}) {
+function jsonResponse({ body, init }: { body: unknown; init?: ResponseInit }) {
 	return Response.json(body, init);
 }
 
 function withCors(response: Response) {
 	const headers = new Headers(response.headers);
 	headers.set("Access-Control-Allow-Origin", "*");
-	headers.set("Access-Control-Allow-Methods", "DELETE, GET, OPTIONS, POST, PUT");
+	headers.set(
+		"Access-Control-Allow-Methods",
+		"DELETE, GET, OPTIONS, POST, PUT",
+	);
 	headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
 	return new Response(response.body, {
@@ -191,7 +189,9 @@ export async function handleElectronApiRequest(request: Request) {
 		return withCors(response);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		console.error(`[desktop-api] ${request.method} ${url.pathname}: ${message}`);
+		console.error(
+			`[desktop-api] ${request.method} ${url.pathname}: ${message}`,
+		);
 		return withCors(
 			jsonResponse({
 				body: { error: "desktop_api_error", message },
