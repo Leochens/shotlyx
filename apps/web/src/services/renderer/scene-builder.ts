@@ -3,6 +3,7 @@ import type { MediaAsset } from "@/media/types";
 import { RootNode } from "./nodes/root-node";
 import { VideoNode } from "./nodes/video-node";
 import { ImageNode } from "./nodes/image-node";
+import { ImageSequenceNode } from "./nodes/image-sequence-node";
 import { TextNode } from "./nodes/text-node";
 import { StickerNode } from "./nodes/sticker-node";
 import { GraphicNode } from "./nodes/graphic-node";
@@ -14,15 +15,34 @@ import type { TBackground, TCanvasSize } from "@/project/types";
 import { DEFAULT_BACKGROUND_BLUR_INTENSITY } from "@/background/blur";
 import {
 	buildTransformFromParams,
+	type Transform,
 	readBlendModeFromParams,
 	readOpacityFromParams,
 } from "@/rendering";
 import {
 	getShotlyxMGExportRender,
+	isShotlyxMGFrameSequenceRender,
 	type ShotlyxMGExportRenderMap,
 } from "./shotlyx-mg-export-prerender";
 
 const PREVIEW_MAX_IMAGE_SIZE = 2048;
+
+function removeShotlyxMGSquareAspectCompensation({
+	height,
+	transform,
+	width,
+}: {
+	height: number;
+	transform: Transform;
+	width: number;
+}): Transform {
+	const aspect = height > 0 ? width / height : 1;
+	if (aspect <= 0 || !Number.isFinite(aspect)) return transform;
+	return {
+		...transform,
+		scaleX: transform.scaleX / aspect,
+	};
+}
 
 function getVisibleSortedElements({ track }: { track: TimelineTrack }) {
 	return track.elements
@@ -153,6 +173,31 @@ function buildTrackNodes({
 					renderMap: shotlyxMGRenderMap,
 					trackId: track.id,
 				});
+				if (isShotlyxMGFrameSequenceRender(renderedMG)) {
+					const transform = removeShotlyxMGSquareAspectCompensation({
+						height: renderedMG.height,
+						transform: buildTransformFromParams({ params: element.params }),
+						width: renderedMG.width,
+					});
+					nodes.push(
+						new ImageSequenceNode({
+							frames: renderedMG.frames,
+							sourceHeight: renderedMG.height,
+							sourceWidth: renderedMG.width,
+							duration: element.duration,
+							timeOffset: element.startTime,
+							trimStart: 0,
+							trimEnd: 0,
+							transform,
+							animations: element.animations,
+							opacity: readOpacityFromParams({ params: element.params }),
+							blendMode: readBlendModeFromParams({ params: element.params }),
+							effects: element.effects ?? [],
+							masks: element.masks ?? [],
+						}),
+					);
+					continue;
+				}
 				if (renderedMG?.file && renderedMG.url) {
 					nodes.push(
 						new VideoNode({

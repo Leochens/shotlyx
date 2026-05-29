@@ -27,9 +27,21 @@ export interface ExportResult {
 	cancelled?: boolean;
 }
 
+export type ExportStage =
+	| "preparing"
+	| "prerendering-mg"
+	| "mixing-audio"
+	| "encoding";
+
+export interface ExportProgressUpdate {
+	progress: number;
+	stage?: ExportStage;
+}
+
 export interface ExportState {
 	isExporting: boolean;
 	progress: number;
+	stage?: ExportStage;
 	result: ExportResult | null;
 }
 

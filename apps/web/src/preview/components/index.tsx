@@ -318,6 +318,7 @@ function PreviewCanvas({
 						<ContextMenuTrigger asChild>
 							<div
 								ref={viewportRef}
+								data-testid="preview-viewport"
 								className="relative flex size-full min-h-0 min-w-0 items-center justify-center overflow-hidden"
 							>
 								<div

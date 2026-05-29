@@ -1,6 +1,6 @@
 import type { EditorCore } from "@/core";
 import type { RootNode } from "@/services/renderer/nodes/root-node";
-import type { ExportOptions, ExportResult } from "@/export";
+import type { ExportOptions, ExportProgressUpdate, ExportResult } from "@/export";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { SceneExporter } from "@/services/renderer/scene-exporter";
 import { buildScene } from "@/services/renderer/scene-builder";
@@ -148,7 +148,7 @@ export class RendererManager {
 		onCancel,
 	}: {
 		options: ExportOptions;
-		onProgress?: ({ progress }: { progress: number }) => void;
+		onProgress?: (update: ExportProgressUpdate) => void;
 		onCancel?: () => boolean;
 	}): Promise<ExportResult> {
 		const { format, quality, fps, includeAudio } = options;
@@ -183,14 +183,16 @@ export class RendererManager {
 				return { success: false, cancelled: true };
 			}
 
-			onProgress?.({ progress: 0.01 });
+			onProgress?.({ progress: 0.01, stage: "preparing" });
 			const { mediaAssets: exportMediaAssets, renderMap: shotlyxMGRenderMap } =
 				await prerenderShotlyxMGExportSegments({
-					canvasSize,
 					fps: exportFps,
 					mediaAssets,
 					onProgress: (progress) => {
-						onProgress?.({ progress: progress * 0.15 });
+						onProgress?.({
+							progress: progress * 0.15,
+							stage: "prerendering-mg",
+						});
 					},
 					shotlyxMGAssets: activeProject.shotlyxMGAssets ?? [],
 					signal: abortController.signal,
@@ -199,7 +201,7 @@ export class RendererManager {
 
 			let audioBuffer: AudioBuffer | null = null;
 			if (includeAudio) {
-				onProgress?.({ progress: 0.2 });
+				onProgress?.({ progress: 0.2, stage: "mixing-audio" });
 				audioBuffer = await createTimelineAudioBuffer({
 					tracks,
 					mediaAssets: exportMediaAssets,
@@ -233,7 +235,7 @@ export class RendererManager {
 					prerenderWeight +
 					audioWeight +
 					progress * (1 - prerenderWeight - audioWeight);
-				onProgress?.({ progress: adjustedProgress });
+				onProgress?.({ progress: adjustedProgress, stage: "encoding" });
 			});
 
 			let cancelled = false;
@@ -244,6 +246,10 @@ export class RendererManager {
 				}
 			};
 
+			onProgress?.({
+				progress: (shotlyxMGRenderMap.size > 0 ? 0.15 : 0.01) + (includeAudio ? 0.05 : 0),
+				stage: "encoding",
+			});
 			const cancelInterval = setInterval(checkExporterCancel, 100);
 
 			try {

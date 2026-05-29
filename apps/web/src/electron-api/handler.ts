@@ -148,11 +148,25 @@ function withCors(response: Response) {
 }
 
 export async function handleElectronApiRequest(request: Request) {
+	const url = new URL(request.url);
+	const shouldLogMGRender =
+		url.pathname === "/api/desktop/remotion/mg-render";
+	const startedAt = shouldLogMGRender ? Date.now() : 0;
+
 	if (request.method === "OPTIONS") {
+		if (shouldLogMGRender) {
+			console.info(
+				`[shotlyx-mg-export] desktop API preflight ${url.pathname}`,
+			);
+		}
 		return withCors(new Response(null, { status: 204 }));
 	}
 
-	const url = new URL(request.url);
+	if (shouldLogMGRender) {
+		console.info(
+			`[shotlyx-mg-export] desktop API ${request.method} ${url.pathname} received`,
+		);
+	}
 	const route = matchRoute(url.pathname);
 	if (!route) {
 		return withCors(
@@ -186,6 +200,12 @@ export async function handleElectronApiRequest(request: Request) {
 			? { params: Promise.resolve(route.params) }
 			: undefined;
 		const response = await handler(nextRequest, context);
+		if (shouldLogMGRender) {
+			console.info(
+				`[shotlyx-mg-export] desktop API ${request.method} ${url.pathname} ` +
+					`responded status=${response.status} elapsedMs=${Date.now() - startedAt}`,
+			);
+		}
 		return withCors(response);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);

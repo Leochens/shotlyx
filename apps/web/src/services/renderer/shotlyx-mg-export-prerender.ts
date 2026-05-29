@@ -1,7 +1,5 @@
 import type { FrameRate } from "opencut-wasm";
-import { frameRateToFloat } from "@/fps/utils";
 import type { MediaAsset } from "@/media/types";
-import type { TCanvasSize } from "@/project/types";
 import {
 	SHOTLYX_MG_GRAPHIC_DEFINITION_ID,
 	shotlyxMediaTimeToSeconds,
@@ -16,15 +14,59 @@ import type {
 	SceneTracks,
 	TimelineTrack,
 } from "@/timeline/types";
-import { getShotlyxMGExportSourceSize } from "./nodes/graphic-node";
+import { getShotlyxMGExportSourceRect } from "./nodes/graphic-node";
+import type { ImageSequenceFrame } from "./nodes/image-sequence-node";
 
-export type ShotlyxMGExportRenderMap = Map<string, MediaAsset>;
+export interface ShotlyxMGFrameSequenceRender {
+	id: string;
+	name: string;
+	type: "shotlyx-mg-frame-sequence";
+	frames: ImageSequenceFrame[];
+	width: number;
+	height: number;
+	duration: number;
+	ephemeral: true;
+}
+
+export type ShotlyxMGExportRender = MediaAsset | ShotlyxMGFrameSequenceRender;
+export type ShotlyxMGExportRenderMap = Map<string, ShotlyxMGExportRender>;
+
+interface ShotlyxMGRenderFrameSequenceResponse {
+	type: "shotlyx-mg-frame-sequence";
+	durationSeconds: number;
+	fps: number;
+	frameCount: number;
+	frames: Array<{
+		data: string;
+		frame: number;
+		mimeType: "image/png";
+	}>;
+	height: number;
+	width: number;
+}
+
+function isShotlyxMGRenderFrameSequenceResponse(
+	value: unknown,
+): value is ShotlyxMGRenderFrameSequenceResponse {
+	if (typeof value !== "object" || value === null) return false;
+	const frames = Reflect.get(value, "frames");
+	return (
+		Reflect.get(value, "type") === "shotlyx-mg-frame-sequence" &&
+		typeof Reflect.get(value, "durationSeconds") === "number" &&
+		typeof Reflect.get(value, "fps") === "number" &&
+		typeof Reflect.get(value, "frameCount") === "number" &&
+		Array.isArray(frames) &&
+		typeof Reflect.get(value, "height") === "number" &&
+		typeof Reflect.get(value, "width") === "number"
+	);
+}
 
 interface ShotlyxMGExportPrerenderJob {
 	asset: ShotlyxRemotionMGAsset;
 	durationSeconds: number;
 	element: GraphicElement;
-	sourceSize: number;
+	sourceHeight: number;
+	sourceWidth: number;
 	trackId: string;
 }
 
@@ -46,11 +88,17 @@ export function getShotlyxMGExportRender({
 	elementId: string;
 	renderMap?: ShotlyxMGExportRenderMap;
 	trackId: string;
-}): MediaAsset | null {
+}): ShotlyxMGExportRender | null {
 	return (
 		renderMap?.get(buildShotlyxMGExportRenderKey({ elementId, trackId })) ??
 		null
 	);
+}
+
+export function isShotlyxMGFrameSequenceRender(
+	value: ShotlyxMGExportRender | null,
+): value is ShotlyxMGFrameSequenceRender {
+	return value?.type === "shotlyx-mg-frame-sequence";
 }
 
 function isTrackHidden(track: TimelineTrack): boolean {
@@ -70,11 +118,9 @@ function getGraphicAssetId({
 }
 
 export function collectShotlyxMGExportPrerenderJobs({
-	canvasSize,
 	shotlyxMGAssets,
 	tracks,
 }: {
-	canvasSize: TCanvasSize;
 	shotlyxMGAssets: ShotlyxMGAsset[];
 	tracks: SceneTracks;
 }): ShotlyxMGExportPrerenderJob[] {
@@ -83,7 +129,6 @@ export function collectShotlyxMGExportPrerenderJobs({
 		...tracks.overlay.filter((track) => !isTrackHidden(track)),
 		...(!tracks.main.hidden ? [tracks.main] : []),
 	];
-	const sourceSize = getShotlyxMGExportSourceSize(canvasSize);
 	const jobs: ShotlyxMGExportPrerenderJob[] = [];
 
 	for (const track of visibleTracks) {
@@ -100,11 +145,16 @@ export function collectShotlyxMGExportPrerenderJobs({
 			if (!asset || !isShotlyxRemotionMGAsset(asset)) {
 				continue;
 			}
+			const sourceRect = getShotlyxMGExportSourceRect({
+				height: asset.document.height,
+				width: asset.document.width,
+			});
 			jobs.push({
 				asset,
 				durationSeconds: shotlyxMediaTimeToSeconds({ time: element.duration }),
 				element,
-				sourceSize,
+				sourceHeight: sourceRect.height,
+				sourceWidth: sourceRect.width,
 				trackId: track.id,
 			});
 		}
@@ -125,11 +175,11 @@ async function renderShotlyxMGSegment({
 	job: ShotlyxMGExportPrerenderJob;
 	signal?: AbortSignal;
 	total: number;
-}): Promise<MediaAsset> {
+}): Promise<ShotlyxMGFrameSequenceRender> {
 	const startedAt = Date.now();
 	console.info(
 		`[shotlyx-mg-export] request ${index + 1}/${total} ${job.asset.name} ` +
-			`duration=${job.durationSeconds.toFixed(2)}s source=${job.sourceSize}`,
+			`duration=${job.durationSeconds.toFixed(2)}s source=${job.sourceWidth}x${job.sourceHeight}`,
 	);
 	const response = await fetch("/api/desktop/remotion/mg-render", {
 		method: "POST",
@@ -146,7 +196,8 @@ async function renderShotlyxMGSegment({
 				params: job.element.params,
 			},
 			fps,
-			sourceSize: job.sourceSize,
+			sourceHeight: job.sourceHeight,
+			sourceWidth: job.sourceWidth,
 		}),
 		signal,
 	});
@@ -160,33 +211,41 @@ async function renderShotlyxMGSegment({
 		);
 	}
 
-	const blob = await response.blob();
+	const payload: unknown = await response.json();
+	if (!isShotlyxMGRenderFrameSequenceResponse(payload)) {
+		throw new Error("Remotion MG prerender returned an unsupported payload");
+	}
 	const mediaId = `shotlyx-mg-render-${job.trackId}-${job.element.id}`;
-	const file = new File([blob], `${mediaId}.webm`, {
-		type: "video/webm",
-		lastModified: Date.now(),
+	const frames = payload.frames.map((frame) => {
+		const binary = Uint8Array.from(atob(frame.data), (char) =>
+			char.charCodeAt(0),
+		);
+		const file = new File([binary], `${mediaId}-${frame.frame}.png`, {
+			type: frame.mimeType,
+			lastModified: Date.now(),
+		});
+		return {
+			file,
+			url: URL.createObjectURL(file),
+		};
 	});
 	console.info(
 		`[shotlyx-mg-export] received ${index + 1}/${total} ${job.asset.name} ` +
-			`bytes=${blob.size} elapsedMs=${Date.now() - startedAt}`,
+			`frames=${payload.frameCount} elapsedMs=${Date.now() - startedAt}`,
 	);
 	return {
 		id: mediaId,
 		name: `${job.asset.name} · export render`,
-		type: "video",
-		file,
-		url: URL.createObjectURL(file),
-		width: job.sourceSize,
-		height: job.sourceSize,
+		type: "shotlyx-mg-frame-sequence",
+		frames,
+		width: payload.width,
+		height: payload.height,
 		duration: job.durationSeconds,
-		fps: frameRateToFloat(fps),
-		hasAudio: false,
 		ephemeral: true,
 	};
 }
 
 export async function prerenderShotlyxMGExportSegments({
-	canvasSize,
 	fps,
 	mediaAssets,
 	onProgress,
@@ -194,7 +253,6 @@ export async function prerenderShotlyxMGExportSegments({
 	signal,
 	tracks,
 }: {
-	canvasSize: TCanvasSize;
 	fps: FrameRate;
 	mediaAssets: MediaAsset[];
 	onProgress?: (progress: number) => void;
@@ -210,7 +268,6 @@ export async function prerenderShotlyxMGExportSegments({
 	}
 
 	const jobs = collectShotlyxMGExportPrerenderJobs({
-		canvasSize,
 		shotlyxMGAssets,
 		tracks,
 	});
@@ -222,10 +279,10 @@ export async function prerenderShotlyxMGExportSegments({
 
 	console.info(
 		`[shotlyx-mg-export] prerender start segments=${jobs.length} ` +
-			`source=${jobs[0]?.sourceSize ?? 0}`,
+			`source=${jobs[0]?.sourceWidth ?? 0}x${jobs[0]?.sourceHeight ?? 0}`,
 	);
 	onProgress?.(0.05);
-	const renderedAssets: MediaAsset[] = [];
+	const renderedAssets: ShotlyxMGFrameSequenceRender[] = [];
 	for (let index = 0; index < jobs.length; index += 1) {
 		const job = jobs[index];
 		if (!job) continue;
@@ -252,7 +309,7 @@ export async function prerenderShotlyxMGExportSegments({
 	);
 
 	return {
-		mediaAssets: [...mediaAssets, ...renderedAssets],
+		mediaAssets,
 		renderMap,
 	};
 }

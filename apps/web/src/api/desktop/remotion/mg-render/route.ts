@@ -30,14 +30,9 @@ const requestSchema = z.object({
 		params: z.record(z.string(), z.unknown()),
 	}),
 	fps: frameRateSchema,
-	sourceSize: z.number().int().positive().max(4096),
+	sourceHeight: z.number().int().positive().max(4096),
+	sourceWidth: z.number().int().positive().max(4096),
 });
-
-type RenderMediaProgressLike = {
-	encodedFrames: number;
-	progress: number;
-	renderedFrames: number;
-};
 
 function disabledResponse() {
 	return Response.json(
@@ -73,11 +68,13 @@ function buildComponentModule({
 function buildEntryModule({
 	durationInFrames,
 	fps,
-	sourceSize,
+	sourceHeight,
+	sourceWidth,
 }: {
 	durationInFrames: number;
 	fps: number;
-	sourceSize: number;
+	sourceHeight: number;
+	sourceWidth: number;
 }): string {
 	return [
 		'import React from "react";',
@@ -102,8 +99,8 @@ function buildEntryModule({
 		"    component: ShotlyxMGSegment,",
 		`    durationInFrames: ${durationInFrames},`,
 		`    fps: ${fps},`,
-		`    width: ${sourceSize},`,
-		`    height: ${sourceSize},`,
+		`    width: ${sourceWidth},`,
+		`    height: ${sourceHeight},`,
 		"    defaultProps: { frameProps: [], frameBackgrounds: [] },",
 		"  });",
 		"}",
@@ -255,10 +252,10 @@ function createRenderProgressLogger({
 	durationInFrames: number;
 }) {
 	let lastLoggedPercent = -1;
-	return (progress: RenderMediaProgressLike) => {
+	return (framesRendered: number) => {
 		const percent = Math.max(
 			0,
-			Math.min(100, Math.floor(progress.progress * 100)),
+			Math.min(100, Math.floor((framesRendered / durationInFrames) * 100)),
 		);
 		if (
 			percent < 100 &&
@@ -270,8 +267,7 @@ function createRenderProgressLogger({
 		lastLoggedPercent = percent;
 		console.info(
 			`[shotlyx-mg-export] render ${percent}% ${assetName} ` +
-				`frames=${progress.renderedFrames}/${durationInFrames} ` +
-				`encoded=${progress.encodedFrames}`,
+				`frames=${framesRendered}/${durationInFrames}`,
 		);
 	};
 }
@@ -308,13 +304,12 @@ export async function POST(request: Request) {
 	);
 	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "shotlyx-mg-"));
 	const entryPoint = path.join(tempDir, "entry.mjs");
-	const outputLocation = path.join(tempDir, "segment.webm");
 	const startedAt = Date.now();
 
 	try {
 		console.info(
 			`[shotlyx-mg-export] render start ${asset.name} ` +
-				`frames=${durationInFrames} fps=${fps} source=${parsed.data.sourceSize}`,
+				`frames=${durationInFrames} fps=${fps} source=${parsed.data.sourceWidth}x${parsed.data.sourceHeight}`,
 		);
 		await fs.writeFile(
 			path.join(tempDir, "ShotlyxComponent.mjs"),
@@ -326,12 +321,13 @@ export async function POST(request: Request) {
 			buildEntryModule({
 				durationInFrames,
 				fps,
-				sourceSize: parsed.data.sourceSize,
+				sourceHeight: parsed.data.sourceHeight,
+				sourceWidth: parsed.data.sourceWidth,
 			}),
 			"utf8",
 		);
 
-		const [{ bundle }, { renderMedia, selectComposition }] = await Promise.all([
+		const [{ bundle }, { renderFrames, selectComposition }] = await Promise.all([
 			import("@remotion/bundler"),
 			import("@remotion/renderer"),
 		]);
@@ -352,39 +348,64 @@ export async function POST(request: Request) {
 			logLevel: "warn",
 		});
 
-		await renderMedia({
+		const frames: Array<{
+			data: string;
+			frame: number;
+			mimeType: "image/png";
+		}> = [];
+		const logFrameProgress = createRenderProgressLogger({
+			assetName: asset.name,
+			durationInFrames,
+		});
+
+		await renderFrames({
 			serveUrl,
 			composition,
 			inputProps,
-			codec: "vp9",
-			pixelFormat: "yuva420p",
 			imageFormat: "png",
-			outputLocation,
-			overwrite: true,
+			outputDir: null,
 			muted: true,
 			logLevel: "warn",
 			concurrency: 1,
-			onProgress: createRenderProgressLogger({
-				assetName: asset.name,
-				durationInFrames,
-			}),
+			onFrameBuffer: (buffer, frame) => {
+				frames.push({
+					data: buffer.toString("base64"),
+					frame,
+					mimeType: "image/png",
+				});
+			},
+			onFrameUpdate: (framesRendered) => {
+				logFrameProgress(framesRendered);
+			},
+			onStart: () => undefined,
 		});
 
-		const buffer = await fs.readFile(outputLocation);
+		frames.sort((left, right) => left.frame - right.frame);
 		console.info(
 			`[shotlyx-mg-export] render done ${asset.name} ` +
-				`bytes=${buffer.byteLength} elapsedMs=${Date.now() - startedAt}`,
+				`frames=${frames.length} elapsedMs=${Date.now() - startedAt}`,
 		);
-		return new Response(buffer, {
-			headers: {
-				"Content-Type": "video/webm",
-				"X-Shotlyx-MG-Frames": String(durationInFrames),
-				"X-Shotlyx-MG-Source-Size": String(parsed.data.sourceSize),
-				"X-Shotlyx-MG-Render-Input-Bytes": String(
-					sanitizeJsString(inputProps).length,
-				),
+		return Response.json(
+			{
+				type: "shotlyx-mg-frame-sequence",
+				durationSeconds: durationInFrames / fps,
+				fps,
+				frameCount: frames.length,
+				frames,
+				height: parsed.data.sourceHeight,
+				width: parsed.data.sourceWidth,
 			},
-		});
+			{
+				headers: {
+					"X-Shotlyx-MG-Frames": String(durationInFrames),
+					"X-Shotlyx-MG-Source-Height": String(parsed.data.sourceHeight),
+					"X-Shotlyx-MG-Source-Width": String(parsed.data.sourceWidth),
+					"X-Shotlyx-MG-Render-Input-Bytes": String(
+						sanitizeJsString(inputProps).length,
+					),
+				},
+			},
+		);
 	} finally {
 		await fs.rm(tempDir, { force: true, recursive: true }).catch(() => {});
 	}

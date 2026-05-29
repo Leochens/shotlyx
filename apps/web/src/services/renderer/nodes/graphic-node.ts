@@ -40,6 +40,27 @@ export function getShotlyxMGExportSourceSize({
 	);
 }
 
+export function getShotlyxMGExportSourceRect({
+	width,
+	height,
+}: {
+	width: number;
+	height: number;
+}): { width: number; height: number } {
+	const maxSide = Math.min(MAX_SHOTLYX_MG_SOURCE_SIZE, Math.max(width, height));
+	if (maxSide <= 0 || width <= 0 || height <= 0) {
+		return {
+			width: DEFAULT_GRAPHIC_SOURCE_SIZE,
+			height: DEFAULT_GRAPHIC_SOURCE_SIZE,
+		};
+	}
+	const scale = maxSide / Math.max(width, height);
+	return {
+		width: Math.max(1, Math.round(width * scale)),
+		height: Math.max(1, Math.round(height * scale)),
+	};
+}
+
 export function getGraphicNodeSourceSize({
 	definitionId,
 	renderer,

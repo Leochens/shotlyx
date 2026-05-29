@@ -25,6 +25,7 @@ import { Check, Copy, Download, RotateCcw } from "lucide-react";
 import {
 	EXPORT_FORMAT_VALUES,
 	EXPORT_QUALITY_VALUES,
+	type ExportStage,
 	type ExportFormat,
 	type ExportQuality,
 } from "@/export";
@@ -44,6 +45,20 @@ function isExportFormat(value: string): value is ExportFormat {
 
 function isExportQuality(value: string): value is ExportQuality {
 	return EXPORT_QUALITY_VALUES.some((qualityValue) => qualityValue === value);
+}
+
+function getExportStageLabel({
+	dialogCopy,
+	stage,
+}: {
+	dialogCopy: ReturnType<typeof useAppLocale>["copy"]["editor"]["exportDialog"];
+	stage?: ExportStage;
+}): string | null {
+	if (stage === "preparing") return dialogCopy.stages.preparing;
+	if (stage === "prerendering-mg") return dialogCopy.stages.prerenderingMG;
+	if (stage === "mixing-audio") return dialogCopy.stages.mixingAudio;
+	if (stage === "encoding") return dialogCopy.stages.encoding;
+	return null;
 }
 
 export function ExportButton() {
@@ -106,7 +121,7 @@ function ExportDialog({
 	const dialogCopy = copy.editor.exportDialog;
 	const activeProject = useEditor((e) => e.project.getActive());
 	const exportState = useEditor((e) => e.project.getExportState());
-	const { isExporting, progress, result: exportResult } = exportState;
+	const { isExporting, progress, result: exportResult, stage } = exportState;
 	const [format, setFormat] = useState<ExportFormat>(
 		DEFAULT_EXPORT_OPTIONS.format,
 	);
@@ -275,6 +290,10 @@ function ExportDialog({
 						{isExporting && (
 							<div className="space-y-4 p-3">
 								<div className="flex flex-col gap-2">
+									<p className="text-muted-foreground text-xs">
+										{getExportStageLabel({ dialogCopy, stage }) ??
+											copy.editor.exporting}
+									</p>
 									<div className="flex items-center justify-between text-center">
 										<p className="text-muted-foreground text-sm">
 											{Math.round(progress * 100)}%

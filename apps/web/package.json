@@ -19,7 +19,7 @@
 		"db:push:local": "cross-env NODE_ENV=development drizzle-kit push",
 		"db:push:prod": "cross-env NODE_ENV=production drizzle-kit push",
 		"test:e2e": "playwright test",
-		"test:e2e:desktop": "cross-env SHOTLYX_DESKTOP=1 VITE_SHOTLYX_DESKTOP=1 SHOTLYX_DESKTOP_CONFIG_PATH=/tmp/shotlyx-desktop-e2e-config.json PLAYWRIGHT_PORT=3107 playwright test e2e/specs/desktop-api-settings.spec.ts e2e/specs/desktop-visual.spec.ts",
+		"test:e2e:desktop": "cross-env SHOTLYX_DESKTOP=1 VITE_SHOTLYX_DESKTOP=1 SHOTLYX_DESKTOP_CONFIG_PATH=/tmp/shotlyx-desktop-e2e-config.json PLAYWRIGHT_PORT=3107 playwright test e2e/specs/desktop-api-settings.spec.ts e2e/specs/desktop-visual.spec.ts e2e/specs/remotion-mg-export.spec.ts",
 		"test:e2e:ui": "playwright test --ui"
 	},
 	"dependencies": {

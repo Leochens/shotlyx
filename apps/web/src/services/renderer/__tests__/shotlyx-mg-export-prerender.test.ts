@@ -67,7 +67,6 @@ describe("Shotlyx MG export prerender mapping", () => {
 		const { asset, element, tracks } = buildTracks();
 
 		const jobs = collectShotlyxMGExportPrerenderJobs({
-			canvasSize: { width: 1920, height: 1080 },
 			shotlyxMGAssets: [asset],
 			tracks,
 		});
@@ -75,7 +74,8 @@ describe("Shotlyx MG export prerender mapping", () => {
 		expect(jobs).toHaveLength(1);
 		expect(jobs[0]?.trackId).toBe("graphic-track");
 		expect(jobs[0]?.element.id).toBe(element.id);
-		expect(jobs[0]?.sourceSize).toBe(1920);
+		expect(jobs[0]?.sourceWidth).toBe(1920);
+		expect(jobs[0]?.sourceHeight).toBe(1080);
 	});
 
 	test("keeps prerendered MG in its original track order slot", () => {

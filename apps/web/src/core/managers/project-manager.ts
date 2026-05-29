@@ -237,13 +237,26 @@ export class ProjectManager {
 
 	async export({ options }: { options: ExportOptions }): Promise<ExportResult> {
 		this.exportCancelRequested = false;
-		this.exportState = { isExporting: true, progress: 0, result: null };
+		this.exportState = {
+			isExporting: true,
+			progress: 0,
+			stage: "preparing",
+			result: null,
+		};
 		this.notify();
 
 		const result = await this.editor.renderer.exportProject({
 			options,
-			onProgress: ({ progress }) => {
-				this.exportState = { ...this.exportState, progress };
+			onProgress: ({ progress, stage }) => {
+				const nextProgress = Math.max(
+					this.exportState.progress,
+					Math.min(1, Math.max(0, progress)),
+				);
+				this.exportState = {
+					...this.exportState,
+					progress: nextProgress,
+					stage: stage ?? this.exportState.stage,
+				};
 				this.notify();
 			},
 			onCancel: () => this.exportCancelRequested,

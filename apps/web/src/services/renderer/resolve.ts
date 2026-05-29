@@ -35,6 +35,7 @@ import {
 	type ResolvedGraphicNodeState,
 } from "./nodes/graphic-node";
 import { ImageNode, loadImageSource } from "./nodes/image-node";
+import { ImageSequenceNode } from "./nodes/image-sequence-node";
 import { StickerNode, loadStickerSource } from "./nodes/sticker-node";
 import { TextNode, type ResolvedTextNodeState } from "./nodes/text-node";
 import { VideoNode } from "./nodes/video-node";
@@ -78,6 +79,8 @@ async function resolveNode({
 		node.resolved = await resolveVideoNode({ node, context });
 	} else if (node instanceof ImageNode) {
 		node.resolved = await resolveImageNode({ node, context });
+	} else if (node instanceof ImageSequenceNode) {
+		node.resolved = await resolveImageSequenceNode({ node, context });
 	} else if (node instanceof StickerNode) {
 		node.resolved = await resolveStickerNode({ node, context });
 	} else if (node instanceof GraphicNode) {
@@ -93,6 +96,48 @@ async function resolveNode({
 	await Promise.all(
 		node.children.map((child) => resolveNode({ node: child, context })),
 	);
+}
+
+async function resolveImageSequenceNode({
+	node,
+	context,
+}: {
+	node: ImageSequenceNode;
+	context: ResolveContext;
+}): Promise<ResolvedVisualSourceNodeState | null> {
+	const clipTime = context.time - node.params.timeOffset;
+	if (clipTime < 0 || clipTime >= node.params.duration) {
+		return null;
+	}
+
+	const frameCount = node.params.frames.length;
+	if (frameCount === 0) return null;
+
+	const progress =
+		node.params.duration > 0 ? clipTime / node.params.duration : 0;
+	const frameIndex = Math.max(
+		0,
+		Math.min(frameCount - 1, Math.floor(progress * frameCount)),
+	);
+	const source = await node.getFrameSource({ frameIndex });
+	if (!source) return null;
+
+	const visualState = resolveVisualState({
+		params: node.params,
+		context,
+		sourceWidth: node.params.sourceWidth,
+		sourceHeight: node.params.sourceHeight,
+	});
+	if (!visualState) {
+		return null;
+	}
+
+	return {
+		...visualState,
+		source: source.source,
+		sourceWidth: node.params.sourceWidth,
+		sourceHeight: node.params.sourceHeight,
+	};
 }
 
 function resolveEffectPassGroups({
