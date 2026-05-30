@@ -13,7 +13,8 @@ bun run --cwd apps/client dist:win
 
 `dist:all` runs both macOS and Windows targets from one command. Building Windows
 installers on macOS can require Wine; a Windows CI runner is usually more
-predictable.
+predictable. Local `dist:*` commands only write artifacts to
+`apps/client/release`; they do not upload to GitHub Releases.
 
 ## GitHub updater
 
