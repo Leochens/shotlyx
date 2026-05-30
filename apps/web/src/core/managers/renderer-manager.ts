@@ -7,11 +7,21 @@ import { buildScene } from "@/services/renderer/scene-builder";
 import { createTimelineAudioBuffer } from "@/media/audio";
 import { formatTimecode } from "opencut-wasm";
 import { downloadBlob } from "@/utils/browser";
-import { prerenderShotlyxMGExportSegments } from "@/services/renderer/shotlyx-mg-export-prerender";
+import {
+	prerenderShotlyxMGExportSegments,
+	type ShotlyxMGExportRenderMap,
+} from "@/services/renderer/shotlyx-mg-export-prerender";
 
 type SnapshotResult =
 	| { success: true; blob: Blob; filename: string }
 	| { success: false; error: string };
+
+function isAbortError(error: unknown): boolean {
+	return (
+		(error instanceof DOMException && error.name === "AbortError") ||
+		(error instanceof Error && error.name === "AbortError")
+	);
+}
 
 export class RendererManager {
 	private renderTree: RootNode | null = null;
@@ -184,8 +194,17 @@ export class RendererManager {
 			}
 
 			onProgress?.({ progress: 0.01, stage: "preparing" });
-			const { mediaAssets: exportMediaAssets, renderMap: shotlyxMGRenderMap } =
-				await prerenderShotlyxMGExportSegments({
+			let cancelled = false;
+			const checkPrerenderCancel = () => {
+				if (checkCancel()) {
+					cancelled = true;
+				}
+			};
+			const prerenderCancelInterval = setInterval(checkPrerenderCancel, 100);
+			let exportMediaAssets = mediaAssets;
+			let shotlyxMGRenderMap: ShotlyxMGExportRenderMap = new Map();
+			try {
+				const prerenderResult = await prerenderShotlyxMGExportSegments({
 					fps: exportFps,
 					mediaAssets,
 					onProgress: (event) => {
@@ -217,6 +236,20 @@ export class RendererManager {
 					signal: abortController.signal,
 					tracks,
 				});
+				exportMediaAssets = prerenderResult.mediaAssets;
+				shotlyxMGRenderMap = prerenderResult.renderMap;
+			} catch (error) {
+				if (cancelled || isAbortError(error)) {
+					return { success: false, cancelled: true };
+				}
+				throw error;
+			} finally {
+				clearInterval(prerenderCancelInterval);
+			}
+
+			if (cancelled || checkCancel()) {
+				return { success: false, cancelled: true };
+			}
 
 			let audioBuffer: AudioBuffer | null = null;
 			if (includeAudio) {
@@ -265,7 +298,6 @@ export class RendererManager {
 				});
 			});
 
-			let cancelled = false;
 			const checkExporterCancel = () => {
 				if (checkCancel()) {
 					cancelled = true;
@@ -274,7 +306,9 @@ export class RendererManager {
 			};
 
 			onProgress?.({
-				progress: (shotlyxMGRenderMap.size > 0 ? 0.15 : 0.01) + (includeAudio ? 0.05 : 0),
+				progress:
+					(shotlyxMGRenderMap.size > 0 ? 0.15 : 0.01) +
+					(includeAudio ? 0.05 : 0),
 				stage: "encoding",
 				subProgress: null,
 			});

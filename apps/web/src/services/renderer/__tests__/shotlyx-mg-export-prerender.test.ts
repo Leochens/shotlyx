@@ -221,4 +221,89 @@ describe("Shotlyx MG export prerender mapping", () => {
 			}
 		}
 	});
+
+	test("keeps subprogress visible while the desktop render response is pending", async () => {
+		const previousDesktopFlag = process.env.VITE_SHOTLYX_DESKTOP;
+		const previousFetch = globalThis.fetch;
+		const previousCreateObjectURL = URL.createObjectURL;
+		process.env.VITE_SHOTLYX_DESKTOP = "1";
+		URL.createObjectURL = mock(() => "blob:shotlyx-mg-frame");
+		const { asset, tracks } = buildTracks();
+		const progressEvents: unknown[] = [];
+		let resolveFetch: ((response: Response) => void) | null = null;
+		globalThis.fetch = mock(
+			() =>
+				new Promise<Response>((resolve) => {
+					resolveFetch = resolve;
+				}),
+		);
+
+		try {
+			const renderPromise = prerenderShotlyxMGExportSegments({
+				fps: 30,
+				mediaAssets: [],
+				onProgress: (event) => progressEvents.push(event),
+				shotlyxMGAssets: [asset],
+				tracks,
+			});
+
+			await new Promise((resolve) => setTimeout(resolve, 650));
+			expect(progressEvents).toContainEqual(
+				expect.objectContaining({
+					frameCount: 150,
+					frameIndex: expect.any(Number),
+					segmentCount: 1,
+					segmentIndex: 0,
+					segmentName: "Interview Result MG",
+				}),
+			);
+
+			const encoder = new TextEncoder();
+			resolveFetch?.(
+				new Response(
+					new ReadableStream({
+						start(controller) {
+							for (const event of [
+								{
+									type: "started",
+									durationSeconds: 2,
+									fps: 30,
+									frameCount: 1,
+									width: 1920,
+									height: 1080,
+								},
+								{
+									type: "frame",
+									frame: 0,
+									data: btoa("frame-0"),
+									mimeType: "image/png",
+								},
+								{
+									type: "completed",
+									durationSeconds: 2,
+									fps: 30,
+									frameCount: 1,
+									width: 1920,
+									height: 1080,
+								},
+							]) {
+								controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+							}
+							controller.close();
+						},
+					}),
+					{ headers: { "Content-Type": "application/x-ndjson" } },
+				),
+			);
+			await renderPromise;
+		} finally {
+			globalThis.fetch = previousFetch;
+			URL.createObjectURL = previousCreateObjectURL;
+			if (previousDesktopFlag === undefined) {
+				delete process.env.VITE_SHOTLYX_DESKTOP;
+			} else {
+				process.env.VITE_SHOTLYX_DESKTOP = previousDesktopFlag;
+			}
+		}
+	});
 });

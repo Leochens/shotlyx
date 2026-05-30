@@ -228,6 +228,20 @@ function clampProgress(progress: number): number {
 	return Math.min(1, Math.max(0, progress));
 }
 
+function getFrameRateNumber(fps: FrameRate): number {
+	if (typeof fps === "number") return fps;
+	const numerator = Reflect.get(fps, "numerator");
+	const denominator = Reflect.get(fps, "denominator");
+	if (
+		typeof numerator === "number" &&
+		typeof denominator === "number" &&
+		denominator > 0
+	) {
+		return numerator / denominator;
+	}
+	return 30;
+}
+
 function createFrameSequenceFromPayload({
 	mediaId,
 	payload,
@@ -394,6 +408,13 @@ async function renderShotlyxMGSegment({
 }): Promise<ShotlyxMGFrameSequenceRender> {
 	const startedAt = Date.now();
 	const mediaId = `shotlyx-mg-render-${job.trackId}-${job.element.id}`;
+	const estimatedFrameCount = Math.max(
+		1,
+		Math.ceil(job.durationSeconds * getFrameRateNumber(fps)),
+	);
+	const estimatedRenderMs = Math.max(2500, job.durationSeconds * 2500);
+	let lastFrameProgress = 0;
+	let hasRealFrameProgress = false;
 	const emitProgress = ({
 		frameCount,
 		frameIndex,
@@ -403,7 +424,11 @@ async function renderShotlyxMGSegment({
 		frameIndex?: number;
 		frameProgress?: number;
 	}) => {
-		const safeFrameProgress = clampProgress(frameProgress ?? 0);
+		const safeFrameProgress = Math.max(
+			lastFrameProgress,
+			clampProgress(frameProgress ?? 0),
+		);
+		lastFrameProgress = safeFrameProgress;
 		onProgress?.({
 			estimatedRemainingSeconds: estimateExportRemainingSeconds({
 				elapsedMs: Date.now() - startedAt,
@@ -423,50 +448,70 @@ async function renderShotlyxMGSegment({
 			`duration=${job.durationSeconds.toFixed(2)}s source=${job.sourceWidth}x${job.sourceHeight}`,
 	);
 	emitProgress({ frameProgress: 0 });
-	const response = await fetch("/api/desktop/remotion/mg-render", {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			asset: job.asset,
-			element: {
-				animations: job.element.animations,
-				definitionId: job.element.definitionId,
-				duration: job.element.duration,
-				motionGraphicBaseParams: job.element.motionGraphicBaseParams,
-				params: job.element.params,
+	const syntheticProgressInterval = setInterval(() => {
+		if (hasRealFrameProgress || signal?.aborted) return;
+		const elapsedMs = Date.now() - startedAt;
+		const frameProgress = Math.min(0.92, elapsedMs / estimatedRenderMs);
+		emitProgress({
+			frameCount: estimatedFrameCount,
+			frameIndex: Math.max(1, Math.floor(frameProgress * estimatedFrameCount)),
+			frameProgress,
+		});
+	}, 500);
+
+	try {
+		const response = await fetch("/api/desktop/remotion/mg-render", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
 			},
-			fps,
-			sourceHeight: job.sourceHeight,
-			sourceWidth: job.sourceWidth,
-		}),
-		signal,
-	});
+			body: JSON.stringify({
+				asset: job.asset,
+				element: {
+					animations: job.element.animations,
+					definitionId: job.element.definitionId,
+					duration: job.element.duration,
+					motionGraphicBaseParams: job.element.motionGraphicBaseParams,
+					params: job.element.params,
+				},
+				fps,
+				sourceHeight: job.sourceHeight,
+				sourceWidth: job.sourceWidth,
+			}),
+			signal,
+		});
 
-	if (!response.ok) {
-		const body = await response.text().catch(() => "");
-		throw new Error(
-			`Remotion MG prerender failed (${response.status}): ${
-				body || response.statusText
-			}`,
+		if (!response.ok) {
+			const body = await response.text().catch(() => "");
+			throw new Error(
+				`Remotion MG prerender failed (${response.status}): ${
+					body || response.statusText
+				}`,
+			);
+		}
+
+		const render = await readShotlyxMGRenderFrameSequence({
+			mediaId,
+			onProgress: (event) => {
+				if ((event.frameProgress ?? 0) > 0) {
+					hasRealFrameProgress = true;
+				}
+				emitProgress(event);
+			},
+			response,
+		});
+		console.info(
+			`[shotlyx-mg-export] received ${index + 1}/${total} ${job.asset.name} ` +
+				`frames=${render.frames.length} elapsedMs=${Date.now() - startedAt}`,
 		);
+		return {
+			...render,
+			name: `${job.asset.name} · export render`,
+			duration: job.durationSeconds,
+		};
+	} finally {
+		clearInterval(syntheticProgressInterval);
 	}
-
-	const render = await readShotlyxMGRenderFrameSequence({
-		mediaId,
-		onProgress: emitProgress,
-		response,
-	});
-	console.info(
-		`[shotlyx-mg-export] received ${index + 1}/${total} ${job.asset.name} ` +
-			`frames=${render.frames.length} elapsedMs=${Date.now() - startedAt}`,
-	);
-	return {
-		...render,
-		name: `${job.asset.name} · export render`,
-		duration: job.durationSeconds,
-	};
 }
 
 export async function prerenderShotlyxMGExportSegments({

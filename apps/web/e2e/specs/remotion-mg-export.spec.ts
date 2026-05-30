@@ -687,4 +687,46 @@ test.describe("Remotion MG desktop export", () => {
 		expect(exportCounts.white).toBeGreaterThan(80);
 		expect(exportCounts.visible).toBeGreaterThan(12_000);
 	});
+
+	test("cancels while MG segments are being prerendered", async ({ page }) => {
+		page.on("console", (message) => {
+			const text = message.text();
+			if (text.includes("[shotlyx-mg-export]")) {
+				console.info(`[browser] ${text}`);
+			}
+		});
+
+		await page.goto("/projects");
+		await page
+			.getByRole("button", { name: "Create your first project" })
+			.click();
+		await page.waitForURL(/\/editor\//);
+		await expect(page.locator(".editor-workbench")).toBeVisible();
+
+		await bootstrapProjectWithGeneratedMG({ page });
+		await page
+			.locator('button[aria-label="Export"], button[aria-label="导出"]')
+			.first()
+			.click();
+		const dialog = page.getByRole("dialog");
+		await dialog.getByRole("button", { name: /Export|导出/ }).click();
+		await expect(
+			page.getByText(/Rendering MG segments|正在渲染 MG 片段/),
+		).toBeVisible({
+			timeout: 30_000,
+		});
+		await dialog.getByRole("button", { name: /Cancel|取消/ }).click();
+		await expect(
+			page.getByText(/Rendering MG segments|正在渲染 MG 片段/),
+		).toBeHidden({
+			timeout: 30_000,
+		});
+
+		const exportState = await page.evaluate(async () => {
+			const { EditorCore } = await import("/src/core/index.ts");
+			const editor = EditorCore.getInstance();
+			return editor.project.getExportState();
+		});
+		expect(exportState.isExporting).toBe(false);
+	});
 });

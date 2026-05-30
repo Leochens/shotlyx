@@ -311,8 +311,12 @@ function createRenderEventStream({
 	run,
 }: {
 	headers: HeadersInit;
-	run: (send: (event: ShotlyxMGRenderStreamEvent) => void) => Promise<void>;
+	run: (
+		send: (event: ShotlyxMGRenderStreamEvent) => void,
+		signal: AbortSignal,
+	) => Promise<void>;
 }) {
+	const abortController = new AbortController();
 	const encoder = new TextEncoder();
 	let isClosed = false;
 	const body = new ReadableStream({
@@ -322,7 +326,7 @@ function createRenderEventStream({
 				controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
 			};
 
-			void run(send)
+			void run(send, abortController.signal)
 				.catch((error) => {
 					const message = error instanceof Error ? error.message : String(error);
 					console.error("[shotlyx-mg-export] render stream failed:", error);
@@ -336,6 +340,7 @@ function createRenderEventStream({
 		},
 		cancel() {
 			isClosed = true;
+			abortController.abort();
 		},
 	});
 
@@ -391,7 +396,7 @@ export async function POST(request: Request) {
 				sanitizeJsString(inputProps).length,
 			),
 		},
-		run: async (send) => {
+		run: async (send, signal) => {
 			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "shotlyx-mg-"));
 			const entryPoint = path.join(tempDir, "entry.mjs");
 
@@ -424,7 +429,10 @@ export async function POST(request: Request) {
 					"utf8",
 				);
 
-				const [{ bundle }, { renderFrames, selectComposition }] =
+				const [
+					{ bundle },
+					{ makeCancelSignal, renderFrames, selectComposition },
+				] =
 					await Promise.all([
 						import("@remotion/bundler"),
 						import("@remotion/renderer"),
@@ -444,38 +452,49 @@ export async function POST(request: Request) {
 					assetName: asset.name,
 					durationInFrames,
 				});
+				const remotionCancel = makeCancelSignal();
+				const cancelRemotionRender = () => remotionCancel.cancel();
+				if (signal.aborted) {
+					cancelRemotionRender();
+				}
+				signal.addEventListener("abort", cancelRemotionRender, { once: true });
 
-				await renderFrames({
-					serveUrl,
-					composition,
-					inputProps,
-					imageFormat: "png",
-					outputDir: null,
-					muted: true,
-					logLevel: "warn",
-					concurrency: 1,
-					onFrameBuffer: (buffer, frame) => {
-						send({
-							type: "frame",
-							data: buffer.toString("base64"),
-							frame,
-							mimeType: "image/png",
-						});
-					},
-					onFrameUpdate: (framesRendered) => {
-						logFrameProgress(framesRendered);
-						send({
-							type: "progress",
-							frameCount: durationInFrames,
-							framesRendered,
-							progress: Math.min(
-								1,
-								Math.max(0, framesRendered / durationInFrames),
-							),
-						});
-					},
-					onStart: () => undefined,
-				});
+				try {
+					await renderFrames({
+						serveUrl,
+						composition,
+						inputProps,
+						imageFormat: "png",
+						outputDir: null,
+						muted: true,
+						logLevel: "warn",
+						concurrency: 1,
+						cancelSignal: remotionCancel.cancelSignal,
+						onFrameBuffer: (buffer, frame) => {
+							send({
+								type: "frame",
+								data: buffer.toString("base64"),
+								frame,
+								mimeType: "image/png",
+							});
+						},
+						onFrameUpdate: (framesRendered) => {
+							logFrameProgress(framesRendered);
+							send({
+								type: "progress",
+								frameCount: durationInFrames,
+								framesRendered,
+								progress: Math.min(
+									1,
+									Math.max(0, framesRendered / durationInFrames),
+								),
+							});
+						},
+						onStart: () => undefined,
+					});
+				} finally {
+					signal.removeEventListener("abort", cancelRemotionRender);
+				}
 
 				console.info(
 					`[shotlyx-mg-export] render done ${asset.name} ` +
