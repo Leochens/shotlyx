@@ -69,4 +69,31 @@ describe("getVisibleTimelineElements", () => {
 			}).map((element) => element.id),
 		).toEqual(["visible", "dragged"]);
 	});
+
+	test("can stop scanning sorted elements after the visible window is passed", () => {
+		const elements = Array.from({ length: 5_000 }, (_, index) =>
+			buildElement({
+				id: `clip-${index}`,
+				startTime: index * 2,
+				duration: 1,
+			}),
+		);
+		let measurementCount = 0;
+		const measuredTimeToPixels = (time: number) => {
+			measurementCount += 1;
+			return timeToPixels(time);
+		};
+
+		expect(
+			getVisibleTimelineElements({
+				elements,
+				scrollLeft: 0,
+				viewportWidth: 300,
+				timeToPixels: measuredTimeToPixels,
+				overscanPx: 0,
+				assumeSortedByStartTime: true,
+			}).map((element) => element.id),
+		).toEqual(["clip-0", "clip-1", "clip-2", "clip-3"]);
+		expect(measurementCount).toBeLessThan(30);
+	});
 });

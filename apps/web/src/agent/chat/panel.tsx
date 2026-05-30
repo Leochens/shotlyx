@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useChatStore } from "./store";
 import { MessageItem } from "./message-item";
 import type { ToolActionResult, ToolCallActionRequest } from "./tool-call-card";
+import { appendToolProgressEvent } from "./progress-history";
 import { AgentModeSelect, BottomToolbar } from "./bottom-toolbar";
 import { useEditor } from "@/editor/use-editor";
 import { parseSSEStream } from "./sse-parser";
@@ -400,7 +401,7 @@ export function ChatPanel() {
 		if (startTime === null) return;
 		const interval = setInterval(() => {
 			setElapsedMs(Date.now() - startTime);
-		}, 100);
+		}, 1_000);
 		return () => clearInterval(interval);
 	}, [startTime]);
 
@@ -437,7 +438,10 @@ export function ChatPanel() {
 			editor.media.getAssets().filter((asset) => !asset.ephemeral).length,
 	);
 	const messages = getActiveMessages();
-	const visibleMessages = messages.filter((msg) => !msg.hidden);
+	const visibleMessages = useMemo(
+		() => messages.filter((msg) => !msg.hidden),
+		[messages],
+	);
 	const toRequestMessage = (
 		message: Pick<ChatMessage, "role" | "content" | "toolCalls"> & {
 			references?: AgentContextReference[];
@@ -495,6 +499,7 @@ export function ChatPanel() {
 					);
 					if (!currentMessage?.toolCalls) return;
 
+					let didRecordProgress = false;
 					const nextToolCalls = currentMessage.toolCalls.map(
 						(currentToolCall) => {
 							const isSameCall =
@@ -506,33 +511,28 @@ export function ChatPanel() {
 										JSON.stringify(toolCall.params));
 							if (!isSameCall) return currentToolCall;
 
-							const alreadyRecorded = (currentToolCall.progress ?? []).some(
-								(progress) =>
-									progress.stage === event.stage &&
-									progress.label === event.label &&
-									progress.status === event.status &&
-									progress.current === event.current &&
-									progress.total === event.total,
-							);
-							if (alreadyRecorded) return currentToolCall;
+							const nextProgress = appendToolProgressEvent({
+								progress: currentToolCall.progress ?? [],
+								event,
+							});
+							if (nextProgress === currentToolCall.progress) {
+								return currentToolCall;
+							}
+							didRecordProgress = true;
 
 							return {
 								...currentToolCall,
-								progress: [
-									...(currentToolCall.progress ?? []),
-									{
-										...event,
-										timestamp: Date.now(),
-									},
-								],
+								progress: nextProgress,
 							};
 						},
 					);
 
-					updateMessageToolCalls(
-						{ id: message.id, toolCalls: nextToolCalls },
-						activeSessionId,
-					);
+					if (didRecordProgress) {
+						updateMessageToolCalls(
+							{ id: message.id, toolCalls: nextToolCalls },
+							activeSessionId,
+						);
+					}
 
 					if (
 						event.status === "error" ||
@@ -658,19 +658,23 @@ export function ChatPanel() {
 			const appendToolProgress = (event: ToolProgressEvent) => {
 				const updatedMsgs = getActiveMessages();
 				const updatedMsg = updatedMsgs.find((m) => m.id === mid);
+				let didRecordProgress = false;
 				const currentToolCalls = (updatedMsg?.toolCalls ?? []).map((tc) => {
 					if (tc.callId !== callId) return tc;
+					const nextProgress = appendToolProgressEvent({
+						progress: tc.progress ?? [],
+						event,
+					});
+					if (nextProgress === tc.progress) {
+						return tc;
+					}
+					didRecordProgress = true;
 					return {
 						...tc,
-						progress: [
-							...(tc.progress ?? []),
-							{
-								...event,
-								timestamp: Date.now(),
-							},
-						],
+						progress: nextProgress,
 					};
 				});
+				if (!didRecordProgress) return;
 				updateMessageToolCalls({
 					id: mid,
 					toolCalls: currentToolCalls,
@@ -1531,6 +1535,10 @@ export function ChatPanel() {
 						<div
 							key={msg.id}
 							className={`relative select-text ${isSelecting ? "cursor-pointer" : "cursor-text"} ${selectedMsgIds.has(msg.id) ? "rounded bg-primary/10 ring-1 ring-primary/40" : ""}`}
+							style={{
+								contentVisibility: "auto",
+								containIntrinsicSize: "0 220px",
+							}}
 							onClick={(event) =>
 								handleMessageClick({
 									msgId: msg.id,

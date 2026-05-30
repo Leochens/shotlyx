@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useEditor } from "@/editor/use-editor";
 import {
 	createTimelineElementReference,
@@ -12,7 +13,7 @@ import type { TimelineTrack } from "@/timeline";
 import type { TimelineElement as TimelineElementType } from "@/timeline";
 import { TIMELINE_LAYERS } from "./layers";
 import type { ElementDragView } from "@/timeline";
-import { isTimelineElementVisible } from "./visible-elements";
+import { getVisibleTimelineElements } from "./visible-elements";
 import { timelineTimeToPixels } from "@/timeline/pixel-utils";
 
 interface TimelineTrackContentProps {
@@ -62,16 +63,17 @@ export function TimelineTrackContent({
 	const { pointSelectEnabled, addReference } = useAgentContextStore();
 	const pinnedElementIds =
 		dragView.kind === "dragging" ? dragView.memberTimeOffsets : null;
-	const timeToPixels = (time: number) =>
-		timelineTimeToPixels({ time, zoomLevel });
-	const visibleElements = track.elements.filter((element) =>
-		isTimelineElementVisible({
-			element,
-			scrollLeft,
-			viewportWidth,
-			timeToPixels,
-			pinnedElementIds,
-		}),
+	const visibleElements = useMemo(
+		() =>
+			getVisibleTimelineElements({
+				elements: track.elements,
+				scrollLeft,
+				viewportWidth,
+				timeToPixels: (time) => timelineTimeToPixels({ time, zoomLevel }),
+				pinnedElementIds,
+				assumeSortedByStartTime: true,
+			}),
+		[track.elements, scrollLeft, viewportWidth, zoomLevel, pinnedElementIds],
 	);
 
 	const addTrackReference = () => {

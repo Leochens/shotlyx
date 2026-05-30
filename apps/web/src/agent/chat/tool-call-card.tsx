@@ -19,6 +19,7 @@ import {
 	XCircle,
 } from "lucide-react";
 import type { ToolCallRecord } from "@/agent/controller/types";
+import { MAX_TOOL_PROGRESS_EVENTS } from "./progress-history";
 
 interface ToolCallGroupProps {
 	toolCalls: ToolCallRecord[];
@@ -466,9 +467,21 @@ function ToolCallRow({
 }
 
 function ToolCallDetails({ toolCall }: { toolCall: ToolCallRecord }) {
-	const progress = toolCall.progress ?? [];
-	const output = getToolOutputDisplay(toolCall);
-	const taskProgress = getJobTaskProgressItems(toolCall);
+	const progress = useMemo(() => toolCall.progress ?? [], [toolCall.progress]);
+	const renderedProgress = useMemo(
+		() => progress.slice(-MAX_TOOL_PROGRESS_EVENTS),
+		[progress],
+	);
+	const omittedProgressCount = progress.length - renderedProgress.length;
+	const output = useMemo(() => getToolOutputDisplay(toolCall), [toolCall]);
+	const taskProgress = useMemo(
+		() => getJobTaskProgressItems(toolCall),
+		[toolCall],
+	);
+	const paramsText = useMemo(
+		() => stringifyCompact(toolCall.params),
+		[toolCall.params],
+	);
 
 	return (
 		<div className="space-y-2">
@@ -481,7 +494,12 @@ function ToolCallDetails({ toolCall }: { toolCall: ToolCallRecord }) {
 					</div>
 					<div className="max-h-32 overflow-auto rounded border border-border/60 bg-background/75 p-2 dark:border-transparent dark:bg-neutral-950/80">
 						<div className="space-y-1">
-							{progress.map((event, index) => (
+							{omittedProgressCount > 0 && (
+								<div className="text-[10px] text-muted-foreground dark:text-neutral-600">
+									已折叠 {omittedProgressCount} 条较早进度
+								</div>
+							)}
+							{renderedProgress.map((event, index) => (
 								<div
 									key={`${event.stage}-${event.label}-${index}`}
 									className="flex items-start gap-2 text-[10px] leading-relaxed"
@@ -523,7 +541,7 @@ function ToolCallDetails({ toolCall }: { toolCall: ToolCallRecord }) {
 						输入
 					</div>
 					<pre className="max-h-56 select-text overflow-auto rounded border border-border/60 bg-background/80 p-2 font-mono text-[10px] leading-relaxed whitespace-pre-wrap text-muted-foreground dark:border-transparent dark:bg-neutral-950 dark:text-neutral-400">
-						{stringifyCompact(toolCall.params)}
+						{paramsText}
 					</pre>
 				</div>
 				<div>
