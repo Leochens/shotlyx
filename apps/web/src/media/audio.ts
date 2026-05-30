@@ -95,7 +95,10 @@ export function createTimestampedAudioBuffer({
 		if (placement.samplesToCopy <= 0) continue;
 		const chunk = chunks[placement.chunkIndex];
 		for (let channel = 0; channel < numChannels; channel++) {
-			const sourceChannel = Math.min(channel, chunk.buffer.numberOfChannels - 1);
+			const sourceChannel = Math.min(
+				channel,
+				chunk.buffer.numberOfChannels - 1,
+			);
 			const sourceData = chunk.buffer
 				.getChannelData(sourceChannel)
 				.subarray(
@@ -237,19 +240,57 @@ export async function collectAudioElements({
 	tracks,
 	mediaAssets,
 	audioContext,
+	resolveAssetAudioBuffer = resolveAudioBufferForAsset,
 }: {
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
 	audioContext: AudioContext;
+	resolveAssetAudioBuffer?: typeof resolveAudioBufferForAsset;
 }): Promise<CollectedAudioElement[]> {
 	const candidates = collectAudibleCandidates({ tracks, mediaAssets });
 	const mediaMap = new Map<string, MediaAsset>(
 		mediaAssets.map((media) => [media.id, media]),
 	);
+	const assetBufferPromises = new Map<string, Promise<AudioBuffer | null>>();
+	const getAssetAudioBuffer = (
+		asset: MediaAsset,
+	): Promise<AudioBuffer | null> => {
+		const cached = assetBufferPromises.get(asset.id);
+		if (cached) return cached;
+		const promise = resolveAssetAudioBuffer({ asset, audioContext });
+		assetBufferPromises.set(asset.id, promise);
+		return promise;
+	};
 	const pendingElements: Array<Promise<CollectedAudioElement | null>> = [];
 
 	for (const { element, mediaAsset } of candidates) {
 		if (element.type === "audio") {
+			if (element.sourceType === "upload") {
+				const asset = mediaMap.get(element.mediaId);
+				if (!asset) continue;
+				pendingElements.push(
+					getAssetAudioBuffer(asset).then((audioBuffer) => {
+						if (!audioBuffer) return null;
+						return {
+							timelineElement: element,
+							buffer: audioBuffer,
+							startTime: element.startTime / TICKS_PER_SECOND,
+							duration: element.duration / TICKS_PER_SECOND,
+							trimStart: element.trimStart / TICKS_PER_SECOND,
+							trimEnd: element.trimEnd / TICKS_PER_SECOND,
+							volume: resolveEffectiveAudioGain({
+								element,
+								trackMuted: false,
+								localTime: 0,
+							}),
+							muted: isElementMuted({ element }),
+							retime: element.retime,
+						};
+					}),
+				);
+				continue;
+			}
+
 			pendingElements.push(
 				resolveAudioBufferForElement({
 					element,
@@ -281,10 +322,7 @@ export async function collectAudioElements({
 			if (!mediaAsset || !mediaSupportsAudio({ media: mediaAsset })) continue;
 
 			pendingElements.push(
-				resolveAudioBufferForAsset({
-					asset: mediaAsset,
-					audioContext,
-				}).then((audioBuffer) => {
+				getAssetAudioBuffer(mediaAsset).then((audioBuffer) => {
 					if (!audioBuffer) return null;
 					return {
 						timelineElement: element,
