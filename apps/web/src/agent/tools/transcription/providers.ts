@@ -284,22 +284,19 @@ function normalizeVolcengineWord({
 
 function normalizeVolcengineUtterance({
 	value,
-	index,
 }: {
 	value: unknown;
 	index: number;
-}): TranscriptionCue {
+}): TranscriptionCue | null {
 	if (!isRecord(value)) {
-		throw new Error(`provider_error: invalid Volcengine utterance ${index}`);
+		return null;
 	}
 	const text = optionalString(value.text);
 	const start =
 		optionalNumber(value.start_time) ?? optionalNumber(value.startTime);
 	const end = optionalNumber(value.end_time) ?? optionalNumber(value.endTime);
 	if (!text || start === undefined || end === undefined || end <= start) {
-		throw new Error(
-			`provider_error: Volcengine utterance ${index} has invalid timing`,
-		);
+		return null;
 	}
 	const rawWords = Array.isArray(value.words) ? value.words : [];
 	const tokens = rawWords.flatMap((word) => {
@@ -331,11 +328,13 @@ function normalizeVolcengineResponse({
 	const rawUtterances = Array.isArray(result.utterances)
 		? result.utterances
 		: [];
+	const utteranceCues = rawUtterances.flatMap((utterance, index) => {
+		const cue = normalizeVolcengineUtterance({ value: utterance, index });
+		return cue ? [cue] : [];
+	});
 	const cues =
-		rawUtterances.length > 0
-			? rawUtterances.map((utterance, index) =>
-					normalizeVolcengineUtterance({ value: utterance, index }),
-				)
+		utteranceCues.length > 0
+			? utteranceCues
 			: text
 				? [
 						{

@@ -317,6 +317,70 @@ describe("ASR providers", () => {
 		});
 	});
 
+	test("skips Volcengine utterances with invalid timing", async () => {
+		const fetchFn = mock(async () => {
+			return new Response(
+				JSON.stringify({
+					result: {
+						text: "第一句。第二句。",
+						utterances: [
+							{
+								start_time: 0,
+								end_time: 900,
+								text: "第一句。",
+							},
+							{
+								start_time: 900,
+								end_time: 900,
+								text: "坏分段",
+							},
+							{
+								start_time: 1200,
+								end_time: 2200,
+								text: "第二句。",
+							},
+						],
+					},
+				}),
+				{
+					headers: {
+						"Content-Type": "application/json",
+						"X-Api-Status-Code": "20000000",
+					},
+				},
+			);
+		});
+		const registry = createAsrProviderRegistry({
+			volcengineDeps: {
+				fetchFn: fetchFn as unknown as typeof fetch,
+				env: { VOLCENGINE_ASR_API_KEY: "test-key" },
+			},
+		});
+
+		const result = await transcribeAudio({
+			registry,
+			input: {
+				provider: "volcengine",
+				audio: new File([new Uint8Array([1])], "audio.wav", {
+					type: "audio/wav",
+				}),
+			},
+		});
+
+		expect(result.cues).toMatchObject([
+			{
+				text: "第一句。",
+				startTimeSeconds: 0,
+				durationSeconds: 0.9,
+			},
+			{
+				text: "第二句。",
+				startTimeSeconds: 1.2,
+				durationSeconds: 1,
+			},
+		]);
+	});
+
 	test("Volcengine provider requires the new console API key", async () => {
 		const registry = createAsrProviderRegistry({
 			volcengineDeps: { env: {} },
