@@ -23,6 +23,7 @@ pub struct CanvasClearDescriptor {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum FrameItemDescriptor {
     Layer(LayerDescriptor),
+    #[serde(rename_all = "camelCase")]
     SceneEffect {
         effect_pass_groups: Vec<Vec<EffectPassDescriptor>>,
         #[serde(default)]
@@ -82,4 +83,62 @@ pub struct CanvasTextureDescriptor {
     pub id: String,
     pub width: u32,
     pub height: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_scene_effect_descriptor_from_frontend_shape() {
+        let descriptor = serde_json::json!({
+            "width": 1920,
+            "height": 1080,
+            "clear": {
+                "color": [0.0, 0.0, 0.0, 1.0]
+            },
+            "items": [
+                {
+                    "type": "sceneEffect",
+                    "effectPassGroups": [
+                        [
+                            {
+                                "shader": "pixelate",
+                                "uniforms": {
+                                    "u_blockSize": 32.0
+                                }
+                            }
+                        ]
+                    ],
+                    "transform": {
+                        "centerX": 1080.0,
+                        "centerY": 500.0,
+                        "width": 480.0,
+                        "height": 216.0,
+                        "rotationDegrees": 15.0,
+                        "flipX": false,
+                        "flipY": false
+                    }
+                }
+            ]
+        });
+
+        let frame: FrameDescriptor =
+            serde_json::from_value(descriptor).expect("descriptor should deserialize");
+
+        let FrameItemDescriptor::SceneEffect {
+            effect_pass_groups,
+            transform,
+        } = &frame.items[0]
+        else {
+            panic!("expected scene effect item");
+        };
+
+        assert_eq!(effect_pass_groups[0][0].shader, "pixelate");
+        assert!(matches!(
+            effect_pass_groups[0][0].uniforms.get("u_blockSize"),
+            Some(EffectUniformValueDescriptor::Number(value)) if (*value - 32.0).abs() < f32::EPSILON
+        ));
+        assert_eq!(transform.as_ref().map(|value| value.center_x), Some(1080.0));
+    }
 }
