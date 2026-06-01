@@ -17,6 +17,7 @@ import { cn } from "@/utils/ui";
 import { useAssetsPanelStore } from "@/components/editor/panels/assets/assets-panel-store";
 import type { SelectedAssetRef } from "@/components/editor/panels/assets/assets-panel-store";
 import { ResourcePropertiesPanel } from "@/components/editor/panels/properties/resource-properties-panel";
+import { EmptyView } from "@/components/editor/panels/properties/empty-view";
 import { createTimelineElementReference } from "@/agent/context/resolve-references";
 import { useAgentContextStore } from "@/agent/context/store";
 import { usePanelStore } from "@/editor/panel-store";
@@ -59,13 +60,9 @@ export function PropertiesPanel({ onCollapse }: { onCollapse?: () => void }) {
 		[selectedAssetRefs, selectedElements],
 	);
 
-	if (!selectionKey) {
-		return null;
-	}
-
 	return (
 		<PropertiesPanelContent
-			key={selectionKey}
+			key={selectionKey ?? "empty"}
 			selectedElements={selectedElements}
 			selectedAssetRefs={selectedAssetRefs}
 			onCollapse={onCollapse}
@@ -126,7 +123,11 @@ function PropertiesPanelContent({
 			);
 		}
 
-		return null;
+		return (
+			<PropertiesPanelFrame onCollapse={onCollapse}>
+				<EmptyView />
+			</PropertiesPanelFrame>
+		);
 	}
 
 	if (selectedElements.length > 1) {
@@ -157,7 +158,13 @@ function PropertiesPanelContent({
 	});
 	const elementWithTrack = elementsWithTracks[0];
 
-	if (!elementWithTrack) return null;
+	if (!elementWithTrack) {
+		return (
+			<PropertiesPanelFrame onCollapse={onCollapse}>
+				<EmptyView />
+			</PropertiesPanelFrame>
+		);
+	}
 
 	const { element, track } = elementWithTrack;
 	const handleAskAgent = () =>
@@ -174,7 +181,13 @@ function PropertiesPanelContent({
 	const activeTab =
 		visibleTabs.find((t) => t.id === activeTabId) ?? visibleTabs[0];
 
-	if (!activeTab) return null;
+	if (!activeTab) {
+		return (
+			<PropertiesPanelFrame onCollapse={onCollapse}>
+				<EmptyView />
+			</PropertiesPanelFrame>
+		);
+	}
 
 	return (
 		<PropertiesPanelFrame onCollapse={onCollapse}>

@@ -11,7 +11,6 @@ import {
 	CollapsedPropertiesPanel,
 	PropertiesPanel,
 } from "@/components/editor/panels/properties";
-import { useAssetsPanelStore } from "@/components/editor/panels/assets/assets-panel-store";
 import { Timeline } from "@/timeline/components";
 import { PreviewPanel } from "@/preview/components";
 import { EditorHeader } from "@/components/editor/editor-header";
@@ -191,19 +190,9 @@ function EditorWorkspace({
 	const { panels, setPanel } = usePanelStore();
 	const toolsPanelSize = Math.min(40, Math.max(15, panels.tools));
 	const propertiesPanelSize = Math.min(40, Math.max(15, panels.properties));
-	const selectedElements = useEditor((editor) =>
-		editor.selection.getSelectedElements(),
-	);
-	const selectedAssetRefs = useAssetsPanelStore(
-		(state) => state.selectedAssetRefs,
-	);
-	const hasPropertiesTarget =
-		selectedElements.length > 0 || selectedAssetRefs.length > 0;
 	const [isPropertiesCollapsed, setPropertiesCollapsed] = useState(false);
 	const activePropertiesSize = isPropertiesCollapsed ? 4 : propertiesPanelSize;
-	const previewPanelSize = hasPropertiesTarget
-		? 100 - toolsPanelSize - activePropertiesSize
-		: 100 - toolsPanelSize;
+	const previewPanelSize = 100 - toolsPanelSize - activePropertiesSize;
 
 	return (
 		<ResizablePanelGroup
@@ -228,11 +217,9 @@ function EditorWorkspace({
 			>
 				<ResizablePanelGroup
 					key={
-						hasPropertiesTarget
-							? isPropertiesCollapsed
-								? "workspace-properties-collapsed"
-								: "workspace-properties-open"
-							: "workspace-no-properties"
+						isPropertiesCollapsed
+							? "workspace-properties-collapsed"
+							: "workspace-properties-open"
 					}
 					direction="horizontal"
 					className="size-full gap-[0.19rem]"
@@ -242,7 +229,7 @@ function EditorWorkspace({
 							panel: "preview",
 							size: sizes[1] ?? panels.preview,
 						});
-						if (hasPropertiesTarget && !isPropertiesCollapsed) {
+						if (!isPropertiesCollapsed) {
 							setPanel({
 								panel: "properties",
 								size: sizes[2] ?? panels.properties,
@@ -273,27 +260,23 @@ function EditorWorkspace({
 						/>
 					</ResizablePanel>
 
-					{hasPropertiesTarget ? (
-						<>
-							{isPropertiesCollapsed ? null : <ResizableHandle withHandle />}
-							<ResizablePanel
-								defaultSize={activePropertiesSize}
-								minSize={isPropertiesCollapsed ? 4 : 15}
-								maxSize={isPropertiesCollapsed ? 4 : 40}
-								className="min-h-0 min-w-0"
-							>
-								{isPropertiesCollapsed ? (
-									<CollapsedPropertiesPanel
-										onExpand={() => setPropertiesCollapsed(false)}
-									/>
-								) : (
-									<PropertiesPanel
-										onCollapse={() => setPropertiesCollapsed(true)}
-									/>
-								)}
-							</ResizablePanel>
-						</>
-					) : null}
+					{isPropertiesCollapsed ? null : <ResizableHandle withHandle />}
+					<ResizablePanel
+						defaultSize={activePropertiesSize}
+						minSize={isPropertiesCollapsed ? 4 : 15}
+						maxSize={isPropertiesCollapsed ? 4 : 40}
+						className="min-h-0 min-w-0"
+					>
+						{isPropertiesCollapsed ? (
+							<CollapsedPropertiesPanel
+								onExpand={() => setPropertiesCollapsed(false)}
+							/>
+						) : (
+							<PropertiesPanel
+								onCollapse={() => setPropertiesCollapsed(true)}
+							/>
+						)}
+					</ResizablePanel>
 				</ResizablePanelGroup>
 			</ResizablePanel>
 

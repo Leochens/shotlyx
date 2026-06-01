@@ -427,7 +427,7 @@ timeline.patch committed`,
 				},
 			},
 			properties: {
-				emptyTitle: "Nothing selected",
+				emptyTitle: "No properties selected",
 				emptyBody:
 					"Select a clip or asset to inspect and edit its parameters here.",
 				selectedClips: "clips selected",
@@ -867,7 +867,7 @@ timeline.patch 已提交`,
 				},
 			},
 			properties: {
-				emptyTitle: "等待选择对象",
+				emptyTitle: "暂无选择属性",
 				emptyBody: "选中片段或素材后，这里会显示它的参数。",
 				selectedClips: "个片段已选中",
 				addedSelectedClips: "已把选中片段加入 Agent 引用",
