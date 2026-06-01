@@ -126,4 +126,46 @@ describe("collectAudioElements", () => {
 		expect(audioElements[1]?.buffer).toBe(decodedBuffer);
 		expect(audioElements.map((element) => element.trimStart)).toEqual([0, 2]);
 	});
+
+	test("expands compound video clips into child audio elements", async () => {
+		const decodedBuffer = { sampleRate: 44_100 } as AudioBuffer;
+		const resolveAssetAudioBuffer = mock(async () => decodedBuffer);
+		const first = buildVideoElement({
+			id: "clip-a",
+			startTime: 0,
+			duration: 120_000,
+			trimStart: 0,
+		});
+		const second = buildVideoElement({
+			id: "clip-b",
+			startTime: 120_000,
+			duration: 120_000,
+			trimStart: 240_000,
+		});
+
+		const audioElements = await collectAudioElements({
+			tracks: buildTracks([
+				{
+					...first,
+					id: "compound",
+					name: "Compound clip",
+					startTime: 360_000,
+					duration: 240_000,
+					trimStart: 0,
+					trimEnd: 0,
+					compound: {
+						elements: [first, second],
+					},
+				},
+			]),
+			mediaAssets: [buildMediaAsset()],
+			audioContext: { sampleRate: 44_100 } as AudioContext,
+			resolveAssetAudioBuffer,
+		});
+
+		expect(resolveAssetAudioBuffer).toHaveBeenCalledTimes(1);
+		expect(audioElements).toHaveLength(2);
+		expect(audioElements.map((element) => element.startTime)).toEqual([3, 4]);
+		expect(audioElements.map((element) => element.trimStart)).toEqual([0, 2]);
+	});
 });

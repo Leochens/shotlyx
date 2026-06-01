@@ -24,6 +24,7 @@ import {
 	type VisualElement,
 	type UploadAudioElement,
 } from "@/timeline";
+import { isCompoundElement } from "@/timeline/compound-elements";
 import { DEFAULTS } from "@/timeline/defaults";
 import type { TimelineMediaType } from "@/media/types";
 import { buildDefaultEffectInstance, effectsRegistry } from "@/effects";
@@ -39,6 +40,9 @@ import { type MediaTime, ZERO_MEDIA_TIME } from "@/wasm";
 export function canElementHaveAudio(
 	element: TimelineElement,
 ): element is AudioElement | VideoElement {
+	if (isCompoundElement(element)) {
+		return false;
+	}
 	return element.type === "audio" || element.type === "video";
 }
 
@@ -79,12 +83,18 @@ export function hasElementEffects({
 }: {
 	element: TimelineElement;
 }): boolean {
+	if (isCompoundElement(element)) {
+		return false;
+	}
 	return isVisualElement(element) && (element.effects?.length ?? 0) > 0;
 }
 
 export function hasMediaId(
 	element: TimelineElement,
 ): element is UploadAudioElement | VideoElement | ImageElement {
+	if (isCompoundElement(element)) {
+		return false;
+	}
 	return "mediaId" in element;
 }
 

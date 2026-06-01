@@ -6,7 +6,8 @@ import type { SceneTracks, VideoElement, VideoTrack } from "@/timeline";
 
 mock.module("@/wasm", () => wasmMock);
 
-const { buildMergeElementsPlan } = await import("@/timeline/merge-elements");
+const { buildCompoundElementsPlan, buildMergeElementsPlan } =
+	await import("@/timeline/merge-elements");
 
 function mt(value: number): MediaTime {
 	// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
@@ -16,6 +17,7 @@ function mt(value: number): MediaTime {
 function videoElement({
 	id,
 	name = id,
+	mediaId = "media-1",
 	startTime,
 	duration,
 	trimStart,
@@ -23,6 +25,7 @@ function videoElement({
 }: {
 	id: string;
 	name?: string;
+	mediaId?: string;
 	startTime: number;
 	duration: number;
 	trimStart: number;
@@ -32,7 +35,7 @@ function videoElement({
 		id,
 		type: "video",
 		name,
-		mediaId: "media-1",
+		mediaId,
 		startTime: mt(startTime),
 		duration: mt(duration),
 		trimStart: mt(trimStart),
@@ -168,6 +171,138 @@ describe("buildMergeElementsPlan", () => {
 			elements: [
 				{ trackId: "main", elementId: "before-silence" },
 				{ trackId: "main", elementId: "after-silence" },
+			],
+		});
+
+		expect(plan).toBeNull();
+	});
+
+	test("builds a compound clip plan for adjacent clips from different media", () => {
+		const tracks = sceneWithMain([
+			videoElement({
+				id: "first",
+				name: "First",
+				mediaId: "media-1",
+				startTime: 100,
+				duration: 300,
+				trimStart: 10,
+				trimEnd: 690,
+			}),
+			videoElement({
+				id: "second",
+				name: "Second",
+				mediaId: "media-2",
+				startTime: 400,
+				duration: 200,
+				trimStart: 20,
+				trimEnd: 780,
+			}),
+		]);
+
+		const plan = buildCompoundElementsPlan({
+			tracks,
+			elements: [
+				{ trackId: "main", elementId: "second" },
+				{ trackId: "main", elementId: "first" },
+			],
+		});
+
+		expect(plan?.mergedElement).toMatchObject({
+			id: "first",
+			name: "Compound clip",
+			startTime: mt(100),
+			duration: mt(500),
+			trimStart: mt(0),
+			trimEnd: mt(0),
+		});
+		expect(plan?.mergedElement.compound?.elements).toMatchObject([
+			{
+				id: "first",
+				mediaId: "media-1",
+				startTime: mt(0),
+				duration: mt(300),
+			},
+			{
+				id: "second",
+				mediaId: "media-2",
+				startTime: mt(300),
+				duration: mt(200),
+			},
+		]);
+		expect(plan?.removedElementIds).toEqual(["second"]);
+	});
+
+	test("builds a compound clip plan that preserves gaps between consecutive clips", () => {
+		const tracks = sceneWithMain([
+			videoElement({
+				id: "first",
+				mediaId: "media-1",
+				startTime: 100,
+				duration: 200,
+				trimStart: 0,
+				trimEnd: 800,
+			}),
+			videoElement({
+				id: "second",
+				mediaId: "media-2",
+				startTime: 400,
+				duration: 200,
+				trimStart: 0,
+				trimEnd: 800,
+			}),
+		]);
+
+		const plan = buildCompoundElementsPlan({
+			tracks,
+			elements: [
+				{ trackId: "main", elementId: "first" },
+				{ trackId: "main", elementId: "second" },
+			],
+		});
+
+		expect(plan?.mergedElement).toMatchObject({
+			startTime: mt(100),
+			duration: mt(500),
+		});
+		expect(plan?.mergedElement.compound?.elements).toMatchObject([
+			{ id: "first", startTime: mt(0), duration: mt(200) },
+			{ id: "second", startTime: mt(300), duration: mt(200) },
+		]);
+	});
+
+	test("refuses to compound clips with an unselected clip between them", () => {
+		const tracks = sceneWithMain([
+			videoElement({
+				id: "first",
+				mediaId: "media-1",
+				startTime: 0,
+				duration: 100,
+				trimStart: 0,
+				trimEnd: 900,
+			}),
+			videoElement({
+				id: "middle",
+				mediaId: "media-2",
+				startTime: 100,
+				duration: 100,
+				trimStart: 0,
+				trimEnd: 900,
+			}),
+			videoElement({
+				id: "last",
+				mediaId: "media-3",
+				startTime: 200,
+				duration: 100,
+				trimStart: 0,
+				trimEnd: 900,
+			}),
+		]);
+
+		const plan = buildCompoundElementsPlan({
+			tracks,
+			elements: [
+				{ trackId: "main", elementId: "first" },
+				{ trackId: "main", elementId: "last" },
 			],
 		});
 

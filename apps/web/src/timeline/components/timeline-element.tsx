@@ -85,6 +85,7 @@ import type { SelectedKeyframeRef, ElementKeyframe } from "@/animation/types";
 import { cn } from "@/utils/ui";
 import { usePropertiesStore } from "@/components/editor/panels/properties/stores/properties-store";
 import { getTrackTypeForElementType } from "@/timeline/placement/compatibility";
+import { isCompoundElement } from "@/timeline/compound-elements";
 import { useTimelineStore } from "@/timeline/timeline-store";
 import { KEYFRAME_LANE_HEIGHT_PX } from "./layout";
 import {
@@ -1003,6 +1004,24 @@ function GraphicElementContent({
 	);
 }
 
+function CompoundElementContent({ element }: { element: TimelineElementType }) {
+	const childCount = isCompoundElement(element)
+		? element.compound.elements.length
+		: 0;
+
+	return (
+		<div className="flex size-full items-center justify-start gap-1.5 pl-2">
+			<span className="shrink-0 rounded-[3px] bg-white/18 px-1 text-[0.58rem] font-semibold leading-4 text-white">
+				CMP
+			</span>
+			<span className="truncate text-xs text-white">
+				{element.name || "Compound clip"}
+				{childCount > 0 ? ` (${childCount})` : ""}
+			</span>
+		</div>
+	);
+}
+
 function AudioElementContent({
 	element,
 	trackId,
@@ -1189,6 +1208,10 @@ function MediaElementHeader({
 }
 
 function ElementContent({ element, track }: ElementContentProps) {
+	if (isCompoundElement(element)) {
+		return <CompoundElementContent element={element} />;
+	}
+
 	switch (element.type) {
 		case "text":
 			return <TextElementContent element={element} />;

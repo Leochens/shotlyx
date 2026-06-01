@@ -18,6 +18,7 @@ import {
 import { doesElementHaveEnabledAudio } from "@/timeline/audio-separation";
 import { canElementHaveAudio, hasMediaId } from "@/timeline/element-utils";
 import { canTrackHaveAudio } from "@/timeline";
+import { expandCompoundElement } from "@/timeline/compound-elements";
 import { mediaSupportsAudio } from "@/media/media-utils";
 import { getSourceTimeAtClipTime, renderRetimedBuffer } from "@/retime";
 import {
@@ -208,7 +209,9 @@ export function collectAudibleCandidates({
 	for (const track of allTracks) {
 		if (canTrackHaveAudio(track) && track.muted) continue;
 
-		for (const element of track.elements) {
+		for (const element of track.elements.flatMap((trackElement) =>
+			expandCompoundElement({ element: trackElement }),
+		)) {
 			if (!canElementHaveAudio(element)) continue;
 			if (element.duration <= 0) continue;
 
@@ -600,7 +603,9 @@ export async function collectAudioMixSources({
 	for (const track of orderedTracks) {
 		if (canTrackHaveAudio(track) && track.muted) continue;
 
-		for (const element of track.elements) {
+		for (const element of track.elements.flatMap((trackElement) =>
+			expandCompoundElement({ element: trackElement }),
+		)) {
 			if (!canElementHaveAudio(element)) continue;
 			if (isElementMuted({ element })) continue;
 			const mediaAsset = hasMediaId(element)
@@ -663,7 +668,9 @@ export async function collectAudioClips({
 	for (const track of orderedTracks) {
 		const isTrackMuted = canTrackHaveAudio(track) && track.muted;
 
-		for (const element of track.elements) {
+		for (const element of track.elements.flatMap((trackElement) =>
+			expandCompoundElement({ element: trackElement }),
+		)) {
 			if (!canElementHaveAudio(element)) continue;
 
 			const mediaAsset = hasMediaId(element)

@@ -5,7 +5,7 @@ import {
 } from "@/commands/base-command";
 import { EditorCore } from "@/core";
 import {
-	buildMergeElementsPlan,
+	buildSelectedElementsMergePlan,
 	type MergeElementsPlan,
 } from "@/timeline/merge-elements";
 import type { ElementRef, SceneTracks, TimelineTrack } from "@/timeline";
@@ -48,7 +48,7 @@ export class MergeElementsCommand extends Command {
 	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();
 		const before = editor.scenes.getActiveScene().tracks;
-		const plan = buildMergeElementsPlan({
+		const plan = buildSelectedElementsMergePlan({
 			tracks: before,
 			elements: this.elements,
 		});
@@ -58,7 +58,9 @@ export class MergeElementsCommand extends Command {
 
 		this.savedState = before;
 		const updatedTracks: SceneTracks = {
-			overlay: before.overlay.map((track) => applyMergeToTrack({ track, plan })),
+			overlay: before.overlay.map((track) =>
+				applyMergeToTrack({ track, plan }),
+			),
 			main: applyMergeToTrack({ track: before.main, plan }),
 			audio: before.audio.map((track) => applyMergeToTrack({ track, plan })),
 		};

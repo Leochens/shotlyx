@@ -111,6 +111,9 @@ interface BaseTimelineElement {
 	trimStart: MediaTime;
 	trimEnd: MediaTime;
 	sourceDuration?: MediaTime;
+	compound?: {
+		elements: TimelineElement[];
+	};
 	animations?: ElementAnimations;
 	params: ParamValues;
 }

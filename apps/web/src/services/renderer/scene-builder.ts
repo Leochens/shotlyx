@@ -1,4 +1,5 @@
 import type { SceneTracks, TimelineTrack } from "@/timeline";
+import { expandCompoundElement } from "@/timeline/compound-elements";
 import type { MediaAsset } from "@/media/types";
 import { RootNode } from "./nodes/root-node";
 import { VideoNode } from "./nodes/video-node";
@@ -46,6 +47,8 @@ function removeShotlyxMGSquareAspectCompensation({
 
 function getVisibleSortedElements({ track }: { track: TimelineTrack }) {
 	return track.elements
+		.filter((element) => !("hidden" in element && element.hidden))
+		.flatMap((element) => expandCompoundElement({ element }))
 		.filter((element) => !("hidden" in element && element.hidden))
 		.slice()
 		.sort((a, b) => {

@@ -66,7 +66,7 @@ import type {
 	PlannedElementMove,
 	PlannedTrackCreation,
 } from "@/timeline/group-move";
-import { buildMergeElementsPlan } from "@/timeline/merge-elements";
+import { buildSelectedElementsMergePlan } from "@/timeline/merge-elements";
 import { buildSilenceCutTracks, type SilenceCutTarget } from "@/silence";
 
 export class TimelineManager {
@@ -291,7 +291,7 @@ export class TimelineManager {
 		}
 
 		return (
-			buildMergeElementsPlan({
+			buildSelectedElementsMergePlan({
 				tracks: activeScene.tracks,
 				elements,
 			}) !== null
