@@ -3,6 +3,7 @@ import { type ApiRequest, ApiResponse } from "@/platform/http";
 import { z } from "zod";
 import { checkRateLimit } from "@/auth/rate-limit";
 import { getRuntimeEnv } from "@/desktop/config/server";
+import { searchBuiltInSoundEffects } from "@/sounds/builtin-library";
 
 const searchParamsSchema = z.object({
 	q: z.string().max(500, "Query too long").optional(),
@@ -148,6 +149,54 @@ function transformFreesoundResult(
 	};
 }
 
+function jsonSoundSearchResponse({
+	count,
+	next,
+	previous,
+	results,
+	query,
+	type,
+	page,
+	pageSize,
+	sort,
+	minRating,
+}: {
+	count: number;
+	next: string | null;
+	previous: string | null;
+	results: z.infer<typeof transformedResultSchema>[];
+	query: string;
+	type: string;
+	page: number;
+	pageSize: number;
+	sort: string;
+	minRating: number;
+}) {
+	const responseData = {
+		count,
+		next,
+		previous,
+		results,
+		query,
+		type,
+		page,
+		pageSize,
+		sort,
+		minRating,
+	};
+
+	const responseValidation = apiResponseSchema.safeParse(responseData);
+	if (!responseValidation.success) {
+		console.error("Invalid API response structure:", responseValidation.error);
+		return ApiResponse.json(
+			{ error: "Internal response formatting error" },
+			{ status: 500 },
+		);
+	}
+
+	return ApiResponse.json(responseValidation.data);
+}
+
 export async function GET(request: ApiRequest) {
 	try {
 		const { limited } = await checkRateLimit({ request });
@@ -164,6 +213,7 @@ export async function GET(request: ApiRequest) {
 			page_size: searchParams.get("page_size") || undefined,
 			sort: searchParams.get("sort") || undefined,
 			min_rating: searchParams.get("min_rating") || undefined,
+			commercial_only: searchParams.get("commercial_only") || undefined,
 		});
 
 		if (!validationResult.success) {
@@ -197,14 +247,43 @@ export async function GET(request: ApiRequest) {
 			);
 		}
 
+		const normalizedQuery = query?.trim() ?? "";
+		const builtInResults = searchBuiltInSoundEffects({
+			query: normalizedQuery,
+			page,
+			pageSize,
+		});
+		const env = getRuntimeEnv();
+		const freesoundApiKey = (
+			env.FREESOUND_API_KEY ??
+			webEnv.FREESOUND_API_KEY ??
+			""
+		).trim();
+		const canUseBuiltInOnly =
+			!normalizedQuery || builtInResults.results.length > 0 || !freesoundApiKey;
+
+		if (canUseBuiltInOnly) {
+			return jsonSoundSearchResponse({
+				count: builtInResults.count,
+				next: builtInResults.next,
+				previous: builtInResults.previous,
+				results: builtInResults.results,
+				query: normalizedQuery,
+				type: type || "effects",
+				page,
+				pageSize,
+				sort,
+				minRating: min_rating,
+			});
+		}
+
 		const baseUrl = "https://freesound.org/apiv2/search/text/";
 
 		const sortParam = buildSortParameter({ query, sort });
-		const env = getRuntimeEnv();
 
 		const params = new URLSearchParams({
-			query: query || "",
-			token: env.FREESOUND_API_KEY ?? webEnv.FREESOUND_API_KEY,
+			query: normalizedQuery,
+			token: freesoundApiKey,
 			page: page.toString(),
 			page_size: pageSize.toString(),
 			sort: sortParam,
@@ -246,32 +325,18 @@ export async function GET(request: ApiRequest) {
 
 		const transformedResults = data.results.map(transformFreesoundResult);
 
-		const responseData = {
+		return jsonSoundSearchResponse({
 			count: data.count,
 			next: data.next,
 			previous: data.previous,
 			results: transformedResults,
-			query: query || "",
+			query: normalizedQuery,
 			type: type || "effects",
 			page,
 			pageSize,
 			sort,
 			minRating: min_rating,
-		};
-
-		const responseValidation = apiResponseSchema.safeParse(responseData);
-		if (!responseValidation.success) {
-			console.error(
-				"Invalid API response structure:",
-				responseValidation.error,
-			);
-			return ApiResponse.json(
-				{ error: "Internal response formatting error" },
-				{ status: 500 },
-			);
-		}
-
-		return ApiResponse.json(responseValidation.data);
+		});
 	} catch (error) {
 		console.error("Error searching sounds:", error);
 		return ApiResponse.json(

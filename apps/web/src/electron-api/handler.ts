@@ -24,6 +24,7 @@ import * as desktopModelsRoute from "@/api/desktop/models/route";
 import * as desktopRemotionMgRenderRoute from "@/api/desktop/remotion/mg-render/route";
 import * as feedbackRoute from "@/api/feedback/route";
 import * as healthRoute from "@/api/health/route";
+import * as soundsBuiltinRoute from "@/api/sounds/builtin/route";
 import * as soundsSearchRoute from "@/api/sounds/search/route";
 import { ApiRequest } from "@/platform/http";
 
@@ -68,6 +69,7 @@ const staticRoutes = new Map<string, RouteModule>([
 	["/api/desktop/remotion/mg-render", desktopRemotionMgRenderRoute],
 	["/api/feedback", feedbackRoute],
 	["/api/health", healthRoute],
+	["/api/sounds/builtin", soundsBuiltinRoute],
 	["/api/sounds/search", soundsSearchRoute],
 ]);
 
@@ -149,15 +151,12 @@ function withCors(response: Response) {
 
 export async function handleElectronApiRequest(request: Request) {
 	const url = new URL(request.url);
-	const shouldLogMGRender =
-		url.pathname === "/api/desktop/remotion/mg-render";
+	const shouldLogMGRender = url.pathname === "/api/desktop/remotion/mg-render";
 	const startedAt = shouldLogMGRender ? Date.now() : 0;
 
 	if (request.method === "OPTIONS") {
 		if (shouldLogMGRender) {
-			console.info(
-				`[shotlyx-mg-export] desktop API preflight ${url.pathname}`,
-			);
+			console.info(`[shotlyx-mg-export] desktop API preflight ${url.pathname}`);
 		}
 		return withCors(new Response(null, { status: 204 }));
 	}
