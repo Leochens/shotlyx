@@ -12,6 +12,7 @@ export interface MediaDragData extends BaseDragData {
 	type: "media";
 	mediaType: "image" | "video" | "audio";
 	targetElementTypes?: MaskableElement["type"][];
+	insertMode?: "media" | "silent-overlay";
 }
 
 export interface TextDragData extends BaseDragData {

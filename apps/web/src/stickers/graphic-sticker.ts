@@ -4,6 +4,11 @@ import {
 	buildFlowerTextProgressAnimation,
 	getFlowerTextParams,
 } from "@/graphics/definitions/flower-text";
+import {
+	DEFAULT_ANIMATED_STICKER_DURATION,
+	buildAnimatedStickerProgressAnimation,
+	getAnimatedStickerParams,
+} from "@/graphics/definitions/animated-stickers";
 import type { ParamValues } from "@/params";
 import type { MediaTime } from "@/wasm";
 import type { StickerItem } from "./types";
@@ -12,6 +17,10 @@ import {
 	FLOWER_TEXT_PROVIDER_ID,
 	parseFlowerTextStickerId,
 } from "./providers/flower-text";
+import {
+	ANIMATED_STICKERS_PROVIDER_ID,
+	parseAnimatedStickerId,
+} from "./providers/animated-stickers";
 
 export interface GraphicStickerPreset {
 	name: string;
@@ -101,6 +110,21 @@ export function getGraphicStickerPreset({
 			params: getFlowerTextParams({ preset }),
 			duration,
 			animations: buildFlowerTextProgressAnimation({ duration }),
+		};
+	}
+
+	if (item.provider === ANIMATED_STICKERS_PROVIDER_ID) {
+		const preset = parseAnimatedStickerId({ stickerId: item.id });
+		if (!preset) {
+			return null;
+		}
+		const duration = DEFAULT_ANIMATED_STICKER_DURATION;
+		return {
+			name: preset.name,
+			definitionId: preset.definitionId,
+			params: getAnimatedStickerParams({ preset }),
+			duration,
+			animations: buildAnimatedStickerProgressAnimation({ duration }),
 		};
 	}
 

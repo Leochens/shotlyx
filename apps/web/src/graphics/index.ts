@@ -5,6 +5,7 @@ import type { ParamValues } from "@/params";
 import { graphicsRegistry } from "./registry";
 import {
 	registerDefaultGraphics,
+	animatedStickerGraphicDefinitions,
 	ellipseGraphicDefinition,
 	calloutGraphicDefinitions,
 	flowerTextGraphicDefinitions,
@@ -148,6 +149,7 @@ export function buildGraphicPreviewUrl({
 
 export {
 	DEFAULT_GRAPHIC_SOURCE_SIZE,
+	animatedStickerGraphicDefinitions,
 	calloutGraphicDefinitions,
 	ellipseGraphicDefinition,
 	flowerTextGraphicDefinitions,

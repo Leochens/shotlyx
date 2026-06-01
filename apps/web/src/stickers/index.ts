@@ -1,6 +1,4 @@
-import {
-	STICKER_CATEGORIES,
-} from "@/stickers/categories";
+import { STICKER_CATEGORIES } from "@/stickers/categories";
 import { STICKER_INTRINSIC_SIZE_FALLBACK } from "@/stickers/intrinsic-size";
 import type { StickerCategory } from "@/stickers/types";
 import { stickersRegistry } from "./registry";
@@ -60,6 +58,10 @@ function getProviderByCategory({
 	} catch {
 		return null;
 	}
+}
+
+function isProviderStickerCategory(value: string): value is StickerCategory {
+	return value !== "all" && value in STICKER_CATEGORIES;
 }
 
 function getEmptyBrowseResult(): StickerBrowseResult {
@@ -193,7 +195,10 @@ export async function searchAll({
 		if (result.items.length === 0) {
 			continue;
 		}
-		const category = provider.id as StickerCategory;
+		const category = provider.id;
+		if (!isProviderStickerCategory(category)) {
+			continue;
+		}
 		sections.push({
 			id: category,
 			title: STICKER_CATEGORIES[category] ?? provider.id,
@@ -261,18 +266,21 @@ export async function browseAll({
 				return null;
 			}
 
-			const category = provider.id as StickerCategory;
-		return {
-			...firstSection,
-			id: category,
-			title: STICKER_CATEGORIES[category] ?? firstSection.title,
-			layout: "row" as const,
-			action: {
-				type: "see-all" as const,
-				category,
-				sectionId: firstSection.id,
-			},
-		};
+			const category = provider.id;
+			if (!isProviderStickerCategory(category)) {
+				return null;
+			}
+			return {
+				...firstSection,
+				id: category,
+				title: STICKER_CATEGORIES[category] ?? firstSection.title,
+				layout: "row" as const,
+				action: {
+					type: "see-all" as const,
+					category,
+					sectionId: firstSection.id,
+				},
+			};
 		}),
 	);
 

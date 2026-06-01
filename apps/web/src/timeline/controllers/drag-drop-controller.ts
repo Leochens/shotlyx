@@ -520,6 +520,9 @@ export class DragDropController {
 			duration: toElementDurationTicks({ seconds: mediaAsset.duration }),
 			startTime: target.xPosition,
 		});
+		if (dragData.insertMode === "silent-overlay" && element.type === "video") {
+			element.isSourceAudioEnabled = false;
+		}
 		this.insertAtTarget({ element, target, trackType });
 	}
 

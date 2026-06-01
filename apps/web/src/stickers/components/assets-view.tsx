@@ -10,11 +10,23 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEditor } from "@/editor/use-editor";
+import type { MediaAsset } from "@/media/types";
+import { processMediaAssets } from "@/media/processing";
+import { showMediaUploadToast } from "@/media/upload-toast";
+import { useFileUpload } from "@/media/use-file-upload";
 import { resolveStickerIntrinsicSize } from "@/stickers";
+import {
+	ANIMATED_STICKER_UPLOAD_ACCEPT,
+	buildAnimatedStickerMediaElement,
+	filterAnimatedStickerMediaAssets,
+	isAnimatedStickerUploadFile,
+	type AnimatedStickerMediaAsset,
+} from "@/stickers/animated-user-stickers";
 import {
 	buildGraphicElement,
 	buildStickerElement,
 } from "@/timeline/element-utils";
+import { MASKABLE_ELEMENT_TYPES } from "@/timeline";
 import { STICKER_CATEGORIES } from "@/stickers/categories";
 import { getRegionLabel, resolveQueryToRegions } from "@/stickers";
 import { getGraphicStickerPreset } from "@/stickers/graphic-sticker";
@@ -26,7 +38,12 @@ import type {
 } from "@/stickers";
 import { useStickersStore } from "@/stickers/stickers-store";
 import { cn } from "@/utils/ui";
-import { HappyIcon } from "@hugeicons/core-free-icons";
+import {
+	CloudUploadIcon,
+	HappyIcon,
+	Image02Icon,
+	Video01Icon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 export function StickersView() {
@@ -161,6 +178,344 @@ function EmptyView({ message }: { message: string }) {
 	);
 }
 
+function AnimatedStickersContentView() {
+	const editor = useEditor();
+	const activeProject = useEditor((e) => e.project.getActiveOrNull());
+	const mediaAssets = useEditor((e) => e.media.getAssets());
+	const {
+		browseContent,
+		clearRecentStickers,
+		isBrowsing,
+		isSearching,
+		searchQuery,
+		searchResults,
+		setSelectedCategory,
+		viewMode,
+	} = useStickersStore();
+	const [isProcessing, setIsProcessing] = useState(false);
+	const [progress, setProgress] = useState(0);
+
+	const uploadedAssets = useMemo(
+		() =>
+			filterAnimatedStickerMediaAssets({
+				assets: mediaAssets.filter((asset) => !asset.ephemeral),
+				query: viewMode === "search" ? searchQuery : "",
+			}),
+		[mediaAssets, searchQuery, viewMode],
+	);
+
+	const builtInSections = useMemo<StickerBrowseSection[]>(() => {
+		if (viewMode === "search") {
+			const items = searchResults?.items ?? [];
+			return items.length
+				? [
+						{
+							id: "built-in",
+							title: "Built-in motion",
+							items,
+							layout: "grid",
+						},
+					]
+				: [];
+		}
+		return browseContent?.sections ?? [];
+	}, [browseContent?.sections, searchResults?.items, viewMode]);
+
+	const processFiles = async ({ files }: { files: File[] }) => {
+		if (!files.length) return;
+		if (!activeProject) {
+			toast.error("No active project");
+			return;
+		}
+
+		const acceptedFiles = files.filter((file) =>
+			isAnimatedStickerUploadFile({ file }),
+		);
+		if (!acceptedFiles.length) {
+			toast.error("Upload a video, GIF, or image");
+			return;
+		}
+
+		setIsProcessing(true);
+		setProgress(0);
+		try {
+			await showMediaUploadToast({
+				filesCount: acceptedFiles.length,
+				promise: async () => {
+					const processedAssets = await processMediaAssets({
+						files: acceptedFiles,
+						onProgress: ({ progress }) => setProgress(progress),
+					});
+					const stickerAssets = processedAssets.filter(
+						(asset) => asset.type === "image" || asset.type === "video",
+					);
+					for (const asset of stickerAssets) {
+						await editor.media.addMediaAsset({
+							projectId: activeProject.metadata.id,
+							asset,
+						});
+					}
+					return {
+						uploadedCount: stickerAssets.length,
+						assetNames: stickerAssets.map((asset) => asset.name),
+					};
+				},
+			});
+		} catch (error) {
+			console.error("Failed to upload animated stickers:", error);
+		} finally {
+			setIsProcessing(false);
+			setProgress(0);
+		}
+	};
+
+	const { isDragOver, dragProps, openFilePicker, fileInputProps } =
+		useFileUpload({
+			accept: ANIMATED_STICKER_UPLOAD_ACCEPT,
+			multiple: true,
+			onFilesSelected: (files) => void processFiles({ files }),
+		});
+
+	const hasContent = uploadedAssets.length > 0 || builtInSections.length > 0;
+
+	return (
+		<div className="flex flex-col gap-4 pb-4">
+			<input {...fileInputProps} />
+			<AnimatedStickerUploadPanel
+				isDragOver={isDragOver}
+				isProcessing={isProcessing}
+				progress={progress}
+				onUpload={openFilePicker}
+				dragProps={dragProps}
+			/>
+
+			{isSearching || (isBrowsing && !browseContent) ? (
+				<div className="flex items-center justify-center py-8">
+					<Spinner className="text-muted-foreground size-6" />
+				</div>
+			) : (
+				<>
+					{uploadedAssets.length > 0 && (
+						<AnimatedStickerMediaSection items={uploadedAssets} />
+					)}
+					{builtInSections.map((section) => (
+						<StickerSection
+							key={section.id}
+							section={section}
+							onClearRecent={clearRecentStickers}
+							onSeeAll={(category) => {
+								setSelectedCategory({ category });
+							}}
+						/>
+					))}
+					{!hasContent && searchQuery ? (
+						<EmptyView message={`No stickers found for "${searchQuery}"`} />
+					) : null}
+				</>
+			)}
+		</div>
+	);
+}
+
+function AnimatedStickerUploadPanel({
+	isDragOver,
+	isProcessing,
+	progress,
+	onUpload,
+	dragProps,
+}: {
+	isDragOver: boolean;
+	isProcessing: boolean;
+	progress: number;
+	onUpload: () => void;
+	dragProps: ReturnType<typeof useFileUpload>["dragProps"];
+}) {
+	return (
+		<div
+			className={cn(
+				"flex min-h-20 items-center justify-between gap-3 rounded-md border border-dashed border-border bg-muted/20 p-3",
+				isDragOver && "border-primary bg-primary/10",
+			)}
+			{...dragProps}
+		>
+			<div className="flex min-w-0 items-center gap-2">
+				<div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-background">
+					<HugeiconsIcon
+						icon={CloudUploadIcon}
+						className="text-muted-foreground size-5"
+					/>
+				</div>
+				<div className="min-w-0">
+					<p className="truncate text-sm font-medium">
+						{isProcessing ? `Uploading ${progress}%` : "Upload motion sticker"}
+					</p>
+					<p className="truncate text-xs text-muted-foreground">
+						Video, GIF, image
+					</p>
+				</div>
+			</div>
+			<Button
+				type="button"
+				size="sm"
+				variant="secondary"
+				onClick={onUpload}
+				disabled={isProcessing}
+				className="shrink-0 gap-1.5"
+			>
+				{isProcessing ? (
+					<Spinner className="size-4" />
+				) : (
+					<HugeiconsIcon icon={CloudUploadIcon} className="size-4" />
+				)}
+				Upload
+			</Button>
+		</div>
+	);
+}
+
+function AnimatedStickerMediaSection({
+	items,
+}: {
+	items: AnimatedStickerMediaAsset[];
+}) {
+	const gridStyle: CSSProperties & {
+		"--sticker-min": string;
+	} = {
+		gridTemplateColumns:
+			"repeat(auto-fill, minmax(var(--sticker-min, 80px), 1fr))",
+		"--sticker-min": "80px",
+	};
+
+	return (
+		<div className="flex flex-col gap-2">
+			<div className="flex items-center justify-between">
+				<p className="text-xs text-muted-foreground">Uploaded motion</p>
+				<span className="text-xs text-muted-foreground">{items.length}</span>
+			</div>
+			<div className="grid gap-2" style={gridStyle}>
+				{items.map((item) => (
+					<AnimatedStickerMediaItem key={item.id} item={item} />
+				))}
+			</div>
+		</div>
+	);
+}
+
+function AnimatedStickerMediaItem({
+	item,
+}: {
+	item: AnimatedStickerMediaAsset;
+}) {
+	const editor = useEditor();
+	const [isAdding, setIsAdding] = useState(false);
+
+	const handleAdd = () => {
+		setIsAdding(true);
+		try {
+			const element = buildAnimatedStickerMediaElement({
+				asset: item,
+				startTime: editor.playback.getCurrentTime(),
+			});
+			editor.timeline.insertElement({
+				placement: { mode: "auto", trackType: "video" },
+				element,
+			});
+		} catch (error) {
+			console.error("Failed to add uploaded motion sticker:", error);
+			toast.error("Failed to add sticker to timeline");
+		} finally {
+			setIsAdding(false);
+		}
+	};
+
+	const preview = (
+		<div className="relative flex size-full items-center justify-center overflow-hidden bg-muted">
+			<AnimatedStickerMediaPreview item={item} />
+			<AnimatedStickerMediaBadge item={item} />
+		</div>
+	);
+
+	return (
+		<div
+			className={cn(
+				"group relative",
+				isAdding && "pointer-events-none opacity-50",
+			)}
+		>
+			<DraggableItem
+				name={item.name}
+				preview={preview}
+				dragData={{
+					id: item.id,
+					type: "media",
+					mediaType: item.type,
+					name: item.name,
+					insertMode: "silent-overlay",
+					targetElementTypes: [...MASKABLE_ELEMENT_TYPES],
+				}}
+				onAddToTimeline={handleAdd}
+				aspectRatio={1}
+				shouldShowLabel={false}
+				isRounded
+				variant="card"
+				containerClassName="w-full"
+			/>
+			{isAdding && (
+				<div className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-black/60">
+					<Spinner className="size-6 text-white" />
+				</div>
+			)}
+		</div>
+	);
+}
+
+function AnimatedStickerMediaPreview({
+	item,
+}: {
+	item: AnimatedStickerMediaAsset;
+}) {
+	if (item.type === "video") {
+		return (
+			<video
+				src={item.url}
+				className="size-full object-contain"
+				autoPlay
+				loop
+				muted
+				playsInline
+			/>
+		);
+	}
+
+	return (
+		<Image
+			src={item.url ?? item.thumbnailUrl ?? ""}
+			alt={item.name}
+			width={64}
+			height={64}
+			className="size-full object-contain"
+			loading="lazy"
+			unoptimized
+		/>
+	);
+}
+
+function AnimatedStickerMediaBadge({
+	item,
+}: {
+	item: Pick<MediaAsset, "type" | "file">;
+}) {
+	const isGif = item.file.type === "image/gif";
+	const label = isGif ? "GIF" : item.type === "video" ? "Video" : "Image";
+	const icon = item.type === "video" ? Video01Icon : Image02Icon;
+	return (
+		<span className="absolute left-1 top-1 flex items-center gap-1 rounded bg-black/70 px-1 py-0.5 text-[0.6rem] leading-none text-white">
+			<HugeiconsIcon icon={icon} className="size-3" />
+			{label}
+		</span>
+	);
+}
+
 function RegionBanner({ region }: { region: string }) {
 	return (
 		<div className="flex h-7 items-center gap-1.5 rounded-lg border border-sky-100 bg-sky-50 px-2">
@@ -203,6 +558,10 @@ function StickersContentView() {
 		() => browseContent?.sections ?? [],
 		[browseContent?.sections],
 	);
+
+	if (effectiveSelectedCategory === "animated-stickers") {
+		return <AnimatedStickersContentView />;
+	}
 
 	if (viewMode === "search") {
 		if (isSearching) {

@@ -1,5 +1,6 @@
 import { graphicsRegistry } from "../registry";
 import { shotlyxMGGraphicDefinition } from "@/shotlyx/remotion-components/graphic-definition";
+import { animatedStickerGraphicDefinitions } from "./animated-stickers";
 import { calloutGraphicDefinitions } from "./callouts";
 import { ellipseGraphicDefinition } from "./ellipse";
 import { flowerTextGraphicDefinitions } from "./flower-text";
@@ -15,6 +16,7 @@ const defaultGraphicDefinitions = [
 	starGraphicDefinition,
 	...calloutGraphicDefinitions,
 	...flowerTextGraphicDefinitions,
+	...animatedStickerGraphicDefinitions,
 	shotlyxMGGraphicDefinition,
 	...motionGraphicDefinitions,
 ];
@@ -33,6 +35,7 @@ export function registerDefaultGraphics(): void {
 
 export {
 	ellipseGraphicDefinition,
+	animatedStickerGraphicDefinitions,
 	calloutGraphicDefinitions,
 	flowerTextGraphicDefinitions,
 	motionGraphicDefinitions,

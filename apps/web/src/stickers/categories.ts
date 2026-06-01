@@ -5,4 +5,5 @@ export const STICKER_CATEGORIES = {
 	flags: "Flags",
 	shapes: "Shapes",
 	"flower-text": "Flower Text",
+	"animated-stickers": "Animated",
 };
