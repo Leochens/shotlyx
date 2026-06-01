@@ -9,6 +9,7 @@ import {
 	getElectronCommand,
 } from "./desktop-runtime.mjs";
 import { prepareDesktopApiBundle } from "./prepare-desktop-api.mjs";
+import { runWasmBuild } from "./wasm-build.mjs";
 
 const clientDir = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -159,6 +160,9 @@ function runApiBuild() {
 
 const { shouldStartServer } = await resolveRuntime();
 
+if (shouldStartServer) {
+	await runWasmBuild({ repoRoot });
+}
 await runApiBuild();
 await prepareDesktopApiBundle();
 

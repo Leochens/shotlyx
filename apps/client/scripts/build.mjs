@@ -4,6 +4,7 @@ import path from "node:path";
 import { createDesktopEnv } from "./desktop-runtime.mjs";
 import { prepareDesktopApiBundle } from "./prepare-desktop-api.mjs";
 import { prepareDesktopWebBundle } from "./prepare-desktop-web.mjs";
+import { runWasmBuild } from "./wasm-build.mjs";
 
 const clientDir = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -69,6 +70,7 @@ function runApiBuild() {
 }
 
 try {
+	await runWasmBuild({ repoRoot });
 	await runWebBuild();
 	await runApiBuild();
 	const preparedRendererPath = await prepareDesktopWebBundle();
