@@ -1,4 +1,5 @@
 import type { MaskableElement, VisualElement } from "./types";
+import type { ElementAnimations } from "@/animation/types";
 import type { ParamValues } from "@/params";
 import type { MediaTime } from "@/wasm";
 
@@ -28,6 +29,7 @@ export interface GraphicDragData extends BaseDragData {
 	definitionId: string;
 	params: Partial<ParamValues>;
 	duration?: MediaTime;
+	animations?: ElementAnimations;
 	motionGraphicAssetId?: string;
 	motionGraphicBaseParams?: ParamValues;
 }

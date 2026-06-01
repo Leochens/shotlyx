@@ -26,6 +26,7 @@ import {
 } from "@/timeline";
 import { isCompoundElement } from "@/timeline/compound-elements";
 import { DEFAULTS } from "@/timeline/defaults";
+import type { ElementAnimations } from "@/animation/types";
 import type { TimelineMediaType } from "@/media/types";
 import { buildDefaultEffectInstance, effectsRegistry } from "@/effects";
 import { buildDefaultGraphicInstance } from "@/graphics";
@@ -214,11 +215,15 @@ export function buildGraphicElement({
 	name,
 	startTime,
 	params,
+	duration,
+	animations,
 }: {
 	definitionId: string;
 	name?: string;
 	startTime: MediaTime;
 	params?: Partial<ParamValues>;
+	duration?: MediaTime;
+	animations?: ElementAnimations;
 }): CreateGraphicElement {
 	const instance = buildDefaultGraphicInstance({ definitionId });
 	return {
@@ -232,10 +237,11 @@ export function buildGraphicElement({
 			},
 			overrides: params,
 		}),
-		duration: DEFAULT_NEW_ELEMENT_DURATION,
+		duration: duration ?? DEFAULT_NEW_ELEMENT_DURATION,
 		startTime,
 		trimStart: ZERO_MEDIA_TIME,
 		trimEnd: ZERO_MEDIA_TIME,
+		animations,
 	};
 }
 

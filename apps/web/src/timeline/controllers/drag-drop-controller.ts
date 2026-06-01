@@ -487,6 +487,8 @@ export class DragDropController {
 			name: dragData.name,
 			startTime: target.xPosition,
 			params: dragData.params,
+			duration: dragData.duration,
+			animations: dragData.animations,
 		});
 		this.insertAtTarget({ element, target, trackType: "graphic" });
 	}

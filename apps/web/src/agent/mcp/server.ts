@@ -12,6 +12,7 @@ import { buildSceneTools } from "./scene-tools";
 import { buildEffectsTools } from "./effects-tools";
 import { buildEditorTools } from "./editor-tools";
 import { buildContextTools } from "./context-tools";
+import { buildFlowerTextTools } from "./flower-text-tools";
 import { buildTextOverlayTools } from "./text-overlay-tools";
 import { buildSubtitleTools } from "./subtitle-tools";
 import { classifyError } from "./error-classification";
@@ -96,6 +97,12 @@ export class MCPServer {
 			this.register(tool);
 		}
 		for (const tool of buildTextOverlayTools({
+			editor,
+			deps: { mediaTimeFromSeconds },
+		})) {
+			this.register(tool);
+		}
+		for (const tool of buildFlowerTextTools({
 			editor,
 			deps: { mediaTimeFromSeconds },
 		})) {

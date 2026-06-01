@@ -50,7 +50,9 @@ function getShapePresets(): ShapeGraphicPreset[] {
 	registerDefaultGraphics();
 	return graphicsRegistry
 		.getAll()
-		.filter((definition) => definition.category !== "motion-graphic")
+		.filter(
+			(definition) => !definition.category || definition.category === "shape",
+		)
 		.map((definition) => ({
 			shapeKey: definition.id,
 			name: definition.name,

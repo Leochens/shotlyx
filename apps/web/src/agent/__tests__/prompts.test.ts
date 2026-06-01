@@ -35,6 +35,9 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain("verify the timeline and media state");
 		expect(prompt).toContain("Use timeline_insert_text");
 		expect(prompt).toContain("Use timeline_insert_text_overlay");
+		expect(prompt).toContain("Use flower_text_list_presets");
+		expect(prompt).toContain("Use flower_text_insert");
+		expect(prompt).toContain("conservatively when the user asks for 花字");
 		expect(prompt).toContain("Use subtitles_import");
 		expect(prompt).toContain("Use subtitles_extract_transcript");
 		expect(prompt).toContain("clean transcript text plus timing anchors");
