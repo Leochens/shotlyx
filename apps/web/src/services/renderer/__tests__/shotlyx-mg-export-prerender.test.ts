@@ -11,6 +11,7 @@ const { buildShotlyxMGElementFromAsset, shotlyxMediaTimeFromSeconds } =
 const {
 	buildShotlyxMGExportRenderKey,
 	collectShotlyxMGExportPrerenderJobs,
+	getShotlyxMGExportPrerenderConcurrency,
 	prerenderShotlyxMGExportSegments,
 } = await import("../shotlyx-mg-export-prerender");
 const { buildScene } = await import("../scene-builder");
@@ -303,6 +304,95 @@ describe("Shotlyx MG export prerender mapping", () => {
 				delete process.env.VITE_SHOTLYX_DESKTOP;
 			} else {
 				process.env.VITE_SHOTLYX_DESKTOP = previousDesktopFlag;
+			}
+		}
+	});
+
+	test("limits parallel MG prerender requests", async () => {
+		const previousDesktopFlag = process.env.VITE_SHOTLYX_DESKTOP;
+		const previousConcurrency = process.env.VITE_SHOTLYX_MG_EXPORT_PRERENDER_CONCURRENCY;
+		const previousFetch = globalThis.fetch;
+		const previousCreateObjectURL = URL.createObjectURL;
+		process.env.VITE_SHOTLYX_DESKTOP = "1";
+		process.env.VITE_SHOTLYX_MG_EXPORT_PRERENDER_CONCURRENCY = "2";
+		URL.createObjectURL = mock(() => "blob:shotlyx-mg-frame");
+		const { asset, element, tracks } = buildTracks();
+		const elements = [0, 1, 2].map((index) => ({
+			...element,
+			id: `mg-element-${index + 1}`,
+		}));
+		tracks.overlay[0] = {
+			...tracks.overlay[0],
+			elements,
+		};
+		let activeRequests = 0;
+		let maxActiveRequests = 0;
+		const encoder = new TextEncoder();
+		globalThis.fetch = mock(async () => {
+			activeRequests += 1;
+			maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			activeRequests -= 1;
+			return new Response(
+				new ReadableStream({
+					start(controller) {
+						for (const event of [
+							{
+								type: "started",
+								durationSeconds: 1,
+								fps: 30,
+								frameCount: 1,
+								width: 1920,
+								height: 1080,
+							},
+							{
+								type: "frame",
+								frame: 0,
+								data: btoa("frame-0"),
+								mimeType: "image/png",
+							},
+							{
+								type: "completed",
+								durationSeconds: 1,
+								fps: 30,
+								frameCount: 1,
+								width: 1920,
+								height: 1080,
+							},
+						]) {
+							controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+						}
+						controller.close();
+					},
+				}),
+				{ headers: { "Content-Type": "application/x-ndjson" } },
+			);
+		});
+
+		try {
+			const result = await prerenderShotlyxMGExportSegments({
+				fps: { numerator: 30, denominator: 1 },
+				mediaAssets: [],
+				shotlyxMGAssets: [asset],
+				tracks,
+			});
+
+			expect(getShotlyxMGExportPrerenderConcurrency({ jobCount: 3 })).toBe(2);
+			expect(maxActiveRequests).toBe(2);
+			expect(result.renderMap.size).toBe(3);
+		} finally {
+			globalThis.fetch = previousFetch;
+			URL.createObjectURL = previousCreateObjectURL;
+			if (previousDesktopFlag === undefined) {
+				delete process.env.VITE_SHOTLYX_DESKTOP;
+			} else {
+				process.env.VITE_SHOTLYX_DESKTOP = previousDesktopFlag;
+			}
+			if (previousConcurrency === undefined) {
+				delete process.env.VITE_SHOTLYX_MG_EXPORT_PRERENDER_CONCURRENCY;
+			} else {
+				process.env.VITE_SHOTLYX_MG_EXPORT_PRERENDER_CONCURRENCY =
+					previousConcurrency;
 			}
 		}
 	});

@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
@@ -34,6 +35,24 @@ const requestSchema = z.object({
 	sourceWidth: z.number().int().positive().max(4096),
 });
 
+const SHOTLYX_MG_RENDER_ENTRY_VERSION = "shotlyx-mg-render-entry-v2";
+const MAX_BUNDLE_CACHE_ENTRIES = 24;
+const DEFAULT_FRAME_RENDER_CONCURRENCY = 2;
+const MAX_FRAME_RENDER_CONCURRENCY = 4;
+
+type RemotionBundlerModule = typeof import("@remotion/bundler");
+type RemotionRendererModule = typeof import("@remotion/renderer");
+type HeadlessBrowser = Awaited<ReturnType<RemotionRendererModule["openBrowser"]>>;
+
+interface ShotlyxMGBundleCacheEntry {
+	serveUrl: string;
+}
+
+let bundlerModulePromise: Promise<RemotionBundlerModule> | null = null;
+let rendererModulePromise: Promise<RemotionRendererModule> | null = null;
+let reusableBrowserPromise: Promise<HeadlessBrowser> | null = null;
+const bundleCache = new Map<string, Promise<ShotlyxMGBundleCacheEntry>>();
+
 function disabledResponse() {
 	return Response.json(
 		{
@@ -47,6 +66,75 @@ function disabledResponse() {
 
 function sanitizeJsString(value: unknown): string {
 	return JSON.stringify(value).replaceAll("</script", "<\\/script");
+}
+
+function hashString(value: string): string {
+	return crypto.createHash("sha256").update(value).digest("hex").slice(0, 20);
+}
+
+function readPositiveIntegerEnv(name: string): number | null {
+	const raw = process.env[name];
+	if (!raw) return null;
+	const parsed = Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getFrameRenderConcurrency(): number {
+	const configured =
+		readPositiveIntegerEnv("SHOTLYX_MG_RENDER_FRAME_CONCURRENCY") ??
+		readPositiveIntegerEnv("VITE_SHOTLYX_MG_RENDER_FRAME_CONCURRENCY") ??
+		DEFAULT_FRAME_RENDER_CONCURRENCY;
+	return Math.max(1, Math.min(MAX_FRAME_RENDER_CONCURRENCY, configured));
+}
+
+function getBundlerModule(): Promise<RemotionBundlerModule> {
+	bundlerModulePromise ??= import("@remotion/bundler");
+	return bundlerModulePromise;
+}
+
+function getRendererModule(): Promise<RemotionRendererModule> {
+	rendererModulePromise ??= import("@remotion/renderer");
+	return rendererModulePromise;
+}
+
+function getReusableBrowser({
+	openBrowser,
+}: {
+	openBrowser: RemotionRendererModule["openBrowser"];
+}): Promise<HeadlessBrowser> {
+	reusableBrowserPromise ??= openBrowser("chrome", {
+		logLevel: "warn",
+	}).catch((error: unknown) => {
+		reusableBrowserPromise = null;
+		throw error;
+	});
+	return reusableBrowserPromise;
+}
+
+function buildBundleCacheKey({
+	asset,
+}: {
+	asset: ShotlyxRemotionMGAsset;
+}): string {
+	return [
+		SHOTLYX_MG_RENDER_ENTRY_VERSION,
+		hashString(asset.document.compiledModule),
+	].join(":");
+}
+
+function rememberBundleCacheEntry({
+	key,
+	value,
+}: {
+	key: string;
+	value: Promise<ShotlyxMGBundleCacheEntry>;
+}) {
+	bundleCache.set(key, value);
+	while (bundleCache.size > MAX_BUNDLE_CACHE_ENTRIES) {
+		const oldestKey = bundleCache.keys().next().value;
+		if (!oldestKey) break;
+		bundleCache.delete(oldestKey);
+	}
 }
 
 function buildComponentModule({
@@ -65,21 +153,33 @@ function buildComponentModule({
 	].join("\n");
 }
 
-function buildEntryModule({
-	durationInFrames,
-	fps,
-	sourceHeight,
-	sourceWidth,
-}: {
-	durationInFrames: number;
-	fps: number;
-	sourceHeight: number;
-	sourceWidth: number;
-}): string {
+function buildEntryModule(): string {
 	return [
 		'import React from "react";',
 		'import { AbsoluteFill, Composition, registerRoot, useCurrentFrame } from "remotion";',
 		'import ShotlyxComponent from "./ShotlyxComponent.mjs";',
+		"",
+		"const DEFAULT_RENDER_META = {",
+		"  durationInFrames: 1,",
+		"  fps: 30,",
+		"  width: 16,",
+		"  height: 16,",
+		"};",
+		"",
+		"function readPositiveNumber(value, fallback) {",
+		"  const parsed = Number(value);",
+		"  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;",
+		"}",
+		"",
+		"function getRenderMeta(props) {",
+		"  const meta = props?.shotlyxMGRender ?? {};",
+		"  return {",
+		"    durationInFrames: Math.max(1, Math.floor(readPositiveNumber(meta.durationInFrames, DEFAULT_RENDER_META.durationInFrames))),",
+		"    fps: readPositiveNumber(meta.fps, DEFAULT_RENDER_META.fps),",
+		"    width: Math.max(1, Math.floor(readPositiveNumber(meta.width, DEFAULT_RENDER_META.width))),",
+		"    height: Math.max(1, Math.floor(readPositiveNumber(meta.height, DEFAULT_RENDER_META.height))),",
+		"  };",
+		"}",
 		"",
 		"function ShotlyxMGSegment({ frameProps, frameBackgrounds }) {",
 		"  const frame = useCurrentFrame();",
@@ -97,11 +197,12 @@ function buildEntryModule({
 		"  return React.createElement(Composition, {",
 		'    id: "ShotlyxMGSegment",',
 		"    component: ShotlyxMGSegment,",
-		`    durationInFrames: ${durationInFrames},`,
-		`    fps: ${fps},`,
-		`    width: ${sourceWidth},`,
-		`    height: ${sourceHeight},`,
-		"    defaultProps: { frameProps: [], frameBackgrounds: [] },",
+		"    calculateMetadata: ({ props }) => getRenderMeta(props),",
+		"    defaultProps: {",
+		"      frameProps: [],",
+		"      frameBackgrounds: [],",
+		"      shotlyxMGRender: DEFAULT_RENDER_META,",
+		"    },",
 		"  });",
 		"}",
 		"",
@@ -109,16 +210,75 @@ function buildEntryModule({
 	].join("\n");
 }
 
+async function createBundledShotlyxMGComponent({
+	asset,
+	cacheKey,
+}: {
+	asset: ShotlyxRemotionMGAsset;
+	cacheKey: string;
+}): Promise<ShotlyxMGBundleCacheEntry> {
+	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "shotlyx-mg-bundle-"));
+	const entryPoint = path.join(tempDir, "entry.mjs");
+	try {
+		await Promise.all([
+			fs.writeFile(
+				path.join(tempDir, "ShotlyxComponent.mjs"),
+				buildComponentModule({ asset }),
+				"utf8",
+			),
+			fs.writeFile(entryPoint, buildEntryModule(), "utf8"),
+		]);
+		const { bundle } = await getBundlerModule();
+		const serveUrl = await bundle({
+			entryPoint,
+			ignoreRegisterRootWarning: true,
+		});
+		console.info(
+			`[shotlyx-mg-export] bundle ready key=${cacheKey.slice(0, 32)}`,
+		);
+		return { serveUrl };
+	} finally {
+		await fs.rm(tempDir, { force: true, recursive: true }).catch(() => {});
+	}
+}
+
+function getBundledShotlyxMGComponent({
+	asset,
+}: {
+	asset: ShotlyxRemotionMGAsset;
+}): Promise<ShotlyxMGBundleCacheEntry> {
+	const cacheKey = buildBundleCacheKey({ asset });
+	const cached = bundleCache.get(cacheKey);
+	if (cached) {
+		console.info(
+			`[shotlyx-mg-export] bundle cache hit key=${cacheKey.slice(0, 32)}`,
+		);
+		return cached;
+	}
+	const promise = createBundledShotlyxMGComponent({ asset, cacheKey }).catch(
+		(error: unknown) => {
+			bundleCache.delete(cacheKey);
+			throw error;
+		},
+	);
+	rememberBundleCacheEntry({ key: cacheKey, value: promise });
+	return promise;
+}
+
 function buildFramePayload({
 	asset,
 	durationInFrames,
 	element,
 	fps,
+	sourceHeight,
+	sourceWidth,
 }: {
 	asset: ShotlyxRemotionMGAsset;
 	durationInFrames: number;
 	element: z.infer<typeof requestSchema>["element"];
 	fps: number;
+	sourceHeight: number;
+	sourceWidth: number;
 }) {
 	const frameProps: Record<string, unknown>[] = [];
 	const frameBackgrounds: string[] = [];
@@ -140,7 +300,16 @@ function buildFramePayload({
 		frameBackgrounds.push(resolveShotlyxMGPlayerBackground({ asset, params }));
 	}
 
-	return { frameProps, frameBackgrounds };
+	return {
+		frameProps,
+		frameBackgrounds,
+		shotlyxMGRender: {
+			durationInFrames,
+			fps,
+			height: sourceHeight,
+			width: sourceWidth,
+		},
+	};
 }
 
 function isAnimationKey(value: unknown): value is {
@@ -171,15 +340,16 @@ function resolveAnimatedParam({
 }): unknown {
 	if (typeof animations !== "object" || animations === null) return fallback;
 	const channel = Reflect.get(animations, `params.${key}`);
-	const keys =
+	const rawKeys =
 		typeof channel === "object" &&
 		channel !== null &&
 		"keys" in channel &&
 		Array.isArray(Reflect.get(channel, "keys"))
 			? Reflect.get(channel, "keys")
-					.filter(isAnimationKey)
-					.sort((left, right) => left.time - right.time)
-			: [];
+			: null;
+	const keys = Array.isArray(rawKeys)
+		? rawKeys.filter(isAnimationKey).sort((left, right) => left.time - right.time)
+		: [];
 	if (keys.length === 0) return fallback;
 	const first = keys[0];
 	const last = keys[keys.length - 1];
@@ -384,6 +554,8 @@ export async function POST(request: Request) {
 		durationInFrames,
 		element: parsed.data.element,
 		fps,
+		sourceHeight: parsed.data.sourceHeight,
+		sourceWidth: parsed.data.sourceWidth,
 	});
 	const startedAt = Date.now();
 
@@ -397,120 +569,96 @@ export async function POST(request: Request) {
 			),
 		},
 		run: async (send, signal) => {
-			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "shotlyx-mg-"));
-			const entryPoint = path.join(tempDir, "entry.mjs");
+			console.info(
+				`[shotlyx-mg-export] render start ${asset.name} ` +
+					`frames=${durationInFrames} fps=${fps} source=${parsed.data.sourceWidth}x${parsed.data.sourceHeight}`,
+			);
+			send({
+				type: "started",
+				durationSeconds: durationInFrames / fps,
+				fps,
+				frameCount: durationInFrames,
+				height: parsed.data.sourceHeight,
+				width: parsed.data.sourceWidth,
+			});
+
+			const [
+				{ serveUrl },
+				{ makeCancelSignal, openBrowser, renderFrames, selectComposition },
+			] = await Promise.all([
+				getBundledShotlyxMGComponent({ asset }),
+				getRendererModule(),
+			]);
+			const puppeteerInstance = await getReusableBrowser({ openBrowser });
+			const composition = await selectComposition({
+				serveUrl,
+				id: "ShotlyxMGSegment",
+				inputProps,
+				logLevel: "warn",
+				puppeteerInstance,
+			});
+
+			const logFrameProgress = createRenderProgressLogger({
+				assetName: asset.name,
+				durationInFrames,
+			});
+			const remotionCancel = makeCancelSignal();
+			const cancelRemotionRender = () => remotionCancel.cancel();
+			if (signal.aborted) {
+				cancelRemotionRender();
+			}
+			signal.addEventListener("abort", cancelRemotionRender, { once: true });
 
 			try {
-				console.info(
-					`[shotlyx-mg-export] render start ${asset.name} ` +
-						`frames=${durationInFrames} fps=${fps} source=${parsed.data.sourceWidth}x${parsed.data.sourceHeight}`,
-				);
-				send({
-					type: "started",
-					durationSeconds: durationInFrames / fps,
-					fps,
-					frameCount: durationInFrames,
-					height: parsed.data.sourceHeight,
-					width: parsed.data.sourceWidth,
-				});
-				await fs.writeFile(
-					path.join(tempDir, "ShotlyxComponent.mjs"),
-					buildComponentModule({ asset }),
-					"utf8",
-				);
-				await fs.writeFile(
-					entryPoint,
-					buildEntryModule({
-						durationInFrames,
-						fps,
-						sourceHeight: parsed.data.sourceHeight,
-						sourceWidth: parsed.data.sourceWidth,
-					}),
-					"utf8",
-				);
-
-				const [
-					{ bundle },
-					{ makeCancelSignal, renderFrames, selectComposition },
-				] =
-					await Promise.all([
-						import("@remotion/bundler"),
-						import("@remotion/renderer"),
-					]);
-				const serveUrl = await bundle({
-					entryPoint,
-					ignoreRegisterRootWarning: true,
-				});
-				const composition = await selectComposition({
+				await renderFrames({
 					serveUrl,
-					id: "ShotlyxMGSegment",
+					composition,
 					inputProps,
+					imageFormat: "png",
+					outputDir: null,
+					muted: true,
 					logLevel: "warn",
-				});
-
-				const logFrameProgress = createRenderProgressLogger({
-					assetName: asset.name,
-					durationInFrames,
-				});
-				const remotionCancel = makeCancelSignal();
-				const cancelRemotionRender = () => remotionCancel.cancel();
-				if (signal.aborted) {
-					cancelRemotionRender();
-				}
-				signal.addEventListener("abort", cancelRemotionRender, { once: true });
-
-				try {
-					await renderFrames({
-						serveUrl,
-						composition,
-						inputProps,
-						imageFormat: "png",
-						outputDir: null,
-						muted: true,
-						logLevel: "warn",
-						concurrency: 1,
-						cancelSignal: remotionCancel.cancelSignal,
-						onFrameBuffer: (buffer, frame) => {
-							send({
-								type: "frame",
-								data: buffer.toString("base64"),
-								frame,
-								mimeType: "image/png",
-							});
-						},
-						onFrameUpdate: (framesRendered) => {
-							logFrameProgress(framesRendered);
-							send({
-								type: "progress",
-								frameCount: durationInFrames,
-								framesRendered,
-								progress: Math.min(
-									1,
-									Math.max(0, framesRendered / durationInFrames),
-								),
-							});
-						},
-						onStart: () => undefined,
-					});
-				} finally {
-					signal.removeEventListener("abort", cancelRemotionRender);
-				}
-
-				console.info(
-					`[shotlyx-mg-export] render done ${asset.name} ` +
-						`frames=${durationInFrames} elapsedMs=${Date.now() - startedAt}`,
-				);
-				send({
-					type: "completed",
-					durationSeconds: durationInFrames / fps,
-					fps,
-					frameCount: durationInFrames,
-					height: parsed.data.sourceHeight,
-					width: parsed.data.sourceWidth,
+					concurrency: getFrameRenderConcurrency(),
+					cancelSignal: remotionCancel.cancelSignal,
+					puppeteerInstance,
+					onFrameBuffer: (buffer, frame) => {
+						send({
+							type: "frame",
+							data: buffer.toString("base64"),
+							frame,
+							mimeType: "image/png",
+						});
+					},
+					onFrameUpdate: (framesRendered) => {
+						logFrameProgress(framesRendered);
+						send({
+							type: "progress",
+							frameCount: durationInFrames,
+							framesRendered,
+							progress: Math.min(
+								1,
+								Math.max(0, framesRendered / durationInFrames),
+							),
+						});
+					},
+					onStart: () => undefined,
 				});
 			} finally {
-				await fs.rm(tempDir, { force: true, recursive: true }).catch(() => {});
+				signal.removeEventListener("abort", cancelRemotionRender);
 			}
+
+			console.info(
+				`[shotlyx-mg-export] render done ${asset.name} ` +
+					`frames=${durationInFrames} elapsedMs=${Date.now() - startedAt}`,
+			);
+			send({
+				type: "completed",
+				durationSeconds: durationInFrames / fps,
+				fps,
+				frameCount: durationInFrames,
+				height: parsed.data.sourceHeight,
+				width: parsed.data.sourceWidth,
+			});
 		},
 	});
 }

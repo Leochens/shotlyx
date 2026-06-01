@@ -32,6 +32,9 @@ export interface ShotlyxMGFrameSequenceRender {
 export type ShotlyxMGExportRender = MediaAsset | ShotlyxMGFrameSequenceRender;
 export type ShotlyxMGExportRenderMap = Map<string, ShotlyxMGExportRender>;
 
+const DEFAULT_PRERENDER_CONCURRENCY = 2;
+const MAX_PRERENDER_CONCURRENCY = 3;
+
 interface ShotlyxMGRenderFrameSequenceResponse {
 	type: "shotlyx-mg-frame-sequence";
 	durationSeconds: number;
@@ -228,6 +231,55 @@ function clampProgress(progress: number): number {
 	return Math.min(1, Math.max(0, progress));
 }
 
+function readPositiveIntegerEnv(name: string): number | null {
+	const raw = process.env[name];
+	if (!raw) return null;
+	const parsed = Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+export function getShotlyxMGExportPrerenderConcurrency({
+	jobCount,
+}: {
+	jobCount: number;
+}): number {
+	if (jobCount <= 0) return 0;
+	const configured =
+		readPositiveIntegerEnv("VITE_SHOTLYX_MG_EXPORT_PRERENDER_CONCURRENCY") ??
+		readPositiveIntegerEnv("SHOTLYX_MG_EXPORT_PRERENDER_CONCURRENCY") ??
+		DEFAULT_PRERENDER_CONCURRENCY;
+	return Math.max(1, Math.min(jobCount, MAX_PRERENDER_CONCURRENCY, configured));
+}
+
+function createAbortError(): Error {
+	if (typeof DOMException !== "undefined") {
+		return new DOMException("The operation was aborted.", "AbortError");
+	}
+	const error = new Error("The operation was aborted.");
+	error.name = "AbortError";
+	return error;
+}
+
+function createForwardedAbortController(signal?: AbortSignal): {
+	controller: AbortController;
+	cleanup: () => void;
+} {
+	const controller = new AbortController();
+	if (!signal) {
+		return { controller, cleanup: () => undefined };
+	}
+	const abort = () => controller.abort();
+	if (signal.aborted) {
+		abort();
+		return { controller, cleanup: () => undefined };
+	}
+	signal.addEventListener("abort", abort, { once: true });
+	return {
+		controller,
+		cleanup: () => signal.removeEventListener("abort", abort),
+	};
+}
+
 function getFrameRateNumber(fps: FrameRate): number {
 	if (typeof fps === "number") return fps;
 	const numerator = Reflect.get(fps, "numerator");
@@ -378,14 +430,16 @@ async function readShotlyxMGRenderFrameSequence({
 	buffer += decoder.decode();
 	handleLine(buffer);
 
-	if (!summary) {
+	const finalSummary =
+		summary as Omit<ShotlyxMGRenderFrameSequenceResponse, "frames"> | null;
+	if (!finalSummary) {
 		throw new Error("Remotion MG prerender finished without a summary event");
 	}
 
 	return createFrameSequenceFromPayload({
 		mediaId,
 		payload: {
-			...summary,
+			...finalSummary,
 			frames,
 		},
 	});
@@ -548,6 +602,7 @@ export async function prerenderShotlyxMGExportSegments({
 
 	console.info(
 		`[shotlyx-mg-export] prerender start segments=${jobs.length} ` +
+			`concurrency=${getShotlyxMGExportPrerenderConcurrency({ jobCount: jobs.length })} ` +
 			`source=${jobs[0]?.sourceWidth ?? 0}x${jobs[0]?.sourceHeight ?? 0}`,
 	);
 	onProgress?.({
@@ -557,39 +612,84 @@ export async function prerenderShotlyxMGExportSegments({
 		segmentIndex: 0,
 		segmentName: jobs[0]?.asset.name ?? "",
 	});
-	const renderedAssets: ShotlyxMGFrameSequenceRender[] = [];
-	for (let index = 0; index < jobs.length; index += 1) {
-		const job = jobs[index];
-		if (!job) continue;
-		const asset = await renderShotlyxMGSegment({
-			fps,
-			index,
-			job,
-			onProgress,
-			signal,
-			total: jobs.length,
-		});
-		renderedAssets.push(asset);
-		renderMap.set(
-			buildShotlyxMGExportRenderKey({
-				elementId: job.element.id,
-				trackId: job.trackId,
-			}),
-			asset,
+	const progressByJob = Array.from({ length: jobs.length }, () => 0);
+	const { cleanup, controller } = createForwardedAbortController(signal);
+	const renderSignal = controller.signal;
+	let completedCount = 0;
+	let nextJobIndex = 0;
+
+	const emitAggregatedProgress = (
+		event: ShotlyxMGExportPrerenderProgress,
+	) => {
+		progressByJob[event.segmentIndex] = Math.max(
+			progressByJob[event.segmentIndex] ?? 0,
+			clampProgress(event.frameProgress ?? event.progress),
 		);
+		const totalProgress =
+			progressByJob.reduce((sum, progress) => sum + progress, 0) / jobs.length;
 		onProgress?.({
-			estimatedRemainingSeconds: null,
-			frameCount: asset.frames.length,
-			frameIndex: asset.frames.length,
-			frameProgress: 1,
-			progress: (index + 1) / jobs.length,
-			segmentCount: jobs.length,
-			segmentIndex: index,
-			segmentName: job.asset.name,
+			...event,
+			progress: totalProgress,
 		});
+	};
+
+	const renderNextJob = async () => {
+		while (nextJobIndex < jobs.length) {
+			if (renderSignal.aborted) {
+				throw createAbortError();
+			}
+			const index = nextJobIndex;
+			nextJobIndex += 1;
+			const job = jobs[index];
+			if (!job) continue;
+			const asset = await renderShotlyxMGSegment({
+				fps,
+				index,
+				job,
+				onProgress: emitAggregatedProgress,
+				signal: renderSignal,
+				total: jobs.length,
+			});
+			renderMap.set(
+				buildShotlyxMGExportRenderKey({
+					elementId: job.element.id,
+					trackId: job.trackId,
+				}),
+				asset,
+			);
+			completedCount += 1;
+			emitAggregatedProgress({
+				estimatedRemainingSeconds: null,
+				frameCount: asset.frames.length,
+				frameIndex: asset.frames.length,
+				frameProgress: 1,
+				progress: 1,
+				segmentCount: jobs.length,
+				segmentIndex: index,
+				segmentName: job.asset.name,
+			});
+		}
+	};
+
+	try {
+		await Promise.all(
+			Array.from(
+				{
+					length: getShotlyxMGExportPrerenderConcurrency({
+						jobCount: jobs.length,
+					}),
+				},
+				() => renderNextJob(),
+			),
+		);
+	} catch (error) {
+		controller.abort();
+		throw error;
+	} finally {
+		cleanup();
 	}
 	console.info(
-		`[shotlyx-mg-export] prerender done segments=${renderedAssets.length}`,
+		`[shotlyx-mg-export] prerender done segments=${completedCount}`,
 	);
 
 	return {
