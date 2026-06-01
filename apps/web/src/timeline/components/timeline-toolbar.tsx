@@ -40,6 +40,7 @@ import {
 	Copy01Icon,
 	AlignLeftIcon,
 	AlignRightIcon,
+	JoinStraightIcon,
 	Link02Icon,
 	Layers01Icon,
 	Chart03Icon,
@@ -123,6 +124,9 @@ function ToolbarLeftSection({ mode }: { mode: TimelineMode }) {
 
 		return element.type === "video" || element.type === "audio";
 	});
+	const canMergeSelectedElements = editor.timeline.canMergeElements({
+		elements: selectedElements,
+	});
 	const selectedMediaAsset = (() => {
 		if (!selectedElement) {
 			return null;
@@ -183,6 +187,15 @@ function ToolbarLeftSection({ mode }: { mode: TimelineMode }) {
 					hidden={mode === "simple"}
 					onClick={({ event }) =>
 						handleAction({ action: "split-right", event })
+					}
+				/>
+
+				<ToolbarButton
+					icon={<HugeiconsIcon icon={JoinStraightIcon} />}
+					tooltip="Merge selected clips"
+					disabled={!canMergeSelectedElements}
+					onClick={({ event }) =>
+						handleAction({ action: "merge-selected", event })
 					}
 				/>
 

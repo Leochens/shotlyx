@@ -36,6 +36,7 @@ type CommandEntry =
 
 const QUICK_ACTIONS: TActionWithOptionalArgs[] = [
 	"split",
+	"merge-selected",
 	"duplicate-selected",
 	"delete-selected",
 	"copy-selected",

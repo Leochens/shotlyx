@@ -40,6 +40,7 @@ import {
 	DuplicateElementsCommand,
 	UpdateElementsCommand,
 	SplitElementsCommand,
+	MergeElementsCommand,
 	MoveElementCommand,
 	TracksSnapshotCommand,
 	UpsertKeyframeCommand,
@@ -65,6 +66,7 @@ import type {
 	PlannedElementMove,
 	PlannedTrackCreation,
 } from "@/timeline/group-move";
+import { buildMergeElementsPlan } from "@/timeline/merge-elements";
 import { buildSilenceCutTracks, type SilenceCutTarget } from "@/silence";
 
 export class TimelineManager {
@@ -280,6 +282,30 @@ export class TimelineManager {
 	}): void {
 		const command = new DeleteElementsCommand({ elements });
 		this.editor.command.execute({ command });
+	}
+
+	canMergeElements({ elements }: { elements: ElementRef[] }): boolean {
+		const activeScene = this.editor.scenes.getActiveSceneOrNull();
+		if (!activeScene) {
+			return false;
+		}
+
+		return (
+			buildMergeElementsPlan({
+				tracks: activeScene.tracks,
+				elements,
+			}) !== null
+		);
+	}
+
+	mergeElements({ elements }: { elements: ElementRef[] }): boolean {
+		if (!this.canMergeElements({ elements })) {
+			return false;
+		}
+
+		const command = new MergeElementsCommand({ elements });
+		this.editor.command.execute({ command });
+		return true;
 	}
 
 	applySilenceCutPlan({ targets }: { targets: SilenceCutTarget[] }): boolean {

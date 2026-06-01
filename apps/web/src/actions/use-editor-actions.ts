@@ -298,6 +298,18 @@ export function useEditorActions() {
 	);
 
 	useActionHandler(
+		"merge-selected",
+		() => {
+			if (selectedElements.length < 2) {
+				return;
+			}
+
+			editor.timeline.mergeElements({ elements: selectedElements });
+		},
+		undefined,
+	);
+
+	useActionHandler(
 		"delete-selected",
 		() => {
 			switch (editor.selection.getActiveSelectionKind()) {

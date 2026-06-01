@@ -70,6 +70,10 @@ export const ACTIONS = {
 		description: "Split elements at playhead",
 		category: "editing",
 	},
+	"merge-selected": {
+		description: "Merge selected elements",
+		category: "editing",
+	},
 	"split-left": {
 		description: "Split and remove left",
 		category: "editing",
