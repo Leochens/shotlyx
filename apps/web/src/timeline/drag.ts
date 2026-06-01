@@ -1,6 +1,7 @@
 import type { MaskableElement, VisualElement } from "./types";
 import type { ElementAnimations } from "@/animation/types";
 import type { ParamValues } from "@/params";
+import type { AnimatedStickerLibraryItem } from "@/stickers/animated-user-stickers";
 import type { MediaTime } from "@/wasm";
 
 interface BaseDragData {
@@ -13,6 +14,12 @@ export interface MediaDragData extends BaseDragData {
 	mediaType: "image" | "video" | "audio";
 	targetElementTypes?: MaskableElement["type"][];
 	insertMode?: "media" | "silent-overlay";
+}
+
+export interface UploadedAnimatedStickerDragData extends BaseDragData {
+	type: "animated-sticker-upload";
+	item: AnimatedStickerLibraryItem;
+	targetElementTypes?: MaskableElement["type"][];
 }
 
 export interface TextDragData extends BaseDragData {
@@ -43,6 +50,7 @@ export interface EffectDragData extends BaseDragData {
 
 export type TimelineDragData =
 	| MediaDragData
+	| UploadedAnimatedStickerDragData
 	| TextDragData
 	| StickerDragData
 	| GraphicDragData

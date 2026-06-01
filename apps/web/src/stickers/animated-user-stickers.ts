@@ -1,7 +1,13 @@
+import type { EditorCore } from "@/core";
 import { getMediaTypeFromFile } from "@/media/media-utils";
 import type { MediaAsset } from "@/media/types";
 import type { ParamValues } from "@/params";
-import type { CreateImageElement, CreateVideoElement } from "@/timeline/types";
+import type { AnimatedStickerAsset } from "@/services/storage/types";
+import type {
+	CreateImageElement,
+	CreateVideoElement,
+	TrackType,
+} from "@/timeline/types";
 import type { MediaTime } from "@/wasm/media-time";
 import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
@@ -43,48 +49,114 @@ function mediaTimeFromSecondsForUploadedSticker({
 export const ANIMATED_STICKER_UPLOAD_ACCEPT =
 	"image/*,video/*,.gif,.webp,.png,.jpg,.jpeg,.webm,.mp4,.mov";
 
-export type AnimatedStickerMediaAsset = MediaAsset & {
+const ANIMATED_STICKER_LIBRARY_PROVIDER = "shotlyx:animated-sticker-library";
+
+export type AnimatedStickerProjectMediaAsset = MediaAsset & {
 	type: "image" | "video";
 };
+
+export type AnimatedStickerLibraryItem = AnimatedStickerAsset;
 
 export function isAnimatedStickerUploadFile({ file }: { file: File }): boolean {
 	const mediaType = getMediaTypeFromFile({ file });
 	return mediaType === "image" || mediaType === "video";
 }
 
-export function isAnimatedStickerMediaAsset(
+export function isAnimatedStickerProjectMediaAsset(
 	asset: MediaAsset,
-): asset is AnimatedStickerMediaAsset {
+): asset is AnimatedStickerProjectMediaAsset {
 	return asset.type === "image" || asset.type === "video";
 }
 
-export function filterAnimatedStickerMediaAssets({
-	assets,
+export function isAnimatedGifAsset({
+	file,
+	type,
+}: {
+	file: Pick<File, "name" | "type">;
+	type: "image" | "video";
+}): boolean {
+	return (
+		type === "image" &&
+		(file.type === "image/gif" || file.name.toLowerCase().endsWith(".gif"))
+	);
+}
+
+export function filterAnimatedStickerLibraryItems({
+	items,
 	query,
 }: {
-	assets: MediaAsset[];
+	items: AnimatedStickerLibraryItem[];
 	query: string;
-}): AnimatedStickerMediaAsset[] {
+}): AnimatedStickerLibraryItem[] {
 	const normalizedQuery = query.trim().toLowerCase();
-	return assets.filter((asset): asset is AnimatedStickerMediaAsset => {
-		if (!isAnimatedStickerMediaAsset(asset)) {
-			return false;
-		}
+	return items.filter((item) => {
 		if (!normalizedQuery) {
 			return true;
 		}
-		const searchable = [asset.name, asset.file.type, asset.type]
+		const searchable = [item.name, item.file.name, item.file.type, item.type]
 			.join(" ")
 			.toLowerCase();
 		return searchable.includes(normalizedQuery);
 	});
 }
 
+export function buildAnimatedStickerProjectMediaAsset({
+	item,
+}: {
+	item: AnimatedStickerLibraryItem;
+}): Omit<AnimatedStickerProjectMediaAsset, "id"> {
+	const sourceUrl = `shotlyx://animated-stickers/${item.id}`;
+	const now = new Date().toISOString();
+	return {
+		name: item.name,
+		type: item.type,
+		file: item.file,
+		url: item.url,
+		thumbnailUrl: item.thumbnailUrl,
+		duration: item.duration,
+		width: item.width,
+		height: item.height,
+		fps: item.fps,
+		hasAudio: item.hasAudio,
+		ephemeral: true,
+		externalSource: {
+			provider: ANIMATED_STICKER_LIBRARY_PROVIDER,
+			providerAssetId: item.id,
+			sourceUrl,
+			importedAt: now,
+			license: {
+				name: "User uploaded",
+				attributionRequired: false,
+				sourceProvider: "User upload",
+				sourceUrl,
+				verifiedAt: now,
+			},
+		},
+	};
+}
+
+export function findProjectMediaAssetForAnimatedSticker({
+	assets,
+	item,
+}: {
+	assets: MediaAsset[];
+	item: AnimatedStickerLibraryItem;
+}): AnimatedStickerProjectMediaAsset | null {
+	const found = assets.find(
+		(asset) =>
+			asset.ephemeral === true &&
+			asset.externalSource?.provider === ANIMATED_STICKER_LIBRARY_PROVIDER &&
+			asset.externalSource.providerAssetId === item.id &&
+			isAnimatedStickerProjectMediaAsset(asset),
+	);
+	return found ?? null;
+}
+
 export function buildAnimatedStickerMediaElement({
 	asset,
 	startTime,
 }: {
-	asset: AnimatedStickerMediaAsset;
+	asset: AnimatedStickerProjectMediaAsset;
 	startTime: MediaTime;
 }): CreateImageElement | CreateVideoElement {
 	const duration =
@@ -120,5 +192,53 @@ export function buildAnimatedStickerMediaElement({
 		trimEnd: mediaTimeFromIntegerTicksForUploadedSticker({ ticks: 0 }),
 		hidden: false,
 		params: DEFAULT_VISUAL_PARAMS,
+	};
+}
+
+export async function insertAnimatedStickerLibraryItem({
+	editor,
+	item,
+	startTime,
+	placement = { mode: "auto", trackType: "video" },
+}: {
+	editor: EditorCore;
+	item: AnimatedStickerLibraryItem;
+	startTime: MediaTime;
+	placement?:
+		| { mode: "explicit"; trackId: string }
+		| { mode: "auto"; trackType?: TrackType; insertIndex?: number };
+}): Promise<{ elementId?: string; trackId?: string | null; mediaId: string }> {
+	const activeProject = editor.project.getActiveOrNull();
+	if (!activeProject) {
+		throw new Error("No active project");
+	}
+
+	let mediaAsset = findProjectMediaAssetForAnimatedSticker({
+		assets: editor.media.getAssets(),
+		item,
+	});
+	if (!mediaAsset) {
+		const created = await editor.media.addMediaAsset({
+			projectId: activeProject.metadata.id,
+			asset: buildAnimatedStickerProjectMediaAsset({ item }),
+		});
+		if (!created || !isAnimatedStickerProjectMediaAsset(created)) {
+			throw new Error("Failed to prepare motion sticker media");
+		}
+		mediaAsset = created;
+	}
+
+	const insertion = editor.timeline.insertElement({
+		placement,
+		element: buildAnimatedStickerMediaElement({
+			asset: mediaAsset,
+			startTime,
+		}),
+	});
+
+	return {
+		elementId: insertion.elementId,
+		trackId: insertion.trackId,
+		mediaId: mediaAsset.id,
 	};
 }

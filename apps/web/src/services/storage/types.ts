@@ -54,6 +54,28 @@ export interface MediaAssetData {
 	externalSource?: ExternalMediaSource;
 }
 
+export interface AnimatedStickerAssetData {
+	id: string;
+	name: string;
+	type: "image" | "video";
+	size: number;
+	lastModified: number;
+	width?: number;
+	height?: number;
+	duration?: number;
+	fps?: number;
+	hasAudio?: boolean;
+	thumbnailUrl?: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface AnimatedStickerAsset
+	extends Omit<AnimatedStickerAssetData, "size" | "lastModified"> {
+	file: File;
+	url?: string;
+}
+
 export type SerializedScene = Omit<TScene, "createdAt" | "updatedAt"> & {
 	createdAt: string;
 	updatedAt: string;
@@ -77,6 +99,7 @@ export interface StorageConfig {
 	projectsDb: string;
 	mediaDb: string;
 	savedSoundsDb: string;
+	animatedStickersDb: string;
 	version: number;
 }
 

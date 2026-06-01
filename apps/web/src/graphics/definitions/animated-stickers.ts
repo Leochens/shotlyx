@@ -1,6 +1,6 @@
 import type { ElementAnimations } from "@/animation/types";
 import type { ParamDefinition, ParamValues } from "@/params";
-import type { MediaTime } from "@/wasm";
+import type { MediaTime } from "@/wasm/media-time";
 import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 import type { GraphicDefinition, GraphicRenderContext } from "../types";
 
@@ -713,12 +713,15 @@ export function getAnimatedStickerPreset({
 
 export function getAnimatedStickerParams({
 	preset,
+	overrides,
 }: {
 	preset: AnimatedStickerPreset;
+	overrides?: Partial<ParamValues>;
 }): ParamValues {
 	return {
 		...BASE_PARAMS,
 		...preset.params,
+		...overrides,
 	};
 }
 

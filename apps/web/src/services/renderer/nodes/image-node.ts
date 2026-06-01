@@ -7,6 +7,7 @@ import {
 export interface ImageNodeParams extends VisualNodeParams {
 	url: string;
 	maxSourceSize?: number;
+	animated?: boolean;
 }
 
 export interface CachedImageSource {
@@ -20,11 +21,13 @@ const imageSourceCache = new Map<string, Promise<CachedImageSource>>();
 export function loadImageSource({
 	url,
 	maxSourceSize,
+	animated = false,
 }: {
 	url: string;
 	maxSourceSize?: number;
+	animated?: boolean;
 }): Promise<CachedImageSource> {
-	const cacheKey = `${url}::${maxSourceSize ?? "full"}`;
+	const cacheKey = `${url}::${maxSourceSize ?? "full"}::${animated ? "animated" : "static"}`;
 
 	const cached = imageSourceCache.get(cacheKey);
 	if (cached) return cached;
@@ -41,6 +44,7 @@ export function loadImageSource({
 		const naturalWidth = image.naturalWidth;
 		const naturalHeight = image.naturalHeight;
 		const exceedsLimit =
+			!animated &&
 			maxSourceSize &&
 			(naturalWidth > maxSourceSize || naturalHeight > maxSourceSize);
 

@@ -28,6 +28,10 @@ import {
 
 const PREVIEW_MAX_IMAGE_SIZE = 2048;
 
+function isAnimatedImageFile({ file }: { file: File }): boolean {
+	return file.type === "image/gif" || file.name.toLowerCase().endsWith(".gif");
+}
+
 function removeShotlyxMGSquareAspectCompensation({
 	height,
 	transform,
@@ -120,6 +124,7 @@ function buildTrackNodes({
 					nodes.push(
 						new ImageNode({
 							url: mediaAsset.url,
+							animated: isAnimatedImageFile({ file: mediaAsset.file }),
 							duration: element.duration,
 							timeOffset: element.startTime,
 							trimStart: element.trimStart,

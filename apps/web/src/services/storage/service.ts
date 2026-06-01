@@ -11,6 +11,8 @@ import {
 	readStorageQuotaStatus,
 } from "./quota";
 import type {
+	AnimatedStickerAsset,
+	AnimatedStickerAssetData,
 	MediaAssetData,
 	StorageConfig,
 	SerializedProject,
@@ -105,6 +107,8 @@ function normalizeTracks({ raw }: { raw: unknown }): SceneTracks {
 class StorageService {
 	private projectsAdapter: IndexedDBAdapter<SerializedProject>;
 	private savedSoundsAdapter: IndexedDBAdapter<SavedSoundsData>;
+	private animatedStickerMetadataAdapter: IndexedDBAdapter<AnimatedStickerAssetData>;
+	private animatedStickerFilesAdapter: OPFSAdapter;
 	private config: StorageConfig;
 	private migrationsPromise: Promise<void> | null = null;
 
@@ -113,6 +117,7 @@ class StorageService {
 			projectsDb: "video-editor-projects",
 			mediaDb: "video-editor-media",
 			savedSoundsDb: "video-editor-saved-sounds",
+			animatedStickersDb: "video-editor-animated-stickers",
 			version: 1,
 		};
 
@@ -127,6 +132,16 @@ class StorageService {
 			storeName: "saved-sounds",
 			version: this.config.version,
 		});
+
+		this.animatedStickerMetadataAdapter =
+			new IndexedDBAdapter<AnimatedStickerAssetData>({
+				dbName: this.config.animatedStickersDb,
+				storeName: "animated-stickers",
+				version: this.config.version,
+			});
+		this.animatedStickerFilesAdapter = new OPFSAdapter(
+			"animated-sticker-files",
+		);
 	}
 
 	private async ensureMigrations(): Promise<void> {
@@ -630,6 +645,119 @@ class StorageService {
 			console.error("Failed to clear saved sounds:", error);
 			throw error;
 		}
+	}
+
+	async saveAnimatedStickerAsset({
+		asset,
+	}: {
+		asset: AnimatedStickerAsset;
+	}): Promise<void> {
+		const metadata: AnimatedStickerAssetData = {
+			id: asset.id,
+			name: asset.name,
+			type: asset.type,
+			size: asset.file.size,
+			lastModified: asset.file.lastModified,
+			width: asset.width,
+			height: asset.height,
+			duration: asset.duration,
+			fps: asset.fps,
+			hasAudio: asset.hasAudio,
+			thumbnailUrl: asset.thumbnailUrl,
+			createdAt: asset.createdAt,
+			updatedAt: asset.updatedAt,
+		};
+
+		try {
+			await this.animatedStickerFilesAdapter.set({
+				key: asset.id,
+				value: asset.file,
+			});
+			await this.animatedStickerMetadataAdapter.set({
+				key: asset.id,
+				value: metadata,
+			});
+		} catch (error) {
+			try {
+				await this.animatedStickerFilesAdapter.remove(asset.id);
+			} catch {
+				// Keep the original storage error.
+			}
+			if (this.isQuotaExceededError({ error })) {
+				throw new StorageQuotaExceededError({
+					requiredBytes: asset.file.size,
+				});
+			}
+			throw error;
+		}
+	}
+
+	async loadAnimatedStickerAsset({
+		id,
+	}: {
+		id: string;
+	}): Promise<AnimatedStickerAsset | null> {
+		const [file, metadata] = await Promise.all([
+			this.animatedStickerFilesAdapter.get(id),
+			this.animatedStickerMetadataAdapter.get(id),
+		]);
+		if (!file || !metadata) return null;
+
+		return {
+			id: metadata.id,
+			name: metadata.name,
+			type: metadata.type,
+			file,
+			url: URL.createObjectURL(file),
+			width: metadata.width,
+			height: metadata.height,
+			duration: metadata.duration,
+			fps: metadata.fps,
+			hasAudio: metadata.hasAudio,
+			thumbnailUrl: metadata.thumbnailUrl,
+			createdAt: metadata.createdAt,
+			updatedAt: metadata.updatedAt,
+		};
+	}
+
+	async loadAnimatedStickerAssets(): Promise<AnimatedStickerAsset[]> {
+		const ids = await this.animatedStickerMetadataAdapter.list();
+		const items: AnimatedStickerAsset[] = [];
+		for (const id of ids) {
+			const item = await this.loadAnimatedStickerAsset({ id });
+			if (item) items.push(item);
+		}
+		return items.sort(
+			(a, b) =>
+				new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+		);
+	}
+
+	async updateAnimatedStickerAsset({
+		id,
+		updates,
+	}: {
+		id: string;
+		updates: Partial<Pick<AnimatedStickerAsset, "name">>;
+	}): Promise<AnimatedStickerAsset | null> {
+		const current = await this.loadAnimatedStickerAsset({ id });
+		if (!current) return null;
+
+		const nextName = updates.name?.trim();
+		const updated: AnimatedStickerAsset = {
+			...current,
+			name: nextName || current.name,
+			updatedAt: new Date().toISOString(),
+		};
+		await this.saveAnimatedStickerAsset({ asset: updated });
+		return updated;
+	}
+
+	async deleteAnimatedStickerAsset({ id }: { id: string }): Promise<void> {
+		await Promise.all([
+			this.animatedStickerMetadataAdapter.remove(id),
+			this.animatedStickerFilesAdapter.remove(id),
+		]);
 	}
 
 	isOPFSSupported(): boolean {

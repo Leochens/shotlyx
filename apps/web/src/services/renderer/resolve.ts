@@ -286,6 +286,7 @@ async function resolveImageNode({
 	const source = await loadImageSource({
 		url: node.params.url,
 		maxSourceSize: node.params.maxSourceSize,
+		animated: node.params.animated,
 	});
 	const visualState = resolveVisualState({
 		params: node.params,

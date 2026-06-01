@@ -10,17 +10,17 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEditor } from "@/editor/use-editor";
-import type { MediaAsset } from "@/media/types";
 import { processMediaAssets } from "@/media/processing";
 import { showMediaUploadToast } from "@/media/upload-toast";
 import { useFileUpload } from "@/media/use-file-upload";
+import { useAnimatedStickerLibraryStore } from "@/stickers/animated-sticker-library-store";
 import { resolveStickerIntrinsicSize } from "@/stickers";
 import {
 	ANIMATED_STICKER_UPLOAD_ACCEPT,
-	buildAnimatedStickerMediaElement,
-	filterAnimatedStickerMediaAssets,
+	filterAnimatedStickerLibraryItems,
+	insertAnimatedStickerLibraryItem,
 	isAnimatedStickerUploadFile,
-	type AnimatedStickerMediaAsset,
+	type AnimatedStickerLibraryItem,
 } from "@/stickers/animated-user-stickers";
 import {
 	buildGraphicElement,
@@ -45,6 +45,7 @@ import {
 	Video01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Check, Pencil, X } from "lucide-react";
 
 export function StickersView() {
 	const {
@@ -179,9 +180,6 @@ function EmptyView({ message }: { message: string }) {
 }
 
 function AnimatedStickersContentView() {
-	const editor = useEditor();
-	const activeProject = useEditor((e) => e.project.getActiveOrNull());
-	const mediaAssets = useEditor((e) => e.media.getAssets());
 	const {
 		browseContent,
 		clearRecentStickers,
@@ -192,16 +190,27 @@ function AnimatedStickersContentView() {
 		setSelectedCategory,
 		viewMode,
 	} = useStickersStore();
+	const {
+		addProcessedAssets,
+		isLoaded: isLibraryLoaded,
+		isLoading: isLibraryLoading,
+		items: libraryItems,
+		loadItems,
+	} = useAnimatedStickerLibraryStore();
 	const [isProcessing, setIsProcessing] = useState(false);
 	const [progress, setProgress] = useState(0);
 
+	useEffect(() => {
+		void loadItems();
+	}, [loadItems]);
+
 	const uploadedAssets = useMemo(
 		() =>
-			filterAnimatedStickerMediaAssets({
-				assets: mediaAssets.filter((asset) => !asset.ephemeral),
+			filterAnimatedStickerLibraryItems({
+				items: libraryItems,
 				query: viewMode === "search" ? searchQuery : "",
 			}),
-		[mediaAssets, searchQuery, viewMode],
+		[libraryItems, searchQuery, viewMode],
 	);
 
 	const builtInSections = useMemo<StickerBrowseSection[]>(() => {
@@ -223,10 +232,6 @@ function AnimatedStickersContentView() {
 
 	const processFiles = async ({ files }: { files: File[] }) => {
 		if (!files.length) return;
-		if (!activeProject) {
-			toast.error("No active project");
-			return;
-		}
 
 		const acceptedFiles = files.filter((file) =>
 			isAnimatedStickerUploadFile({ file }),
@@ -246,15 +251,9 @@ function AnimatedStickersContentView() {
 						files: acceptedFiles,
 						onProgress: ({ progress }) => setProgress(progress),
 					});
-					const stickerAssets = processedAssets.filter(
-						(asset) => asset.type === "image" || asset.type === "video",
-					);
-					for (const asset of stickerAssets) {
-						await editor.media.addMediaAsset({
-							projectId: activeProject.metadata.id,
-							asset,
-						});
-					}
+					const stickerAssets = await addProcessedAssets({
+						assets: processedAssets,
+					});
 					return {
 						uploadedCount: stickerAssets.length,
 						assetNames: stickerAssets.map((asset) => asset.name),
@@ -289,7 +288,10 @@ function AnimatedStickersContentView() {
 				dragProps={dragProps}
 			/>
 
-			{isSearching || (isBrowsing && !browseContent) ? (
+			{isSearching ||
+			isLibraryLoading ||
+			!isLibraryLoaded ||
+			(isBrowsing && !browseContent) ? (
 				<div className="flex items-center justify-center py-8">
 					<Spinner className="text-muted-foreground size-6" />
 				</div>
@@ -376,7 +378,7 @@ function AnimatedStickerUploadPanel({
 function AnimatedStickerMediaSection({
 	items,
 }: {
-	items: AnimatedStickerMediaAsset[];
+	items: AnimatedStickerLibraryItem[];
 }) {
 	const gridStyle: CSSProperties & {
 		"--sticker-min": string;
@@ -404,21 +406,21 @@ function AnimatedStickerMediaSection({
 function AnimatedStickerMediaItem({
 	item,
 }: {
-	item: AnimatedStickerMediaAsset;
+	item: AnimatedStickerLibraryItem;
 }) {
 	const editor = useEditor();
 	const [isAdding, setIsAdding] = useState(false);
+	const [isRenaming, setIsRenaming] = useState(false);
+	const [draftName, setDraftName] = useState(item.name);
+	const { renameItem } = useAnimatedStickerLibraryStore();
 
-	const handleAdd = () => {
+	const handleAdd = async () => {
 		setIsAdding(true);
 		try {
-			const element = buildAnimatedStickerMediaElement({
-				asset: item,
+			await insertAnimatedStickerLibraryItem({
+				editor,
+				item,
 				startTime: editor.playback.getCurrentTime(),
-			});
-			editor.timeline.insertElement({
-				placement: { mode: "auto", trackType: "video" },
-				element,
 			});
 		} catch (error) {
 			console.error("Failed to add uploaded motion sticker:", error);
@@ -426,6 +428,15 @@ function AnimatedStickerMediaItem({
 		} finally {
 			setIsAdding(false);
 		}
+	};
+
+	const handleRename = async () => {
+		const updated = await renameItem({ id: item.id, name: draftName });
+		if (!updated) {
+			toast.error("Failed to rename sticker");
+			return;
+		}
+		setIsRenaming(false);
 	};
 
 	const preview = (
@@ -447,19 +458,77 @@ function AnimatedStickerMediaItem({
 				preview={preview}
 				dragData={{
 					id: item.id,
-					type: "media",
-					mediaType: item.type,
+					type: "animated-sticker-upload",
+					item,
 					name: item.name,
-					insertMode: "silent-overlay",
 					targetElementTypes: [...MASKABLE_ELEMENT_TYPES],
 				}}
-				onAddToTimeline={handleAdd}
+				onAddToTimeline={() => void handleAdd()}
 				aspectRatio={1}
 				shouldShowLabel={false}
 				isRounded
 				variant="card"
 				containerClassName="w-full"
 			/>
+			<div className="mt-1 min-h-8">
+				{isRenaming ? (
+					<form
+						className="flex items-center gap-1"
+						onSubmit={(event) => {
+							event.preventDefault();
+							void handleRename();
+						}}
+					>
+						<Input
+							value={draftName}
+							onChange={(event) => setDraftName(event.target.value)}
+							size="sm"
+							className="h-7 min-w-0 text-xs"
+						/>
+						<Button
+							type="submit"
+							size="icon"
+							variant="ghost"
+							className="size-7 shrink-0"
+							aria-label="Save name"
+						>
+							<Check className="size-3.5" />
+						</Button>
+						<Button
+							type="button"
+							size="icon"
+							variant="ghost"
+							className="size-7 shrink-0"
+							aria-label="Cancel rename"
+							onClick={() => {
+								setDraftName(item.name);
+								setIsRenaming(false);
+							}}
+						>
+							<X className="size-3.5" />
+						</Button>
+					</form>
+				) : (
+					<div className="flex items-center gap-1">
+						<span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+							{item.name}
+						</span>
+						<Button
+							type="button"
+							size="icon"
+							variant="ghost"
+							className="size-6 shrink-0 opacity-70 hover:opacity-100"
+							aria-label={`Rename ${item.name}`}
+							onClick={() => {
+								setDraftName(item.name);
+								setIsRenaming(true);
+							}}
+						>
+							<Pencil className="size-3.5" />
+						</Button>
+					</div>
+				)}
+			</div>
 			{isAdding && (
 				<div className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-black/60">
 					<Spinner className="size-6 text-white" />
@@ -472,7 +541,7 @@ function AnimatedStickerMediaItem({
 function AnimatedStickerMediaPreview({
 	item,
 }: {
-	item: AnimatedStickerMediaAsset;
+	item: AnimatedStickerLibraryItem;
 }) {
 	if (item.type === "video") {
 		return (
@@ -503,7 +572,7 @@ function AnimatedStickerMediaPreview({
 function AnimatedStickerMediaBadge({
 	item,
 }: {
-	item: Pick<MediaAsset, "type" | "file">;
+	item: Pick<AnimatedStickerLibraryItem, "type" | "file">;
 }) {
 	const isGif = item.file.type === "image/gif";
 	const label = isGif ? "GIF" : item.type === "video" ? "Video" : "Image";

@@ -59,7 +59,7 @@ export function buildMediaTools(editor: EditorCore): Tool[] {
 				const typeFilter = params.type
 					? String(params.type).toLowerCase()
 					: null;
-				const assets = editor.media.getAssets();
+				const assets = editor.media.getAssets().filter((asset) => !asset.ephemeral);
 				const results = assets.filter((asset) => {
 					const nameMatch =
 						query === "" || asset.name.toLowerCase().includes(query);
@@ -77,7 +77,7 @@ export function buildMediaTools(editor: EditorCore): Tool[] {
 			description: "获取项目中的所有媒体资源",
 			parameters: {},
 			handler: () => {
-				const assets = editor.media.getAssets();
+				const assets = editor.media.getAssets().filter((asset) => !asset.ephemeral);
 				return {
 					results: assets.map(assetToResult),
 					count: assets.length,

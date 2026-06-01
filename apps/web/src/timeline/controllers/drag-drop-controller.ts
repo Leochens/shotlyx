@@ -2,6 +2,10 @@ import type { DragEvent } from "react";
 import { processMediaAssets } from "@/media/processing";
 import { showMediaUploadToast } from "@/media/upload-toast";
 import {
+	buildAnimatedStickerMediaElement,
+	buildAnimatedStickerProjectMediaAsset,
+} from "@/stickers/animated-user-stickers";
+import {
 	DEFAULT_NEW_ELEMENT_DURATION,
 	toElementDurationTicks,
 } from "@/timeline/creation";
@@ -109,6 +113,8 @@ function elementTypeFromDrag({
 			return "effect";
 		case "media":
 			return dragData.mediaType;
+		case "animated-sticker-upload":
+			return dragData.item.type;
 	}
 }
 
@@ -124,6 +130,9 @@ function getTargetElementTypesForDrag({
 		return dragData.targetElementTypes;
 	}
 	if (dragData.type === "media") return dragData.targetElementTypes;
+	if (dragData.type === "animated-sticker-upload") {
+		return dragData.targetElementTypes;
+	}
 	return undefined;
 }
 
@@ -152,6 +161,9 @@ function getDurationForDrag({
 }): MediaTime {
 	if (dragData.type === "graphic" && dragData.duration !== undefined) {
 		return dragData.duration;
+	}
+	if (dragData.type === "animated-sticker-upload") {
+		return toElementDurationTicks({ seconds: dragData.item.duration });
 	}
 	if (dragData.type !== "media") return DEFAULT_NEW_ELEMENT_DURATION;
 	const media = mediaAssets.find((asset) => asset.id === dragData.id);
@@ -306,7 +318,11 @@ export class DragDropController {
 		try {
 			if (dragData) {
 				if (!currentTarget) return;
-				this.executeAssetDrop({ target: currentTarget, dragData });
+				this.executeAssetDrop({ target: currentTarget, dragData }).catch(
+					(error) => {
+						console.error("Failed to process asset drop:", error);
+					},
+				);
 				return;
 			}
 
@@ -401,13 +417,13 @@ export class DragDropController {
 		});
 	}
 
-	private executeAssetDrop({
+	private async executeAssetDrop({
 		target,
 		dragData,
 	}: {
 		target: DropTarget;
 		dragData: TimelineDragData;
-	}): void {
+	}): Promise<void> {
 		switch (dragData.type) {
 			case "text":
 				this.executeTextDrop({ target, dragData });
@@ -423,6 +439,9 @@ export class DragDropController {
 				return;
 			case "media":
 				this.executeMediaDrop({ target, dragData });
+				return;
+			case "animated-sticker-upload":
+				await this.executeUploadedAnimatedStickerDrop({ target, dragData });
 				return;
 		}
 	}
@@ -524,6 +543,36 @@ export class DragDropController {
 			element.isSourceAudioEnabled = false;
 		}
 		this.insertAtTarget({ element, target, trackType });
+	}
+
+	private async executeUploadedAnimatedStickerDrop({
+		target,
+		dragData,
+	}: {
+		target: DropTarget;
+		dragData: Extract<TimelineDragData, { type: "animated-sticker-upload" }>;
+	}): Promise<void> {
+		if (target.targetElement) {
+			return;
+		}
+
+		const projectId = this.config.getActiveProjectId();
+		if (!projectId) return;
+
+		const mediaAsset = await this.config.addMediaAsset({
+			projectId,
+			asset: buildAnimatedStickerProjectMediaAsset({
+				item: dragData.item,
+			}),
+		});
+		if (!mediaAsset || !isTimelineMediaType(mediaAsset.type)) return;
+		if (mediaAsset.type !== "image" && mediaAsset.type !== "video") return;
+
+		const element = buildAnimatedStickerMediaElement({
+			asset: mediaAsset,
+			startTime: target.xPosition,
+		});
+		this.insertAtTarget({ element, target, trackType: "video" });
 	}
 
 	private executeEffectDrop({

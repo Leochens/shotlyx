@@ -269,6 +269,9 @@ async function collectVisualSourceNode({
 		source,
 		width: sourceWidth,
 		height: sourceHeight,
+		...(node instanceof ImageNode && node.params.animated
+			? { version: `animated:${node.resolved.localTime}` }
+			: {}),
 	});
 
 	const transform = computeVisualTransform({

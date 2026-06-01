@@ -29,7 +29,26 @@ type ExternalCacheEntry = {
 	source: CanvasImageSource;
 	width: number;
 	height: number;
+	version?: string;
 };
+
+type WasmFrameProfileEntry = {
+	name: string;
+	durationMs: number;
+};
+
+function isWasmFrameProfileEntry(
+	value: unknown,
+): value is WasmFrameProfileEntry {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"name" in value &&
+		"durationMs" in value &&
+		typeof value.name === "string" &&
+		typeof value.durationMs === "number"
+	);
+}
 
 class WasmCompositor {
 	private canvas: HTMLCanvasElement | null = null;
@@ -82,11 +101,11 @@ class WasmCompositor {
 	render(frame: FrameDescriptor) {
 		opencutWasm.renderFrame(frame);
 		if (isRenderPerfEnabled()) {
+			const profile: unknown = opencutWasm.getLastFrameProfile();
 			recordWasmFrameProfile(
-				opencutWasm.getLastFrameProfile() as Array<{
-					name: string;
-					durationMs: number;
-				}>,
+				Array.isArray(profile)
+					? profile.filter(isWasmFrameProfileEntry)
+					: [],
 			);
 		}
 	}
@@ -97,7 +116,8 @@ class WasmCompositor {
 			previous?.kind === "external" &&
 			previous.source === texture.source &&
 			previous.width === texture.width &&
-			previous.height === texture.height
+			previous.height === texture.height &&
+			previous.version === texture.version
 		) {
 			incrementCounter({ name: "textureCacheHit" });
 			return;
@@ -124,6 +144,7 @@ class WasmCompositor {
 			source: texture.source,
 			width: texture.width,
 			height: texture.height,
+			version: texture.version,
 		});
 	}
 

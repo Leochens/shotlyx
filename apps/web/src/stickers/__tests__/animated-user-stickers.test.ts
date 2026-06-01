@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { MediaAsset } from "@/media/types";
+import type { AnimatedStickerAsset } from "@/services/storage/types";
 import type { MediaTime } from "@/wasm/media-time";
 import {
 	buildAnimatedStickerMediaElement,
-	filterAnimatedStickerMediaAssets,
+	buildAnimatedStickerProjectMediaAsset,
+	filterAnimatedStickerLibraryItems,
+	isAnimatedGifAsset,
 	isAnimatedStickerUploadFile,
 } from "../animated-user-stickers";
 
@@ -20,10 +22,10 @@ function asset({
 }: {
 	id: string;
 	name: string;
-	type: MediaAsset["type"];
+	type: "image" | "video";
 	fileType?: string;
 	duration?: number;
-}): MediaAsset {
+}): AnimatedStickerAsset & { id: string } {
 	return {
 		id,
 		name,
@@ -33,6 +35,35 @@ function asset({
 		duration,
 		width: 256,
 		height: 256,
+		createdAt: "2026-06-01T00:00:00.000Z",
+		updatedAt: "2026-06-01T00:00:00.000Z",
+	};
+}
+
+function libraryItem({
+	id,
+	name,
+	type,
+	fileType,
+	duration,
+}: {
+	id: string;
+	name: string;
+	type: "image" | "video";
+	fileType?: string;
+	duration?: number;
+}): AnimatedStickerAsset {
+	return {
+		id,
+		name,
+		type,
+		file: file({ name, type: fileType ?? `${type}/mock` }),
+		url: `blob:${id}`,
+		duration,
+		width: 256,
+		height: 256,
+		createdAt: "2026-06-01T00:00:00.000Z",
+		updatedAt: "2026-06-01T00:00:00.000Z",
 	};
 }
 
@@ -61,19 +92,59 @@ describe("animated user stickers", () => {
 	});
 
 	test("filters uploaded sticker assets by supported media type and query", () => {
-		const assets = [
-			asset({ id: "1", name: "Sparkle Loop.gif", type: "image" }),
-			asset({ id: "2", name: "Smoke Alpha.webm", type: "video" }),
-			asset({ id: "3", name: "Voice.mp3", type: "audio" }),
+		const items = [
+			libraryItem({ id: "1", name: "Sparkle Loop.gif", type: "image" }),
+			libraryItem({ id: "2", name: "Smoke Alpha.webm", type: "video" }),
 		];
 
-		expect(filterAnimatedStickerMediaAssets({ assets, query: "" })).toEqual([
-			assets[0],
-			assets[1],
-		]);
+		expect(filterAnimatedStickerLibraryItems({ items, query: "" })).toEqual(
+			items,
+		);
 		expect(
-			filterAnimatedStickerMediaAssets({ assets, query: "smoke" }),
-		).toEqual([assets[1]]);
+			filterAnimatedStickerLibraryItems({ items, query: "smoke" }),
+		).toEqual([items[1]]);
+	});
+
+	test("marks GIF library items as animated images", () => {
+		expect(
+			isAnimatedGifAsset({
+				type: "image",
+				file: file({ name: "reaction.gif", type: "image/gif" }),
+			}),
+		).toBe(true);
+		expect(
+			isAnimatedGifAsset({
+				type: "image",
+				file: file({ name: "reaction.gif", type: "" }),
+			}),
+		).toBe(true);
+		expect(
+			isAnimatedGifAsset({
+				type: "video",
+				file: file({ name: "reaction.gif", type: "video/mp4" }),
+			}),
+		).toBe(false);
+	});
+
+	test("converts library items to hidden project media assets", () => {
+		const item = libraryItem({
+			id: "library-1",
+			name: "Reaction.gif",
+			type: "image",
+			fileType: "image/gif",
+		});
+
+		const projectAsset = buildAnimatedStickerProjectMediaAsset({ item });
+
+		expect(projectAsset).toMatchObject({
+			name: "Reaction.gif",
+			type: "image",
+			ephemeral: true,
+			externalSource: {
+				provider: "shotlyx:animated-sticker-library",
+				providerAssetId: "library-1",
+			},
+		});
 	});
 
 	test("builds media-backed sticker elements with silent video overlays", () => {
