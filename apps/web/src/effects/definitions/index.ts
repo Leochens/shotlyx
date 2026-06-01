@@ -1,8 +1,13 @@
 import { effectsRegistry } from "../registry";
 import { blurEffectDefinition } from "./blur";
+import { magnifyEffectDefinition } from "./magnify";
 import { pixelateEffectDefinition } from "./pixelate";
 
-const defaultEffects = [blurEffectDefinition, pixelateEffectDefinition];
+const defaultEffects = [
+	blurEffectDefinition,
+	pixelateEffectDefinition,
+	magnifyEffectDefinition,
+];
 
 export function registerDefaultEffects(): void {
 	for (const definition of defaultEffects) {

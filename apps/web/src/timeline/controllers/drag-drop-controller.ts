@@ -117,7 +117,10 @@ function getTargetElementTypesForDrag({
 }: {
 	dragData: TimelineDragData;
 }): string[] | undefined {
-	if (dragData.type === "effect" && dragData.effectType !== "pixelate") {
+	if (
+		dragData.type === "effect" &&
+		!isStandaloneEffectRegion({ effectType: dragData.effectType })
+	) {
 		return dragData.targetElementTypes;
 	}
 	if (dragData.type === "media") return dragData.targetElementTypes;
@@ -129,7 +132,15 @@ function getStandaloneEffectDropTab({
 }: {
 	effectType: string;
 }): string {
-	return effectType === "pixelate" ? "transform" : "effects";
+	return isStandaloneEffectRegion({ effectType }) ? "transform" : "effects";
+}
+
+function isStandaloneEffectRegion({
+	effectType,
+}: {
+	effectType: string;
+}): boolean {
+	return effectType === "pixelate" || effectType === "magnify";
 }
 
 function getDurationForDrag({
@@ -165,7 +176,9 @@ function findElementByRef({
 	const track = orderedTracks({ sceneTracks }).find(
 		(candidate) => candidate.id === ref.trackId,
 	);
-	return track?.elements.find((element) => element.id === ref.elementId) ?? null;
+	return (
+		track?.elements.find((element) => element.id === ref.elementId) ?? null
+	);
 }
 
 // --- Controller ---
@@ -515,7 +528,9 @@ export class DragDropController {
 		target: DropTarget;
 		dragData: Extract<TimelineDragData, { type: "effect" }>;
 	}): void {
-		const shouldAddToClip = target.targetElement && dragData.effectType !== "pixelate";
+		const shouldAddToClip =
+			target.targetElement &&
+			!isStandaloneEffectRegion({ effectType: dragData.effectType });
 		if (shouldAddToClip) {
 			this.config.addClipEffect({
 				trackId: target.targetElement.trackId,

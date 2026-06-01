@@ -67,4 +67,59 @@ describe("buildFrameDescriptor", () => {
 			},
 		]);
 	});
+
+	test("passes standalone magnifier region center into the shader", async () => {
+		const root = new RootNode({ duration: 10 });
+		root.add(
+			new EffectLayerNode({
+				effectType: "magnify",
+				effectParams: { zoom: 2.5 },
+				timeOffset: 0,
+				duration: 10,
+				transform: {
+					position: { x: -200, y: 90 },
+					scaleX: 0.3,
+					scaleY: 0.25,
+					rotate: 0,
+				},
+			}),
+		);
+
+		const renderer = { width: 1920, height: 1080 };
+		await resolveRenderTree({
+			node: root,
+			renderer: renderer as never,
+			time: 5,
+		});
+		const { frame } = await buildFrameDescriptor({
+			node: root,
+			renderer: renderer as never,
+		});
+
+		expect(frame.items).toEqual([
+			{
+				type: "sceneEffect",
+				effectPassGroups: [
+					[
+						{
+							shader: "magnify",
+							uniforms: {
+								u_center: [760, 630],
+								u_zoom: 2.5,
+							},
+						},
+					],
+				],
+				transform: {
+					centerX: 760,
+					centerY: 630,
+					width: 576,
+					height: 270,
+					rotationDegrees: 0,
+					flipX: false,
+					flipY: false,
+				},
+			},
+		]);
+	});
 });

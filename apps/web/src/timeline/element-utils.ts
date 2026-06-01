@@ -124,7 +124,7 @@ function buildDefaultStandaloneEffectParams({
 	effectType: string;
 }): ParamValues {
 	const params = buildDefaultElementParams({ type: "effect" });
-	if (effectType === "pixelate") {
+	if (effectType === "pixelate" || effectType === "magnify") {
 		params["transform.scaleX"] = 0.25;
 		params["transform.scaleY"] = 0.25;
 	}

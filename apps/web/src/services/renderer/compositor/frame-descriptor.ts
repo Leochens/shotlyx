@@ -1,6 +1,7 @@
 import { drawCssBackground } from "@/gradients";
 import { getMaskDefinition } from "@/masks";
 import { incrementCounter } from "@/diagnostics/render-perf";
+import type { EffectPass } from "@/effects/types";
 import type { AnyBaseNode } from "../nodes/base-node";
 import type { CanvasRenderer } from "../canvas-renderer";
 import { createCanvasSurface } from "../canvas-utils";
@@ -124,13 +125,19 @@ async function collectNode({
 		if (!node.resolved || node.resolved.passes.length === 0) {
 			return;
 		}
+		const transform = computeSceneEffectTransform({
+			renderer,
+			transform: node.resolved.transform,
+		});
 		items.push({
 			type: "sceneEffect",
-			effectPassGroups: [node.resolved.passes],
-			transform: computeSceneEffectTransform({
-				renderer,
-				transform: node.resolved.transform,
-			}),
+			effectPassGroups: [
+				withSceneEffectUniforms({
+					passes: node.resolved.passes,
+					transform,
+				}),
+			],
+			transform,
 		});
 		return;
 	}
@@ -402,6 +409,27 @@ function computeSceneEffectTransform({
 		flipX: width < 0,
 		flipY: height < 0,
 	};
+}
+
+function withSceneEffectUniforms({
+	passes,
+	transform,
+}: {
+	passes: EffectPass[];
+	transform: QuadTransformDescriptor;
+}): EffectPass[] {
+	return passes.map((pass) => {
+		if (pass.shader !== "magnify") {
+			return pass;
+		}
+		return {
+			...pass,
+			uniforms: {
+				...pass.uniforms,
+				u_center: [transform.centerX, transform.centerY],
+			},
+		};
+	});
 }
 
 function buildMaskArtifacts({

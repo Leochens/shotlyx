@@ -61,9 +61,8 @@ const wasmMock = {
 mock.module("@/wasm", () => wasmMock);
 mock.module("opencut-wasm", () => wasmMock);
 
-const { DragDropController } = await import(
-	"@/timeline/controllers/drag-drop-controller"
-);
+const { DragDropController } =
+	await import("@/timeline/controllers/drag-drop-controller");
 const { registerDefaultEffects } = await import("@/effects");
 
 beforeAll(() => {
@@ -228,6 +227,13 @@ const mosaicDragData: TimelineDragData = {
 	effectType: "pixelate",
 };
 
+const magnifierDragData: TimelineDragData = {
+	...blurDragData,
+	id: "magnify",
+	name: "Magnifier",
+	effectType: "magnify",
+};
+
 describe("DragDropController effect drops", () => {
 	test("focuses a clip after dropping an effect onto it", () => {
 		const tracks = buildSceneTracks();
@@ -313,6 +319,42 @@ describe("DragDropController effect drops", () => {
 			element: { type: "effect", effectType: "pixelate", name: "Mosaic" },
 		});
 		expect(seekToTime).toHaveBeenCalledTimes(1);
+		expect(openElementPropertiesTab).toHaveBeenCalledWith({
+			elementType: "effect",
+			tabId: "transform",
+		});
+	});
+
+	test("drops magnifier as a standalone effect region with transform focus", () => {
+		const tracks = buildSceneTracks({
+			overlay: [buildEffectTrack()],
+		});
+		const {
+			controller,
+			addClipEffect,
+			insertElement,
+			openElementPropertiesTab,
+		} = buildController({ tracks, dragData: magnifierDragData });
+
+		const event = buildDragEvent({ clientY: 40 });
+		controller.onDragOver(event);
+		controller.onDrop(event);
+
+		expect(addClipEffect).not.toHaveBeenCalled();
+		expect(insertElement).toHaveBeenCalledTimes(1);
+		expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
+			placement: { mode: "explicit", trackId: "effect-track" },
+			element: {
+				type: "effect",
+				effectType: "magnify",
+				name: "Magnifier",
+				params: {
+					zoom: 2,
+					"transform.scaleX": 0.25,
+					"transform.scaleY": 0.25,
+				},
+			},
+		});
 		expect(openElementPropertiesTab).toHaveBeenCalledWith({
 			elementType: "effect",
 			tabId: "transform",
