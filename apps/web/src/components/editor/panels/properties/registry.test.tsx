@@ -23,6 +23,7 @@ describe("getPropertiesConfig", () => {
 
 		const config = getPropertiesConfig({ element, mediaAssets: [] });
 
-		expect(config.tabs.map((tab) => tab.id)).toEqual(["effects", "transform"]);
+		expect(config.defaultTab).toBe("transform");
+		expect(config.tabs.map((tab) => tab.id)).toEqual(["transform", "effects"]);
 	});
 });

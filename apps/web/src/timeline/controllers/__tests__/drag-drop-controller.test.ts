@@ -149,7 +149,7 @@ function buildController({
 	insertElement = mock(() => {}),
 	seekToTime = mock(() => {}),
 	selectElements = mock(() => {}),
-	openElementEffectsPanel = mock(() => {}),
+	openElementPropertiesTab = mock(() => {}),
 }: {
 	tracks: SceneTracks;
 	dragData: TimelineDragData;
@@ -157,7 +157,7 @@ function buildController({
 	insertElement?: ReturnType<typeof mock>;
 	seekToTime?: ReturnType<typeof mock>;
 	selectElements?: ReturnType<typeof mock>;
-	openElementEffectsPanel?: ReturnType<typeof mock>;
+	openElementPropertiesTab?: ReturnType<typeof mock>;
 }) {
 	const dragSource = {
 		isActive: () => true,
@@ -191,7 +191,7 @@ function buildController({
 				addClipEffect,
 				seekToTime,
 				selectElements,
-				openElementEffectsPanel,
+				openElementPropertiesTab,
 			},
 		},
 	});
@@ -202,7 +202,7 @@ function buildController({
 		insertElement,
 		seekToTime,
 		selectElements,
-		openElementEffectsPanel,
+		openElementPropertiesTab,
 	};
 }
 
@@ -236,7 +236,7 @@ describe("DragDropController effect drops", () => {
 			addClipEffect,
 			seekToTime,
 			selectElements,
-			openElementEffectsPanel,
+			openElementPropertiesTab,
 		} = buildController({ tracks, dragData: blurDragData });
 
 		const event = buildDragEvent();
@@ -252,8 +252,9 @@ describe("DragDropController effect drops", () => {
 		expect(selectElements).toHaveBeenCalledWith({
 			elements: [{ trackId: "main-track", elementId: "video-1" }],
 		});
-		expect(openElementEffectsPanel).toHaveBeenCalledWith({
+		expect(openElementPropertiesTab).toHaveBeenCalledWith({
 			elementType: "video",
+			tabId: "effects",
 		});
 	});
 
@@ -266,7 +267,7 @@ describe("DragDropController effect drops", () => {
 			addClipEffect,
 			insertElement,
 			seekToTime,
-			openElementEffectsPanel,
+			openElementPropertiesTab,
 		} = buildController({ tracks, dragData: mosaicDragData });
 
 		const event = buildDragEvent({ clientY: 40 });
@@ -288,17 +289,18 @@ describe("DragDropController effect drops", () => {
 			},
 		});
 		expect(seekToTime).toHaveBeenCalledTimes(1);
-		expect(openElementEffectsPanel).toHaveBeenCalledWith({
+		expect(openElementPropertiesTab).toHaveBeenCalledWith({
 			elementType: "effect",
+			tabId: "transform",
 		});
 	});
 
-	test("focuses the effect tab after dropping onto an existing effect track", () => {
+	test("focuses transform controls after dropping mosaic onto an existing effect track", () => {
 		const tracks = buildSceneTracks({
 			overlay: [buildEffectTrack()],
 			main: buildVideoTrack({ elements: [] }),
 		});
-		const { controller, insertElement, seekToTime, openElementEffectsPanel } =
+		const { controller, insertElement, seekToTime, openElementPropertiesTab } =
 			buildController({ tracks, dragData: mosaicDragData });
 
 		const event = buildDragEvent();
@@ -311,8 +313,9 @@ describe("DragDropController effect drops", () => {
 			element: { type: "effect", effectType: "pixelate", name: "Mosaic" },
 		});
 		expect(seekToTime).toHaveBeenCalledTimes(1);
-		expect(openElementEffectsPanel).toHaveBeenCalledWith({
+		expect(openElementPropertiesTab).toHaveBeenCalledWith({
 			elementType: "effect",
+			tabId: "transform",
 		});
 	});
 });

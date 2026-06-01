@@ -346,8 +346,8 @@ function getEffectConfig({
 	element: EffectElement;
 }): ElementPropertiesConfig {
 	return {
-		defaultTab: "effects",
-		tabs: [buildStandaloneEffectTab({ element }), buildTransformTab({ element })],
+		defaultTab: "transform",
+		tabs: [buildTransformTab({ element }), buildStandaloneEffectTab({ element })],
 	};
 }
 

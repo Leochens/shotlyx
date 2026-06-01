@@ -44,7 +44,7 @@ export const pixelateEffectDefinition: EffectDefinition = {
 	params: [
 		{
 			key: "blockSize",
-			label: "Block size",
+			label: "Intensity",
 			type: "number",
 			default: 24,
 			min: MIN_BLOCK_SIZE,

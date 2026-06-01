@@ -66,7 +66,10 @@ export interface DragDropConfig {
 	}) => void;
 	seekToTime: (args: { time: MediaTime }) => void;
 	selectElements: (args: { elements: ElementRef[] }) => void;
-	openElementEffectsPanel: (args: { elementType: ElementType }) => void;
+	openElementPropertiesTab: (args: {
+		elementType: ElementType;
+		tabId: string;
+	}) => void;
 }
 
 export interface DragDropConfigRef {
@@ -119,6 +122,14 @@ function getTargetElementTypesForDrag({
 	}
 	if (dragData.type === "media") return dragData.targetElementTypes;
 	return undefined;
+}
+
+function getStandaloneEffectDropTab({
+	effectType,
+}: {
+	effectType: string;
+}): string {
+	return effectType === "pixelate" ? "transform" : "effects";
 }
 
 function getDurationForDrag({
@@ -532,12 +543,18 @@ export class DragDropController {
 				placement: { mode: "explicit", trackId: existingEffectTrack.id },
 				element,
 			});
-			this.focusDroppedStandaloneEffect({ time: target.xPosition });
+			this.focusDroppedStandaloneEffect({
+				time: target.xPosition,
+				tabId: getStandaloneEffectDropTab({ effectType: dragData.effectType }),
+			});
 			return;
 		}
 
 		this.insertAtTarget({ element, target, trackType: "effect" });
-		this.focusDroppedStandaloneEffect({ time: target.xPosition });
+		this.focusDroppedStandaloneEffect({
+			time: target.xPosition,
+			tabId: getStandaloneEffectDropTab({ effectType: dragData.effectType }),
+		});
 	}
 
 	private focusDroppedEffectTarget({
@@ -555,12 +572,21 @@ export class DragDropController {
 
 		this.config.seekToTime({ time });
 		this.config.selectElements({ elements: [ref] });
-		this.config.openElementEffectsPanel({ elementType: element.type });
+		this.config.openElementPropertiesTab({
+			elementType: element.type,
+			tabId: "effects",
+		});
 	}
 
-	private focusDroppedStandaloneEffect({ time }: { time: MediaTime }): void {
+	private focusDroppedStandaloneEffect({
+		time,
+		tabId,
+	}: {
+		time: MediaTime;
+		tabId: string;
+	}): void {
 		this.config.seekToTime({ time });
-		this.config.openElementEffectsPanel({ elementType: "effect" });
+		this.config.openElementPropertiesTab({ elementType: "effect", tabId });
 	}
 
 	private async executeFileDrop({

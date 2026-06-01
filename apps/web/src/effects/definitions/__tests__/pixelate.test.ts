@@ -7,7 +7,7 @@ describe("pixelate effect definition", () => {
 		expect(pixelateEffectDefinition.name).toBe("Mosaic");
 		expect(
 			pixelateEffectDefinition.params.some(
-				(param) => param.key === "blockSize",
+				(param) => param.key === "blockSize" && param.label === "Intensity",
 			),
 		).toBe(true);
 	});

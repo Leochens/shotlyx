@@ -40,10 +40,10 @@ export function useTimelineDragDrop({
 		addClipEffect: (args) => editor.timeline.addClipEffect(args),
 		seekToTime: ({ time }) => editor.playback.seek({ time }),
 		selectElements: (args) => editor.selection.setSelectedElements(args),
-		openElementEffectsPanel: ({ elementType }) =>
+		openElementPropertiesTab: ({ elementType, tabId }) =>
 			usePropertiesStore
 				.getState()
-				.setActiveTab({ elementType, tabId: "effects" }),
+				.setActiveTab({ elementType, tabId }),
 	};
 	const configRef = useCommittedRef(config);
 	const [controller] = useState(() => new DragDropController({ configRef }));
