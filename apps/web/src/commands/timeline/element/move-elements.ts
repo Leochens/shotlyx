@@ -4,7 +4,12 @@ import {
 	type CommandResult,
 } from "@/commands/base-command";
 import { EditorCore } from "@/core";
-import type { SceneTracks, TimelineElement, TimelineTrack } from "@/timeline";
+import type {
+	ElementRef,
+	SceneTracks,
+	TimelineElement,
+	TimelineTrack,
+} from "@/timeline";
 import {
 	buildEmptyTrack,
 	validateElementTrackCompatibility,
@@ -21,17 +26,21 @@ export class MoveElementCommand extends Command {
 	constructor({
 		moves,
 		createTracks = [],
+		targetSelection,
 	}: {
 		moves: PlannedElementMove[];
 		createTracks?: PlannedTrackCreation[];
+		targetSelection?: ElementRef[];
 	}) {
 		super();
 		this.moves = moves;
 		this.createTracks = createTracks;
+		this.targetSelection = targetSelection;
 	}
 
 	private readonly moves: PlannedElementMove[];
 	private readonly createTracks: PlannedTrackCreation[];
+	private readonly targetSelection?: ElementRef[];
 
 	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();
@@ -115,10 +124,11 @@ export class MoveElementCommand extends Command {
 
 		editor.timeline.updateTracks(updatedTracks);
 		return createElementSelectionResult(
-			this.moves.map(({ elementId, targetTrackId }) => ({
-				trackId: targetTrackId,
-				elementId,
-			})),
+			this.targetSelection ??
+				this.moves.map(({ elementId, targetTrackId }) => ({
+					trackId: targetTrackId,
+					elementId,
+				})),
 		);
 	}
 

@@ -86,7 +86,6 @@ export function TimelineToolbar({
 				</div>
 
 				<ToolbarRightSection
-					mode={timelineMode}
 					zoomLevel={zoomLevel}
 					minZoom={minZoom}
 					onZoomChange={(zoom) => setZoomLevel({ zoom })}
@@ -337,13 +336,11 @@ function SceneSelector() {
 }
 
 function ToolbarRightSection({
-	mode,
 	zoomLevel,
 	minZoom,
 	onZoomChange,
 	onZoom,
 }: {
-	mode: TimelineMode;
 	zoomLevel: number;
 	minZoom: number;
 	onZoomChange: (zoom: number) => void;
@@ -367,8 +364,7 @@ function ToolbarRightSection({
 				<ToolbarButton
 					icon={<OcRippleIcon size={24} className="scale-110" />}
 					isActive={rippleEditingEnabled}
-					tooltip="Ripple editing"
-					hidden={mode === "simple"}
+					tooltip="Ripple move main timeline"
 					onClick={() => toggleRippleEditing()}
 				/>
 			</TooltipProvider>

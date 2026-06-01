@@ -10,6 +10,7 @@ import {
 	type ElementInteractionDepsRef,
 } from "@/timeline/controllers/element-interaction-controller";
 import type { SnapPoint } from "@/timeline/snapping";
+import { useTimelineStore } from "@/timeline/timeline-store";
 
 interface UseElementInteractionProps {
 	zoomLevel: number;
@@ -31,6 +32,9 @@ export function useElementInteraction({
 	const editor = useEditor();
 	const isShiftHeldRef = useShiftKey();
 	const selection = useElementSelection();
+	const rippleEditingEnabled = useTimelineStore(
+		(state) => state.rippleEditingEnabled,
+	);
 
 	const deps: ElementInteractionDeps = {
 		viewport: {
@@ -58,6 +62,7 @@ export function useElementInteraction({
 		},
 		timeline: {
 			moveElements: (args) => editor.timeline.moveElements(args),
+			isRippleEditingEnabled: () => rippleEditingEnabled,
 		},
 		snap: {
 			isEnabled: () => snappingEnabled,

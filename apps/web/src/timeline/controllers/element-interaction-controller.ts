@@ -64,7 +64,10 @@ export interface PlaybackReader {
 }
 
 export interface TimelineOps {
-	moveElements: (args: Pick<GroupMoveResult, "moves" | "createTracks">) => void;
+	moveElements: (
+		args: Pick<GroupMoveResult, "moves" | "createTracks" | "targetSelection">,
+	) => void;
+	isRippleEditingEnabled: () => boolean;
 }
 
 export interface SnapConfig {
@@ -252,12 +255,14 @@ function resolveGroupMoveForDrop({
 	anchorStartTime,
 	dropTarget,
 	reservedNewTrackIds,
+	rippleEditingEnabled,
 }: {
 	group: MoveGroup;
 	tracks: SceneTracks;
 	anchorStartTime: MediaTime;
 	dropTarget: DropTarget;
 	reservedNewTrackIds: readonly string[];
+	rippleEditingEnabled: boolean;
 }): GroupMoveResult | null {
 	const newTracksFallback = () =>
 		resolveGroupMove({
@@ -282,6 +287,7 @@ function resolveGroupMoveForDrop({
 			tracks,
 			anchorStartTime,
 			target: { kind: "existingTrack", anchorTargetTrackId: targetTrack.id },
+			rippleEditingEnabled,
 		}) ?? newTracksFallback()
 	);
 }
@@ -313,6 +319,13 @@ export class ElementInteractionController {
 		const memberTimeOffsets = new Map<string, MediaTime>();
 		for (const member of drag.moveGroup.members) {
 			memberTimeOffsets.set(member.elementId, member.timeOffset);
+		}
+		for (const move of drag.groupMoveResult?.moves ?? []) {
+			if (memberTimeOffsets.has(move.elementId)) continue;
+			memberTimeOffsets.set(
+				move.elementId,
+				subMediaTime({ a: move.newStartTime, b: drag.currentTime }),
+			);
 		}
 		return {
 			kind: "dragging",
@@ -516,6 +529,7 @@ export class ElementInteractionController {
 					anchorStartTime: snappedTime,
 					dropTarget: anchorDropTarget,
 					reservedNewTrackIds: drag.reservedNewTrackIds,
+					rippleEditingEnabled: this.deps.timeline.isRippleEditingEnabled(),
 				})
 			: null;
 
@@ -723,6 +737,7 @@ export class ElementInteractionController {
 			this.deps.timeline.moveElements({
 				moves: groupMoveResult.moves,
 				createTracks: groupMoveResult.createTracks,
+				targetSelection: groupMoveResult.targetSelection,
 			});
 		}
 

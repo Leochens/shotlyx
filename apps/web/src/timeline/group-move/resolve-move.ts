@@ -36,11 +36,13 @@ export function resolveGroupMove({
 	tracks,
 	anchorStartTime,
 	target,
+	rippleEditingEnabled = false,
 }: {
 	group: MoveGroup;
 	tracks: SceneTracks;
 	anchorStartTime: MediaTime;
 	target: GroupMoveTarget;
+	rippleEditingEnabled?: boolean;
 }): GroupMoveResult | null {
 	if (target.kind === "newTracks") {
 		return resolveNewTrackMove({
@@ -57,6 +59,7 @@ export function resolveGroupMove({
 		tracks,
 		anchorStartTime,
 		anchorTargetTrackId: target.anchorTargetTrackId,
+		rippleEditingEnabled,
 	});
 }
 
@@ -65,11 +68,13 @@ function resolveExistingTrackMove({
 	tracks,
 	anchorStartTime,
 	anchorTargetTrackId,
+	rippleEditingEnabled,
 }: {
 	group: MoveGroup;
 	tracks: SceneTracks;
 	anchorStartTime: MediaTime;
 	anchorTargetTrackId: string;
+	rippleEditingEnabled: boolean;
 }): GroupMoveResult | null {
 	const anchorTargetPlacement = getTrackPlacementById({
 		tracks,
@@ -95,7 +100,7 @@ function resolveExistingTrackMove({
 		targetTrackIdsByElementId,
 	});
 
-	const moves = group.members.map((member) => ({
+	const selectedMoves = group.members.map((member) => ({
 		sourceTrackId: member.trackId,
 		targetTrackId:
 			targetTrackIdsByElementId.get(member.elementId) ?? member.trackId,
@@ -105,6 +110,9 @@ function resolveExistingTrackMove({
 			b: member.timeOffset,
 		}),
 	}));
+	const moves = rippleEditingEnabled
+		? appendMainTrackRippleMoves({ tracks, group, moves: selectedMoves })
+		: selectedMoves;
 
 	if (!canApplyMovesToExistingTracks({ tracks, moves })) {
 		return null;
@@ -113,11 +121,70 @@ function resolveExistingTrackMove({
 	return {
 		moves,
 		createTracks: [],
-		targetSelection: moves.map(({ elementId, targetTrackId }) => ({
+		targetSelection: selectedMoves.map(({ elementId, targetTrackId }) => ({
 			trackId: targetTrackId,
 			elementId,
 		})),
 	};
+}
+
+function appendMainTrackRippleMoves({
+	tracks,
+	group,
+	moves,
+}: {
+	tracks: SceneTracks;
+	group: MoveGroup;
+	moves: PlannedElementMove[];
+}): PlannedElementMove[] {
+	if (
+		moves.length !== group.members.length ||
+		moves.some(
+			(move) =>
+				move.sourceTrackId !== tracks.main.id ||
+				move.targetTrackId !== tracks.main.id,
+		)
+	) {
+		return moves;
+	}
+
+	const anchorMove = moves.find(
+		(move) => move.elementId === group.anchor.elementId,
+	);
+	const anchorElement = tracks.main.elements.find(
+		(element) => element.id === group.anchor.elementId,
+	);
+	if (!anchorMove || !anchorElement) {
+		return moves;
+	}
+
+	const deltaTime = subMediaTime({
+		a: anchorMove.newStartTime,
+		b: anchorElement.startTime,
+	});
+	if (deltaTime === ZERO_MEDIA_TIME) {
+		return moves;
+	}
+
+	const movingElementIds = new Set(moves.map((move) => move.elementId));
+	const followerMoves = tracks.main.elements
+		.filter(
+			(element) =>
+				!movingElementIds.has(element.id) &&
+				element.startTime > anchorElement.startTime,
+		)
+		.sort(
+			(leftElement, rightElement) =>
+				leftElement.startTime - rightElement.startTime,
+		)
+		.map((element) => ({
+			sourceTrackId: tracks.main.id,
+			targetTrackId: tracks.main.id,
+			elementId: element.id,
+			newStartTime: addMediaTime({ a: element.startTime, b: deltaTime }),
+		}));
+
+	return [...moves, ...followerMoves];
 }
 
 function resolveNewTrackMove({

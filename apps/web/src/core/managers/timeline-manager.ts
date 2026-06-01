@@ -7,6 +7,7 @@ import type {
 	TimelineTrack,
 	TimelineElement,
 	RetimeConfig,
+	ElementRef,
 } from "@/timeline";
 import { calculateTotalDuration } from "@/timeline";
 import { TimelineDragSource } from "@/timeline/drag-source";
@@ -179,9 +180,11 @@ export class TimelineManager {
 	moveElements({
 		moves,
 		createTracks,
+		targetSelection,
 	}: {
 		moves: PlannedElementMove[];
 		createTracks?: PlannedTrackCreation[];
+		targetSelection?: ElementRef[];
 	}): void {
 		if (moves.length === 0) {
 			return;
@@ -190,6 +193,7 @@ export class TimelineManager {
 		const command = new MoveElementCommand({
 			moves,
 			createTracks,
+			targetSelection,
 		});
 		this.editor.command.execute({ command });
 	}
@@ -766,16 +770,16 @@ export class TimelineManager {
 			const existingOverlay = this.previewOverlay.get(elementId);
 			const changed = Object.entries(elementUpdates).some(([key, value]) => {
 				return !Object.is(
-					existingOverlay?.[key as keyof TimelineElement],
+					existingOverlay ? Reflect.get(existingOverlay, key) : undefined,
 					value,
 				);
 			});
 			if (changed) {
 				changedOverlayCount += 1;
-				const mergedOverlay = {
+				const mergedOverlay: Partial<TimelineElement> = {
 					...existingOverlay,
 					...elementUpdates,
-				} as Partial<TimelineElement>;
+				};
 				this.previewOverlay.set(elementId, mergedOverlay);
 			}
 		}
@@ -830,9 +834,11 @@ export class TimelineManager {
 
 			const nextElements = track.elements.map((element) => {
 				const overlay = this.previewOverlay.get(element.id);
-				return overlay
-					? ({ ...element, ...overlay } as TimelineElement)
-					: element;
+				if (!overlay) return element;
+				// Preview patches are stored by element id and only merge fields onto
+				// that same element, so the element union member is preserved.
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+				return { ...element, ...overlay } as TimelineElement;
 			});
 
 			return { ...track, elements: nextElements } as TTrack;
