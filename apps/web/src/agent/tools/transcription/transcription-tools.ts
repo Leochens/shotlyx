@@ -25,6 +25,8 @@ const DEFAULT_TRANSCRIPTION_PROVIDER = "volcengine";
 const DEFAULT_SUBTITLE_STYLE = "clean";
 const DEFAULT_SUBTITLE_PLACEMENT = "bottom";
 const DEFAULT_SUBTITLE_LINE_BREAK_MODE = "page";
+const DEFAULT_CLOUD_ASR_PROGRESS_INTERVAL_MS = 5_000;
+const CLOUD_ASR_PROGRESS_CAP = 95;
 
 export interface BuildTranscriptionToolsOptions {
 	deps?: Partial<TranscriptionToolDeps>;
@@ -34,6 +36,7 @@ export interface CreateTranscriptionToolDepsOptions {
 	editor: EditorCore;
 	fetchFn?: typeof fetch;
 	extractTimelineAudioFn?: typeof extractTimelineAudio;
+	cloudAsrProgressIntervalMs?: number;
 }
 
 function assertGenerateSubtitlesFromVideo(
@@ -108,7 +111,9 @@ function parseOptionalTokens({
 }): SubtitleToken[] | undefined {
 	if (value === undefined) return undefined;
 	if (!Array.isArray(value)) {
-		throw new Error(`provider_error: ASR cue ${cueIndex} tokens must be an array`);
+		throw new Error(
+			`provider_error: ASR cue ${cueIndex} tokens must be an array`,
+		);
 	}
 	return value.map((item, tokenIndex) => {
 		if (!isRecord(item)) {
@@ -152,7 +157,13 @@ function parseOptionalTokens({
 	});
 }
 
-function parseCue({ value, index }: { value: unknown; index: number }): TranscriptionCue {
+function parseCue({
+	value,
+	index,
+}: {
+	value: unknown;
+	index: number;
+}): TranscriptionCue {
 	if (!isRecord(value)) {
 		throw new Error(`provider_error: ASR cue ${index} must be an object`);
 	}
@@ -425,6 +436,8 @@ async function transcribeWithApi({
 	model,
 	fetchFn,
 	abortSignal,
+	onProgress,
+	progressIntervalMs = DEFAULT_CLOUD_ASR_PROGRESS_INTERVAL_MS,
 }: {
 	audioBlob: Blob;
 	provider: string;
@@ -432,27 +445,79 @@ async function transcribeWithApi({
 	model?: string;
 	fetchFn: typeof fetch;
 	abortSignal?: AbortSignal;
+	onProgress?: GenerateSubtitlesFromVideoInput["onProgress"];
+	progressIntervalMs?: number;
 }): Promise<TranscribeAudioResult> {
 	const form = new FormData();
 	form.set("audio", buildTimelineAudioFile({ blob: audioBlob }));
 	form.set("provider", provider);
 	if (language) form.set("language", language);
 	if (model) form.set("model", model);
-	const response = await fetchFn("/api/agent/transcription", {
-		method: "POST",
-		body: form,
-		signal: abortSignal,
+	const stopProgress = startCloudAsrProgress({
+		provider,
+		onProgress,
+		intervalMs: progressIntervalMs,
 	});
-	if (!response.ok) {
-		throw new Error(await parseTranscriptionApiError(response));
+	try {
+		const response = await fetchFn("/api/agent/transcription", {
+			method: "POST",
+			body: form,
+			signal: abortSignal,
+		});
+		if (!response.ok) {
+			throw new Error(await parseTranscriptionApiError(response));
+		}
+		onProgress?.({
+			stage: "asr-provider",
+			label: "ASR 已返回，正在解析识别结果",
+			status: "running",
+			detail: provider,
+			current: 98,
+			total: 100,
+		});
+		return parseTranscriptionResult({ value: await response.json() });
+	} finally {
+		stopProgress();
 	}
-	return parseTranscriptionResult({ value: await response.json() });
+}
+
+function startCloudAsrProgress({
+	provider,
+	onProgress,
+	intervalMs,
+}: {
+	provider: string;
+	onProgress?: GenerateSubtitlesFromVideoInput["onProgress"];
+	intervalMs: number;
+}): () => void {
+	if (!onProgress) return () => {};
+	let tick = 0;
+	const startedAt = Date.now();
+	const emitProgress = () => {
+		tick += 1;
+		const current = Math.min(CLOUD_ASR_PROGRESS_CAP, 10 + tick * 5);
+		const elapsedSeconds = Math.max(
+			1,
+			Math.round((Date.now() - startedAt) / 1000),
+		);
+		onProgress({
+			stage: "asr-provider",
+			label: `字幕识别中 ${current}%`,
+			status: "running",
+			detail: `${provider} 已等待 ${elapsedSeconds}s`,
+			current,
+			total: 100,
+		});
+	};
+	const timer = setInterval(emitProgress, Math.max(1, intervalMs));
+	return () => clearInterval(timer);
 }
 
 export function createTranscriptionToolDeps({
 	editor,
 	fetchFn = globalThis.fetch.bind(globalThis),
 	extractTimelineAudioFn,
+	cloudAsrProgressIntervalMs,
 }: CreateTranscriptionToolDepsOptions): TranscriptionToolDeps {
 	return {
 		async generateSubtitlesFromVideo(
@@ -484,10 +549,10 @@ export function createTranscriptionToolDeps({
 			const provider = input.provider ?? DEFAULT_TRANSCRIPTION_PROVIDER;
 			input.onProgress?.({
 				stage: "asr-provider",
-				label:
-					provider === "local" ? "正在本地识别字幕" : "正在请求 ASR 服务",
+				label: provider === "local" ? "正在本地识别字幕" : "正在请求 ASR 服务",
 				status: "running",
 				detail: provider,
+				...(provider === "local" ? {} : { current: 5, total: 100 }),
 			});
 			const transcription =
 				provider === "local"
@@ -504,20 +569,26 @@ export function createTranscriptionToolDeps({
 							model: input.model,
 							fetchFn,
 							abortSignal: input.abortSignal,
+							onProgress: input.onProgress,
+							progressIntervalMs: cloudAsrProgressIntervalMs,
 						});
 			input.onProgress?.({
 				stage: "asr-provider",
 				label: "字幕识别完成",
 				status: "success",
 				detail: transcription.provider,
+				current: 100,
+				total: 100,
 			});
 
 			if (transcription.cues.length === 0) {
 				throw new Error("字幕为空：ASR 没有返回有效字幕 cue");
 			}
 
-			let subtitleAsset: { subtitleAssetId?: string; subtitleAssetName?: string } =
-				{};
+			let subtitleAsset: {
+				subtitleAssetId?: string;
+				subtitleAssetName?: string;
+			} = {};
 			if (input.saveAsset) {
 				input.onProgress?.({
 					stage: "subtitle-asset",

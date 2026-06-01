@@ -97,10 +97,12 @@ describe("transcription tools", () => {
 	});
 
 	test("client deps extract timeline audio, call cloud ASR, and import cues", async () => {
-		const addMediaAsset = mock(async ({ asset }: { asset: { name: string } }) => ({
-			id: "subtitle-asset",
-			name: asset.name,
-		}));
+		const addMediaAsset = mock(
+			async ({ asset }: { asset: { name: string } }) => ({
+				id: "subtitle-asset",
+				name: asset.name,
+			}),
+		);
 		const execute = mock(async () => ({
 			status: "success" as const,
 			data: {
@@ -113,7 +115,11 @@ describe("transcription tools", () => {
 		const editor = {
 			scenes: {
 				getActiveScene: () => ({
-					tracks: { main: { id: "main", elements: [] }, overlay: [], audio: [] },
+					tracks: {
+						main: { id: "main", elements: [] },
+						overlay: [],
+						audio: [],
+					},
 				}),
 			},
 			project: { getActive: () => ({ metadata: { id: "project-1" } }) },
@@ -214,17 +220,14 @@ describe("transcription tools", () => {
 			{ stage: "audio-extract", status: "running" },
 			{ stage: "audio-extract", status: "success" },
 			{ stage: "asr-provider", status: "running" },
+			{ stage: "asr-provider", status: "running" },
 			{ stage: "asr-provider", status: "success" },
 			{ stage: "subtitle-import", status: "running" },
 			{ stage: "subtitle-import", status: "success" },
 		]);
 	});
 
-	test("client deps only save an SRT asset when requested", async () => {
-		const addMediaAsset = mock(async ({ asset }: { asset: { name: string } }) => ({
-			id: "subtitle-asset",
-			name: asset.name,
-		}));
+	test("client deps emit cloud ASR recognition progress while the request is pending", async () => {
 		const execute = mock(async () => ({
 			status: "success" as const,
 			data: { imported: true, cueCount: 1 },
@@ -232,7 +235,105 @@ describe("transcription tools", () => {
 		const editor = {
 			scenes: {
 				getActiveScene: () => ({
-					tracks: { main: { id: "main", elements: [] }, overlay: [], audio: [] },
+					tracks: {
+						main: { id: "main", elements: [] },
+						overlay: [],
+						audio: [],
+					},
+				}),
+			},
+			project: { getActive: () => ({ metadata: { id: "project-1" } }) },
+			media: { getAssets: () => [] },
+			timeline: { getTotalDuration: () => MEDIA_TIME_TICKS_PER_SECOND },
+			mcp: { execute },
+		} as unknown as EditorCore;
+		let releaseFetch: (() => void) | undefined;
+		const fetchFn = mock(async () => {
+			await new Promise<void>((resolve) => {
+				releaseFetch = resolve;
+			});
+			return new Response(
+				JSON.stringify({
+					text: "识别进度",
+					provider: "volcengine",
+					cues: [
+						{
+							text: "识别进度",
+							startTimeSeconds: 0,
+							durationSeconds: 1,
+						},
+					],
+				}),
+				{ headers: { "Content-Type": "application/json" } },
+			);
+		});
+		const progressEvents: Array<{
+			stage: string;
+			label: string;
+			status: string;
+			current?: number;
+			total?: number;
+		}> = [];
+		const deps = createTranscriptionToolDeps({
+			editor,
+			fetchFn: fetchFn as unknown as typeof fetch,
+			extractTimelineAudioFn: mock(async () => {
+				return new Blob([new Uint8Array([1, 2, 3])], { type: "audio/wav" });
+			}),
+			cloudAsrProgressIntervalMs: 5,
+		});
+
+		const generation = deps.generateSubtitlesFromVideo({
+			source: "timeline",
+			provider: "volcengine",
+			onProgress: (event) => progressEvents.push(event),
+		});
+
+		const hasRecognitionProgress = () =>
+			progressEvents.some(
+				(event) =>
+					event.stage === "asr-provider" &&
+					event.status === "running" &&
+					event.label.includes("识别") &&
+					typeof event.current === "number" &&
+					event.current > 0 &&
+					event.total === 100,
+			);
+
+		for (
+			let attempt = 0;
+			attempt < 20 && !hasRecognitionProgress();
+			attempt++
+		) {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+
+		expect(releaseFetch).toBeDefined();
+		expect(hasRecognitionProgress()).toBe(true);
+
+		releaseFetch?.();
+		await generation;
+	});
+
+	test("client deps only save an SRT asset when requested", async () => {
+		const addMediaAsset = mock(
+			async ({ asset }: { asset: { name: string } }) => ({
+				id: "subtitle-asset",
+				name: asset.name,
+			}),
+		);
+		const execute = mock(async () => ({
+			status: "success" as const,
+			data: { imported: true, cueCount: 1 },
+		}));
+		const editor = {
+			scenes: {
+				getActiveScene: () => ({
+					tracks: {
+						main: { id: "main", elements: [] },
+						overlay: [],
+						audio: [],
+					},
 				}),
 			},
 			project: { getActive: () => ({ metadata: { id: "project-1" } }) },
