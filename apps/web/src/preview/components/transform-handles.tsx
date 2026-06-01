@@ -2,7 +2,8 @@
 
 import { usePreviewViewport } from "@/preview/components/preview-viewport";
 import { useTransformHandles } from "@/preview/hooks/use-transform-handles";
-import { isVisualElement } from "@/timeline/element-utils";
+import { isTransformableElement } from "@/timeline/element-utils";
+import type { TimelineElement } from "@/timeline";
 import {
 	getCornerPosition,
 	getEdgeHandlePosition,
@@ -28,6 +29,14 @@ const CORNERS: Corner[] = [
 ];
 const EDGES: Edge[] = ["right", "left", "bottom"];
 
+export function canShowTransformHandlesForElement({
+	element,
+}: {
+	element: TimelineElement;
+}): boolean {
+	return isTransformableElement(element);
+}
+
 export function TransformHandles({
 	onSnapLinesChange,
 }: {
@@ -47,7 +56,7 @@ export function TransformHandles({
 	if (!hasVisualSelection || !selectedWithBounds) return null;
 
 	const { bounds, element } = selectedWithBounds;
-	if (!isVisualElement(element)) return null;
+	if (!canShowTransformHandlesForElement({ element })) return null;
 
 	const displayScale = viewport.getDisplayScale();
 

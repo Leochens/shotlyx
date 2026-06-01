@@ -12,6 +12,7 @@ import type {
 	VideoElement,
 	AudioElement,
 	TimelineElement,
+	TransformableElement,
 } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -89,7 +90,7 @@ export type ElementPropertiesConfig = {
 function buildTransformTab({
 	element,
 }: {
-	element: VisualElement;
+	element: TransformableElement;
 }): PropertiesTabDef {
 	return {
 		id: "transform",
@@ -346,7 +347,7 @@ function getEffectConfig({
 }): ElementPropertiesConfig {
 	return {
 		defaultTab: "effects",
-		tabs: [buildStandaloneEffectTab({ element })],
+		tabs: [buildStandaloneEffectTab({ element }), buildTransformTab({ element })],
 	};
 }
 
