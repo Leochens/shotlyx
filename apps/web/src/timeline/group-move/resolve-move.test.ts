@@ -70,7 +70,16 @@ function videoElement({
 
 function buildTracks(): SceneTracks {
 	return {
-		overlay: [],
+		overlay: [
+			{
+				id: "overlay-video",
+				type: "video",
+				name: "Overlay video",
+				hidden: false,
+				muted: false,
+				elements: [],
+			},
+		],
 		main: {
 			id: "main",
 			type: "video",
@@ -136,6 +145,86 @@ describe("resolveGroupMove", () => {
 		]);
 		expect(result?.targetSelection).toEqual([
 			{ trackId: "main", elementId: "b" },
+		]);
+	});
+
+	test("keeps same-track selected clips together when moving to an existing track", () => {
+		const tracks = buildTracks();
+		const group = buildMoveGroup({
+			anchorRef: { trackId: "main", elementId: "b" },
+			selectedElements: [
+				{ trackId: "main", elementId: "b" },
+				{ trackId: "main", elementId: "c" },
+			],
+			tracks,
+		});
+
+		expect(group).not.toBeNull();
+		if (!group) throw new Error("expected a move group");
+
+		const result = resolveGroupMove({
+			group,
+			tracks,
+			anchorStartTime: seconds(50),
+			target: {
+				kind: "existingTrack",
+				anchorTargetTrackId: "overlay-video",
+			},
+		});
+
+		expect(result?.moves).toMatchObject([
+			{
+				elementId: "b",
+				targetTrackId: "overlay-video",
+				newStartTime: seconds(50),
+			},
+			{
+				elementId: "c",
+				targetTrackId: "overlay-video",
+				newStartTime: seconds(60),
+			},
+		]);
+	});
+
+	test("creates one new track for same-track selected clips", () => {
+		const tracks = buildTracks();
+		const group = buildMoveGroup({
+			anchorRef: { trackId: "main", elementId: "b" },
+			selectedElements: [
+				{ trackId: "main", elementId: "b" },
+				{ trackId: "main", elementId: "c" },
+			],
+			tracks,
+		});
+
+		expect(group).not.toBeNull();
+		if (!group) throw new Error("expected a move group");
+
+		const result = resolveGroupMove({
+			group,
+			tracks,
+			anchorStartTime: seconds(50),
+			target: {
+				kind: "newTracks",
+				anchorInsertIndex: 0,
+				newTrackIds: ["new-video-1", "new-video-2"],
+			},
+		});
+
+		expect(result?.createTracks).toEqual([
+			{ id: "new-video-1", type: "video", index: 0 },
+		]);
+		expect(result?.moves).toMatchObject([
+			{
+				elementId: "b",
+				targetTrackId: "new-video-1",
+				newStartTime: seconds(50),
+			},
+			{
+				elementId: "c",
+				targetTrackId: "new-video-1",
+				newStartTime: seconds(60),
+			},
 		]);
 	});
 });

@@ -2,6 +2,7 @@ import type { SceneTracks } from "@/timeline";
 import { getTrackTypeForElementType } from "@/timeline/placement/compatibility";
 import { canPlaceTimeSpansOnTrack } from "@/timeline/placement/overlap";
 import type {
+	GroupMember,
 	GroupMoveResult,
 	MoveGroup,
 	PlannedElementMove,
@@ -30,6 +31,13 @@ type GroupMoveTarget =
 			anchorInsertIndex: number;
 			newTrackIds: string[];
 	  };
+
+interface MemberTrackGroup {
+	sourceTrackId: string;
+	displayIndex: number;
+	trackSection: GroupMember["trackSection"];
+	members: GroupMember[];
+}
 
 export function resolveGroupMove({
 	group,
@@ -200,22 +208,22 @@ function resolveNewTrackMove({
 	anchorInsertIndex: number;
 	newTrackIds: string[];
 }): GroupMoveResult | null {
-	const sortedMembers = [...group.members].sort(
-		(leftMember, rightMember) =>
-			leftMember.displayIndex - rightMember.displayIndex,
+	const sortedTrackGroups = buildMemberTrackGroups({ group });
+	const anchorTrackGroupIndex = sortedTrackGroups.findIndex(
+		(trackGroup) => trackGroup.sourceTrackId === group.anchor.trackId,
 	);
-	const anchorMemberIndex = sortedMembers.findIndex(
-		(member) => member.elementId === group.anchor.elementId,
-	);
-	if (anchorMemberIndex < 0 || newTrackIds.length < sortedMembers.length) {
+	if (
+		anchorTrackGroupIndex < 0 ||
+		newTrackIds.length < sortedTrackGroups.length
+	) {
 		return null;
 	}
 
-	const hasAudioMember = sortedMembers.some(
-		(member) => member.trackSection === "audio",
+	const hasAudioMember = sortedTrackGroups.some(
+		(trackGroup) => trackGroup.trackSection === "audio",
 	);
-	const hasNonAudioMember = sortedMembers.some(
-		(member) => member.trackSection !== "audio",
+	const hasNonAudioMember = sortedTrackGroups.some(
+		(trackGroup) => trackGroup.trackSection !== "audio",
 	);
 	if (hasAudioMember && hasNonAudioMember) {
 		return null;
@@ -230,31 +238,54 @@ function resolveNewTrackMove({
 	const blockStartIndex = hasAudioMember
 		? clampAudioInsertIndex({
 				tracks,
-				insertIndex: anchorInsertIndex - anchorMemberIndex,
+				insertIndex: anchorInsertIndex - anchorTrackGroupIndex,
 			})
 		: Math.max(
 				0,
-				Math.min(anchorInsertIndex - anchorMemberIndex, tracks.overlay.length),
+				Math.min(
+					anchorInsertIndex - anchorTrackGroupIndex,
+					tracks.overlay.length,
+				),
 			);
 
-	const createTracks: PlannedTrackCreation[] = sortedMembers.map(
-		(member, memberIndex) => ({
-			id: newTrackIds[memberIndex],
-			type: getTrackTypeForElementType({
-				elementType: member.elementType,
-			}),
-			index: blockStartIndex + memberIndex,
-		}),
+	const createTracks: PlannedTrackCreation[] = sortedTrackGroups.flatMap(
+		(trackGroup, trackGroupIndex) => {
+			const trackType = getTrackTypeForTrackGroup({ trackGroup });
+			if (!trackType) {
+				return [];
+			}
+
+			return [
+				{
+					id: newTrackIds[trackGroupIndex],
+					type: trackType,
+					index: blockStartIndex + trackGroupIndex,
+				},
+			];
+		},
 	);
-	const moves = sortedMembers.map((member, memberIndex) => ({
-		sourceTrackId: member.trackId,
-		targetTrackId: newTrackIds[memberIndex],
-		elementId: member.elementId,
-		newStartTime: addMediaTime({
-			a: clampedAnchorStartTime,
-			b: member.timeOffset,
-		}),
-	}));
+	if (createTracks.length !== sortedTrackGroups.length) {
+		return null;
+	}
+	const newTrackIdBySourceTrackId = new Map(
+		sortedTrackGroups.map((trackGroup, trackGroupIndex) => [
+			trackGroup.sourceTrackId,
+			newTrackIds[trackGroupIndex],
+		]),
+	);
+	const moves = sortedTrackGroups.flatMap((trackGroup) =>
+		trackGroup.members.map((member) => ({
+			sourceTrackId: member.trackId,
+			targetTrackId:
+				newTrackIdBySourceTrackId.get(trackGroup.sourceTrackId) ??
+				member.trackId,
+			elementId: member.elementId,
+			newStartTime: addMediaTime({
+				a: clampedAnchorStartTime,
+				b: member.timeOffset,
+			}),
+		})),
+	);
 
 	return {
 		moves,
@@ -264,6 +295,45 @@ function resolveNewTrackMove({
 			elementId,
 		})),
 	};
+}
+
+function buildMemberTrackGroups({
+	group,
+}: {
+	group: MoveGroup;
+}): MemberTrackGroup[] {
+	const trackGroupsById = new Map<string, MemberTrackGroup>();
+	for (const member of group.members) {
+		const trackGroup = trackGroupsById.get(member.trackId);
+		if (trackGroup) {
+			trackGroup.members.push(member);
+			continue;
+		}
+
+		trackGroupsById.set(member.trackId, {
+			sourceTrackId: member.trackId,
+			displayIndex: member.displayIndex,
+			trackSection: member.trackSection,
+			members: [member],
+		});
+	}
+
+	return Array.from(trackGroupsById.values()).sort(
+		(leftGroup, rightGroup) => leftGroup.displayIndex - rightGroup.displayIndex,
+	);
+}
+
+function getTrackTypeForTrackGroup({
+	trackGroup,
+}: {
+	trackGroup: MemberTrackGroup;
+}) {
+	const trackTypes = new Set(
+		trackGroup.members.map((member) =>
+			getTrackTypeForElementType({ elementType: member.elementType }),
+		),
+	);
+	return trackTypes.size === 1 ? (trackTypes.values().next().value ?? null) : null;
 }
 
 function clampAudioInsertIndex({
@@ -289,14 +359,11 @@ function resolveExistingTrackIdsByElementId({
 	tracks: SceneTracks;
 	anchorTargetDisplayIndex: number;
 }): Map<string, string> | null {
-	const sortedMembers = [...group.members].sort(
-		(leftMember, rightMember) =>
-			leftMember.displayIndex - rightMember.displayIndex,
+	const sortedTrackGroups = buildMemberTrackGroups({ group });
+	const anchorTrackGroupIndex = sortedTrackGroups.findIndex(
+		(trackGroup) => trackGroup.sourceTrackId === group.anchor.trackId,
 	);
-	const anchorMemberIndex = sortedMembers.findIndex(
-		(member) => member.elementId === group.anchor.elementId,
-	);
-	if (anchorMemberIndex < 0) {
+	if (anchorTrackGroupIndex < 0) {
 		return null;
 	}
 
@@ -310,24 +377,25 @@ function resolveExistingTrackIdsByElementId({
 		return null;
 	}
 
-	targetTrackIdsByElementId.set(
-		group.anchor.elementId,
-		anchorPlacement.trackId,
-	);
+	for (const member of sortedTrackGroups[anchorTrackGroupIndex].members) {
+		targetTrackIdsByElementId.set(member.elementId, anchorPlacement.trackId);
+	}
 	usedTrackIds.add(anchorPlacement.trackId);
 
 	let upperBoundaryIndex = anchorTargetDisplayIndex;
 	for (
-		let memberIndex = anchorMemberIndex - 1;
-		memberIndex >= 0;
-		memberIndex -= 1
+		let trackGroupIndex = anchorTrackGroupIndex - 1;
+		trackGroupIndex >= 0;
+		trackGroupIndex -= 1
 	) {
-		const member = sortedMembers[memberIndex];
+		const trackGroup = sortedTrackGroups[trackGroupIndex];
+		const requiredTrackType = getTrackTypeForTrackGroup({ trackGroup });
+		if (!requiredTrackType) {
+			return null;
+		}
 		const targetPlacement = findCompatibleTrackPlacement({
 			tracks,
-			requiredTrackType: getTrackTypeForElementType({
-				elementType: member.elementType,
-			}),
+			requiredTrackType,
 			startDisplayIndex: upperBoundaryIndex - 1,
 			step: -1,
 			usedTrackIds,
@@ -336,23 +404,27 @@ function resolveExistingTrackIdsByElementId({
 			return null;
 		}
 
-		targetTrackIdsByElementId.set(member.elementId, targetPlacement.trackId);
+		for (const member of trackGroup.members) {
+			targetTrackIdsByElementId.set(member.elementId, targetPlacement.trackId);
+		}
 		usedTrackIds.add(targetPlacement.trackId);
 		upperBoundaryIndex = targetPlacement.displayIndex;
 	}
 
 	let lowerBoundaryIndex = anchorTargetDisplayIndex;
 	for (
-		let memberIndex = anchorMemberIndex + 1;
-		memberIndex < sortedMembers.length;
-		memberIndex += 1
+		let trackGroupIndex = anchorTrackGroupIndex + 1;
+		trackGroupIndex < sortedTrackGroups.length;
+		trackGroupIndex += 1
 	) {
-		const member = sortedMembers[memberIndex];
+		const trackGroup = sortedTrackGroups[trackGroupIndex];
+		const requiredTrackType = getTrackTypeForTrackGroup({ trackGroup });
+		if (!requiredTrackType) {
+			return null;
+		}
 		const targetPlacement = findCompatibleTrackPlacement({
 			tracks,
-			requiredTrackType: getTrackTypeForElementType({
-				elementType: member.elementType,
-			}),
+			requiredTrackType,
 			startDisplayIndex: lowerBoundaryIndex + 1,
 			step: 1,
 			usedTrackIds,
@@ -361,7 +433,9 @@ function resolveExistingTrackIdsByElementId({
 			return null;
 		}
 
-		targetTrackIdsByElementId.set(member.elementId, targetPlacement.trackId);
+		for (const member of trackGroup.members) {
+			targetTrackIdsByElementId.set(member.elementId, targetPlacement.trackId);
+		}
 		usedTrackIds.add(targetPlacement.trackId);
 		lowerBoundaryIndex = targetPlacement.displayIndex;
 	}
