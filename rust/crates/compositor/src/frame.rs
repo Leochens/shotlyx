@@ -28,7 +28,17 @@ pub enum FrameItemDescriptor {
         effect_pass_groups: Vec<Vec<EffectPassDescriptor>>,
         #[serde(default)]
         transform: Option<QuadTransformDescriptor>,
+        #[serde(default)]
+        shape: SceneEffectShape,
     },
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SceneEffectShape {
+    #[default]
+    Rect,
+    Circle,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,11 +139,13 @@ mod tests {
         let FrameItemDescriptor::SceneEffect {
             effect_pass_groups,
             transform,
+            shape,
         } = &frame.items[0]
         else {
             panic!("expected scene effect item");
         };
 
+        assert_eq!(*shape, SceneEffectShape::Rect);
         assert_eq!(effect_pass_groups[0][0].shader, "pixelate");
         assert!(matches!(
             effect_pass_groups[0][0].uniforms.get("u_blockSize"),

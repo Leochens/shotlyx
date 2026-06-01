@@ -73,7 +73,7 @@ describe("buildFrameDescriptor", () => {
 		root.add(
 			new EffectLayerNode({
 				effectType: "magnify",
-				effectParams: { zoom: 2.5 },
+				effectParams: { zoom: 2.5, shape: "circle" },
 				timeOffset: 0,
 				duration: 10,
 				transform: {
@@ -110,6 +110,7 @@ describe("buildFrameDescriptor", () => {
 						},
 					],
 				],
+				shape: "circle",
 				transform: {
 					centerX: 760,
 					centerY: 630,
@@ -121,5 +122,56 @@ describe("buildFrameDescriptor", () => {
 				},
 			},
 		]);
+	});
+
+	test("expands standalone magnifier region to full canvas when fullscreen", async () => {
+		const root = new RootNode({ duration: 10 });
+		root.add(
+			new EffectLayerNode({
+				effectType: "magnify",
+				effectParams: { zoom: 2, shape: "circle", fullscreen: true },
+				timeOffset: 0,
+				duration: 10,
+				transform: {
+					position: { x: -200, y: 90 },
+					scaleX: 0.3,
+					scaleY: 0.25,
+					rotate: 0,
+				},
+			}),
+		);
+
+		const renderer = { width: 1920, height: 1080 };
+		await resolveRenderTree({
+			node: root,
+			renderer: renderer as never,
+			time: 5,
+		});
+		const { frame } = await buildFrameDescriptor({
+			node: root,
+			renderer: renderer as never,
+		});
+
+		expect(frame.items[0]).toMatchObject({
+			type: "sceneEffect",
+			effectPassGroups: [
+				[
+					{
+						shader: "magnify",
+						uniforms: {
+							u_center: [960, 540],
+							u_zoom: 2,
+						},
+					},
+				],
+			],
+			shape: "rect",
+			transform: {
+				centerX: 960,
+				centerY: 540,
+				width: 1920,
+				height: 1080,
+			},
+		});
 	});
 });

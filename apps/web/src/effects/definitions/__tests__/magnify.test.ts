@@ -14,6 +14,28 @@ describe("magnify effect definition", () => {
 				(param) => param.key === "zoom" && param.label === "Strength",
 			),
 		).toBe(true);
+		expect(
+			magnifyEffectDefinition.params.find((param) => param.key === "shape"),
+		).toMatchObject({
+			label: "Shape",
+			type: "select",
+			default: "rect",
+			keyframable: false,
+			options: [
+				{ value: "rect", label: "Rectangle" },
+				{ value: "circle", label: "Circle" },
+			],
+		});
+		expect(
+			magnifyEffectDefinition.params.find(
+				(param) => param.key === "fullscreen",
+			),
+		).toMatchObject({
+			label: "Full Screen",
+			type: "boolean",
+			default: false,
+			keyframable: false,
+		});
 	});
 
 	test("eases zoom in and out over the standalone effect duration", () => {

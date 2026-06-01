@@ -27,7 +27,7 @@ const CORNERS: Corner[] = [
 	"bottom-left",
 	"bottom-right",
 ];
-const EDGES: Edge[] = ["right", "left", "bottom"];
+const EDGES: Edge[] = ["right", "left", "top", "bottom"];
 
 export function canShowTransformHandlesForElement({
 	element,

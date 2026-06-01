@@ -24,7 +24,10 @@ export type FrameItemDescriptor =
 			type: "sceneEffect";
 			effectPassGroups: EffectPass[][];
 			transform?: QuadTransformDescriptor;
+			shape?: SceneEffectShape;
 	  };
+
+export type SceneEffectShape = "rect" | "circle";
 
 export type QuadTransformDescriptor = {
 	centerX: number;

@@ -24,6 +24,7 @@ import type {
 	FrameItemDescriptor,
 	LayerMaskDescriptor,
 	QuadTransformDescriptor,
+	type SceneEffectShape,
 	TextureCanvasDrawFn,
 	TextureUploadDescriptor,
 } from "./types";
@@ -125,10 +126,14 @@ async function collectNode({
 		if (!node.resolved || node.resolved.passes.length === 0) {
 			return;
 		}
-		const transform = computeSceneEffectTransform({
-			renderer,
-			transform: node.resolved.transform,
-		});
+		const isFullscreen = isFullscreenSceneEffect({ node });
+		const transform = isFullscreen
+			? fullCanvasTransform(renderer)
+			: computeSceneEffectTransform({
+					renderer,
+					transform: node.resolved.transform,
+				});
+		const shape = readSceneEffectShape({ node, isFullscreen });
 		items.push({
 			type: "sceneEffect",
 			effectPassGroups: [
@@ -138,6 +143,7 @@ async function collectNode({
 				}),
 			],
 			transform,
+			...(shape && { shape }),
 		});
 		return;
 	}
@@ -409,6 +415,29 @@ function computeSceneEffectTransform({
 		flipX: width < 0,
 		flipY: height < 0,
 	};
+}
+
+function isFullscreenSceneEffect({ node }: { node: EffectLayerNode }): boolean {
+	return (
+		node.params.effectType === "magnify" &&
+		node.params.effectParams.fullscreen === true
+	);
+}
+
+function readSceneEffectShape({
+	node,
+	isFullscreen,
+}: {
+	node: EffectLayerNode;
+	isFullscreen: boolean;
+}): SceneEffectShape | undefined {
+	if (node.params.effectType !== "magnify") {
+		return undefined;
+	}
+	if (isFullscreen) {
+		return "rect";
+	}
+	return node.params.effectParams.shape === "circle" ? "circle" : "rect";
 }
 
 function withSceneEffectUniforms({

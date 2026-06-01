@@ -126,6 +126,15 @@ function getElementBounds({
 	const { width: canvasWidth, height: canvasHeight } = canvasSize;
 
 	if (element.type === "effect") {
+		if (element.effectType === "magnify" && element.params.fullscreen === true) {
+			return {
+				cx: canvasWidth / 2,
+				cy: canvasHeight / 2,
+				width: canvasWidth,
+				height: canvasHeight,
+				rotation: 0,
+			};
+		}
 		const transform = resolveTransformAtTime({
 			baseTransform: buildTransformFromParams({ params: element.params }),
 			animations: element.animations,
@@ -228,7 +237,7 @@ function getElementBounds({
 export const ROTATION_HANDLE_OFFSET = 24;
 
 export type Corner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
-export type Edge = "right" | "left" | "bottom";
+export type Edge = "right" | "left" | "top" | "bottom";
 
 export function getCornerPosition({
 	bounds,
@@ -265,7 +274,8 @@ export function getEdgeHandlePosition({
 	const cos = Math.cos(angleRad);
 	const sin = Math.sin(angleRad);
 	const localX = edge === "right" ? halfWidth : edge === "left" ? -halfWidth : 0;
-	const localY = edge === "bottom" ? halfHeight : 0;
+	const localY =
+		edge === "bottom" ? halfHeight : edge === "top" ? -halfHeight : 0;
 	return {
 		x: bounds.cx + (localX * cos - localY * sin),
 		y: bounds.cy + (localX * sin + localY * cos),

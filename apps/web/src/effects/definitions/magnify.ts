@@ -84,6 +84,24 @@ export const magnifyEffectDefinition: EffectDefinition = {
 			max: MAX_ZOOM,
 			step: 0.1,
 		},
+		{
+			key: "shape",
+			label: "Shape",
+			type: "select",
+			default: "rect",
+			keyframable: false,
+			options: [
+				{ value: "rect", label: "Rectangle" },
+				{ value: "circle", label: "Circle" },
+			],
+		},
+		{
+			key: "fullscreen",
+			label: "Full Screen",
+			type: "boolean",
+			default: false,
+			keyframable: false,
+		},
 	],
 	renderer: {
 		passes: [

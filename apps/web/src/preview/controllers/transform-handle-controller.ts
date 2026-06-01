@@ -161,7 +161,9 @@ function getPreferredEdge({ edge }: { edge: Edge }): ScaleEdgePreference {
 		? { right: true }
 		: edge === "left"
 			? { left: true }
-			: { bottom: true };
+			: edge === "top"
+				? { top: true }
+				: { bottom: true };
 }
 
 function clampScaleNonZero(scale: number): number {
@@ -648,6 +650,8 @@ export class TransformHandleController {
 		session: EdgeScaleSession;
 		position: Point;
 	}): void {
+		const isHorizontalEdge =
+			session.edge === "right" || session.edge === "left";
 		const deltaX = position.x - session.initialBoundsCx;
 		const deltaY = position.y - session.initialBoundsCy;
 		const xProjection =
@@ -656,27 +660,31 @@ export class TransformHandleController {
 		const yProjection =
 			-deltaX * Math.sin(session.rotationRad) +
 			deltaY * Math.cos(session.rotationRad);
-		const projection =
-			session.edge === "right"
-				? xProjection
-				: session.edge === "left"
-					? -xProjection
-					: yProjection;
+		const initialHalfWidth =
+			(session.baseWidth * session.initialTransform.scaleX) / 2;
+		const initialHalfHeight =
+			(session.baseHeight * session.initialTransform.scaleY) / 2;
 
-		const baseAxisHalf =
-			session.edge === "right" || session.edge === "left"
-				? session.baseWidth / 2
-				: session.baseHeight / 2;
-		const proposedScale = clampScaleNonZero(projection / baseAxisHalf);
-
-		const proposedScaleX =
-			session.edge === "right" || session.edge === "left"
-				? proposedScale
-				: session.initialTransform.scaleX;
+		const proposedScaleX = isHorizontalEdge
+			? clampScaleNonZero(
+					session.edge === "left"
+						? (initialHalfWidth - xProjection) / session.baseWidth
+						: (xProjection + initialHalfWidth) / session.baseWidth,
+				)
+			: session.initialTransform.scaleX;
 		const proposedScaleY =
-			session.edge === "bottom"
-				? proposedScale
+			session.edge === "top" || session.edge === "bottom"
+				? clampScaleNonZero(
+						session.edge === "top"
+							? (initialHalfHeight - yProjection) / session.baseHeight
+							: (yProjection + initialHalfHeight) / session.baseHeight,
+					)
 				: session.initialTransform.scaleY;
+		const proposedTransform = buildAnchoredEdgeTransform({
+			session,
+			scaleX: proposedScaleX,
+			scaleY: proposedScaleY,
+		});
 
 		const snapThreshold = this.deps.viewport.screenPixelsToLogicalThreshold({
 			screenPixels: SNAP_THRESHOLD_SCREEN_PIXELS,
@@ -697,7 +705,7 @@ export class TransformHandleController {
 			: snapScaleAxes({
 					proposedScaleX,
 					proposedScaleY,
-					position: session.initialTransform.position,
+					position: proposedTransform.position,
 					baseWidth: session.baseWidth,
 					baseHeight: session.baseHeight,
 					rotation: session.initialTransform.rotate,
@@ -706,9 +714,17 @@ export class TransformHandleController {
 					preferredEdges: getPreferredEdge({ edge: session.edge }),
 				});
 
-		const relevantSnap =
-			session.edge === "right" || session.edge === "left" ? xSnap : ySnap;
+		const relevantSnap = isHorizontalEdge ? xSnap : ySnap;
 		this.deps.preview.onSnapLinesChange?.(relevantSnap.activeLines);
+		const finalTransform = buildAnchoredEdgeTransform({
+			session,
+			scaleX: isHorizontalEdge
+				? xSnap.snappedScale
+				: session.initialTransform.scaleX,
+			scaleY: isHorizontalEdge
+				? session.initialTransform.scaleY
+				: ySnap.snappedScale,
+		});
 
 		this.deps.timeline.previewElements([
 			{
@@ -717,17 +733,7 @@ export class TransformHandleController {
 				updates: {
 					params: buildParamsWithTransform({
 						params: session.initialParams,
-						transform: {
-							...session.initialTransform,
-							scaleX:
-								session.edge === "right" || session.edge === "left"
-									? xSnap.snappedScale
-									: session.initialTransform.scaleX,
-							scaleY:
-								session.edge === "bottom"
-									? ySnap.snappedScale
-									: session.initialTransform.scaleY,
-						},
+						transform: finalTransform,
 					}),
 					...(session.shouldClearScaleAnimation && {
 						animations: session.animationsWithoutScale,
@@ -772,6 +778,48 @@ export class TransformHandleController {
 			},
 		]);
 	}
+}
+
+function buildAnchoredEdgeTransform({
+	session,
+	scaleX,
+	scaleY,
+}: {
+	session: EdgeScaleSession;
+	scaleX: number;
+	scaleY: number;
+}): Transform {
+	const initialHalfWidth =
+		(session.baseWidth * session.initialTransform.scaleX) / 2;
+	const initialHalfHeight =
+		(session.baseHeight * session.initialTransform.scaleY) / 2;
+	let localCenterX = 0;
+	let localCenterY = 0;
+
+	if (session.edge === "left") {
+		localCenterX = initialHalfWidth - (session.baseWidth * scaleX) / 2;
+	} else if (session.edge === "right") {
+		localCenterX = -initialHalfWidth + (session.baseWidth * scaleX) / 2;
+	} else if (session.edge === "top") {
+		localCenterY = initialHalfHeight - (session.baseHeight * scaleY) / 2;
+	} else {
+		localCenterY = -initialHalfHeight + (session.baseHeight * scaleY) / 2;
+	}
+
+	const cos = Math.cos(session.rotationRad);
+	const sin = Math.sin(session.rotationRad);
+	const offsetX = localCenterX * cos - localCenterY * sin;
+	const offsetY = localCenterX * sin + localCenterY * cos;
+
+	return {
+		...session.initialTransform,
+		position: {
+			x: session.initialTransform.position.x + offsetX,
+			y: session.initialTransform.position.y + offsetY,
+		},
+		scaleX,
+		scaleY,
+	};
 }
 
 function buildParamsWithTransform({

@@ -73,4 +73,42 @@ describe("getVisibleElementsWithBounds", () => {
 			},
 		});
 	});
+
+	test("expands fullscreen magnifier preview bounds to the whole canvas", () => {
+		const tracks = buildTracks();
+		tracks.overlay[0].elements[0] = {
+			...tracks.overlay[0].elements[0],
+			id: "magnifier-1",
+			name: "Magnifier",
+			effectType: "magnify",
+			params: {
+				zoom: 2,
+				shape: "circle",
+				fullscreen: true,
+				"transform.positionX": 120,
+				"transform.positionY": -40,
+				"transform.scaleX": 0.25,
+				"transform.scaleY": 0.2,
+				"transform.rotate": 0,
+			},
+		};
+
+		const bounds = getVisibleElementsWithBounds({
+			tracks,
+			currentTime: TICKS_PER_SECOND,
+			canvasSize: { width: 1920, height: 1080 },
+			mediaAssets: [],
+		});
+
+		expect(bounds[0]).toMatchObject({
+			elementId: "magnifier-1",
+			bounds: {
+				cx: 960,
+				cy: 540,
+				width: 1920,
+				height: 1080,
+				rotation: 0,
+			},
+		});
+	});
 });

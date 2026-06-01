@@ -9,7 +9,7 @@ use crate::{
     BlendMode,
     frame::{
         EffectPassDescriptor, EffectUniformValueDescriptor, FrameDescriptor, FrameItemDescriptor,
-        LayerDescriptor, QuadTransformDescriptor,
+        LayerDescriptor, QuadTransformDescriptor, SceneEffectShape,
     },
     texture_pool::TexturePool,
     texture_store::TextureStore,
@@ -18,6 +18,7 @@ use crate::{
 const LAYER_SHADER_SOURCE: &str = include_str!("shaders/layer.wgsl");
 const BLEND_SHADER_SOURCE: &str = include_str!("shaders/blend.wgsl");
 const MASK_SHADER_SOURCE: &str = include_str!("shaders/mask.wgsl");
+const REGION_MASK_SHADER_SOURCE: &str = include_str!("shaders/region_mask.wgsl");
 
 pub struct RenderFrameOptions<'a, 'surface> {
     pub frame: &'a FrameDescriptor,
@@ -35,6 +36,8 @@ pub struct Compositor {
     blend_pipeline: wgpu::RenderPipeline,
     mask_uniform_bind_group_layout: wgpu::BindGroupLayout,
     mask_pipeline: wgpu::RenderPipeline,
+    region_mask_uniform_bind_group_layout: wgpu::BindGroupLayout,
+    region_mask_pipeline: wgpu::RenderPipeline,
 }
 
 #[derive(Debug, Error)]
@@ -74,6 +77,17 @@ struct MaskUniformBuffer {
     _padding: [f32; 3],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct RegionMaskUniformBuffer {
+    resolution: [f32; 2],
+    center: [f32; 2],
+    size: [f32; 2],
+    rotation_radians: f32,
+    shape: f32,
+    _padding: [f32; 4],
+}
+
 impl Compositor {
     pub fn new(context: &GpuContext) -> Self {
         let device = context.device();
@@ -92,6 +106,10 @@ impl Compositor {
         let mask_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("compositor-mask-shader"),
             source: wgpu::ShaderSource::Wgsl(MASK_SHADER_SOURCE.into()),
+        });
+        let region_mask_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("compositor-region-mask-shader"),
+            source: wgpu::ShaderSource::Wgsl(REGION_MASK_SHADER_SOURCE.into()),
         });
 
         let layer_uniform_bind_group_layout =
@@ -136,6 +154,20 @@ impl Compositor {
                     count: None,
                 }],
             });
+        let region_mask_uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("compositor-region-mask-uniform-layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
 
         let layer_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -165,6 +197,12 @@ impl Compositor {
             ],
             immediate_size: 0,
         });
+        let region_mask_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("compositor-region-mask-pipeline-layout"),
+                bind_group_layouts: &[Some(&region_mask_uniform_bind_group_layout)],
+                immediate_size: 0,
+            });
 
         let layer_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("compositor-layer-pipeline"),
@@ -265,6 +303,39 @@ impl Compositor {
             multiview_mask: None,
             cache: None,
         });
+        let region_mask_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("compositor-region-mask-pipeline"),
+            layout: Some(&region_mask_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &fullscreen_shader,
+                entry_point: Some("vertex_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<[f32; 2]>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x2,
+                        offset: 0,
+                        shader_location: 0,
+                    }],
+                }],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &region_mask_shader,
+                entry_point: Some("fragment_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: context.texture_format(),
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
 
         Self {
             textures: TextureStore::default(),
@@ -277,6 +348,8 @@ impl Compositor {
             blend_pipeline,
             mask_uniform_bind_group_layout,
             mask_pipeline,
+            region_mask_uniform_bind_group_layout,
+            region_mask_pipeline,
         }
     }
 
@@ -327,6 +400,7 @@ impl Compositor {
                 FrameItemDescriptor::SceneEffect {
                     effect_pass_groups,
                     transform,
+                    shape,
                 } => {
                     let effected_scene = self.apply_effect_groups(
                         context,
@@ -343,6 +417,7 @@ impl Compositor {
                             &scene,
                             &effected_scene,
                             transform,
+                            *shape,
                             frame.width,
                             frame.height,
                         )?
@@ -399,6 +474,7 @@ impl Compositor {
                 FrameItemDescriptor::SceneEffect {
                     effect_pass_groups,
                     transform,
+                    shape,
                 } => {
                     let effected_scene = self.apply_effect_groups(
                         context,
@@ -415,6 +491,7 @@ impl Compositor {
                             &scene,
                             &effected_scene,
                             transform,
+                            *shape,
                             frame.width,
                             frame.height,
                         )?
@@ -547,10 +624,12 @@ impl Compositor {
         base_scene: &wgpu::Texture,
         effected_scene: &wgpu::Texture,
         transform: &QuadTransformDescriptor,
+        shape: SceneEffectShape,
         width: u32,
         height: u32,
     ) -> Result<wgpu::Texture, CompositorError> {
-        let mask = self.render_scene_effect_region_mask(context, encoder, transform, width, height);
+        let mask =
+            self.render_scene_effect_region_mask(context, encoder, transform, shape, width, height);
         let masked_effect = self.apply_mask(
             context,
             encoder,
@@ -576,26 +655,69 @@ impl Compositor {
         context: &GpuContext,
         encoder: &mut wgpu::CommandEncoder,
         transform: &QuadTransformDescriptor,
+        shape: SceneEffectShape,
         width: u32,
         height: u32,
     ) -> wgpu::Texture {
-        let white = self.create_cleared_texture(context, encoder, width, height, [1.0; 4]);
-        let mask = self.texture_pool.acquire(
+        let target = self.texture_pool.acquire(
             context,
             width,
             height,
             "compositor-scene-effect-region-mask",
         );
-        let layer = LayerDescriptor {
-            texture_id: String::new(),
-            transform: transform.clone(),
-            opacity: 1.0,
-            blend_mode: BlendMode::Normal,
-            effect_pass_groups: Vec::new(),
-            mask: None,
-        };
-        self.render_source_to_texture(context, encoder, &white, &mask, width, height, &layer);
-        mask
+        let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        let uniform_buffer =
+            context
+                .device()
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("compositor-region-mask-uniform-buffer"),
+                    contents: bytemuck::bytes_of(&RegionMaskUniformBuffer {
+                        resolution: [width as f32, height as f32],
+                        center: [transform.center_x, transform.center_y],
+                        size: [transform.width, transform.height],
+                        rotation_radians: transform.rotation_degrees.to_radians(),
+                        shape: match shape {
+                            SceneEffectShape::Rect => 0.0,
+                            SceneEffectShape::Circle => 1.0,
+                        },
+                        _padding: [0.0; 4],
+                    }),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+        let uniform_bind_group = context
+            .device()
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("compositor-region-mask-uniform-bind-group"),
+                layout: &self.region_mask_uniform_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                }],
+            });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("compositor-region-mask-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            render_pass.set_pipeline(&self.region_mask_pipeline);
+            render_pass.set_vertex_buffer(0, context.fullscreen_quad().slice(..));
+            render_pass.set_bind_group(0, &uniform_bind_group, &[]);
+            render_pass.draw(0..6, 0..1);
+        }
+        target
     }
 
     fn create_cleared_texture(
