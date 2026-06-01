@@ -38,76 +38,44 @@ export function buildSilenceCutTracks({
 	if (targetMap.size === 0) {
 		return tracks;
 	}
-	const subtitleCutRanges = buildSubtitleCutRanges({ targetMap });
+	const timelineCutRanges = buildTimelineCutRanges({ targetMap });
 
 	return {
 		overlay: tracks.overlay.map((track) =>
-			buildSilenceCutTrack({ track, targetMap, subtitleCutRanges }),
+			buildSilenceCutTrack({ track, timelineCutRanges }),
 		),
 		main: buildSilenceCutTrack({
 			track: tracks.main,
-			targetMap,
-			subtitleCutRanges,
+			timelineCutRanges,
 		}),
 		audio: tracks.audio.map((track) =>
-			buildSilenceCutTrack({ track, targetMap, subtitleCutRanges }),
+			buildSilenceCutTrack({ track, timelineCutRanges }),
 		),
 	};
 }
 
 function buildSilenceCutTrack<TTrack extends TrackWithElements>({
 	track,
-	targetMap,
-	subtitleCutRanges,
+	timelineCutRanges,
 }: {
 	track: TTrack;
-	targetMap: Map<string, NormalizedCutRange[]>;
-	subtitleCutRanges: NormalizedCutRange[];
+	timelineCutRanges: NormalizedCutRange[];
 }): TTrack {
-	const trackTargetCutRanges = normalizeRanges({
-		ranges: track.elements.flatMap(
-			(element) =>
-				targetMap.get(
-					targetKey({ trackId: track.id, elementId: element.id }),
-				) ?? [],
-		),
-	});
-
-	if (
-		trackTargetCutRanges.length === 0 &&
-		!track.elements.some((element) => isSynchronizedSubtitleElement(element))
-	) {
+	if (timelineCutRanges.length === 0) {
 		return track;
 	}
 
 	let didChange = false;
 	const elements = track.elements.flatMap((element) => {
-		const targetCutRanges =
-			targetMap.get(targetKey({ trackId: track.id, elementId: element.id })) ??
-			[];
-		const shouldSyncSubtitle =
-			trackTargetCutRanges.length === 0 &&
-			isSynchronizedSubtitleElement(element);
-		const cutRanges =
-			targetCutRanges.length > 0
-				? targetCutRanges
-				: shouldSyncSubtitle
-					? clipCutRangesToElement({
-							element,
-							cutRanges: subtitleCutRanges,
-						})
-					: [];
-		const trackCutRanges =
-			trackTargetCutRanges.length > 0
-				? trackTargetCutRanges
-				: shouldSyncSubtitle
-					? subtitleCutRanges
-					: [];
+		const cutRanges = clipCutRangesToElement({
+			element,
+			cutRanges: timelineCutRanges,
+		});
 
 		if (cutRanges.length === 0) {
 			const shiftedElement = shiftElementStart({
 				element,
-				trackCutRanges,
+				trackCutRanges: timelineCutRanges,
 			});
 			if (shiftedElement !== element) {
 				didChange = true;
@@ -118,7 +86,7 @@ function buildSilenceCutTrack<TTrack extends TrackWithElements>({
 		const cutElements = cutElementByRanges({
 			element,
 			cutRanges,
-			trackCutRanges,
+			trackCutRanges: timelineCutRanges,
 		});
 		didChange =
 			didChange || cutElements.length !== 1 || cutElements[0] !== element;
@@ -135,7 +103,7 @@ function buildSilenceCutTrack<TTrack extends TrackWithElements>({
 	} as TTrack;
 }
 
-function buildSubtitleCutRanges({
+function buildTimelineCutRanges({
 	targetMap,
 }: {
 	targetMap: Map<string, NormalizedCutRange[]>;
@@ -143,17 +111,6 @@ function buildSubtitleCutRanges({
 	return normalizeRanges({
 		ranges: Array.from(targetMap.values()).flat(),
 	});
-}
-
-function isSynchronizedSubtitleElement(element: TimelineElement): boolean {
-	if (element.type === "subtitle") {
-		return true;
-	}
-	if (element.type !== "text") {
-		return false;
-	}
-	const subtitleGroupId = element.params["subtitle.groupId"];
-	return typeof subtitleGroupId === "string" && subtitleGroupId.length > 0;
 }
 
 function clipCutRangesToElement({

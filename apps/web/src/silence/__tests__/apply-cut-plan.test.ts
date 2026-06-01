@@ -304,7 +304,7 @@ describe("buildSilenceCutTracks", () => {
 		expect(subtitleElements[1]?.id).not.toBe("subtitle-layer");
 	});
 
-	test("shifts legacy subtitle text cues after removed silence without moving ordinary text", () => {
+	test("shifts later overlay text after removed silence", () => {
 		const tracks = {
 			...sceneWithMain([
 				videoElement({ id: "clip-a", startTime: 0, duration: 1000 }),
@@ -345,7 +345,58 @@ describe("buildSilenceCutTracks", () => {
 		});
 		expect(titleCard).toMatchObject({
 			id: "title-card",
-			startTime: mt(1200),
+			startTime: mt(1000),
+			duration: mt(200),
+		});
+	});
+
+	test("compacts ordinary overlay elements across removed timeline ranges", () => {
+		const tracks = {
+			...sceneWithMain([
+				videoElement({ id: "clip-a", startTime: 0, duration: 1000 }),
+			]),
+			overlay: [
+				textTrack([
+					textElement({
+						id: "title-card",
+						startTime: 250,
+						duration: 350,
+					}),
+					textElement({
+						id: "lower-third",
+						startTime: 1200,
+						duration: 200,
+					}),
+				]),
+			],
+		} satisfies SceneTracks;
+
+		const result = buildSilenceCutTracks({
+			tracks,
+			targets: [
+				{
+					trackId: "main",
+					elementId: "clip-a",
+					ranges: [{ startTime: mt(300), endTime: mt(500) }],
+				},
+			],
+		});
+
+		const overlayElements = result.overlay[0]?.elements ?? [];
+		expect(overlayElements).toHaveLength(3);
+		expect(overlayElements[0]).toMatchObject({
+			id: "title-card",
+			startTime: mt(250),
+			duration: mt(50),
+		});
+		expect(overlayElements[1]).toMatchObject({
+			startTime: mt(300),
+			duration: mt(100),
+		});
+		expect(overlayElements[1]?.id).not.toBe("title-card");
+		expect(overlayElements[2]).toMatchObject({
+			id: "lower-third",
+			startTime: mt(1000),
 			duration: mt(200),
 		});
 	});
