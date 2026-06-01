@@ -270,7 +270,11 @@ async function collectVisualSourceNode({
 		width: sourceWidth,
 		height: sourceHeight,
 		...(node instanceof ImageNode && node.params.animated
-			? { version: `animated:${node.resolved.localTime}` }
+			? {
+					version:
+						node.resolved.sourceVersion ??
+						`animated:${node.resolved.localTime}`,
+				}
 			: {}),
 	});
 

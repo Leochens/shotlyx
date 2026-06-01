@@ -1,19 +1,30 @@
 /* eslint-disable @typescript-eslint/no-unsafe-type-assertion -- Test fixtures use branded MediaTime as raw tick numbers. */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import type { MediaAsset } from "@/media/types";
-import { buildScene } from "@/services/renderer/scene-builder";
-import { ImageNode } from "@/services/renderer/nodes/image-node";
+import { wasmMock } from "@/test/wasm-mock";
 import type { SceneTracks } from "@/timeline";
 import type { MediaTime } from "@/wasm/media-time";
+
+mock.module("@/wasm", () => wasmMock);
+mock.module("opencut-wasm", () => wasmMock);
+
+const { buildScene } = await import("@/services/renderer/scene-builder");
+const { ImageNode } = await import("@/services/renderer/nodes/image-node");
 
 function time(value: number): MediaTime {
 	return value as unknown as MediaTime;
 }
 
-function imageAsset({ file }: { file: File }): MediaAsset {
+function imageAsset({
+	file,
+	name = file.name,
+}: {
+	file: File;
+	name?: string;
+}): MediaAsset {
 	return {
 		id: "asset-1",
-		name: file.name,
+		name,
 		type: "image",
 		file,
 		url: "blob:asset-1",
@@ -60,14 +71,15 @@ function tracks(): SceneTracks {
 
 describe("scene builder animated images", () => {
 	test("marks GIF image nodes as animated sources", () => {
+		const file = new File([new Uint8Array([1])], "Reaction.gif", {
+			type: "image/gif",
+		});
 		const scene = buildScene({
 			canvasSize: { width: 1920, height: 1080 },
 			tracks: tracks(),
 			mediaAssets: [
 				imageAsset({
-					file: new File([new Uint8Array([1])], "Reaction.gif", {
-						type: "image/gif",
-					}),
+					file,
 				}),
 			],
 			duration: 120_000,
@@ -80,6 +92,33 @@ describe("scene builder animated images", () => {
 		);
 
 		expect(imageNode?.params.animated).toBe(true);
+		expect(imageNode?.params.animatedMimeType).toBe("image/gif");
+		expect(imageNode?.params.file).toBe(file);
 		expect(imageNode?.params.maxSourceSize).toBe(2048);
+	});
+
+	test("marks GIF image nodes as animated when restored assets lose their file extension", () => {
+		const file = new File([new Uint8Array([1])], "opfs-file");
+		const scene = buildScene({
+			canvasSize: { width: 1920, height: 1080 },
+			tracks: tracks(),
+			mediaAssets: [
+				imageAsset({
+					file,
+					name: "Restored asset",
+				}),
+			],
+			duration: 120_000,
+			background: { type: "color", color: "transparent" },
+			isPreview: true,
+		});
+
+		const imageNode = scene.children.find(
+			(child): child is ImageNode => child instanceof ImageNode,
+		);
+
+		expect(imageNode?.params.animated).toBe(true);
+		expect(imageNode?.params.animatedMimeType).toBe("image/gif");
+		expect(imageNode?.params.file).toBe(file);
 	});
 });

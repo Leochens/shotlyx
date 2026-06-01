@@ -34,7 +34,12 @@ import {
 	getGraphicNodeSourceSize,
 	type ResolvedGraphicNodeState,
 } from "./nodes/graphic-node";
-import { ImageNode, loadImageSource } from "./nodes/image-node";
+import {
+	getAnimatedImageFrameSource,
+	ImageNode,
+	loadAnimatedImageSource,
+	loadImageSource,
+} from "./nodes/image-node";
 import { ImageSequenceNode } from "./nodes/image-sequence-node";
 import { StickerNode, loadStickerSource } from "./nodes/sticker-node";
 import { TextNode, type ResolvedTextNodeState } from "./nodes/text-node";
@@ -283,11 +288,38 @@ async function resolveImageNode({
 	node: ImageNode;
 	context: ResolveContext;
 }): Promise<ResolvedVisualSourceNodeState | null> {
-	const source = await loadImageSource({
-		url: node.params.url,
-		maxSourceSize: node.params.maxSourceSize,
-		animated: node.params.animated,
-	});
+	const clipTime = context.time - node.params.timeOffset;
+	if (clipTime < 0 || clipTime >= node.params.duration) {
+		return null;
+	}
+
+	const animatedSource =
+		node.params.animated && node.params.file
+			? await loadAnimatedImageSource({
+					file: node.params.file,
+					maxSourceSize: node.params.maxSourceSize,
+					typeHint: node.params.animatedMimeType,
+					url: node.params.url,
+				})
+			: null;
+	const sourceTimeTicks =
+		node.params.trimStart +
+		getSourceTimeAtClipTime({
+			clipTime,
+			retime: node.params.retime,
+		});
+	const source = animatedSource
+		? getAnimatedImageFrameSource({
+				localTimeSeconds: mediaTimeToSeconds({
+					time: roundMediaTime({ time: sourceTimeTicks }),
+				}),
+				source: animatedSource,
+			})
+		: await loadImageSource({
+				url: node.params.url,
+				maxSourceSize: node.params.maxSourceSize,
+				animated: node.params.animated,
+			});
 	const visualState = resolveVisualState({
 		params: node.params,
 		context,
@@ -301,6 +333,7 @@ async function resolveImageNode({
 	return {
 		...visualState,
 		source: source.source,
+		sourceVersion: source.version,
 		sourceWidth: source.width,
 		sourceHeight: source.height,
 	};

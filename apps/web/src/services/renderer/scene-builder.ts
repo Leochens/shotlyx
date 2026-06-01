@@ -28,8 +28,23 @@ import {
 
 const PREVIEW_MAX_IMAGE_SIZE = 2048;
 
-function isAnimatedImageFile({ file }: { file: File }): boolean {
-	return file.type === "image/gif" || file.name.toLowerCase().endsWith(".gif");
+function getAnimatedImageMimeType({
+	asset,
+	elementName,
+}: {
+	asset: MediaAsset;
+	elementName: string;
+}): string | null {
+	if (
+		asset.file.type === "image/gif" ||
+		asset.file.name.toLowerCase().endsWith(".gif") ||
+		asset.name.toLowerCase().endsWith(".gif") ||
+		elementName.toLowerCase().endsWith(".gif")
+	) {
+		return "image/gif";
+	}
+
+	return null;
 }
 
 function removeShotlyxMGSquareAspectCompensation({
@@ -121,10 +136,16 @@ function buildTrackNodes({
 					);
 				}
 				if (element.type === "image" && mediaAsset.type === "image") {
+					const animatedMimeType = getAnimatedImageMimeType({
+						asset: mediaAsset,
+						elementName: element.name,
+					});
 					nodes.push(
 						new ImageNode({
 							url: mediaAsset.url,
-							animated: isAnimatedImageFile({ file: mediaAsset.file }),
+							file: mediaAsset.file,
+							animated: animatedMimeType !== null,
+							animatedMimeType: animatedMimeType ?? undefined,
 							duration: element.duration,
 							timeOffset: element.startTime,
 							trimStart: element.trimStart,

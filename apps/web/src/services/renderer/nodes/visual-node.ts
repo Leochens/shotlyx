@@ -27,6 +27,7 @@ export interface ResolvedVisualNodeState {
 
 export interface ResolvedVisualSourceNodeState extends ResolvedVisualNodeState {
 	source: CanvasImageSource;
+	sourceVersion?: string;
 	sourceWidth: number;
 	sourceHeight: number;
 }

@@ -62,6 +62,7 @@
 		"motion": "^12.18.1",
 		"nanoid": "^5.1.5",
 		"node-edge-tts": "^1.2.10",
+		"omggif": "^1.0.10",
 		"onnxruntime-common": "1.22.0-dev.20250409-89f8206ba4",
 		"openai": "^6.37.0",
 		"opencut-wasm": "^0.2.10",
