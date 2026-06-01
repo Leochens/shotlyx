@@ -71,5 +71,7 @@ describe("callout presets", () => {
 		expect(element.startTime).toBe(4 * MEDIA_TIME_TICKS_PER_SECOND);
 		expect(element.duration).toBe(0.85 * MEDIA_TIME_TICKS_PER_SECOND);
 		expect(element.params.blockSize).toBe(48);
+		expect(element.params["transform.scaleX"]).toBe(0.25);
+		expect(element.params["transform.scaleY"]).toBe(0.25);
 	});
 });

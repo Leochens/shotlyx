@@ -114,7 +114,9 @@ function getTargetElementTypesForDrag({
 }: {
 	dragData: TimelineDragData;
 }): string[] | undefined {
-	if (dragData.type === "effect") return dragData.targetElementTypes;
+	if (dragData.type === "effect" && dragData.effectType !== "pixelate") {
+		return dragData.targetElementTypes;
+	}
 	if (dragData.type === "media") return dragData.targetElementTypes;
 	return undefined;
 }
@@ -502,7 +504,8 @@ export class DragDropController {
 		target: DropTarget;
 		dragData: Extract<TimelineDragData, { type: "effect" }>;
 	}): void {
-		if (target.targetElement) {
+		const shouldAddToClip = target.targetElement && dragData.effectType !== "pixelate";
+		if (shouldAddToClip) {
 			this.config.addClipEffect({
 				trackId: target.targetElement.trackId,
 				elementId: target.targetElement.elementId,

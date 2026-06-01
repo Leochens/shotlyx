@@ -80,6 +80,8 @@ function buildTrackNodes({
 						effectParams: element.params,
 						timeOffset: element.startTime,
 						duration: element.duration,
+						transform: buildTransformFromParams({ params: element.params }),
+						animations: element.animations,
 					}),
 				);
 				continue;

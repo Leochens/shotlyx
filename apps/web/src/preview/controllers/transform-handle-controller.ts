@@ -16,7 +16,6 @@ import {
 	type ScaleEdgePreference,
 	type SnapLine,
 } from "@/preview/preview-snap";
-import { isVisualElement } from "@/timeline/element-utils";
 import {
 	getElementLocalTime,
 	hasKeyframesForPath,
@@ -26,11 +25,12 @@ import type { ElementAnimations } from "@/animation/types";
 import type { ParamValues } from "@/params";
 import { buildTransformFromParams, type Transform } from "@/rendering";
 import { resolveTransformAtTime } from "@/rendering/animation-values";
+import { isTransformableElement } from "@/timeline/element-utils";
 import type {
 	ElementRef,
 	SceneTracks,
 	TimelineElement,
-	VisualElement,
+	TransformableElement,
 } from "@/timeline";
 
 type Point = { readonly x: number; readonly y: number };
@@ -96,7 +96,7 @@ const IDLE_SESSION: TransformSession = { kind: "idle" };
 interface VisualSelectionContext {
 	readonly trackId: string;
 	readonly elementId: string;
-	readonly element: VisualElement;
+	readonly element: TransformableElement;
 	readonly bounds: ElementBounds;
 	readonly resolvedTransform: Transform;
 }
@@ -354,7 +354,7 @@ export class TransformHandleController {
 		event,
 		corner,
 	}: {
-		event: ReactPointerEvent;
+		event: ReactPointerEvent<HTMLElement>;
 		corner: Corner;
 	}): void {
 		const context = this.getSelectedVisualContext();
@@ -386,7 +386,7 @@ export class TransformHandleController {
 			animationsWithoutScale,
 			pointerId: event.pointerId,
 			captureTarget: this.capturePointer({
-				target: event.currentTarget as HTMLElement,
+				target: event.currentTarget,
 				pointerId: event.pointerId,
 			}),
 		};
@@ -394,7 +394,11 @@ export class TransformHandleController {
 		this.notify();
 	}
 
-	onRotationPointerDown({ event }: { event: ReactPointerEvent }): void {
+	onRotationPointerDown({
+		event,
+	}: {
+		event: ReactPointerEvent<HTMLElement>;
+	}): void {
 		const context = this.getSelectedVisualContext();
 		if (!context) return;
 
@@ -421,7 +425,7 @@ export class TransformHandleController {
 			initialBoundsCy: context.bounds.cy,
 			pointerId: event.pointerId,
 			captureTarget: this.capturePointer({
-				target: event.currentTarget as HTMLElement,
+				target: event.currentTarget,
 				pointerId: event.pointerId,
 			}),
 		};
@@ -433,7 +437,7 @@ export class TransformHandleController {
 		event,
 		edge,
 	}: {
-		event: ReactPointerEvent;
+		event: ReactPointerEvent<HTMLElement>;
 		edge: Edge;
 	}): void {
 		const context = this.getSelectedVisualContext();
@@ -463,7 +467,7 @@ export class TransformHandleController {
 			animationsWithoutScale,
 			pointerId: event.pointerId,
 			captureTarget: this.capturePointer({
-				target: event.currentTarget as HTMLElement,
+				target: event.currentTarget,
 				pointerId: event.pointerId,
 			}),
 		};
@@ -554,7 +558,7 @@ export class TransformHandleController {
 	private getSelectedVisualContext(): VisualSelectionContext | null {
 		const selectedWithBounds = this.selectedWithBounds;
 		if (!selectedWithBounds) return null;
-		if (!isVisualElement(selectedWithBounds.element)) return null;
+		if (!isTransformableElement(selectedWithBounds.element)) return null;
 
 		const localTime = getElementLocalTime({
 			timelineTime: this.deps.scene.getCurrentTime(),

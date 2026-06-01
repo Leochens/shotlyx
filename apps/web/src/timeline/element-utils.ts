@@ -2,6 +2,7 @@ import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
 import {
 	MASKABLE_ELEMENT_TYPES,
 	RETIMABLE_ELEMENT_TYPES,
+	TRANSFORMABLE_ELEMENT_TYPES,
 	VISUAL_ELEMENT_TYPES,
 	type CreateEffectElement,
 	type CreateGraphicElement,
@@ -19,6 +20,7 @@ import {
 	type ImageElement,
 	type MaskableElement,
 	type RetimableElement,
+	type TransformableElement,
 	type VisualElement,
 	type UploadAudioElement,
 } from "@/timeline";
@@ -44,6 +46,14 @@ export function isVisualElement(
 	element: TimelineElement,
 ): element is VisualElement {
 	return (VISUAL_ELEMENT_TYPES as readonly string[]).includes(element.type);
+}
+
+export function isTransformableElement(
+	element: TimelineElement,
+): element is TransformableElement {
+	return (TRANSFORMABLE_ELEMENT_TYPES as readonly string[]).includes(
+		element.type,
+	);
 }
 
 export function isMaskableElement(
@@ -98,6 +108,19 @@ function buildDefaultElementParams({
 	return buildDefaultParamValues(getBuiltInElementParams({ type }));
 }
 
+function buildDefaultStandaloneEffectParams({
+	effectType,
+}: {
+	effectType: string;
+}): ParamValues {
+	const params = buildDefaultElementParams({ type: "effect" });
+	if (effectType === "pixelate") {
+		params["transform.scaleX"] = 0.25;
+		params["transform.scaleY"] = 0.25;
+	}
+	return params;
+}
+
 export function buildTextElement({
 	raw,
 	startTime,
@@ -136,7 +159,10 @@ export function buildEffectElement({
 		type: "effect",
 		name: definition.name,
 		effectType,
-		params: instance.params,
+		params: {
+			...buildDefaultStandaloneEffectParams({ effectType }),
+			...instance.params,
+		},
 		duration: duration ?? DEFAULT_NEW_ELEMENT_DURATION,
 		startTime,
 		trimStart: ZERO_MEDIA_TIME,

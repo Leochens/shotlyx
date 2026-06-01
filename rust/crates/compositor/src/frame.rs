@@ -25,6 +25,8 @@ pub enum FrameItemDescriptor {
     Layer(LayerDescriptor),
     SceneEffect {
         effect_pass_groups: Vec<Vec<EffectPassDescriptor>>,
+        #[serde(default)]
+        transform: Option<QuadTransformDescriptor>,
     },
 }
 

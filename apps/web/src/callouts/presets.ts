@@ -179,10 +179,20 @@ export function buildMosaicEffectElement({
 	startTimeSeconds,
 	durationSeconds,
 	blockSize = 24,
+	positionX = 0,
+	positionY = 0,
+	scaleX = 0.25,
+	scaleY = 0.25,
+	rotate = 0,
 }: {
 	startTimeSeconds: number;
 	durationSeconds?: number;
 	blockSize?: number;
+	positionX?: number;
+	positionY?: number;
+	scaleX?: number;
+	scaleY?: number;
+	rotate?: number;
 }): CreateEffectElement {
 	return {
 		type: "effect",
@@ -196,6 +206,13 @@ export function buildMosaicEffectElement({
 		trimEnd: mediaTimeFromSecondsForEffect({ seconds: 0 }),
 		params: {
 			blockSize: normalizePixelateBlockSize({ blockSize }),
+			"transform.positionX": positionX,
+			"transform.positionY": positionY,
+			"transform.scaleX": scaleX,
+			"transform.scaleY": scaleY,
+			"transform.rotate": rotate,
+			opacity: 1,
+			blendMode: "normal",
 		},
 	};
 }

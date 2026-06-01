@@ -257,6 +257,42 @@ describe("DragDropController effect drops", () => {
 		});
 	});
 
+	test("drops mosaic as a standalone effect even when hovering over a clip", () => {
+		const tracks = buildSceneTracks({
+			overlay: [buildEffectTrack()],
+		});
+		const {
+			controller,
+			addClipEffect,
+			insertElement,
+			seekToTime,
+			openElementEffectsPanel,
+		} = buildController({ tracks, dragData: mosaicDragData });
+
+		const event = buildDragEvent({ clientY: 40 });
+		controller.onDragOver(event);
+		controller.onDrop(event);
+
+		expect(addClipEffect).not.toHaveBeenCalled();
+		expect(insertElement).toHaveBeenCalledTimes(1);
+		expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
+			placement: { mode: "explicit", trackId: "effect-track" },
+			element: {
+				type: "effect",
+				effectType: "pixelate",
+				name: "Mosaic",
+				params: {
+					"transform.scaleX": 0.25,
+					"transform.scaleY": 0.25,
+				},
+			},
+		});
+		expect(seekToTime).toHaveBeenCalledTimes(1);
+		expect(openElementEffectsPanel).toHaveBeenCalledWith({
+			elementType: "effect",
+		});
+	});
+
 	test("focuses the effect tab after dropping onto an existing effect track", () => {
 		const tracks = buildSceneTracks({
 			overlay: [buildEffectTrack()],

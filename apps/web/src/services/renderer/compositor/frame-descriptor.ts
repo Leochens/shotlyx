@@ -127,6 +127,10 @@ async function collectNode({
 		items.push({
 			type: "sceneEffect",
 			effectPassGroups: [node.resolved.passes],
+			transform: computeSceneEffectTransform({
+				renderer,
+				transform: node.resolved.transform,
+			}),
 		});
 		return;
 	}
@@ -372,6 +376,31 @@ function fullCanvasTransform(
 		rotationDegrees: 0,
 		flipX: false,
 		flipY: false,
+	};
+}
+
+function computeSceneEffectTransform({
+	renderer,
+	transform,
+}: {
+	renderer: CanvasRenderer;
+	transform: {
+		scaleX: number;
+		scaleY: number;
+		position: { x: number; y: number };
+		rotate: number;
+	};
+}): QuadTransformDescriptor {
+	const width = renderer.width * transform.scaleX;
+	const height = renderer.height * transform.scaleY;
+	return {
+		centerX: renderer.width / 2 + transform.position.x,
+		centerY: renderer.height / 2 + transform.position.y,
+		width: Math.abs(width),
+		height: Math.abs(height),
+		rotationDegrees: transform.rotate,
+		flipX: width < 0,
+		flipY: height < 0,
 	};
 }
 

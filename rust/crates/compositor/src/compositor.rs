@@ -9,7 +9,7 @@ use crate::{
     BlendMode,
     frame::{
         EffectPassDescriptor, EffectUniformValueDescriptor, FrameDescriptor, FrameItemDescriptor,
-        LayerDescriptor,
+        LayerDescriptor, QuadTransformDescriptor,
     },
     texture_pool::TexturePool,
     texture_store::TextureStore,
@@ -324,8 +324,11 @@ impl Compositor {
                         frame.height,
                     )?;
                 }
-                FrameItemDescriptor::SceneEffect { effect_pass_groups } => {
-                    scene = self.apply_effect_groups(
+                FrameItemDescriptor::SceneEffect {
+                    effect_pass_groups,
+                    transform,
+                } => {
+                    let effected_scene = self.apply_effect_groups(
                         context,
                         &mut encoder,
                         &scene,
@@ -333,6 +336,19 @@ impl Compositor {
                         frame.height,
                         effect_pass_groups,
                     )?;
+                    scene = if let Some(transform) = transform {
+                        self.blend_scene_effect_region(
+                            context,
+                            &mut encoder,
+                            &scene,
+                            &effected_scene,
+                            transform,
+                            frame.width,
+                            frame.height,
+                        )?
+                    } else {
+                        effected_scene
+                    };
                 }
             }
         }
@@ -380,8 +396,11 @@ impl Compositor {
                         frame.height,
                     )?;
                 }
-                FrameItemDescriptor::SceneEffect { effect_pass_groups } => {
-                    scene = self.apply_effect_groups(
+                FrameItemDescriptor::SceneEffect {
+                    effect_pass_groups,
+                    transform,
+                } => {
+                    let effected_scene = self.apply_effect_groups(
                         context,
                         &mut encoder,
                         &scene,
@@ -389,6 +408,19 @@ impl Compositor {
                         frame.height,
                         effect_pass_groups,
                     )?;
+                    scene = if let Some(transform) = transform {
+                        self.blend_scene_effect_region(
+                            context,
+                            &mut encoder,
+                            &scene,
+                            &effected_scene,
+                            transform,
+                            frame.width,
+                            frame.height,
+                        )?
+                    } else {
+                        effected_scene
+                    };
                 }
             }
         }
@@ -506,6 +538,64 @@ impl Compositor {
             )?;
         }
         Ok(current)
+    }
+
+    fn blend_scene_effect_region(
+        &mut self,
+        context: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        base_scene: &wgpu::Texture,
+        effected_scene: &wgpu::Texture,
+        transform: &QuadTransformDescriptor,
+        width: u32,
+        height: u32,
+    ) -> Result<wgpu::Texture, CompositorError> {
+        let mask = self.render_scene_effect_region_mask(context, encoder, transform, width, height);
+        let masked_effect = self.apply_mask(
+            context,
+            encoder,
+            effected_scene,
+            &mask,
+            false,
+            width,
+            height,
+        );
+        self.blend_texture(
+            context,
+            encoder,
+            base_scene,
+            &masked_effect,
+            BlendMode::Normal,
+            width,
+            height,
+        )
+    }
+
+    fn render_scene_effect_region_mask(
+        &mut self,
+        context: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        transform: &QuadTransformDescriptor,
+        width: u32,
+        height: u32,
+    ) -> wgpu::Texture {
+        let white = self.create_cleared_texture(context, encoder, width, height, [1.0; 4]);
+        let mask = self.texture_pool.acquire(
+            context,
+            width,
+            height,
+            "compositor-scene-effect-region-mask",
+        );
+        let layer = LayerDescriptor {
+            texture_id: String::new(),
+            transform: transform.clone(),
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            effect_pass_groups: Vec::new(),
+            mask: None,
+        };
+        self.render_source_to_texture(context, encoder, &white, &mask, width, height, &layer);
+        mask
     }
 
     fn create_cleared_texture(

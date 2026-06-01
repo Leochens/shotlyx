@@ -20,14 +20,14 @@ import {
 import type { TCanvasSize } from "@/project/types";
 import type { ParamValues } from "@/params";
 import { buildTransformFromParams, type Transform } from "@/rendering";
-import { isVisualElement } from "@/timeline/element-utils";
+import { isTransformableElement } from "@/timeline/element-utils";
 import type {
 	ElementRef,
 	SceneTracks,
 	TextElement,
 	TimelineElement,
 	TimelineTrack,
-	VisualElement,
+	TransformableElement,
 } from "@/timeline";
 
 const MIN_DRAG_DISTANCE = 0.5;
@@ -212,8 +212,8 @@ function toDragElementSnapshots({
 	const isVisualTrackedElement = (value: {
 		track: TimelineTrack;
 		element: TimelineElement;
-	}): value is { track: TimelineTrack; element: VisualElement } =>
-		isVisualElement(value.element);
+	}): value is { track: TimelineTrack; element: TransformableElement } =>
+		isTransformableElement(value.element);
 
 	return elementsWithTracks
 		.filter(isVisualTrackedElement)
@@ -332,7 +332,7 @@ export class PreviewInteractionController {
 		currentTarget,
 		pointerId,
 		button,
-	}: ReactPointerEvent): void {
+	}: ReactPointerEvent<HTMLElement>): void {
 		if (this.editingTextState) return;
 		if (this.deps.preview.isMaskMode()) return;
 		if (button !== PRIMARY_POINTER_BUTTON) return;
@@ -354,7 +354,7 @@ export class PreviewInteractionController {
 			kind: "pending",
 			origin: startPos,
 			pointerId,
-			captureTarget: currentTarget as HTMLElement,
+			captureTarget: currentTarget,
 			topmostHit: hits[0] ?? null,
 			selectedHit: resolvePreferredHit({
 				hits,

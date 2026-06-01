@@ -23,6 +23,7 @@ export type FrameItemDescriptor =
 	| {
 			type: "sceneEffect";
 			effectPassGroups: EffectPass[][];
+			transform?: QuadTransformDescriptor;
 	  };
 
 export type QuadTransformDescriptor = {

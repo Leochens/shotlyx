@@ -2,10 +2,7 @@ import type { ElementAnimations } from "@/animation/types";
 import type { Effect } from "@/effects/types";
 import type { Mask } from "@/masks/types";
 import type { ParamValues } from "@/params";
-import type {
-	SubtitleLayerCue,
-	SubtitleRevealMode,
-} from "@/subtitles/types";
+import type { SubtitleLayerCue, SubtitleRevealMode } from "@/subtitles/types";
 import type { MediaTime } from "@/wasm";
 
 export type ElementRef = {
@@ -219,6 +216,21 @@ export const VISUAL_ELEMENT_TYPES = elementTypes(
 export type VisualElement = Extract<
 	TimelineElement,
 	{ type: (typeof VISUAL_ELEMENT_TYPES)[number] }
+>;
+
+export const TRANSFORMABLE_ELEMENT_TYPES = elementTypes(
+	"video",
+	"image",
+	"text",
+	"subtitle",
+	"sticker",
+	"graphic",
+	"effect",
+);
+
+export type TransformableElement = Extract<
+	TimelineElement,
+	{ type: (typeof TRANSFORMABLE_ELEMENT_TYPES)[number] }
 >;
 
 export type CreateUploadAudioElement = Omit<UploadAudioElement, "id">;

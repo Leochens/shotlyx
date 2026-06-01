@@ -528,6 +528,7 @@ function resolveEffectLayerNode({
 	context: ResolveContext;
 }): ResolvedEffectLayerNodeState | null {
 	const time = context.time;
+	const clipTime = time - node.params.timeOffset;
 	if (
 		time < node.params.timeOffset - 1e-6 ||
 		time >= node.params.timeOffset + node.params.duration + 1e-6
@@ -548,5 +549,10 @@ function resolveEffectLayerNode({
 
 	return {
 		passes,
+		transform: resolveTransformAtTime({
+			baseTransform: node.params.transform,
+			animations: node.params.animations,
+			localTime: clipTime,
+		}),
 	};
 }

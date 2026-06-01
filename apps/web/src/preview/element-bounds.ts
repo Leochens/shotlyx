@@ -120,10 +120,25 @@ function getElementBounds({
 	localTime: number;
 	timelineTime: number;
 }): ElementBounds | null {
-	if (element.type === "audio" || element.type === "effect") return null;
+	if (element.type === "audio") return null;
 	if ("hidden" in element && element.hidden) return null;
 
 	const { width: canvasWidth, height: canvasHeight } = canvasSize;
+
+	if (element.type === "effect") {
+		const transform = resolveTransformAtTime({
+			baseTransform: buildTransformFromParams({ params: element.params }),
+			animations: element.animations,
+			localTime,
+		});
+		return getVisualElementBounds({
+			canvasWidth,
+			canvasHeight,
+			sourceWidth: canvasWidth,
+			sourceHeight: canvasHeight,
+			transform,
+		});
+	}
 
 	if (element.type === "video" || element.type === "image") {
 		const transform = resolveTransformAtTime({

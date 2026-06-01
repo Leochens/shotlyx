@@ -860,7 +860,7 @@ export function buildTimelineTools({
 		{
 			name: "timeline_insert_visual_effect",
 			description:
-				"Insert a timed visual effect preset on the timeline. Use this for subtitle-timed arrows, highlight boxes, highlight circles, or a full-frame mosaic/pixelate effect. For arrow/box/circle, this creates editable graphic elements with built-in pop/fade animation. For mosaic, this creates an effect-track element.",
+				"Insert a timed visual effect preset on the timeline. Use this for subtitle-timed arrows, highlight boxes, highlight circles, or a local mosaic/pixelate region. For arrow/box/circle, this creates editable graphic elements with built-in pop/fade animation. For mosaic, this creates a transformable effect-track element.",
 			parameters: {
 				kind: {
 					type: "string",
@@ -896,27 +896,27 @@ export function buildTimelineTools({
 				},
 				positionX: {
 					type: "number",
-					description: "Optional canvas X offset for arrow/box/circle",
+					description: "Optional canvas X offset",
 					optional: true,
 				},
 				positionY: {
 					type: "number",
-					description: "Optional canvas Y offset for arrow/box/circle",
+					description: "Optional canvas Y offset",
 					optional: true,
 				},
 				scaleX: {
 					type: "number",
-					description: "Optional horizontal scale for arrow/box/circle",
+					description: "Optional horizontal scale",
 					optional: true,
 				},
 				scaleY: {
 					type: "number",
-					description: "Optional vertical scale for arrow/box/circle",
+					description: "Optional vertical scale",
 					optional: true,
 				},
 				rotate: {
 					type: "number",
-					description: "Optional rotation in degrees for arrow/box/circle",
+					description: "Optional rotation in degrees",
 					optional: true,
 				},
 				strokeWidth: {
@@ -972,6 +972,11 @@ export function buildTimelineTools({
 								startTimeSeconds,
 								durationSeconds,
 								blockSize,
+								...(positionX !== undefined ? { positionX } : {}),
+								...(positionY !== undefined ? { positionY } : {}),
+								...(scaleX !== undefined ? { scaleX } : {}),
+								...(scaleY !== undefined ? { scaleY } : {}),
+								...(rotate !== undefined ? { rotate } : {}),
 							})
 						: buildCalloutGraphicElement({
 								kind: kindValue,
