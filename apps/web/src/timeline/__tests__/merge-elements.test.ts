@@ -97,6 +97,54 @@ describe("buildMergeElementsPlan", () => {
 		expect(plan?.removedElementIds).toEqual(["clip-right"]);
 	});
 
+	test("merges three adjacent split clips from one source span", () => {
+		const tracks = sceneWithMain([
+			videoElement({
+				id: "clip-left",
+				name: "Interview (left)",
+				startTime: 0,
+				duration: 300,
+				trimStart: 100,
+				trimEnd: 600,
+			}),
+			videoElement({
+				id: "clip-middle",
+				name: "Interview (right) (left)",
+				startTime: 300,
+				duration: 300,
+				trimStart: 400,
+				trimEnd: 300,
+			}),
+			videoElement({
+				id: "clip-right",
+				name: "Interview (right) (right)",
+				startTime: 600,
+				duration: 300,
+				trimStart: 700,
+				trimEnd: 0,
+			}),
+		]);
+
+		const plan = buildMergeElementsPlan({
+			tracks,
+			elements: [
+				{ trackId: "main", elementId: "clip-right" },
+				{ trackId: "main", elementId: "clip-left" },
+				{ trackId: "main", elementId: "clip-middle" },
+			],
+		});
+
+		expect(plan?.mergedElement).toMatchObject({
+			id: "clip-left",
+			name: "Interview",
+			startTime: mt(0),
+			duration: mt(900),
+			trimStart: mt(100),
+			trimEnd: mt(0),
+		});
+		expect(plan?.removedElementIds).toEqual(["clip-middle", "clip-right"]);
+	});
+
 	test("refuses to merge timeline-adjacent clips when their source spans skip removed material", () => {
 		const tracks = sceneWithMain([
 			videoElement({

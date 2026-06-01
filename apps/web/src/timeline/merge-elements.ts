@@ -200,8 +200,8 @@ function stableStringify(value: unknown): string {
 		return `[${value.map(stableStringify).join(",")}]`;
 	}
 
-	const entries = Object.entries(value).sort(
-		([leftKey], [rightKey]) => leftKey.localeCompare(rightKey),
+	const entries = Object.entries(value).sort(([leftKey], [rightKey]) =>
+		leftKey.localeCompare(rightKey),
 	);
 	return `{${entries
 		.map(
@@ -222,18 +222,18 @@ function buildMergedName({
 		return "";
 	}
 
-	const leftBase = stripSplitSuffix({ name: firstElement.name, suffix: "left" });
-	const rightBase = stripSplitSuffix({ name: lastElement.name, suffix: "right" });
+	const leftBase = stripSplitSuffixes({ name: firstElement.name });
+	const rightBase = stripSplitSuffixes({ name: lastElement.name });
 	return leftBase === rightBase ? leftBase : firstElement.name;
 }
 
-function stripSplitSuffix({
-	name,
-	suffix,
-}: {
-	name: string;
-	suffix: "left" | "right";
-}): string {
-	const marker = ` (${suffix})`;
-	return name.endsWith(marker) ? name.slice(0, -marker.length) : name;
+function stripSplitSuffixes({ name }: { name: string }): string {
+	let baseName = name;
+	for (;;) {
+		const nextName = baseName.replace(/ \((left|right)\)$/, "");
+		if (nextName === baseName) {
+			return baseName;
+		}
+		baseName = nextName;
+	}
 }

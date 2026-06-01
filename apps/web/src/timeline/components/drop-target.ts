@@ -1,6 +1,9 @@
 import type { TimelineTrack, TimelineElement } from "@/timeline";
 import type { ComputeDropTargetParams, DropTarget } from "@/timeline";
-import { resolveTrackPlacement } from "@/timeline/placement";
+import {
+	canElementGoOnTrack,
+	resolveTrackPlacement,
+} from "@/timeline/placement";
 import { TIMELINE_TRACK_GAP_PX } from "./layout";
 import { getTrackHeight } from "./track-layout";
 import {
@@ -41,6 +44,26 @@ function findElementAtPosition({
 	);
 	if (!hit) return null;
 	return { elementId: hit.id, trackId: track.id };
+}
+
+function isInsideElementInterior({
+	track,
+	time,
+	excludeElementId,
+}: {
+	track: TimelineTrack;
+	time: MediaTime;
+	excludeElementId?: string;
+}): boolean {
+	return track.elements.some((element) => {
+		if (element.id === excludeElementId) {
+			return false;
+		}
+
+		return (
+			element.startTime < time && time < element.startTime + element.duration
+		);
+	});
 }
 
 function getTrackAtY({
@@ -114,9 +137,9 @@ export function computeDropTarget({
 	startTimeOverride,
 	excludeElementId,
 	targetElementTypes,
+	allowOccupiedExistingTrack,
 }: ComputeDropTargetParams): DropTarget {
 	const orderedTracks = [...tracks.overlay, tracks.main, ...tracks.audio];
-	const mainTrackIndex = tracks.overlay.length;
 	const xPosition =
 		startTimeOverride !== undefined
 			? startTimeOverride
@@ -133,7 +156,9 @@ export function computeDropTarget({
 		const placementResult = resolveTrackPlacement({
 			tracks,
 			elementType,
-			timeSpans: [{ startTime: xPosition, duration: elementDuration, excludeElementId }],
+			timeSpans: [
+				{ startTime: xPosition, duration: elementDuration, excludeElementId },
+			],
 			strategy: {
 				type: "preferIndex",
 				trackIndex: 0,
@@ -168,7 +193,9 @@ export function computeDropTarget({
 		const placementResult = resolveTrackPlacement({
 			tracks,
 			elementType,
-			timeSpans: [{ startTime: xPosition, duration: elementDuration, excludeElementId }],
+			timeSpans: [
+				{ startTime: xPosition, duration: elementDuration, excludeElementId },
+			],
 			strategy: {
 				type: "preferIndex",
 				trackIndex: isAboveAllTracks ? 0 : orderedTracks.length - 1,
@@ -214,11 +241,31 @@ export function computeDropTarget({
 		}
 	}
 
+	if (
+		allowOccupiedExistingTrack &&
+		canElementGoOnTrack({ elementType, trackType: track.type }) &&
+		!isInsideElementInterior({
+			track,
+			time: xPosition,
+			excludeElementId,
+		})
+	) {
+		return {
+			trackIndex,
+			isNewTrack: false,
+			insertPosition: null,
+			xPosition,
+			targetElement: EMPTY_TARGET_ELEMENT,
+		};
+	}
+
 	const trackHeight = getTrackHeight({ type: track.type });
 	const placementResult = resolveTrackPlacement({
 		tracks,
 		elementType,
-		timeSpans: [{ startTime: xPosition, duration: elementDuration, excludeElementId }],
+		timeSpans: [
+			{ startTime: xPosition, duration: elementDuration, excludeElementId },
+		],
 		strategy: {
 			type: "preferIndex",
 			trackIndex,

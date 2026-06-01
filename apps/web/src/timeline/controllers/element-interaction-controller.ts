@@ -206,6 +206,7 @@ function resolveDropTarget({
 	zoomLevel,
 	snappedTime,
 	verticalDragDirection,
+	allowOccupiedExistingTrack,
 }: {
 	clientX: number;
 	clientY: number;
@@ -216,6 +217,7 @@ function resolveDropTarget({
 	zoomLevel: number;
 	snappedTime: MediaTime;
 	verticalDragDirection: "up" | "down" | null;
+	allowOccupiedExistingTrack: boolean;
 }): DropTarget | null {
 	const containerRect = viewport
 		.getTracksContainerEl()
@@ -246,6 +248,7 @@ function resolveDropTarget({
 		startTimeOverride: snappedTime,
 		excludeElementId: movingElement.id,
 		verticalDragDirection,
+		allowOccupiedExistingTrack,
 	});
 }
 
@@ -520,6 +523,7 @@ export class ElementInteractionController {
 				startMouseY: mousedown.origin.y,
 				currentMouseY: clientY,
 			}),
+			allowOccupiedExistingTrack: this.deps.timeline.isRippleEditingEnabled(),
 		});
 
 		const nextGroupMoveResult = anchorDropTarget

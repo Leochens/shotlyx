@@ -68,7 +68,11 @@ function videoElement({
 	};
 }
 
-function buildTracks(): SceneTracks {
+function buildTracks({
+	overlayElements = [],
+}: {
+	overlayElements?: VideoElement[];
+} = {}): SceneTracks {
 	return {
 		overlay: [
 			{
@@ -77,7 +81,7 @@ function buildTracks(): SceneTracks {
 				name: "Overlay video",
 				hidden: false,
 				muted: false,
-				elements: [],
+				elements: overlayElements,
 			},
 		],
 		main: {
@@ -225,6 +229,52 @@ describe("resolveGroupMove", () => {
 				targetTrackId: "new-video-1",
 				newStartTime: seconds(60),
 			},
+		]);
+	});
+
+	test("ripples later target-track clips when inserting a clip from another track", () => {
+		const tracks = buildTracks({
+			overlayElements: [videoElement({ id: "insert", start: 50 })],
+		});
+		const group = buildMoveGroup({
+			anchorRef: { trackId: "overlay-video", elementId: "insert" },
+			selectedElements: [{ trackId: "overlay-video", elementId: "insert" }],
+			tracks,
+		});
+
+		expect(group).not.toBeNull();
+		if (!group) throw new Error("expected a move group");
+
+		const result = resolveGroupMove({
+			group,
+			tracks,
+			anchorStartTime: seconds(20),
+			target: { kind: "existingTrack", anchorTargetTrackId: "main" },
+			rippleEditingEnabled: true,
+		});
+
+		expect(result?.moves).toMatchObject([
+			{
+				elementId: "insert",
+				sourceTrackId: "overlay-video",
+				targetTrackId: "main",
+				newStartTime: seconds(20),
+			},
+			{
+				elementId: "b",
+				sourceTrackId: "main",
+				targetTrackId: "main",
+				newStartTime: seconds(30),
+			},
+			{
+				elementId: "c",
+				sourceTrackId: "main",
+				targetTrackId: "main",
+				newStartTime: seconds(40),
+			},
+		]);
+		expect(result?.targetSelection).toEqual([
+			{ trackId: "main", elementId: "insert" },
 		]);
 	});
 });

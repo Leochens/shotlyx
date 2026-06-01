@@ -119,7 +119,7 @@ function resolveExistingTrackMove({
 		}),
 	}));
 	const moves = rippleEditingEnabled
-		? appendMainTrackRippleMoves({ tracks, group, moves: selectedMoves })
+		? appendRippleMoves({ tracks, group, selectedMoves })
 		: selectedMoves;
 
 	if (!canApplyMovesToExistingTracks({ tracks, moves })) {
@@ -134,6 +134,29 @@ function resolveExistingTrackMove({
 			elementId,
 		})),
 	};
+}
+
+function appendRippleMoves({
+	tracks,
+	group,
+	selectedMoves,
+}: {
+	tracks: SceneTracks;
+	group: MoveGroup;
+	selectedMoves: PlannedElementMove[];
+}): PlannedElementMove[] {
+	const moves = appendMainTrackRippleMoves({
+		tracks,
+		group,
+		moves: selectedMoves,
+	});
+
+	return appendTargetTrackInsertionRippleMoves({
+		tracks,
+		group,
+		selectedMoves,
+		moves,
+	});
 }
 
 function appendMainTrackRippleMoves({
@@ -191,6 +214,107 @@ function appendMainTrackRippleMoves({
 			elementId: element.id,
 			newStartTime: addMediaTime({ a: element.startTime, b: deltaTime }),
 		}));
+
+	return [...moves, ...followerMoves];
+}
+
+function appendTargetTrackInsertionRippleMoves({
+	tracks,
+	group,
+	selectedMoves,
+	moves,
+}: {
+	tracks: SceneTracks;
+	group: MoveGroup;
+	selectedMoves: PlannedElementMove[];
+	moves: PlannedElementMove[];
+}): PlannedElementMove[] {
+	const movingElementIds = new Set(
+		group.members.map((member) => member.elementId),
+	);
+	const memberByElementId = new Map(
+		group.members.map((member) => [member.elementId, member]),
+	);
+	const plannedMoveElementIds = new Set(moves.map((move) => move.elementId));
+	const inboundMovesByTrackId = new Map<string, PlannedElementMove[]>();
+
+	for (const move of selectedMoves) {
+		if (move.sourceTrackId === move.targetTrackId) {
+			continue;
+		}
+
+		const trackMoves = inboundMovesByTrackId.get(move.targetTrackId) ?? [];
+		trackMoves.push(move);
+		inboundMovesByTrackId.set(move.targetTrackId, trackMoves);
+	}
+
+	const followerMoves: PlannedElementMove[] = [];
+	for (const [targetTrackId, inboundMoves] of inboundMovesByTrackId) {
+		const targetTrack = getDisplayTracks({ tracks }).find(
+			(track) => track.id === targetTrackId,
+		);
+		if (!targetTrack) {
+			continue;
+		}
+
+		const insertionStart = inboundMoves.reduce<MediaTime | null>(
+			(startTime, move) =>
+				startTime == null || move.newStartTime < startTime
+					? move.newStartTime
+					: startTime,
+			null,
+		);
+		const insertionEnd = inboundMoves.reduce<MediaTime | null>(
+			(endTime, move) => {
+				const member = memberByElementId.get(move.elementId);
+				if (!member) {
+					return endTime;
+				}
+
+				const moveEnd = addMediaTime({
+					a: move.newStartTime,
+					b: member.duration,
+				});
+				return endTime == null || moveEnd > endTime ? moveEnd : endTime;
+			},
+			null,
+		);
+		if (insertionStart == null || insertionEnd == null) {
+			continue;
+		}
+
+		const insertionDuration = subMediaTime({
+			a: insertionEnd,
+			b: insertionStart,
+		});
+		if (insertionDuration <= ZERO_MEDIA_TIME) {
+			continue;
+		}
+
+		for (const element of [...targetTrack.elements].sort(
+			(leftElement, rightElement) =>
+				leftElement.startTime - rightElement.startTime,
+		)) {
+			if (
+				movingElementIds.has(element.id) ||
+				plannedMoveElementIds.has(element.id) ||
+				element.startTime < insertionStart
+			) {
+				continue;
+			}
+
+			followerMoves.push({
+				sourceTrackId: targetTrack.id,
+				targetTrackId: targetTrack.id,
+				elementId: element.id,
+				newStartTime: addMediaTime({
+					a: element.startTime,
+					b: insertionDuration,
+				}),
+			});
+			plannedMoveElementIds.add(element.id);
+		}
+	}
 
 	return [...moves, ...followerMoves];
 }
@@ -333,7 +457,9 @@ function getTrackTypeForTrackGroup({
 			getTrackTypeForElementType({ elementType: member.elementType }),
 		),
 	);
-	return trackTypes.size === 1 ? (trackTypes.values().next().value ?? null) : null;
+	return trackTypes.size === 1
+		? (trackTypes.values().next().value ?? null)
+		: null;
 }
 
 function clampAudioInsertIndex({
