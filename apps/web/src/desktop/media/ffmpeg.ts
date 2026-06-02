@@ -62,6 +62,26 @@ function findRepoRoot(startDir = process.cwd()): string {
 	}
 }
 
+function isElectronDependencyResourcesPath(resourcesPath: string): boolean {
+	const normalized = resourcesPath.split(path.sep).join("/");
+	return (
+		normalized.includes("/node_modules/electron/") ||
+		normalized.includes("/node_modules/.bun/electron@")
+	);
+}
+
+function shouldUsePackagedResourcesPath({
+	env,
+	resourcesPath,
+}: {
+	env: NodeJS.ProcessEnv;
+	resourcesPath?: string;
+}): resourcesPath is string {
+	if (!resourcesPath) return false;
+	if (env.SHOTLYX_DESKTOP_DEV === "1") return false;
+	return !isElectronDependencyResourcesPath(resourcesPath);
+}
+
 export function resolveFfmpegPaths({
 	arch = process.arch,
 	env = process.env,
@@ -81,9 +101,13 @@ export function resolveFfmpegPaths({
 	}
 
 	const configuredDir = env.SHOTLYX_FFMPEG_DIR?.trim();
+	const usePackagedResourcesPath = shouldUsePackagedResourcesPath({
+		env,
+		resourcesPath,
+	});
 	const baseDir = configuredDir
 		? configuredDir
-		: resourcesPath
+		: usePackagedResourcesPath
 			? path.join(resourcesPath, "ffmpeg", bundleKey)
 			: path.join(repoRoot ?? findRepoRoot(), "resources", "ffmpeg", bundleKey);
 

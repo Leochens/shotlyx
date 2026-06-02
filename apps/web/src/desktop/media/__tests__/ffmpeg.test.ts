@@ -34,6 +34,46 @@ describe("desktop ffmpeg resources", () => {
 		});
 	});
 
+	test("ignores Electron dependency resources path in desktop development", () => {
+		const paths = resolveFfmpegPaths({
+			env: { SHOTLYX_DESKTOP_DEV: "1" },
+			platform: "darwin",
+			arch: "arm64",
+			repoRoot: "/repo",
+			resourcesPath:
+				"/repo/node_modules/.bun/electron@42.3.0/node_modules/electron/dist/Electron.app/Contents/Resources",
+		});
+
+		expect(paths).toEqual({
+			bundleKey: "darwin-arm64",
+			ffmpegPath: path.join("/repo", "resources/ffmpeg/darwin-arm64/ffmpeg"),
+			ffprobePath: path.join("/repo", "resources/ffmpeg/darwin-arm64/ffprobe"),
+		});
+	});
+
+	test("uses packaged app resources outside desktop development", () => {
+		const paths = resolveFfmpegPaths({
+			env: {},
+			platform: "darwin",
+			arch: "arm64",
+			repoRoot: "/repo",
+			resourcesPath:
+				"/Applications/Shotlyx Desktop.app/Contents/Resources",
+		});
+
+		expect(paths).toEqual({
+			bundleKey: "darwin-arm64",
+			ffmpegPath: path.join(
+				"/Applications/Shotlyx Desktop.app/Contents/Resources",
+				"ffmpeg/darwin-arm64/ffmpeg",
+			),
+			ffprobePath: path.join(
+				"/Applications/Shotlyx Desktop.app/Contents/Resources",
+				"ffmpeg/darwin-arm64/ffprobe",
+			),
+		});
+	});
+
 	test("lets explicit binary overrides win", () => {
 		const paths = resolveFfmpegPaths({
 			env: {
