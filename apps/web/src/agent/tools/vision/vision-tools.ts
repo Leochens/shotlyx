@@ -63,13 +63,12 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
 	webp: "image/webp",
 	gif: "image/gif",
 };
-const MINIMAX_M3_MEDIA_SIZE_LIMIT_BYTES = 52_428_800;
-
 interface PreparedVisionMedia {
 	name: string;
 	type: "image" | "video";
 	mimeType: string;
-	dataUrl: string;
+	dataUrl?: string;
+	file?: File;
 	durationSeconds?: number;
 	width?: number;
 	height?: number;
@@ -111,7 +110,9 @@ function normalizeFps(value: number | undefined): number {
 	return fps;
 }
 
-function normalizeMaxLongSidePixel(value: number | undefined): number | undefined {
+function normalizeMaxLongSidePixel(
+	value: number | undefined,
+): number | undefined {
 	if (value === undefined) return undefined;
 	if (!Number.isInteger(value) || value < 128 || value > 4096) {
 		throw new Error(
@@ -207,42 +208,6 @@ function rewriteDataUrlMimeType({
 	const suffixIndex = metadata.indexOf(";");
 	const suffix = suffixIndex >= 0 ? metadata.slice(suffixIndex) : "";
 	return `data:${mimeType}${suffix},${dataUrl.slice(commaIndex + 1)}`;
-}
-
-function formatMiB(bytes: number): string {
-	return `${(bytes / (1024 * 1024)).toFixed(1)}MiB`;
-}
-
-function buildLargeVideoChoiceResult(asset: VisualMediaAsset) {
-	return {
-		mediaAssetId: asset.id,
-		mediaName: asset.name,
-		mediaType: asset.type,
-		durationSeconds: asset.duration,
-		width: asset.width,
-		height: asset.height,
-		requiresUserChoice: true,
-		reason: "media_size_exceeds_minimax_limit",
-		fileSizeBytes: asset.file.size,
-		limitBytes: MINIMAX_M3_MEDIA_SIZE_LIMIT_BYTES,
-		message: `这个视频约 ${formatMiB(asset.file.size)}，超过 MiniMax M3 单次媒体 50MiB 限制。请让用户选择：切分视频后分段分析，或压缩/上传一个小于 50MiB 的视频。`,
-		options: [
-			{
-				id: "split_video",
-				label: "切分视频分析",
-				description:
-					"将视频拆成多个小于 50MiB 的片段，分段传给 MiniMax 后汇总结果。",
-			},
-			{
-				id: "compress_or_upload_smaller",
-				label: "压缩或上传小视频",
-				description:
-					"用户先压缩视频或上传小于 50MiB 的片段，再进行完整视频理解。",
-			},
-		],
-		instruction:
-			"Do not claim visual analysis is complete. Ask the user to choose whether to split the video for segmented analysis or compress/upload a smaller video before analysis.",
-	};
 }
 
 function emitVisionProgress({
@@ -513,19 +478,26 @@ export function buildVisionTools({
 					current: 1,
 				});
 				let preparedMedia: PreparedVisionMedia;
-				if (
-					asset.type === "video" &&
-					asset.file.size > MINIMAX_M3_MEDIA_SIZE_LIMIT_BYTES
-				) {
-					emitVisionProgress({
-						context,
-						stage: "vision-prepare",
-						label: "视频超过 MiniMax M3 单次媒体限制",
-						status: "error",
-						current: 1,
-					});
-					return buildLargeVideoChoiceResult(asset);
+				if (asset.type === "video") {
+					const mimeType = mimeTypeForAsset(asset);
+					preparedMedia = {
+						name: asset.name,
+						type: asset.type,
+						mimeType,
+						file: asset.file,
+						durationSeconds: asset.duration,
+						width: asset.width,
+						height: asset.height,
+					};
 				} else {
+					preparedMedia = {
+						name: asset.name,
+						type: asset.type,
+						mimeType: mimeTypeForAsset(asset),
+						durationSeconds: asset.duration,
+						width: asset.width,
+						height: asset.height,
+					};
 					let dataUrl: string;
 					try {
 						dataUrl = await readDataUrl(asset.file);
@@ -539,19 +511,10 @@ export function buildVisionTools({
 						});
 						throw error;
 					}
-					const mimeType = mimeTypeForAsset(asset);
-					preparedMedia = {
-						name: asset.name,
-						type: asset.type,
-						mimeType,
-						dataUrl: rewriteDataUrlMimeType({
-							dataUrl,
-							mimeType,
-						}),
-						durationSeconds: asset.duration,
-						width: asset.width,
-						height: asset.height,
-					};
+					preparedMedia.dataUrl = rewriteDataUrlMimeType({
+						dataUrl,
+						mimeType: preparedMedia.mimeType,
+					});
 				}
 
 				emitVisionProgress({
@@ -561,29 +524,52 @@ export function buildVisionTools({
 					status: "running",
 					current: 2,
 				});
-				const responsePromise = fetchFn("/api/agent/vision/analyze", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						analysisType,
-						prompt,
-						detail,
-						fps,
-						maxLongSidePixel,
-						stream: true,
-						media: {
-							mediaAssetId: asset.id,
-							name: preparedMedia.name,
-							type: preparedMedia.type,
-							mimeType: preparedMedia.mimeType,
-							dataUrl: preparedMedia.dataUrl,
-							durationSeconds: preparedMedia.durationSeconds,
-							width: preparedMedia.width,
-							height: preparedMedia.height,
-						},
-					}),
-					signal: context?.signal,
-				});
+				const payload = {
+					analysisType,
+					prompt,
+					detail,
+					fps,
+					maxLongSidePixel,
+					stream: true,
+					media: {
+						mediaAssetId: asset.id,
+						name: preparedMedia.name,
+						type: preparedMedia.type,
+						mimeType: preparedMedia.mimeType,
+						...(preparedMedia.dataUrl
+							? { dataUrl: preparedMedia.dataUrl }
+							: {}),
+						durationSeconds: preparedMedia.durationSeconds,
+						width: preparedMedia.width,
+						height: preparedMedia.height,
+					},
+				};
+					const requestInit: RequestInit =
+						preparedMedia.type === "video"
+							? (() => {
+									const file = preparedMedia.file;
+									if (!file) {
+										throw new Error("读取媒体文件失败：缺少视频文件");
+									}
+									const formData = new FormData();
+									formData.set("payload", JSON.stringify(payload));
+									formData.set("file", file, preparedMedia.name);
+									return {
+										method: "POST",
+										body: formData,
+										signal: context?.signal,
+									};
+								})()
+							: {
+									method: "POST",
+									headers: { "Content-Type": "application/json" },
+									body: JSON.stringify(payload),
+									signal: context?.signal,
+								};
+				const responsePromise = fetchFn(
+					"/api/agent/vision/analyze",
+					requestInit,
+				);
 				emitVisionProgress({
 					context,
 					stage: "vision-provider",

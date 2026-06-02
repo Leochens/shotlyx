@@ -113,11 +113,7 @@ function mimeTypeForPath(filePath) {
 }
 
 function uniqueHosts(configuredHost) {
-	const candidates = [
-		configuredHost,
-		LEGACY_GLOBAL_HOST,
-		TOKEN_PLAN_HOST,
-	];
+	const candidates = [configuredHost, LEGACY_GLOBAL_HOST, TOKEN_PLAN_HOST];
 	const seen = new Set();
 	return candidates.filter((host) => {
 		const normalized = host.replace(/\/+$/, "");
@@ -127,14 +123,7 @@ function uniqueHosts(configuredHost) {
 	});
 }
 
-function buildRequestBody({
-	videoPath,
-	mimeType,
-	model,
-	stream,
-}) {
-	const bytes = readFileSync(videoPath);
-	const dataUrl = `data:${mimeType};base64,${bytes.toString("base64")}`;
+function buildRequestBody({ videoUrl, model, stream }) {
 	return {
 		model,
 		thinking: { type: "disabled" },
@@ -158,7 +147,7 @@ function buildRequestBody({
 					{
 						type: "video_url",
 						video_url: {
-							url: dataUrl,
+							url: videoUrl,
 							detail: "default",
 							fps: 0.2,
 							max_long_side_pixel: 672,
@@ -187,6 +176,51 @@ function extractContent(data) {
 	return "";
 }
 
+function extractUploadedFileId(data) {
+	const fileId = data?.file?.file_id;
+	if (typeof fileId === "string" && fileId.trim()) return fileId.trim();
+	if (typeof fileId === "number" && Number.isFinite(fileId))
+		return String(fileId);
+	throw new Error("MiniMax upload response did not include file.file_id");
+}
+
+async function uploadVideo({ host, apiKey, videoPath, mimeType }) {
+	const bytes = readFileSync(videoPath);
+	const formData = new FormData();
+	formData.set("purpose", "video_understanding");
+	formData.set(
+		"file",
+		new Blob([bytes], { type: mimeType }),
+		path.basename(videoPath),
+	);
+	const started = Date.now();
+	const response = await fetch(`${host.replace(/\/+$/, "")}/files/upload`, {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${apiKey}`,
+		},
+		body: formData,
+	});
+	const elapsedMs = Date.now() - started;
+	if (!response.ok) {
+		return {
+			ok: false,
+			status: response.status,
+			elapsedMs,
+			contentType: response.headers.get("content-type") ?? "",
+			errorText: (await response.text()).slice(0, 1200),
+		};
+	}
+	const data = await response.json();
+	return {
+		ok: true,
+		status: response.status,
+		elapsedMs,
+		contentType: response.headers.get("content-type") ?? "",
+		fileId: extractUploadedFileId(data),
+	};
+}
+
 async function readStream(response) {
 	const reader = response.body?.getReader();
 	if (!reader) return "";
@@ -200,7 +234,26 @@ async function readStream(response) {
 	return text;
 }
 
-async function tryHost({ host, apiKey, body, stream }) {
+async function tryHost({ host, apiKey, videoPath, mimeType, model, stream }) {
+	const upload = await uploadVideo({
+		host,
+		apiKey,
+		videoPath,
+		mimeType,
+	});
+	if (!upload.ok) {
+		return {
+			ok: false,
+			stage: "upload",
+			...upload,
+		};
+	}
+	const body = buildRequestBody({
+		videoUrl: `mm_file://${upload.fileId}`,
+		model,
+		stream,
+	});
+	const bodyBytes = Buffer.byteLength(JSON.stringify(body));
 	const url = `${host.replace(/\/+$/, "")}/chat/completions`;
 	const started = Date.now();
 	const response = await fetch(url, {
@@ -217,7 +270,10 @@ async function tryHost({ host, apiKey, body, stream }) {
 		const errorText = await response.text();
 		return {
 			ok: false,
+			stage: "chat",
 			status: response.status,
+			uploadElapsedMs: upload.elapsedMs,
+			chatBodyBytes: bodyBytes,
 			elapsedMs,
 			contentType,
 			errorText: errorText.slice(0, 1200),
@@ -226,7 +282,11 @@ async function tryHost({ host, apiKey, body, stream }) {
 	if (stream) {
 		return {
 			ok: true,
+			stage: "chat",
 			status: response.status,
+			fileId: upload.fileId,
+			uploadElapsedMs: upload.elapsedMs,
+			chatBodyBytes: bodyBytes,
 			elapsedMs,
 			contentType,
 			streamText: await readStream(response),
@@ -235,7 +295,11 @@ async function tryHost({ host, apiKey, body, stream }) {
 	const data = await response.json();
 	return {
 		ok: true,
+		stage: "chat",
 		status: response.status,
+		fileId: upload.fileId,
+		uploadElapsedMs: upload.elapsedMs,
+		chatBodyBytes: bodyBytes,
 		elapsedMs,
 		contentType,
 		content: extractContent(data),
@@ -255,13 +319,6 @@ async function main() {
 
 	const fileSize = statSync(options.video).size;
 	const mimeType = mimeTypeForPath(options.video);
-	const body = buildRequestBody({
-		videoPath: options.video,
-		mimeType,
-		model: config.model,
-		stream: options.stream,
-	});
-	const bodyBytes = Buffer.byteLength(JSON.stringify(body));
 
 	console.log("[config]");
 	console.log(`key: ${maskKey(config.apiKey)}`);
@@ -273,7 +330,7 @@ async function main() {
 	console.log(`video: ${options.video}`);
 	console.log(`videoBytes: ${fileSize}`);
 	console.log(`mimeType: ${mimeType}`);
-	console.log(`requestBodyBytes: ${bodyBytes}`);
+	console.log("transport: files/upload multipart + mm_file chat reference");
 	console.log("");
 
 	for (const host of uniqueHosts(config.host)) {
@@ -281,7 +338,9 @@ async function main() {
 		const result = await tryHost({
 			host,
 			apiKey: config.apiKey,
-			body,
+			videoPath: options.video,
+			mimeType,
+			model: config.model,
 			stream: options.stream,
 		});
 		console.log(

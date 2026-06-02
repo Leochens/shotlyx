@@ -20,12 +20,30 @@ function createSseResponse(events: unknown[]): Response {
 	const body =
 		events
 			.map((event) =>
-				typeof event === "string" ? `data: ${event}` : `data: ${JSON.stringify(event)}`,
+				typeof event === "string"
+					? `data: ${event}`
+					: `data: ${JSON.stringify(event)}`,
 			)
 			.join("\n\n") + "\n\n";
 	return new Response(body, {
 		headers: { "Content-Type": "text/event-stream" },
 	});
+}
+
+function getFormDataBody(init: RequestInit | undefined): FormData {
+	expect(init?.body).toBeInstanceOf(FormData);
+	if (!(init?.body instanceof FormData)) {
+		throw new Error("Expected request body to be FormData");
+	}
+	return init.body;
+}
+
+function expectFormDataFile(value: FormDataEntryValue | null): File {
+	expect(value).toBeInstanceOf(File);
+	if (!(value instanceof File)) {
+		throw new Error("Expected form data entry to be a File");
+	}
+	return value;
 }
 
 describe("vision analysis tools", () => {
@@ -34,7 +52,9 @@ describe("vision analysis tools", () => {
 			editor: createEditorWithAssets([]),
 			deps: {
 				fetchFn: mock(() => Promise.resolve(new Response())),
-				readFileAsDataUrl: mock(() => Promise.resolve("data:video/mp4;base64,AA==")),
+				readFileAsDataUrl: mock(() =>
+					Promise.resolve("data:video/mp4;base64,AA=="),
+				),
 			},
 		});
 
@@ -45,7 +65,7 @@ describe("vision analysis tools", () => {
 		expect(tool?.parameters.mediaAssetId).toBeDefined();
 	});
 
-	test("sends the selected media asset to the vision analysis API", async () => {
+	test("sends video assets to the vision analysis API as multipart files", async () => {
 		const file = new File(["demo"], "demo.mp4", { type: "video/mp4" });
 		const editor = createEditorWithAssets([
 			{
@@ -58,35 +78,42 @@ describe("vision analysis tools", () => {
 				file,
 			},
 		]);
-		const fetchFn = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
-			expect(String(input)).toBe("/api/agent/vision/analyze");
-			const body = JSON.parse(String(init?.body));
-			expect(body).toMatchObject({
-				analysisType: "editing_suggestions",
-				prompt: "给出剪辑建议",
-				media: {
-					mediaAssetId: "media-1",
-					name: "demo.mp4",
-					type: "video",
-					mimeType: "video/mp4",
-					dataUrl: "data:video/mp4;base64,AA==",
-					durationSeconds: 12,
-					width: 1920,
-					height: 1080,
-				},
-			});
-			return Response.json({
-				model: "MiniMax-M3",
-				analysis: "建议保留开头动作，并在 8 秒处切到特写。",
-			});
-		});
+		const fetchFn = mock(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe("/api/agent/vision/analyze");
+				expect(init?.headers).toBeUndefined();
+				const formData = getFormDataBody(init);
+				const uploadedFile = expectFormDataFile(formData.get("file"));
+				expect(uploadedFile.name).toBe("demo.mp4");
+				expect(uploadedFile.type).toBe("video/mp4");
+				expect(uploadedFile.size).toBe(file.size);
+				const body = JSON.parse(String(formData.get("payload")));
+				expect(body).toMatchObject({
+					analysisType: "editing_suggestions",
+					prompt: "给出剪辑建议",
+					media: {
+						mediaAssetId: "media-1",
+						name: "demo.mp4",
+						type: "video",
+						mimeType: "video/mp4",
+						durationSeconds: 12,
+						width: 1920,
+						height: 1080,
+					},
+				});
+				return Response.json({
+					model: "MiniMax-M3",
+					analysis: "建议保留开头动作，并在 8 秒处切到特写。",
+				});
+			},
+		);
 		const [tool] = buildVisionTools({
 			editor,
 			deps: {
 				fetchFn,
-				readFileAsDataUrl: mock(() =>
-					Promise.resolve("data:video/mp4;base64,AA=="),
-				),
+				readFileAsDataUrl: mock(() => {
+					throw new Error("video files should not be converted to data URLs");
+				}),
 			},
 		});
 
@@ -104,7 +131,7 @@ describe("vision analysis tools", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
-	test("normalizes generic octet-stream video data URLs before analysis", async () => {
+	test("normalizes generic octet-stream video MIME before multipart analysis", async () => {
 		const file = new File(["demo"], "demo.mp4", {
 			type: "application/octet-stream",
 		});
@@ -119,24 +146,29 @@ describe("vision analysis tools", () => {
 				file,
 			},
 		]);
-		const fetchFn = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
-			const body = JSON.parse(String(init?.body));
-			expect(body.media).toMatchObject({
-				mimeType: "video/mp4",
-				dataUrl: "data:video/mp4;base64,AA==",
-			});
-			return Response.json({
-				model: "MiniMax-M3",
-				analysis: "可以正常分析。",
-			});
-		});
+		const fetchFn = mock(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				const formData = getFormDataBody(init);
+				const uploadedFile = expectFormDataFile(formData.get("file"));
+				expect(uploadedFile.name).toBe("demo.mp4");
+				const body = JSON.parse(String(formData.get("payload")));
+				expect(body.media).toMatchObject({
+					mimeType: "video/mp4",
+				});
+				expect(body.media).not.toHaveProperty("dataUrl");
+				return Response.json({
+					model: "MiniMax-M3",
+					analysis: "可以正常分析。",
+				});
+			},
+		);
 		const [tool] = buildVisionTools({
 			editor,
 			deps: {
 				fetchFn,
-				readFileAsDataUrl: mock(() =>
-					Promise.resolve("data:application/octet-stream;base64,AA=="),
-				),
+				readFileAsDataUrl: mock(() => {
+					throw new Error("video files should not be converted to data URLs");
+				}),
 			},
 		});
 
@@ -148,7 +180,7 @@ describe("vision analysis tools", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
-	test("asks the user to choose a large-video strategy instead of silently sending a storyboard", async () => {
+	test("sends videos larger than the old data-url limit as multipart files", async () => {
 		const file = new File(["demo"], "large.mp4", { type: "video/mp4" });
 		Object.defineProperty(file, "size", {
 			value: 52_428_801,
@@ -165,11 +197,30 @@ describe("vision analysis tools", () => {
 				file,
 			},
 		]);
-		const fetchFn = mock(() => {
-			throw new Error("should not request MiniMax before the user chooses");
-		});
-		const progressEvents: Array<{ stage: string; label: string; status: string }> =
-			[];
+		const fetchFn = mock(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				const formData = getFormDataBody(init);
+				const uploadedFile = expectFormDataFile(formData.get("file"));
+				expect(uploadedFile.name).toBe("large.mp4");
+				const body = JSON.parse(String(formData.get("payload")));
+				expect(body.media).toMatchObject({
+					mediaAssetId: "media-1",
+					name: "large.mp4",
+					type: "video",
+					mimeType: "video/mp4",
+				});
+				expect(body.media).not.toHaveProperty("dataUrl");
+				return Response.json({
+					model: "MiniMax-M3",
+					analysis: "大视频也走 MiniMax 文件上传。",
+				});
+			},
+		);
+		const progressEvents: Array<{
+			stage: string;
+			label: string;
+			status: string;
+		}> = [];
 		const [tool] = buildVisionTools({
 			editor,
 			deps: {
@@ -187,37 +238,17 @@ describe("vision analysis tools", () => {
 
 		expect(result).toMatchObject({
 			mediaAssetId: "media-1",
-			mediaName: "large.mp4",
-			mediaType: "video",
-			requiresUserChoice: true,
-			reason: "media_size_exceeds_minimax_limit",
-			fileSizeBytes: 52_428_801,
-			limitBytes: 52_428_800,
-			message:
-				"这个视频约 50.0MiB，超过 MiniMax M3 单次媒体 50MiB 限制。请让用户选择：切分视频后分段分析，或压缩/上传一个小于 50MiB 的视频。",
-			options: [
-				{
-					id: "split_video",
-					label: "切分视频分析",
-					description:
-						"将视频拆成多个小于 50MiB 的片段，分段传给 MiniMax 后汇总结果。",
-				},
-				{
-					id: "compress_or_upload_smaller",
-					label: "压缩或上传小视频",
-					description:
-						"用户先压缩视频或上传小于 50MiB 的片段，再进行完整视频理解。",
-				},
-			],
+			model: "MiniMax-M3",
+			analysis: "大视频也走 MiniMax 文件上传。",
 		});
 		expect(progressEvents).toContainEqual(
 			expect.objectContaining({
-				stage: "vision-prepare",
-				label: "视频超过 MiniMax M3 单次媒体限制",
-				status: "error",
+				stage: "vision-provider",
+				label: "正在请求 MiniMax M3 视觉分析",
+				status: "running",
 			}),
 		);
-		expect(fetchFn).toHaveBeenCalledTimes(0);
+		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
 	test("emits progress while preparing and waiting for MiniMax M3 analysis", async () => {
@@ -315,30 +346,33 @@ describe("vision analysis tools", () => {
 			current?: number;
 			total?: number;
 		}> = [];
-		const fetchFn = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
-			const body = JSON.parse(String(init?.body));
-			expect(body.stream).toBe(true);
-			return createSseResponse([
-				{ type: "reasoning_delta", text: "先看画面主体。" },
-				{ type: "content_delta", text: "建议保留开场动作，" },
-				{ type: "content_delta", text: "删除中段停顿。" },
-				{
-					type: "done",
-					provider: "minimax",
-					model: "MiniMax-M3",
-					analysisType: "editing_suggestions",
-					analysis: "建议保留开场动作，删除中段停顿。",
-				},
-				"[DONE]",
-			]);
-		});
+		const fetchFn = mock(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				const formData = getFormDataBody(init);
+				const body = JSON.parse(String(formData.get("payload")));
+				expect(body.stream).toBe(true);
+				return createSseResponse([
+					{ type: "reasoning_delta", text: "先看画面主体。" },
+					{ type: "content_delta", text: "建议保留开场动作，" },
+					{ type: "content_delta", text: "删除中段停顿。" },
+					{
+						type: "done",
+						provider: "minimax",
+						model: "MiniMax-M3",
+						analysisType: "editing_suggestions",
+						analysis: "建议保留开场动作，删除中段停顿。",
+					},
+					"[DONE]",
+				]);
+			},
+		);
 		const [tool] = buildVisionTools({
 			editor,
 			deps: {
 				fetchFn,
-				readFileAsDataUrl: mock(() =>
-					Promise.resolve("data:video/mp4;base64,AA=="),
-				),
+				readFileAsDataUrl: mock(() => {
+					throw new Error("video files should not be converted to data URLs");
+				}),
 			},
 		});
 

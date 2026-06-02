@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { loadLLMConfigFromEnv } from "@/agent/llm/config";
 import { type ApiRequest, ApiResponse } from "@/platform/http";
 import { z } from "zod";
@@ -34,7 +35,17 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
 };
 const MINIMAX_M3_VIDEO_MAX_LONG_SIDE_PIXEL = 672;
 
-const requestSchema = z.object({
+const mediaMetadataSchema = z.object({
+	mediaAssetId: z.string().optional(),
+	name: z.string().min(1),
+	type: z.enum(["image", "video"]),
+	mimeType: z.string().min(1),
+	durationSeconds: z.number().optional(),
+	width: z.number().optional(),
+	height: z.number().optional(),
+});
+
+const requestBaseSchema = z.object({
 	analysisType: analysisTypeSchema.optional(),
 	prompt: z.string().min(1).max(4000).optional(),
 	detail: detailSchema.optional(),
@@ -42,32 +53,41 @@ const requestSchema = z.object({
 	maxLongSidePixel: z.number().int().min(128).max(4096).optional(),
 	maxCompletionTokens: z.number().int().min(256).max(8000).optional(),
 	stream: z.boolean().optional(),
-	media: z.object({
-		mediaAssetId: z.string().optional(),
-		name: z.string().min(1),
-		type: z.enum(["image", "video"]),
-		mimeType: z.string().min(1),
+});
+
+const requestSchema = requestBaseSchema.extend({
+	media: mediaMetadataSchema.extend({
 		dataUrl: z.string().startsWith("data:"),
-		durationSeconds: z.number().optional(),
-		width: z.number().optional(),
-		height: z.number().optional(),
 	}),
 });
 
+const multipartRequestSchema = requestBaseSchema.extend({
+	media: mediaMetadataSchema,
+});
+
 type VisionAnalyzeRequest = z.infer<typeof requestSchema>;
+type VisionMediaMetadata = z.infer<typeof mediaMetadataSchema>;
+type VisionAnalyzeData = Omit<VisionAnalyzeRequest, "media"> & {
+	media: VisionMediaMetadata & {
+		dataUrl?: string;
+		file?: Blob;
+	};
+};
 
 function buildInstruction({
 	analysisType,
 	prompt,
 	media,
-}: Pick<VisionAnalyzeRequest, "prompt" | "media"> & {
+}: Pick<VisionAnalyzeData, "prompt" | "media"> & {
 	analysisType: z.infer<typeof analysisTypeSchema>;
 }): string {
 	const mediaFacts = [
 		`name: ${media.name}`,
 		`type: ${media.type}`,
 		media.durationSeconds ? `durationSeconds: ${media.durationSeconds}` : null,
-		media.width && media.height ? `resolution: ${media.width}x${media.height}` : null,
+		media.width && media.height
+			? `resolution: ${media.width}x${media.height}`
+			: null,
 	]
 		.filter(Boolean)
 		.join("\n");
@@ -104,7 +124,7 @@ function isUsableMimeType({
 	type,
 	mimeType,
 }: {
-	type: VisionAnalyzeRequest["media"]["type"];
+	type: VisionAnalyzeData["media"]["type"];
 	mimeType: string | undefined;
 }): mimeType is string {
 	if (!mimeType) return false;
@@ -115,9 +135,7 @@ function isUsableMimeType({
 		: normalized.startsWith("image/");
 }
 
-function inferMediaMimeType(
-	media: VisionAnalyzeRequest["media"],
-): string {
+function inferMediaMimeType(media: VisionAnalyzeData["media"]): string {
 	if (isUsableMimeType({ type: media.type, mimeType: media.mimeType })) {
 		return media.mimeType.trim().toLowerCase();
 	}
@@ -148,16 +166,20 @@ function rewriteDataUrlMimeType({
 }
 
 function normalizeMediaForProvider(
-	media: VisionAnalyzeRequest["media"],
-): VisionAnalyzeRequest["media"] {
+	media: VisionAnalyzeData["media"],
+): VisionAnalyzeData["media"] {
 	const mimeType = inferMediaMimeType(media);
 	return {
 		...media,
 		mimeType,
-		dataUrl: rewriteDataUrlMimeType({
-			dataUrl: media.dataUrl,
-			mimeType,
-		}),
+		...(media.dataUrl
+			? {
+					dataUrl: rewriteDataUrlMimeType({
+						dataUrl: media.dataUrl,
+						mimeType,
+					}),
+				}
+			: {}),
 	};
 }
 
@@ -178,13 +200,176 @@ function normalizeVisionError(error: unknown): {
 	};
 }
 
+async function parseRequestData(
+	request: ApiRequest,
+): Promise<VisionAnalyzeData | { error: Response }> {
+	const contentType = request.headers.get("Content-Type") ?? "";
+	if (contentType.includes("multipart/form-data")) {
+		let formData: FormData;
+		try {
+			formData = await request.formData();
+		} catch {
+			return {
+				error: ApiResponse.json(
+					{ error: "Invalid form data" },
+					{ status: 400 },
+				),
+			};
+		}
+		const payload = formData.get("payload");
+		if (typeof payload !== "string") {
+			return {
+				error: ApiResponse.json(
+					{ error: "Invalid input", details: { payload: ["Required"] } },
+					{ status: 400 },
+				),
+			};
+		}
+		let data: unknown;
+		try {
+			data = JSON.parse(payload);
+		} catch {
+			return {
+				error: ApiResponse.json({ error: "Invalid JSON" }, { status: 400 }),
+			};
+		}
+		const parsed = multipartRequestSchema.safeParse(data);
+		if (!parsed.success) {
+			return {
+				error: ApiResponse.json(
+					{
+						error: "Invalid input",
+						details: parsed.error.flatten().fieldErrors,
+					},
+					{ status: 400 },
+				),
+			};
+		}
+		const file = formData.get("file");
+		if (parsed.data.media.type === "video" && !(file instanceof Blob)) {
+			return {
+				error: ApiResponse.json(
+					{ error: "Invalid input", details: { file: ["Required"] } },
+					{ status: 400 },
+				),
+			};
+		}
+		return {
+			...parsed.data,
+			media: {
+				...parsed.data.media,
+				...(file instanceof Blob ? { file } : {}),
+			},
+		};
+	}
+
+	let body: unknown;
+	try {
+		body = await request.json();
+	} catch {
+		return {
+			error: ApiResponse.json({ error: "Invalid JSON" }, { status: 400 }),
+		};
+	}
+
+	const parsed = requestSchema.safeParse(body);
+	if (!parsed.success) {
+		return {
+			error: ApiResponse.json(
+				{ error: "Invalid input", details: parsed.error.flatten().fieldErrors },
+				{ status: 400 },
+			),
+		};
+	}
+	return parsed.data;
+}
+
+function isParseError(
+	value: VisionAnalyzeData | { error: Response },
+): value is { error: Response } {
+	return "error" in value;
+}
+
+function blobFromDataUrl({
+	dataUrl,
+	mimeType,
+}: {
+	dataUrl: string;
+	mimeType: string;
+}): Blob {
+	const commaIndex = dataUrl.indexOf(",");
+	if (commaIndex < 0) {
+		throw new Error("provider_error: invalid media data URL");
+	}
+	const metadata = dataUrl.slice(5, commaIndex).toLowerCase();
+	const payload = dataUrl.slice(commaIndex + 1);
+	const bytes = metadata.includes(";base64")
+		? Buffer.from(payload, "base64")
+		: Buffer.from(decodeURIComponent(payload), "utf8");
+	return new Blob([bytes], { type: mimeType });
+}
+
+function extractUploadedFileId(data: unknown): string {
+	const record = getRecord(data);
+	const file = getRecord(record?.file);
+	const fileId = file?.file_id;
+	if (typeof fileId === "string" && fileId.trim()) return fileId.trim();
+	if (typeof fileId === "number" && Number.isFinite(fileId))
+		return String(fileId);
+	throw new Error("provider_error: MiniMax file upload did not return file_id");
+}
+
+async function uploadMiniMaxVideo({
+	host,
+	apiKey,
+	media,
+}: {
+	host: string;
+	apiKey: string;
+	media: VisionAnalyzeData["media"];
+}): Promise<string> {
+	const file =
+		media.file ??
+		(media.dataUrl
+			? blobFromDataUrl({
+					dataUrl: media.dataUrl,
+					mimeType: media.mimeType,
+				})
+			: null);
+	if (!file) {
+		throw new Error("provider_error: missing video file for MiniMax upload");
+	}
+
+	const formData = new FormData();
+	formData.set("purpose", "video_understanding");
+	formData.set("file", file, media.name);
+
+	const response = await fetch(`${host.replace(/\/+$/, "")}/files/upload`, {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${apiKey}`,
+		},
+		body: formData,
+	});
+	if (!response.ok) {
+		const errorText = await response.text();
+		throw new Error(
+			`provider_error: MiniMax video upload failed with ${response.status}: ${errorText.slice(0, 500)}`,
+		);
+	}
+	const data: unknown = await response.json();
+	return `mm_file://${extractUploadedFileId(data)}`;
+}
+
 function buildMediaPart({
 	media,
+	url,
 	detail,
 	fps,
 	maxLongSidePixel,
 }: {
-	media: VisionAnalyzeRequest["media"];
+	media: VisionAnalyzeData["media"];
+	url: string;
 	detail: z.infer<typeof detailSchema>;
 	fps: number;
 	maxLongSidePixel?: number;
@@ -197,7 +382,7 @@ function buildMediaPart({
 				)
 			: maxLongSidePixel;
 	const common = {
-		url: media.dataUrl,
+		url,
 		detail,
 		...(providerMaxLongSidePixel
 			? { max_long_side_pixel: providerMaxLongSidePixel }
@@ -222,15 +407,13 @@ function buildProviderRequestBody({
 	data,
 	model,
 	analysisType,
-	detail,
-	fps,
+	mediaPart,
 	stream,
 }: {
-	data: VisionAnalyzeRequest;
+	data: VisionAnalyzeData;
 	model: string;
 	analysisType: z.infer<typeof analysisTypeSchema>;
-	detail: z.infer<typeof detailSchema>;
-	fps: number;
+	mediaPart: ReturnType<typeof buildMediaPart>;
 	stream: boolean;
 }) {
 	return {
@@ -262,12 +445,7 @@ function buildProviderRequestBody({
 							media: data.media,
 						}),
 					},
-					buildMediaPart({
-						media: data.media,
-						detail,
-						fps,
-						maxLongSidePixel: data.maxLongSidePixel,
-					}),
+					mediaPart,
 				],
 			},
 		],
@@ -516,21 +694,8 @@ function extractMessageContent(data: unknown): string {
 }
 
 export async function POST(request: ApiRequest) {
-	let body: unknown;
-
-	try {
-		body = await request.json();
-	} catch {
-		return ApiResponse.json({ error: "Invalid JSON" }, { status: 400 });
-	}
-
-	const parsed = requestSchema.safeParse(body);
-	if (!parsed.success) {
-		return ApiResponse.json(
-			{ error: "Invalid input", details: parsed.error.flatten().fieldErrors },
-			{ status: 400 },
-		);
-	}
+	const parsed = await parseRequestData(request);
+	if (isParseError(parsed)) return parsed.error;
 
 	try {
 		const visionConfig = loadLLMConfigFromEnv().vision;
@@ -543,14 +708,33 @@ export async function POST(request: ApiRequest) {
 			);
 		}
 
-		const requestData: VisionAnalyzeRequest = {
-			...parsed.data,
-			media: normalizeMediaForProvider(parsed.data.media),
+		const requestData: VisionAnalyzeData = {
+			...parsed,
+			media: normalizeMediaForProvider(parsed.media),
 		};
 		const detail = requestData.detail ?? "default";
 		const analysisType = requestData.analysisType ?? "editing_suggestions";
 		const fps = requestData.fps ?? 1;
-		const url = `${visionConfig.host.replace(/\/+$/, "")}/chat/completions`;
+		const host = visionConfig.host.replace(/\/+$/, "");
+		const mediaUrl =
+			requestData.media.type === "video"
+				? await uploadMiniMaxVideo({
+						host,
+						apiKey: visionConfig.apiKey,
+						media: requestData.media,
+					})
+				: requestData.media.dataUrl;
+		if (!mediaUrl) {
+			throw new Error("provider_error: missing media URL for vision analysis");
+		}
+		const mediaPart = buildMediaPart({
+			media: requestData.media,
+			url: mediaUrl,
+			detail,
+			fps,
+			maxLongSidePixel: requestData.maxLongSidePixel,
+		});
+		const url = `${host}/chat/completions`;
 		const response = await fetch(url, {
 			method: "POST",
 			headers: {
@@ -562,8 +746,7 @@ export async function POST(request: ApiRequest) {
 					data: requestData,
 					model: visionConfig.model,
 					analysisType,
-					detail,
-					fps,
+					mediaPart,
 					stream: requestData.stream ?? false,
 				}),
 			),
