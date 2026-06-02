@@ -148,6 +148,85 @@ describe("vision analysis tools", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
+	test("uses a sampled storyboard instead of sending oversized videos to MiniMax", async () => {
+		const file = new File(["demo"], "large.mp4", { type: "video/mp4" });
+		Object.defineProperty(file, "size", {
+			value: 52_428_801,
+			configurable: true,
+		});
+		const editor = createEditorWithAssets([
+			{
+				id: "media-1",
+				name: "large.mp4",
+				type: "video",
+				duration: 120,
+				width: 1920,
+				height: 1080,
+				file,
+			},
+		]);
+		const fetchFn = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
+			const body = JSON.parse(String(init?.body));
+			expect(body.prompt).toContain("原视频超过 MiniMax M3 的 50MiB 媒体限制");
+			expect(body.media).toMatchObject({
+				mediaAssetId: "media-1",
+				name: "large.mp4 storyboard.jpg",
+				type: "image",
+				mimeType: "image/jpeg",
+				dataUrl: "data:image/jpeg;base64,STORYBOARD",
+				durationSeconds: 120,
+				width: 1200,
+				height: 675,
+			});
+			return createSseResponse([
+				{ type: "content_delta", text: "基于抽帧预览，建议保留开头。" },
+				{
+					type: "done",
+					analysis: "基于抽帧预览，建议保留开头。",
+				},
+				"[DONE]",
+			]);
+		});
+		const progressEvents: Array<{ stage: string; label: string; status: string }> =
+			[];
+		const [tool] = buildVisionTools({
+			editor,
+			deps: {
+				fetchFn,
+				readFileAsDataUrl: mock(() => {
+					throw new Error("should not read oversized video as data URL");
+				}),
+				createVideoStoryboardDataUrl: mock(() =>
+					Promise.resolve({
+						dataUrl: "data:image/jpeg;base64,STORYBOARD",
+						mimeType: "image/jpeg",
+						frameCount: 8,
+						width: 1200,
+						height: 675,
+					}),
+				),
+			},
+		});
+
+		const result = await tool.handler(
+			{ mediaAssetId: "media-1", analysisType: "editing_suggestions" },
+			{ onProgress: (event) => progressEvents.push(event) },
+		);
+
+		expect(result).toMatchObject({
+			mediaAssetId: "media-1",
+			analysis: "基于抽帧预览，建议保留开头。",
+		});
+		expect(progressEvents).toContainEqual(
+			expect.objectContaining({
+				stage: "vision-prepare",
+				label: "视频较大，正在生成抽帧预览",
+				status: "running",
+			}),
+		);
+		expect(fetchFn).toHaveBeenCalledTimes(1);
+	});
+
 	test("emits progress while preparing and waiting for MiniMax M3 analysis", async () => {
 		const file = new File(["demo"], "demo.mp4", { type: "video/mp4" });
 		const editor = createEditorWithAssets([
