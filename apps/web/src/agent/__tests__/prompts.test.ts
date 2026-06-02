@@ -67,6 +67,9 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain("Search snippets are leads, not source text");
 		expect(prompt).toContain("Use video_semantic_index_analyze");
 		expect(prompt).toContain("sub Agent should read Video Semantic Index");
+		expect(prompt).toContain("Video semantic analysis is ASR-first");
+		expect(prompt).toContain("use extracted keyframes for visual understanding");
+		expect(prompt).toContain("Use full-video understanding only as the last fallback");
 		expect(prompt).toContain(
 			"Do not call vision_analyze_media as the first step",
 		);

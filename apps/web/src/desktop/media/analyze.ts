@@ -190,11 +190,50 @@ export async function writeUploadedVideoToTemp({
 	return filePath;
 }
 
-function getMediaAnalysisTempDir(): string {
+export function getMediaAnalysisTempDir(): string {
 	return (
 		process.env.SHOTLYX_DESKTOP_MEDIA_ANALYZE_DIR ??
 		path.join(os.tmpdir(), "shotlyx-media-analysis")
 	);
+}
+
+function isInsideDirectory({
+	directory,
+	filePath,
+}: {
+	directory: string;
+	filePath: string;
+}): boolean {
+	const relative = path.relative(directory, filePath);
+	return (
+		relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
+	);
+}
+
+function mimeTypeForImagePath(imagePath: string): string {
+	const extension = path.extname(imagePath).toLowerCase();
+	if (extension === ".png") return "image/png";
+	if (extension === ".webp") return "image/webp";
+	return "image/jpeg";
+}
+
+export async function readMediaAnalysisImageAsDataUrl({
+	imagePath,
+}: {
+	imagePath: string;
+}): Promise<{ dataUrl: string; mimeType: string; name: string }> {
+	const resolvedPath = path.resolve(imagePath);
+	const analysisDir = path.resolve(getMediaAnalysisTempDir());
+	if (!isInsideDirectory({ directory: analysisDir, filePath: resolvedPath })) {
+		throw new Error("media_analysis_forbidden_image_path");
+	}
+	const buffer = await fs.readFile(resolvedPath);
+	const mimeType = mimeTypeForImagePath(resolvedPath);
+	return {
+		dataUrl: `data:${mimeType};base64,${buffer.toString("base64")}`,
+		mimeType,
+		name: path.basename(resolvedPath),
+	};
 }
 
 export async function extractVideoAudioForAsr({

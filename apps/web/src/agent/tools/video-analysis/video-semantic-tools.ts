@@ -25,6 +25,22 @@ import type {
 
 type VideoMediaAsset = MediaAsset & { type: "video" };
 type VideoSemanticElementRef = { trackId: string; elementId: string };
+type VisualSemanticMode = "keyframes" | "full_video_fallback";
+type TranscriptStrategyStatus = "used" | "empty" | "skipped_no_audio";
+type VisualStrategyStatus =
+	| "skipped_asr_semantic"
+	| "skipped_focused_asr_semantic"
+	| "used_keyframes_focus_hint"
+	| "used_keyframes_visual_intent"
+	| "used_keyframes_no_audio"
+	| "used_keyframes_no_speech_semantics"
+	| "used_full_video_fallback_no_keyframes";
+type FocusTimeRange = { start: number; end: number };
+type VisualStrategyDecision = {
+	focusRange?: FocusTimeRange;
+	visualMode?: VisualSemanticMode;
+	visualStatus: VisualStrategyStatus;
+};
 type VideoSemanticToolEditor = {
 	media: {
 		getAssets: () => MediaAsset[];
@@ -58,6 +74,7 @@ export interface VideoSemanticToolDeps {
 		focusHint?: string;
 		inspection: VideoAssetInspection;
 		intent: VideoIntent;
+		visualMode: VisualSemanticMode;
 	}) => Promise<VisualSemanticResult>;
 	inspectVideoAsset: (input: {
 		analysisLevel: VideoAnalysisLevel;
@@ -111,6 +128,14 @@ const VIDEO_SCENE_TYPES: VideoSceneType[] = [
 	"unknown",
 ];
 const indexCache = new Map<string, VideoSemanticIndex>();
+const VISUAL_REQUIRED_INTENTS = new Set<VideoIntent>([
+	"broll_match",
+	"classify_asset",
+	"cover_select",
+	"extract_highlights",
+	"find_moment",
+	"mg_animation",
+]);
 
 function isVideoIntent(value: string): value is VideoIntent {
 	return VIDEO_INTENTS.some((intent) => intent === value);
@@ -210,6 +235,175 @@ function cacheKeyFor({
 		analysisLevel,
 		focusHint ?? "",
 	].join(":");
+}
+
+function transcriptText(transcript: TranscriptSegment[] | undefined): string {
+	return (transcript ?? [])
+		.map((segment) => segment.text.trim())
+		.filter(Boolean)
+		.join(" ");
+}
+
+function hasSemanticTranscript(
+	transcript: TranscriptSegment[] | undefined,
+): boolean {
+	return transcriptText(transcript).length > 0;
+}
+
+function keyframeImageCount(inspection: VideoAssetInspection): number {
+	return inspection.keyframes.filter((keyframe) => keyframe.imagePath).length;
+}
+
+function buildAsrGlobalSummary({
+	transcript,
+}: {
+	transcript: TranscriptSegment[] | undefined;
+}): string | undefined {
+	const text = transcriptText(transcript);
+	if (!text) return undefined;
+	return `视频语音内容：${text.length > 160 ? `${text.slice(0, 160)}...` : text}`;
+}
+
+function parseClockTime(value: string): number | null {
+	const parts = value
+		.trim()
+		.split(":")
+		.map((part) => Number(part));
+	if (
+		parts.length === 0 ||
+		parts.length > 3 ||
+		parts.some((part) => !Number.isFinite(part) || part < 0)
+	) {
+		return null;
+	}
+	return parts.reduce((total, part) => total * 60 + part, 0);
+}
+
+function parseFocusHintTimeRange({
+	focusHint,
+}: {
+	focusHint: string;
+}): FocusTimeRange | null {
+	const normalized = focusHint.replace(/[－–—~～至到]/g, "-");
+	const timeToken = String.raw`\d+(?::\d+(?:\.\d+)?)*(?:\.\d+)?`;
+	const rangeMatch = new RegExp(
+		`(${timeToken})\\s*(?:秒|s)?\\s*-\\s*(${timeToken})\\s*(?:秒|s)?`,
+		"i",
+	).exec(normalized);
+	if (rangeMatch) {
+		const start = parseClockTime(rangeMatch[1] ?? "");
+		const end = parseClockTime(rangeMatch[2] ?? "");
+		if (start !== null && end !== null && end > start) {
+			return { end, start };
+		}
+	}
+	const openingMatch = /(?:开头|前)\s*(\d+(?:\.\d+)?)\s*(?:秒|s)/i.exec(
+		focusHint,
+	);
+	if (openingMatch) {
+		const end = Number(openingMatch[1]);
+		if (Number.isFinite(end) && end > 0) return { end, start: 0 };
+	}
+	return null;
+}
+
+function focusRangeForHint({
+	focusHint,
+	inspection,
+}: {
+	focusHint?: string;
+	inspection: VideoAssetInspection;
+}): FocusTimeRange | null {
+	const hint = focusHint?.trim();
+	if (!hint) return null;
+	const shot = inspection.shots.find((candidate) => hint.includes(candidate.id));
+	if (shot) return { end: shot.end, start: shot.start };
+	return parseFocusHintTimeRange({ focusHint: hint });
+}
+
+function transcriptSegmentsInRange({
+	range,
+	transcript,
+}: {
+	range: FocusTimeRange;
+	transcript: TranscriptSegment[] | undefined;
+}): TranscriptSegment[] {
+	return (transcript ?? []).filter(
+		(segment) =>
+			segment.text.trim().length > 0 &&
+			segment.start < range.end &&
+			segment.end > range.start,
+	);
+}
+
+function chooseVisualStrategy({
+	focusHint,
+	inspection,
+	intent,
+	transcript,
+}: {
+	focusHint?: string;
+	inspection: VideoAssetInspection;
+	intent: VideoIntent;
+	transcript: TranscriptSegment[] | undefined;
+}): VisualStrategyDecision {
+	const semanticTranscript = hasSemanticTranscript(transcript);
+	const hasKeyframes = keyframeImageCount(inspection) > 0;
+	const focusRange = focusRangeForHint({ focusHint, inspection });
+	const hasFocusHint = Boolean(focusHint?.trim());
+	if (inspection.profile.hasAudio && semanticTranscript) {
+		if (!VISUAL_REQUIRED_INTENTS.has(intent)) {
+			if (!hasFocusHint) {
+				return { visualStatus: "skipped_asr_semantic" };
+			}
+			if (
+				focusRange &&
+				transcriptSegmentsInRange({ range: focusRange, transcript }).length > 0
+			) {
+				return {
+					focusRange,
+					visualStatus: "skipped_focused_asr_semantic",
+				};
+			}
+		}
+	}
+	const keyframeStatus: VisualStrategyStatus = hasFocusHint
+		? "used_keyframes_focus_hint"
+		: VISUAL_REQUIRED_INTENTS.has(intent)
+			? "used_keyframes_visual_intent"
+			: !inspection.profile.hasAudio
+				? "used_keyframes_no_audio"
+				: "used_keyframes_no_speech_semantics";
+	return hasKeyframes
+		? {
+				focusRange: focusRange ?? undefined,
+				visualMode: "keyframes",
+				visualStatus: keyframeStatus,
+			}
+		: {
+				focusRange: focusRange ?? undefined,
+				visualMode: "full_video_fallback",
+				visualStatus: "used_full_video_fallback_no_keyframes",
+			};
+}
+
+function transcriptForAsrSummary({
+	transcript,
+	visualStrategy,
+}: {
+	transcript: TranscriptSegment[] | undefined;
+	visualStrategy: VisualStrategyDecision;
+}): TranscriptSegment[] | undefined {
+	if (
+		visualStrategy.visualStatus === "skipped_focused_asr_semantic" &&
+		visualStrategy.focusRange
+	) {
+		return transcriptSegmentsInRange({
+			range: visualStrategy.focusRange,
+			transcript,
+		});
+	}
+	return transcript;
 }
 
 async function parseJsonResponse(response: Response): Promise<unknown> {
@@ -571,6 +765,52 @@ async function defaultAnalyzeVisualMedia({
 	focusHint,
 	inspection,
 	intent,
+	visualMode,
+}: {
+	analysisLevel: VideoAnalysisLevel;
+	asset: VideoMediaAsset;
+	fetchFn: typeof fetch;
+	focusHint?: string;
+	inspection: VideoAssetInspection;
+	intent: VideoIntent;
+	visualMode: VisualSemanticMode;
+}): Promise<VisualSemanticResult> {
+	if (visualMode === "keyframes") {
+		return analyzeKeyframeVisualMedia({
+			analysisLevel,
+			asset,
+			fetchFn,
+			focusHint,
+			inspection,
+			intent,
+		}).catch(() =>
+			analyzeFullVideoVisualMedia({
+				analysisLevel,
+				asset,
+				fetchFn,
+				focusHint,
+				inspection,
+				intent,
+			}),
+		);
+	}
+	return analyzeFullVideoVisualMedia({
+		analysisLevel,
+		asset,
+		fetchFn,
+		focusHint,
+		inspection,
+		intent,
+	});
+}
+
+async function analyzeFullVideoVisualMedia({
+	analysisLevel,
+	asset,
+	fetchFn,
+	focusHint,
+	inspection,
+	intent,
 }: {
 	analysisLevel: VideoAnalysisLevel;
 	asset: VideoMediaAsset;
@@ -639,6 +879,145 @@ ${shotFacts}
 		},
 	);
 	return parseVisionResponse(await parseJsonResponse(response));
+}
+
+function keyframesForVisualAnalysis(
+	inspection: VideoAssetInspection,
+): Array<Keyframe & { imagePath: string }> {
+	const seenShots = new Set<string>();
+	const selected: Array<Keyframe & { imagePath: string }> = [];
+	for (const keyframe of inspection.keyframes) {
+		if (!keyframe.imagePath || seenShots.has(keyframe.shotId)) continue;
+		seenShots.add(keyframe.shotId);
+		selected.push({ ...keyframe, imagePath: keyframe.imagePath });
+	}
+	return selected.slice(0, 12);
+}
+
+function shotForKeyframe({
+	inspection,
+	keyframe,
+}: {
+	inspection: VideoAssetInspection;
+	keyframe: Keyframe;
+}): ShotSegment | null {
+	return inspection.shots.find((shot) => shot.id === keyframe.shotId) ?? null;
+}
+
+async function fetchKeyframeDataUrl({
+	fetchFn,
+	keyframe,
+}: {
+	fetchFn: typeof fetch;
+	keyframe: Keyframe & { imagePath: string };
+}): Promise<{ dataUrl: string; mimeType: string; name: string }> {
+	const payload = encodeURIComponent(
+		JSON.stringify({
+			imagePath: keyframe.imagePath,
+			name: `${keyframe.id}.jpg`,
+		}),
+	);
+	const response = await fetchFn(
+		`/api/desktop/media/keyframe?payload=${payload}`,
+		{ method: "GET" },
+	);
+	const body = await parseJsonResponse(response);
+	if (!isRecord(body)) {
+		throw new Error("provider_error: keyframe response must be an object");
+	}
+	if (
+		typeof body.dataUrl !== "string" ||
+		typeof body.mimeType !== "string" ||
+		typeof body.name !== "string"
+	) {
+		throw new Error("provider_error: invalid keyframe response");
+	}
+	return {
+		dataUrl: body.dataUrl,
+		mimeType: body.mimeType,
+		name: body.name,
+	};
+}
+
+async function analyzeKeyframeVisualMedia({
+	analysisLevel,
+	asset,
+	fetchFn,
+	focusHint,
+	inspection,
+	intent,
+}: {
+	analysisLevel: VideoAnalysisLevel;
+	asset: VideoMediaAsset;
+	fetchFn: typeof fetch;
+	focusHint?: string;
+	inspection: VideoAssetInspection;
+	intent: VideoIntent;
+}): Promise<VisualSemanticResult> {
+	const keyframes = keyframesForVisualAnalysis(inspection);
+	if (keyframes.length === 0) {
+		throw new Error("provider_error: no extracted keyframes available");
+	}
+	const shots: ShotVisualAnalysis[] = [];
+	const summaries: string[] = [];
+	const models: string[] = [];
+	for (const keyframe of keyframes) {
+		const shot = shotForKeyframe({ inspection, keyframe });
+		if (!shot) continue;
+		const image = await fetchKeyframeDataUrl({ fetchFn, keyframe });
+		const response = await fetchFn("/api/agent/vision/analyze", {
+			body: JSON.stringify({
+				analysisType: "visual_summary",
+				detail: analysisLevel === "deep" ? "high" : "default",
+				maxLongSidePixel: 1024,
+				media: {
+					dataUrl: image.dataUrl,
+					mediaAssetId: `${asset.id}:${keyframe.id}`,
+					mimeType: image.mimeType,
+					name: image.name,
+					type: "image",
+					width: asset.width,
+					height: asset.height,
+				},
+				prompt: `请基于这一张视频关键帧生成 Shotlyx Video Semantic Index 的结构化视觉信息。
+当前不是整段视频理解，而是抽帧判断。不要假装知道关键帧之外的动作。
+用户意图: ${intent}
+${focusHint ? `用户指定片段/关注范围: ${focusHint}\n` : ""}Shot: ${shot.id}
+Time: ${shot.start.toFixed(3)}s-${shot.end.toFixed(3)}s
+Keyframe: ${keyframe.id}@${keyframe.time.toFixed(3)}s
+
+请只输出 JSON：
+{
+  "globalSummary": "这张关键帧显示的视频内容",
+  "shots": [
+    {
+      "shotId": "${shot.id}",
+      "visualSummary": "这段画面主要在展示什么",
+      "sceneType": "talking_head / screen_recording / product_demo / broll / vlog / gameplay / mg_animation / unknown",
+      "mainObjects": ["主要画面元素"],
+      "actions": ["画面中能确认的动作或状态"],
+      "possibleIntent": "这个片段在视频里可能承担什么作用",
+      "editSuggestions": ["剪辑上可以怎么使用"]
+    }
+  ]
+}`,
+				stream: false,
+			}),
+			headers: {
+				"Content-Type": "application/json",
+			},
+			method: "POST",
+		});
+		const parsed = parseVisionResponse(await parseJsonResponse(response));
+		if (parsed.globalSummary) summaries.push(parsed.globalSummary);
+		if (parsed.modelUsed) models.push(parsed.modelUsed);
+		shots.push(...(parsed.shots ?? []));
+	}
+	return {
+		globalSummary: summaries.length > 0 ? summaries.join(" ") : undefined,
+		modelUsed: models.length > 0 ? [...new Set(models)].join(",") : undefined,
+		shots,
+	};
 }
 
 async function defaultTranscribeVideoAsset({
@@ -724,7 +1103,7 @@ export function buildVideoSemanticTools({
 				focusHint: {
 					type: "string",
 					description:
-						"可选片段提示或关注范围，例如 0:10-0:18、shot_003、开头 5 秒。当前不会裁剪上传小片段，而是上传完整视频并结合镜头/关键帧提示聚焦分析。",
+						"可选片段提示或关注范围，例如 0:10-0:18、shot_003、开头 5 秒。当前不会裁剪上传小片段，而是先检查该片段 ASR，再用关键帧聚焦分析，必要时才整段视频兜底。",
 					optional: true,
 				},
 			},
@@ -775,23 +1154,9 @@ export function buildVideoSemanticTools({
 
 				context?.onProgress?.({
 					current: 2,
-					label: "正在分析镜头片段画面",
-					stage: "semantic-vision",
-					status: "running",
-					total: 4,
-				});
-				const visual = await analyzeVisualMedia({
-					analysisLevel,
-					asset,
-					fetchFn,
-					focusHint,
-					inspection,
-					intent,
-				}).catch(() => ({}));
-
-				context?.onProgress?.({
-					current: 3,
-					label: "正在读取语音转写",
+					label: inspection.profile.hasAudio
+						? "正在通过 ASR 定位语义片段"
+						: "检测到无音轨，准备抽帧理解画面",
 					stage: "semantic-transcript",
 					status: "running",
 					total: 4,
@@ -804,10 +1169,57 @@ export function buildVideoSemanticTools({
 							intent,
 						}).catch(() => null)
 					: null;
+				const transcriptStatus: TranscriptStrategyStatus =
+					inspection.profile.hasAudio
+						? hasSemanticTranscript(transcript?.transcript)
+							? "used"
+							: "empty"
+						: "skipped_no_audio";
+				const visualStrategy = chooseVisualStrategy({
+					focusHint,
+					inspection,
+					intent,
+					transcript: transcript?.transcript,
+				});
+
+				context?.onProgress?.({
+					current: 3,
+					label: visualStrategy.visualMode
+						? visualStrategy.visualMode === "keyframes"
+							? "正在用关键帧判断必要画面内容"
+							: "关键帧不可用，正在整段视频理解兜底"
+						: visualStrategy.visualStatus === "skipped_focused_asr_semantic"
+							? "ASR 已覆盖片段，跳过视频理解上传"
+							: "ASR 已提供语义，跳过视频理解上传",
+					stage: "semantic-vision",
+					status: visualStrategy.visualMode ? "running" : "success",
+					total: 4,
+				});
+				const visual = visualStrategy.visualMode
+					? await analyzeVisualMedia({
+							analysisLevel,
+							asset,
+							fetchFn,
+							focusHint,
+							inspection,
+							intent,
+							visualMode: visualStrategy.visualMode,
+						}).catch(() => ({}))
+					: {};
+				const globalSummary =
+					visual.globalSummary ??
+					(visualStrategy.visualMode
+						? undefined
+						: buildAsrGlobalSummary({
+								transcript: transcriptForAsrSummary({
+									transcript: transcript?.transcript,
+									visualStrategy,
+								}),
+							}));
 
 				const index = mergeModelUsed({
 					index: buildVideoSemanticIndex({
-						globalSummary: visual.globalSummary,
+						globalSummary,
 						inspection,
 						transcript: transcript?.transcript,
 						visualAnalyses: visual.shots,
@@ -825,6 +1237,10 @@ export function buildVideoSemanticTools({
 				return {
 					agentViews: buildSemanticAgentViews({ index }),
 					analysisPlan: plan,
+					analysisStrategy: {
+						transcript: transcriptStatus,
+						visual: visualStrategy.visualStatus,
+					},
 					cached: false,
 					...(focusHint ? { focusHint } : {}),
 					index,
