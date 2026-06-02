@@ -26,6 +26,7 @@ import {
 } from "@/agent/tools/voiceover/voiceover-tools";
 import { buildWebTools } from "@/agent/tools/web/web-tools";
 import { buildVisionTools } from "@/agent/tools/vision/vision-tools";
+import { buildVideoSemanticTools } from "@/agent/tools/video-analysis/video-semantic-tools";
 import {
 	buildTranscriptionTools,
 	createTranscriptionToolDeps,
@@ -62,6 +63,7 @@ export class MCPServer {
 		for (const tool of buildStockMediaTools({ editor })) this.register(tool);
 		for (const tool of buildWebTools()) this.register(tool);
 		for (const tool of buildVisionTools({ editor })) this.register(tool);
+		for (const tool of buildVideoSemanticTools({ editor })) this.register(tool);
 		for (const tool of buildVoiceoverTools({
 			deps: createVoiceoverToolDeps({ editor }),
 		})) {

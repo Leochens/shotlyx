@@ -6,6 +6,7 @@ import {
 	buildShotSegmentsFromSceneCuts,
 	buildVideoAssetInspection,
 	buildVideoAssetProfile,
+	planKeyframesForShots,
 	type FfprobeFormat,
 	type FfprobeStream,
 } from "@/video-analysis";
@@ -16,6 +17,8 @@ import type {
 import {
 	detectSceneCuts,
 	detectSilenceDurations,
+	extractAudioForAsr,
+	extractKeyframes,
 	resolveFfmpegPaths,
 	runFfprobeJson,
 	type FfmpegBinaryPaths,
@@ -25,6 +28,7 @@ export interface AnalyzeVideoAssetInput {
 	analysisLevel?: VideoAnalysisLevel;
 	ffmpegPaths?: FfmpegBinaryPaths;
 	filePath: string;
+	includeKeyframes?: boolean;
 	sceneThreshold?: number;
 	videoId?: string;
 }
@@ -80,6 +84,7 @@ export async function analyzeVideoAsset({
 	analysisLevel = "basic",
 	ffmpegPaths = resolveFfmpegPaths(),
 	filePath,
+	includeKeyframes = analysisLevel !== "basic",
 	sceneThreshold,
 	videoId = defaultVideoId({ filePath }),
 }: AnalyzeVideoAssetInput): Promise<VideoAssetInspection> {
@@ -120,12 +125,26 @@ export async function analyzeVideoAsset({
 		sceneCutTimes,
 	});
 
-	return buildVideoAssetInspection({
+	const baseInspection = buildVideoAssetInspection({
 		analysisLevel,
 		profile,
 		shots,
 		videoId,
 	});
+	if (!includeKeyframes || baseInspection.keyframes.length === 0) {
+		return baseInspection;
+	}
+	const outputDir = path.join(getMediaAnalysisTempDir(), videoId, "keyframes");
+	const keyframes = await extractKeyframes({
+		ffmpegPath: ffmpegPaths.ffmpegPath,
+		filePath,
+		keyframes: planKeyframesForShots({ shots }),
+		outputDir,
+	});
+	return {
+		...baseInspection,
+		keyframes,
+	};
 }
 
 function safeExtension(name: string): string {
@@ -143,9 +162,7 @@ export async function writeUploadedVideoToTemp({
 	blob: Blob;
 	name: string;
 }): Promise<string> {
-	const baseDir =
-		process.env.SHOTLYX_DESKTOP_MEDIA_ANALYZE_DIR ??
-		path.join(os.tmpdir(), "shotlyx-media-analysis");
+	const baseDir = getMediaAnalysisTempDir();
 	await fs.mkdir(baseDir, { recursive: true });
 	const filePath = path.join(
 		baseDir,
@@ -154,4 +171,32 @@ export async function writeUploadedVideoToTemp({
 	const buffer = Buffer.from(await blob.arrayBuffer());
 	await fs.writeFile(filePath, buffer);
 	return filePath;
+}
+
+function getMediaAnalysisTempDir(): string {
+	return (
+		process.env.SHOTLYX_DESKTOP_MEDIA_ANALYZE_DIR ??
+		path.join(os.tmpdir(), "shotlyx-media-analysis")
+	);
+}
+
+export async function extractVideoAudioForAsr({
+	ffmpegPaths = resolveFfmpegPaths(),
+	filePath,
+}: {
+	ffmpegPaths?: FfmpegBinaryPaths;
+	filePath: string;
+}): Promise<File> {
+	const outputPath = path.join(
+		getMediaAnalysisTempDir(),
+		`${crypto.randomUUID()}-asr.wav`,
+	);
+	await extractAudioForAsr({
+		ffmpegPath: ffmpegPaths.ffmpegPath,
+		filePath,
+		outputPath,
+	});
+	const audio = await fs.readFile(outputPath);
+	await fs.rm(outputPath, { force: true }).catch(() => {});
+	return new File([audio], "shotlyx-asr.wav", { type: "audio/wav" });
 }

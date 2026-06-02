@@ -119,6 +119,83 @@ export interface VideoSemanticIndex {
 	};
 }
 
+export interface VideoSemanticAgentViews {
+	summary: {
+		videoId: string;
+		assetType: VideoSceneType | "mixed";
+		duration: number;
+		globalSummary: string;
+		semanticSegments: Array<{
+			segmentId: string;
+			title: string;
+			start: number;
+			end: number;
+			type: SemanticSegmentType;
+			summary: string;
+		}>;
+	};
+	editing: {
+		targetDurationSeconds?: number;
+		keep: Array<{
+			segmentId: string;
+			title: string;
+			start: number;
+			end: number;
+			reason: string;
+			sourceShotIds: string[];
+		}>;
+		remove: Array<{
+			segmentId: string;
+			title: string;
+			start: number;
+			end: number;
+			reason: string;
+		}>;
+		additions: Array<{
+			segmentId: string;
+			type: SuggestedOperation["type"];
+			reason: string;
+		}>;
+	};
+	caption: {
+		hasTranscript: boolean;
+		transcript: TranscriptSegment[];
+		transcriptText: string;
+		speechSummaries: Array<{
+			segmentId: string;
+			start: number;
+			end: number;
+			text: string;
+		}>;
+	};
+	mg: {
+		opportunities: Array<{
+			segmentId: string;
+			start: number;
+			end: number;
+			score: number;
+			reason: string;
+			keyframeIds: string[];
+		}>;
+	};
+	broll: {
+		needs: Array<{
+			segmentId: string;
+			start: number;
+			end: number;
+			score: number;
+			reason: string;
+		}>;
+		candidates: Array<{
+			segmentId: string;
+			start: number;
+			end: number;
+			score: number;
+			reason: string;
+		}>;
+	};
+}
+
 export interface VideoAssetInspection {
 	videoId: string;
 	profile: VideoAssetProfile;

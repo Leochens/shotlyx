@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
+import type { Keyframe } from "@/video-analysis";
 
 export interface FfmpegBinaryPaths {
 	bundleKey: string;
@@ -241,4 +243,98 @@ export async function detectSilenceDurations({
 		],
 	});
 	return parseSilenceDetectOutput(stderr);
+}
+
+export function buildExtractKeyframeArgs({
+	filePath,
+	outputPath,
+	time,
+}: {
+	filePath: string;
+	outputPath: string;
+	time: number;
+}): string[] {
+	return [
+		"-hide_banner",
+		"-nostdin",
+		"-y",
+		"-ss",
+		`${Math.max(0, Math.round(time * 1000) / 1000)}`,
+		"-i",
+		filePath,
+		"-frames:v",
+		"1",
+		"-q:v",
+		"2",
+		outputPath,
+	];
+}
+
+export async function extractKeyframes({
+	ffmpegPath,
+	filePath,
+	keyframes,
+	outputDir,
+}: {
+	ffmpegPath: string;
+	filePath: string;
+	keyframes: Keyframe[];
+	outputDir: string;
+}): Promise<Keyframe[]> {
+	await fs.mkdir(outputDir, { recursive: true });
+	const results: Keyframe[] = [];
+	for (const keyframe of keyframes) {
+		const imagePath = path.join(outputDir, `${keyframe.id}.jpg`);
+		await runFfmpegCommand({
+			binaryPath: ffmpegPath,
+			args: buildExtractKeyframeArgs({
+				filePath,
+				outputPath: imagePath,
+				time: keyframe.time,
+			}),
+		});
+		results.push({ ...keyframe, imagePath });
+	}
+	return results;
+}
+
+export function buildExtractAudioArgs({
+	filePath,
+	outputPath,
+}: {
+	filePath: string;
+	outputPath: string;
+}): string[] {
+	return [
+		"-hide_banner",
+		"-nostdin",
+		"-y",
+		"-i",
+		filePath,
+		"-vn",
+		"-ac",
+		"1",
+		"-ar",
+		"16000",
+		"-c:a",
+		"pcm_s16le",
+		outputPath,
+	];
+}
+
+export async function extractAudioForAsr({
+	ffmpegPath,
+	filePath,
+	outputPath,
+}: {
+	ffmpegPath: string;
+	filePath: string;
+	outputPath: string;
+}): Promise<string> {
+	await fs.mkdir(path.dirname(outputPath), { recursive: true });
+	await runFfmpegCommand({
+		binaryPath: ffmpegPath,
+		args: buildExtractAudioArgs({ filePath, outputPath }),
+	});
+	return outputPath;
 }

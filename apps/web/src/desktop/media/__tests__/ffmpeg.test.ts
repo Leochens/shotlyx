@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
 import {
+	buildExtractAudioArgs,
+	buildExtractKeyframeArgs,
 	parseSceneDetectionOutput,
 	parseSilenceDetectOutput,
 	resolveFfmpegBundleKey,
@@ -67,5 +69,51 @@ describe("desktop ffmpeg resources", () => {
 		`);
 
 		expect(silence).toEqual([2.5, 1.25]);
+	});
+
+	test("builds deterministic keyframe extraction args", () => {
+		expect(
+			buildExtractKeyframeArgs({
+				filePath: "/video/demo.mp4",
+				outputPath: "/tmp/keyframe.jpg",
+				time: 12.345,
+			}),
+		).toEqual([
+			"-hide_banner",
+			"-nostdin",
+			"-y",
+			"-ss",
+			"12.345",
+			"-i",
+			"/video/demo.mp4",
+			"-frames:v",
+			"1",
+			"-q:v",
+			"2",
+			"/tmp/keyframe.jpg",
+		]);
+	});
+
+	test("builds audio extraction args for ASR", () => {
+		expect(
+			buildExtractAudioArgs({
+				filePath: "/video/demo.mp4",
+				outputPath: "/tmp/audio.wav",
+			}),
+		).toEqual([
+			"-hide_banner",
+			"-nostdin",
+			"-y",
+			"-i",
+			"/video/demo.mp4",
+			"-vn",
+			"-ac",
+			"1",
+			"-ar",
+			"16000",
+			"-c:a",
+			"pcm_s16le",
+			"/tmp/audio.wav",
+		]);
 	});
 });

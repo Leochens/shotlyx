@@ -319,6 +319,8 @@ describe("MCPServer.init() eager registration", () => {
 		expect(names).toContain("rough_cut_apply_review");
 		expect(names).toContain("subtitles_extract_transcript");
 		expect(names).toContain("subtitles_translate");
+		expect(names).toContain("video_semantic_index_analyze");
+		expect(names).toContain("video_semantic_index_get");
 		expect(names).toContain("playback_play");
 		expect(names).toContain("playback_seek");
 		expect(names).toContain("web_search");
