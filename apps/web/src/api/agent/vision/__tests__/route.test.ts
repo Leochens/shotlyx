@@ -16,46 +16,50 @@ describe("vision analysis route", () => {
 		delete process.env.AGENT_VISION_PROVIDER;
 		delete process.env.AGENT_VISION_HOST;
 		delete process.env.AGENT_VISION_MODEL;
-		const fetchFn = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
-			expect(String(input)).toBe("https://api.minimax.io/v1/chat/completions");
-			expect(init?.headers).toMatchObject({
-				Authorization: "Bearer minimax-key",
-				"Content-Type": "application/json",
-			});
-			const body = JSON.parse(String(init?.body));
-			expect(body).toMatchObject({
-				model: "MiniMax-M3",
-				reasoning_split: true,
-				messages: [
-					{ role: "system" },
-					{
-						role: "user",
-						content: [
-							{ type: "text" },
-							{
-								type: "video_url",
-								video_url: {
-									url: "data:video/mp4;base64,AA==",
-									detail: "default",
-									fps: 1,
+		const fetchFn: typeof fetch = mock(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe(
+					"https://api.minimaxi.com/v1/chat/completions",
+				);
+				expect(init?.headers).toMatchObject({
+					Authorization: "Bearer minimax-key",
+					"Content-Type": "application/json",
+				});
+				const body = JSON.parse(String(init?.body));
+				expect(body).toMatchObject({
+					model: "MiniMax-M3",
+					reasoning_split: true,
+					messages: [
+						{ role: "system" },
+						{
+							role: "user",
+							content: [
+								{ type: "text" },
+								{
+									type: "video_url",
+									video_url: {
+										url: "data:video/mp4;base64,AA==",
+										detail: "default",
+										fps: 1,
+									},
 								},
-							},
-						],
-					},
-				],
-			});
-			return Response.json({
-				choices: [
-					{
-						message: {
-							content: "这个视频节奏偏慢，建议删除重复动作。",
+							],
 						},
-					},
-				],
-				usage: { prompt_tokens: 12, completion_tokens: 8 },
-			});
-		});
-		globalThis.fetch = fetchFn as unknown as typeof fetch;
+					],
+				});
+				return Response.json({
+					choices: [
+						{
+							message: {
+								content: "这个视频节奏偏慢，建议删除重复动作。",
+							},
+						},
+					],
+					usage: { prompt_tokens: 12, completion_tokens: 8 },
+				});
+			},
+		);
+		globalThis.fetch = fetchFn;
 
 		const response = await POST(
 			new ApiRequest("http://localhost/api/agent/vision/analyze", {

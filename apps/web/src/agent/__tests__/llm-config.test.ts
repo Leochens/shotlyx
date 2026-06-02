@@ -90,7 +90,7 @@ describe("loadLLMConfigFromEnv", () => {
 		expect(config.vision).toEqual({
 			name: "vision",
 			provider: "openai-compatible",
-			host: "https://api.minimax.io/v1",
+			host: "https://api.minimaxi.com/v1",
 			apiKey: "",
 			model: "MiniMax-M3",
 			structuredOutputMode: undefined,
@@ -111,6 +111,25 @@ describe("loadLLMConfigFromEnv", () => {
 			provider: "openai-compatible",
 			host: "https://api.minimax.io/v1",
 			apiKey: "minimax-key",
+			model: "MiniMax-M3",
+			structuredOutputMode: undefined,
+		});
+	});
+
+	test("Vision config routes Token Plan subscription keys to the Token Plan host", () => {
+		process.env.AGENT_VISION_PROVIDER = "openai-compatible";
+		process.env.AGENT_VISION_HOST = "https://api.minimax.io/v1";
+		process.env.AGENT_VISION_KEY = "sk-cp-subscription-key";
+		process.env.AGENT_VISION_MODEL = "MiniMax-M3";
+		delete process.env.AGENT_VISION_STRUCTURED_OUTPUT_MODE;
+
+		const config = loadLLMConfigFromEnv();
+
+		expect(config.vision).toEqual({
+			name: "vision",
+			provider: "openai-compatible",
+			host: "https://api.minimaxi.com/v1",
+			apiKey: "sk-cp-subscription-key",
 			model: "MiniMax-M3",
 			structuredOutputMode: undefined,
 		});

@@ -1,7 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
+import type { MediaAsset } from "@/media/types";
 import { buildVisionTools } from "../vision-tools";
 
-function createEditorWithAssets(assets: unknown[]) {
+function createEditorWithAssets(assets: MediaAsset[]) {
 	return {
 		media: {
 			getAssets: () => assets,
@@ -18,7 +19,7 @@ function createEditorWithAssets(assets: unknown[]) {
 describe("vision analysis tools", () => {
 	test("builds a video understanding tool for Agent visual analysis", () => {
 		const tools = buildVisionTools({
-			editor: createEditorWithAssets([]) as never,
+			editor: createEditorWithAssets([]),
 			deps: {
 				fetchFn: mock(() => Promise.resolve(new Response())),
 				readFileAsDataUrl: mock(() => Promise.resolve("data:video/mp4;base64,AA==")),
@@ -68,7 +69,7 @@ describe("vision analysis tools", () => {
 			});
 		});
 		const [tool] = buildVisionTools({
-			editor: editor as never,
+			editor,
 			deps: {
 				fetchFn,
 				readFileAsDataUrl: mock(() =>
@@ -89,5 +90,79 @@ describe("vision analysis tools", () => {
 			analysis: "建议保留开头动作，并在 8 秒处切到特写。",
 		});
 		expect(fetchFn).toHaveBeenCalledTimes(1);
+	});
+
+	test("emits progress while preparing and waiting for MiniMax M3 analysis", async () => {
+		const file = new File(["demo"], "demo.mp4", { type: "video/mp4" });
+		const editor = createEditorWithAssets([
+			{
+				id: "media-1",
+				name: "demo.mp4",
+				type: "video",
+				duration: 12,
+				width: 1920,
+				height: 1080,
+				file,
+			},
+		]);
+		const progressEvents: Array<{
+			stage: string;
+			label: string;
+			status: string;
+			current?: number;
+			total?: number;
+		}> = [];
+		const [tool] = buildVisionTools({
+			editor,
+			deps: {
+				fetchFn: mock(() =>
+					Promise.resolve(
+						Response.json({
+							model: "MiniMax-M3",
+							analysis: "画面主体清楚，建议剪短中段停顿。",
+						}),
+					),
+				),
+				readFileAsDataUrl: mock(() =>
+					Promise.resolve("data:video/mp4;base64,AA=="),
+				),
+			},
+		});
+
+		await tool.handler(
+			{ mediaAssetId: "media-1", analysisType: "editing_suggestions" },
+			{ onProgress: (event) => progressEvents.push(event) },
+		);
+
+		expect(progressEvents).toEqual([
+			{
+				stage: "vision-prepare",
+				label: "正在读取媒体文件",
+				status: "running",
+				current: 1,
+				total: 4,
+			},
+			{
+				stage: "vision-provider",
+				label: "正在请求 MiniMax M3 视觉分析",
+				status: "running",
+				current: 2,
+				total: 4,
+			},
+			{
+				stage: "vision-provider",
+				label: "MiniMax M3 正在理解视频画面",
+				status: "running",
+				current: 3,
+				total: 4,
+			},
+			{
+				stage: "vision-provider",
+				label: "视觉分析已完成",
+				status: "success",
+				current: 4,
+				total: 4,
+			},
+		]);
 	});
 });

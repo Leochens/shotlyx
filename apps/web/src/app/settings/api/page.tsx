@@ -491,8 +491,8 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 			},
 			AGENT_VISION_KEY: {
 				label: "MiniMax M3 API 密钥",
-				placeholder: "MiniMax API 密钥",
-				help: "用于视觉分析和视频理解的专用密钥。",
+				placeholder: "sk-cp-...",
+				help: "用于视觉分析和视频理解的 MiniMax Token Plan 订阅 Key。",
 			},
 			AGENT_VISION_MODEL: {
 				label: "视觉模型",
@@ -500,7 +500,7 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 			},
 			AGENT_VISION_HOST: {
 				label: "视觉 Base URL",
-				help: "MiniMax OpenAI 兼容 API 基础地址。",
+				help: "MiniMax Token Plan 的 OpenAI 兼容 API 基础地址。",
 			},
 			VOLCENGINE_ARK_API_KEY: {
 				label: "Ark API 密钥",

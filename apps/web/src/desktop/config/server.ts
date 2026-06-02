@@ -39,6 +39,8 @@ export interface DesktopConfigStatusGroup {
 }
 
 const CONFIG_VERSION = 1;
+const MINIMAX_TOKEN_PLAN_HOST = "https://api.minimaxi.com/v1";
+const MINIMAX_LEGACY_GLOBAL_HOST = "https://api.minimax.io/v1";
 
 export function isDesktopMode(): boolean {
 	return (
@@ -66,6 +68,12 @@ function normalizeValues(values: unknown): DesktopApiValues {
 		if (trimmed) {
 			result[key] = trimmed;
 		}
+	}
+	if (
+		result.AGENT_VISION_KEY?.startsWith("sk-cp-") &&
+		result.AGENT_VISION_HOST === MINIMAX_LEGACY_GLOBAL_HOST
+	) {
+		result.AGENT_VISION_HOST = MINIMAX_TOKEN_PLAN_HOST;
 	}
 	return result;
 }

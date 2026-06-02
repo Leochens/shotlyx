@@ -4,6 +4,9 @@ import { getRuntimeEnv } from "@/desktop/config/server";
 
 type LLMConfigName = "default" | "mg" | "asr" | "vision";
 
+const MINIMAX_TOKEN_PLAN_HOST = "https://api.minimaxi.com/v1";
+const MINIMAX_LEGACY_GLOBAL_HOST = "https://api.minimax.io/v1";
+
 function normalizeProvider(
 	value: string | undefined,
 ): LLMProviderId | undefined {
@@ -130,7 +133,7 @@ function defaultHostForName({
 	name: LLMConfigName;
 	provider: LLMProviderId;
 }): string {
-	if (name === "vision") return "https://api.minimax.io/v1";
+	if (name === "vision") return MINIMAX_TOKEN_PLAN_HOST;
 	return defaultHostForProvider(provider);
 }
 
@@ -148,10 +151,17 @@ function buildConfig(name: LLMConfigName): LLMProviderConfig {
 		model: env.model,
 		fallback: defaultProviderForName(name),
 	});
+	const rawHost = env.host ?? defaultHostForName({ name, provider });
+	const host =
+		name === "vision" &&
+		env.apiKey?.startsWith("sk-cp-") &&
+		rawHost === MINIMAX_LEGACY_GLOBAL_HOST
+			? MINIMAX_TOKEN_PLAN_HOST
+			: rawHost;
 	return {
 		name,
 		provider,
-		host: env.host ?? defaultHostForName({ name, provider }),
+		host,
 		apiKey: env.apiKey ?? "",
 		model: env.model ?? defaultModelForName(name),
 		structuredOutputMode: normalizeStructuredOutputMode(

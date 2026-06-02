@@ -1,4 +1,3 @@
-import type { EditorCore } from "@/core";
 import type { MediaAsset } from "@/media/types";
 import type { Tool } from "@/agent/mcp/types";
 import {
@@ -7,12 +6,27 @@ import {
 } from "@/agent/mcp/validation";
 
 type VisualMediaAsset = MediaAsset & { type: "image" | "video" };
+type VisionElementRef = { trackId: string; elementId: string };
+type VisionToolEditor = {
+	media: {
+		getAssets: () => MediaAsset[];
+	};
+	selection: {
+		getSelectedElements: () => VisionElementRef[];
+	};
+	timeline: {
+		getElementsWithTracks: (input: {
+			elements: VisionElementRef[];
+		}) => Array<{ element: { mediaId?: string } }>;
+	};
+};
 type VisionAnalysisType =
 	| "editing_suggestions"
 	| "visual_summary"
 	| "quality_check"
 	| "content_verification";
 type VisionDetail = "low" | "default" | "high";
+type VisionProgressStatus = "running" | "success" | "error";
 
 export interface VisionToolDeps {
 	fetchFn: typeof fetch;
@@ -20,7 +34,7 @@ export interface VisionToolDeps {
 }
 
 export interface BuildVisionToolsOptions {
-	editor: EditorCore;
+	editor: VisionToolEditor;
 	deps?: Partial<VisionToolDeps>;
 }
 
@@ -82,7 +96,7 @@ function isVisualMediaAsset(asset: MediaAsset): asset is VisualMediaAsset {
 	return asset.type === "video" || asset.type === "image";
 }
 
-function resolveSelectedMediaAssetId(editor: EditorCore): string | null {
+function resolveSelectedMediaAssetId(editor: VisionToolEditor): string | null {
 	const [selected] = editor.selection.getSelectedElements();
 	if (!selected) return null;
 	const [resolved] = editor.timeline.getElementsWithTracks({
@@ -96,7 +110,7 @@ function resolveTargetAsset({
 	editor,
 	mediaAssetId,
 }: {
-	editor: EditorCore;
+	editor: VisionToolEditor;
 	mediaAssetId?: string;
 }): VisualMediaAsset {
 	const assets = editor.media.getAssets().filter((asset) => !asset.ephemeral);
@@ -119,6 +133,28 @@ function resolveTargetAsset({
 function mimeTypeForAsset(asset: VisualMediaAsset): string {
 	if (asset.file.type) return asset.file.type;
 	return asset.type === "video" ? "video/mp4" : "image/png";
+}
+
+function emitVisionProgress({
+	context,
+	stage,
+	label,
+	status,
+	current,
+}: {
+	context: Parameters<Tool["handler"]>[1];
+	stage: string;
+	label: string;
+	status: VisionProgressStatus;
+	current: number;
+}) {
+	context?.onProgress?.({
+		stage,
+		label,
+		status,
+		current,
+		total: 4,
+	});
 }
 
 export function readFileAsDataUrl(file: File): Promise<string> {
@@ -212,20 +248,53 @@ export function buildVisionTools({
 					editor,
 					mediaAssetId: optionalStringParam(params, "mediaAssetId"),
 				});
-				const dataUrl = await readDataUrl(asset.file);
-				const response = await fetchFn("/api/agent/vision/analyze", {
+				const analysisType = normalizeAnalysisType(
+					optionalStringParam(params, "analysisType"),
+				);
+				const prompt = optionalStringParam(params, "prompt");
+				const detail = normalizeDetail(optionalStringParam(params, "detail"));
+				const fps = normalizeFps(optionalNumberParam(params, "fps"));
+				const maxLongSidePixel = normalizeMaxLongSidePixel(
+					optionalNumberParam(params, "maxLongSidePixel"),
+				);
+
+				emitVisionProgress({
+					context,
+					stage: "vision-prepare",
+					label: "正在读取媒体文件",
+					status: "running",
+					current: 1,
+				});
+				let dataUrl: string;
+				try {
+					dataUrl = await readDataUrl(asset.file);
+				} catch (error) {
+					emitVisionProgress({
+						context,
+						stage: "vision-prepare",
+						label: "读取媒体文件失败",
+						status: "error",
+						current: 1,
+					});
+					throw error;
+				}
+
+				emitVisionProgress({
+					context,
+					stage: "vision-provider",
+					label: "正在请求 MiniMax M3 视觉分析",
+					status: "running",
+					current: 2,
+				});
+				const responsePromise = fetchFn("/api/agent/vision/analyze", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({
-						analysisType: normalizeAnalysisType(
-							optionalStringParam(params, "analysisType"),
-						),
-						prompt: optionalStringParam(params, "prompt"),
-						detail: normalizeDetail(optionalStringParam(params, "detail")),
-						fps: normalizeFps(optionalNumberParam(params, "fps")),
-						maxLongSidePixel: normalizeMaxLongSidePixel(
-							optionalNumberParam(params, "maxLongSidePixel"),
-						),
+						analysisType,
+						prompt,
+						detail,
+						fps,
+						maxLongSidePixel,
 						media: {
 							mediaAssetId: asset.id,
 							name: asset.name,
@@ -239,10 +308,49 @@ export function buildVisionTools({
 					}),
 					signal: context?.signal,
 				});
+				emitVisionProgress({
+					context,
+					stage: "vision-provider",
+					label:
+						asset.type === "video"
+							? "MiniMax M3 正在理解视频画面"
+							: "MiniMax M3 正在理解图片画面",
+					status: "running",
+					current: 3,
+				});
+
+				let response: Response;
+				try {
+					response = await responsePromise;
+				} catch (error) {
+					emitVisionProgress({
+						context,
+						stage: "vision-provider",
+						label: "视觉分析请求失败",
+						status: "error",
+						current: 3,
+					});
+					throw error;
+				}
 				if (!response.ok) {
-					throw new Error(await parseAgentApiError(response));
+					const message = await parseAgentApiError(response);
+					emitVisionProgress({
+						context,
+						stage: "vision-provider",
+						label: "视觉分析失败",
+						status: "error",
+						current: 3,
+					});
+					throw new Error(message);
 				}
 				const result = await response.json();
+				emitVisionProgress({
+					context,
+					stage: "vision-provider",
+					label: "视觉分析已完成",
+					status: "success",
+					current: 4,
+				});
 				return {
 					...result,
 					mediaAssetId: asset.id,

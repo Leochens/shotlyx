@@ -69,7 +69,7 @@ test("desktop config applies provider defaults and runtime env overrides", () =>
 		AGENT_LLM_MODEL: "gpt-4o",
 		IMAGE_GENERATION_BASE_URL: "https://api.openai.com/v1",
 		AGENT_VISION_PROVIDER: "openai-compatible",
-		AGENT_VISION_HOST: "https://api.minimax.io/v1",
+		AGENT_VISION_HOST: "https://api.minimaxi.com/v1",
 		AGENT_VISION_MODEL: "MiniMax-M3",
 	});
 	expect(getRuntimeEnv().AGENT_LLM_KEY).toBe("agent-key");
@@ -96,6 +96,21 @@ test("desktop config stores and masks the dedicated Vision API key", () => {
 	).toMatchObject({
 		configured: true,
 		required: false,
+	});
+});
+
+test("desktop config normalizes Token Plan vision keys away from the legacy host", () => {
+	writeDesktopApiConfig({
+		AGENT_VISION_KEY: "sk-cp-subscription-key",
+		AGENT_VISION_HOST: "https://api.minimax.io/v1",
+	});
+
+	expect(readDesktopApiConfig().values).toMatchObject({
+		AGENT_VISION_KEY: "sk-cp-subscription-key",
+		AGENT_VISION_HOST: "https://api.minimaxi.com/v1",
+	});
+	expect(desktopValuesToEnv(readDesktopApiConfig().values)).toMatchObject({
+		AGENT_VISION_HOST: "https://api.minimaxi.com/v1",
 	});
 });
 
