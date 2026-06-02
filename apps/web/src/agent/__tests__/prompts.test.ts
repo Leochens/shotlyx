@@ -70,6 +70,10 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain(
 			"Do not call vision_analyze_media as the first step",
 		);
+		expect(prompt).toContain(
+			"After video_semantic_index_analyze succeeds, do not call vision_analyze_media",
+		);
+		expect(prompt).toContain("pass a focusHint");
 		expect(prompt).toContain("## Vague Editing Requests");
 		expect(prompt).toContain("帮我剪辑一下视频");
 		expect(prompt).toContain("removing silence");

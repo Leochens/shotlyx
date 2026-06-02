@@ -83,7 +83,42 @@ describe("vision analysis tools", () => {
 		expect(tool?.parameters.mediaAssetId).toBeDefined();
 	});
 
-	test("sends video assets to the vision analysis API as binary files", async () => {
+	test("rejects generic video understanding so the semantic index is reused", async () => {
+		const file = new File(["demo"], "demo.mp4", { type: "video/mp4" });
+		const fetchFn = mock(() => Promise.resolve(Response.json({})));
+		const [tool] = buildVisionTools({
+			editor: createEditorWithAssets([
+				{
+					id: "media-1",
+					name: "demo.mp4",
+					type: "video",
+					duration: 12,
+					width: 1920,
+					height: 1080,
+					file,
+				},
+			]),
+			deps: {
+				fetchFn,
+				readFileAsDataUrl: mock(() =>
+					Promise.resolve("data:video/mp4;base64,AA=="),
+				),
+			},
+		});
+
+		await expect(
+			tool.handler({
+				mediaAssetId: "media-1",
+				analysisType: "visual_summary",
+				prompt: "分析这个视频的画面内容",
+			}),
+		).rejects.toThrow(
+			"视频素材的内容理解和剪辑建议请使用 video_semantic_index_analyze 或 video_semantic_index_get",
+		);
+		expect(fetchFn).not.toHaveBeenCalled();
+	});
+
+	test("sends video quality-check assets to the vision analysis API as binary files", async () => {
 		const file = new File(["demo"], "demo.mp4", { type: "video/mp4" });
 		const editor = createEditorWithAssets([
 			{
@@ -107,8 +142,8 @@ describe("vision analysis tools", () => {
 				const body = getBinaryVisionPayload(input);
 				expect(body.stream).toBe(false);
 				expect(body).toMatchObject({
-					analysisType: "editing_suggestions",
-					prompt: "给出剪辑建议",
+					analysisType: "quality_check",
+					prompt: "检查画面质量",
 					media: {
 						mediaAssetId: "media-1",
 						name: "demo.mp4",
@@ -137,8 +172,8 @@ describe("vision analysis tools", () => {
 
 		const result = await tool.handler({
 			mediaAssetId: "media-1",
-			analysisType: "editing_suggestions",
-			prompt: "给出剪辑建议",
+			analysisType: "quality_check",
+			prompt: "检查画面质量",
 		});
 
 		expect(result).toMatchObject({
@@ -193,7 +228,7 @@ describe("vision analysis tools", () => {
 
 		await tool.handler({
 			mediaAssetId: "media-1",
-			analysisType: "editing_suggestions",
+			analysisType: "quality_check",
 		});
 
 		expect(fetchFn).toHaveBeenCalledTimes(1);
@@ -250,7 +285,7 @@ describe("vision analysis tools", () => {
 		});
 
 		const result = await tool.handler(
-			{ mediaAssetId: "media-1", analysisType: "editing_suggestions" },
+			{ mediaAssetId: "media-1", analysisType: "quality_check" },
 			{ onProgress: (event) => progressEvents.push(event) },
 		);
 
@@ -307,7 +342,7 @@ describe("vision analysis tools", () => {
 		});
 
 		await tool.handler(
-			{ mediaAssetId: "media-1", analysisType: "editing_suggestions" },
+			{ mediaAssetId: "media-1", analysisType: "quality_check" },
 			{ onProgress: (event) => progressEvents.push(event) },
 		);
 

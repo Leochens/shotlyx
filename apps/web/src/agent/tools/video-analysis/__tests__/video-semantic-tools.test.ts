@@ -73,6 +73,7 @@ describe("video semantic index tools", () => {
 				const payload = JSON.parse(url.searchParams.get("payload") ?? "{}");
 				expect(payload.prompt).toContain("Video Semantic Index");
 				expect(payload.prompt).toContain("shot_001");
+				expect(payload.prompt).toContain("只看 0-5 秒开头");
 				expect(payload.prompt).toContain('"globalSummary"');
 				expect(payload.prompt).toContain('"shots"');
 				return Response.json({
@@ -109,14 +110,21 @@ describe("video semantic index tools", () => {
 			editor: createEditorWithAssets([asset]),
 			deps: { fetchFn },
 		});
+		expect(tool.parameters.focusHint).toBeDefined();
+		const progressEvents: Array<{ label: string; stage: string }> = [];
 
-		const result = await tool.handler({
-			analysisLevel: "standard",
-			intent: "summarize",
-			mediaAssetId: "media-default",
-		});
+		const result = await tool.handler(
+			{
+				analysisLevel: "standard",
+				focusHint: "只看 0-5 秒开头",
+				intent: "summarize",
+				mediaAssetId: "media-default",
+			},
+			{ onProgress: (event) => progressEvents.push(event) },
+		);
 
 		expect(result).toMatchObject({
+			focusHint: "只看 0-5 秒开头",
 			agentViews: {
 				caption: {
 					transcriptText: "欢迎使用自动字幕。",
@@ -134,6 +142,14 @@ describe("video semantic index tools", () => {
 					},
 				],
 			},
+		});
+		expect(progressEvents[0]).toMatchObject({
+			stage: "semantic-inspection",
+			label: "正在按镜头片段体检视频并切分镜头",
+		});
+		expect(progressEvents[1]).toMatchObject({
+			stage: "semantic-vision",
+			label: "正在分析镜头片段画面",
 		});
 		expect(fetchFn).toHaveBeenCalledTimes(3);
 	});

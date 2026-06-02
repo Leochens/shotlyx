@@ -55,6 +55,7 @@ export interface VideoSemanticToolDeps {
 		analysisLevel: VideoAnalysisLevel;
 		asset: VideoMediaAsset;
 		fetchFn: typeof fetch;
+		focusHint?: string;
 		inspection: VideoAssetInspection;
 		intent: VideoIntent;
 	}) => Promise<VisualSemanticResult>;
@@ -192,10 +193,12 @@ function resolveTargetVideoAsset({
 function cacheKeyFor({
 	analysisLevel,
 	asset,
+	focusHint,
 	intent,
 }: {
 	analysisLevel: VideoAnalysisLevel;
 	asset: VideoMediaAsset;
+	focusHint?: string;
 	intent: VideoIntent;
 }): string {
 	return [
@@ -205,6 +208,7 @@ function cacheKeyFor({
 		asset.file.lastModified,
 		intent,
 		analysisLevel,
+		focusHint ?? "",
 	].join(":");
 }
 
@@ -564,12 +568,14 @@ async function defaultAnalyzeVisualMedia({
 	analysisLevel,
 	asset,
 	fetchFn,
+	focusHint,
 	inspection,
 	intent,
 }: {
 	analysisLevel: VideoAnalysisLevel;
 	asset: VideoMediaAsset;
 	fetchFn: typeof fetch;
+	focusHint?: string;
 	inspection: VideoAssetInspection;
 	intent: VideoIntent;
 }): Promise<VisualSemanticResult> {
@@ -601,6 +607,7 @@ async function defaultAnalyzeVisualMedia({
 			},
 			prompt: `请基于这个视频生成 Shotlyx Video Semantic Index 所需的结构化视觉信息。
 用户意图: ${intent}
+${focusHint ? `用户指定片段/关注范围: ${focusHint}\n` : ""}当前上传的是完整原视频，不是裁剪后的小片段。请结合下面的镜头边界和关键帧时间点聚焦分析对应片段。
 已切分镜头:
 ${shotFacts}
 
@@ -714,6 +721,12 @@ export function buildVideoSemanticTools({
 						"视频媒体资源 ID。可来自 media_get_all、media_search 或 Agent References；留空时优先分析当前选中的视频，否则使用资源库中的第一个视频。",
 					optional: true,
 				},
+				focusHint: {
+					type: "string",
+					description:
+						"可选片段提示或关注范围，例如 0:10-0:18、shot_003、开头 5 秒。当前不会裁剪上传小片段，而是上传完整视频并结合镜头/关键帧提示聚焦分析。",
+					optional: true,
+				},
 			},
 			// Tool handlers use the MCP Tool interface's positional signature.
 			// eslint-disable-next-line shotlyx/prefer-object-params
@@ -724,7 +737,13 @@ export function buildVideoSemanticTools({
 				const analysisLevel = normalizeAnalysisLevel(
 					optionalStringParam(params, "analysisLevel"),
 				);
-				const cacheKey = cacheKeyFor({ analysisLevel, asset, intent });
+				const focusHint = optionalStringParam(params, "focusHint");
+				const cacheKey = cacheKeyFor({
+					analysisLevel,
+					asset,
+					focusHint,
+					intent,
+				});
 				const cached = indexCache.get(cacheKey);
 				if (cached) {
 					return {
@@ -734,6 +753,7 @@ export function buildVideoSemanticTools({
 						}),
 						agentViews: buildSemanticAgentViews({ index: cached }),
 						cached: true,
+						...(focusHint ? { focusHint } : {}),
 						index: cached,
 						mediaAssetId: asset.id,
 					};
@@ -741,7 +761,7 @@ export function buildVideoSemanticTools({
 
 				context?.onProgress?.({
 					current: 1,
-					label: "正在体检视频并切分镜头",
+					label: "正在按镜头片段体检视频并切分镜头",
 					stage: "semantic-inspection",
 					status: "running",
 					total: 4,
@@ -755,7 +775,7 @@ export function buildVideoSemanticTools({
 
 				context?.onProgress?.({
 					current: 2,
-					label: "正在分析画面内容",
+					label: "正在分析镜头片段画面",
 					stage: "semantic-vision",
 					status: "running",
 					total: 4,
@@ -764,6 +784,7 @@ export function buildVideoSemanticTools({
 					analysisLevel,
 					asset,
 					fetchFn,
+					focusHint,
 					inspection,
 					intent,
 				}).catch(() => ({}));
@@ -805,6 +826,7 @@ export function buildVideoSemanticTools({
 					agentViews: buildSemanticAgentViews({ index }),
 					analysisPlan: plan,
 					cached: false,
+					...(focusHint ? { focusHint } : {}),
 					index,
 					mediaAssetId: asset.id,
 				};
@@ -829,6 +851,12 @@ export function buildVideoSemanticTools({
 					type: "string",
 					description: "视频媒体资源 ID",
 				},
+				focusHint: {
+					type: "string",
+					description:
+						"索引生成时使用的片段提示或关注范围；如果分析时传过 focusHint，读取缓存时也传同一个值。",
+					optional: true,
+				},
 			},
 			handler: (params) => {
 				const mediaAssetId = requireStringParam(params, "mediaAssetId");
@@ -837,8 +865,9 @@ export function buildVideoSemanticTools({
 				const analysisLevel = normalizeAnalysisLevel(
 					optionalStringParam(params, "analysisLevel"),
 				);
+				const focusHint = optionalStringParam(params, "focusHint");
 				const cached = indexCache.get(
-					cacheKeyFor({ analysisLevel, asset, intent }),
+					cacheKeyFor({ analysisLevel, asset, focusHint, intent }),
 				);
 				if (!cached) {
 					throw new Error(
@@ -848,6 +877,7 @@ export function buildVideoSemanticTools({
 				return {
 					agentViews: buildSemanticAgentViews({ index: cached }),
 					cached: true,
+					...(focusHint ? { focusHint } : {}),
 					index: cached,
 					mediaAssetId: asset.id,
 				};

@@ -122,6 +122,20 @@ function normalizeMaxLongSidePixel(
 	return value;
 }
 
+function shouldRouteVideoAnalysisToSemanticIndex({
+	analysisType,
+	asset,
+}: {
+	analysisType: VisionAnalysisType;
+	asset: VisualMediaAsset;
+}): boolean {
+	return (
+		asset.type === "video" &&
+		(analysisType === "editing_suggestions" ||
+			analysisType === "visual_summary")
+	);
+}
+
 function isVisualMediaAsset(asset: MediaAsset): asset is VisualMediaAsset {
 	return asset.type === "video" || asset.type === "image";
 }
@@ -415,7 +429,7 @@ export function buildVisionTools({
 		{
 			name: "vision_analyze_media",
 			description:
-				"分析项目中的图片或视频内容。用于视频内容理解、视觉验证、画面质量检查、找亮点、给剪辑建议、判断是否符合用户描述。",
+				"分析项目中的图片，或对视频做窄范围视觉 QA/生成结果验证。普通视频内容理解、找亮点、剪辑建议请优先使用 video_semantic_index_analyze/get。",
 			parameters: {
 				mediaAssetId: {
 					type: "string",
@@ -463,6 +477,11 @@ export function buildVisionTools({
 				const analysisType = normalizeAnalysisType(
 					optionalStringParam(params, "analysisType"),
 				);
+				if (shouldRouteVideoAnalysisToSemanticIndex({ analysisType, asset })) {
+					throw new Error(
+						"视频素材的内容理解和剪辑建议请使用 video_semantic_index_analyze 或 video_semantic_index_get。vision_analyze_media 仅用于视频质量检查或与 prompt 的窄范围验证。",
+					);
+				}
 				const prompt = optionalStringParam(params, "prompt");
 				const detail = normalizeDetail(optionalStringParam(params, "detail"));
 				const fps = normalizeFps(optionalNumberParam(params, "fps"));
