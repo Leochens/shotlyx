@@ -180,6 +180,21 @@ function compactRoughCutReviewForModel(data: unknown): Record<string, unknown> {
 
 function compactVisionAnalysisForModel(data: unknown): Record<string, unknown> {
 	if (!isRecord(data)) return {};
+	if (data.requiresUserChoice === true) {
+		return {
+			mediaAssetId: data.mediaAssetId,
+			mediaName: data.mediaName,
+			mediaType: data.mediaType,
+			requiresUserChoice: true,
+			reason: data.reason,
+			fileSizeBytes: data.fileSizeBytes,
+			limitBytes: data.limitBytes,
+			message: data.message,
+			options: compactValueForModel(data.options),
+			instruction:
+				"Do not claim visual analysis is complete. Ask the user to choose whether to split the video for segmented analysis or compress/upload a smaller video before analysis.",
+		};
+	}
 	const media = isRecord(data.media) ? data.media : {};
 	return {
 		provider: data.provider,

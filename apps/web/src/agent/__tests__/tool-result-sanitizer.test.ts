@@ -181,4 +181,66 @@ describe("sanitizeToolResultForModel", () => {
 		expect(serialized).toContain("selectedTokenCount");
 		expect(serialized).not.toContain("token-119");
 	});
+
+	test("keeps large video choice options for vision tool follow-up", () => {
+		const result = sanitizeToolResultForModel({
+			toolName: "vision_analyze_media",
+			result: {
+				status: "success",
+				data: {
+					mediaAssetId: "media-1",
+					mediaName: "large.mp4",
+					mediaType: "video",
+					requiresUserChoice: true,
+					reason: "media_size_exceeds_minimax_limit",
+					fileSizeBytes: 52_428_801,
+					limitBytes: 52_428_800,
+					message:
+						"这个视频约 50.0MiB，超过 MiniMax M3 单次媒体 50MiB 限制。",
+					options: [
+						{
+							id: "split_video",
+							label: "切分视频分析",
+							description: "将视频拆成多个小于 50MiB 的片段。",
+						},
+						{
+							id: "compress_or_upload_smaller",
+							label: "压缩或上传小视频",
+							description: "用户先压缩视频或上传小于 50MiB 的片段。",
+						},
+					],
+				},
+			},
+		});
+
+		expect(result).toEqual({
+			status: "success",
+			verified: undefined,
+			data: {
+				mediaAssetId: "media-1",
+				mediaName: "large.mp4",
+				mediaType: "video",
+				requiresUserChoice: true,
+				reason: "media_size_exceeds_minimax_limit",
+				fileSizeBytes: 52_428_801,
+				limitBytes: 52_428_800,
+				message:
+					"这个视频约 50.0MiB，超过 MiniMax M3 单次媒体 50MiB 限制。",
+				options: [
+					{
+						id: "split_video",
+						label: "切分视频分析",
+						description: "将视频拆成多个小于 50MiB 的片段。",
+					},
+					{
+						id: "compress_or_upload_smaller",
+						label: "压缩或上传小视频",
+						description: "用户先压缩视频或上传小于 50MiB 的片段。",
+					},
+				],
+				instruction:
+					"Do not claim visual analysis is complete. Ask the user to choose whether to split the video for segmented analysis or compress/upload a smaller video before analysis.",
+			},
+		});
+	});
 });

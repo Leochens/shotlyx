@@ -31,9 +31,6 @@ type VisionProgressStatus = "running" | "success" | "error";
 export interface VisionToolDeps {
 	fetchFn: typeof fetch;
 	readFileAsDataUrl: (file: File) => Promise<string>;
-	createVideoStoryboardDataUrl: (
-		input: CreateVideoStoryboardDataUrlInput,
-	) => Promise<VideoStoryboardDataUrl>;
 }
 
 export interface BuildVisionToolsOptions {
@@ -67,23 +64,6 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
 	gif: "image/gif",
 };
 const MINIMAX_M3_MEDIA_SIZE_LIMIT_BYTES = 52_428_800;
-const LARGE_VIDEO_STORYBOARD_FRAME_COUNT = 8;
-const LARGE_VIDEO_STORYBOARD_FRAME_LONG_SIDE = 360;
-
-interface CreateVideoStoryboardDataUrlInput {
-	file: File;
-	durationSeconds?: number;
-	maxFrames?: number;
-	frameLongSide?: number;
-}
-
-interface VideoStoryboardDataUrl {
-	dataUrl: string;
-	mimeType: "image/jpeg";
-	frameCount: number;
-	width: number;
-	height: number;
-}
 
 interface PreparedVisionMedia {
 	name: string;
@@ -93,7 +73,6 @@ interface PreparedVisionMedia {
 	durationSeconds?: number;
 	width?: number;
 	height?: number;
-	promptNote?: string;
 }
 
 function isVisionAnalysisType(value: string): value is VisionAnalysisType {
@@ -234,162 +213,36 @@ function formatMiB(bytes: number): string {
 	return `${(bytes / (1024 * 1024)).toFixed(1)}MiB`;
 }
 
-function buildLargeVideoStoryboardPromptNote({
-	fileSize,
-	frameCount,
-}: {
-	fileSize: number;
-	frameCount: number;
-}): string {
-	return `注意：原视频超过 MiniMax M3 的 50MiB 媒体限制（当前约 ${formatMiB(fileSize)}），本次已改用从视频中均匀抽取的 ${frameCount} 帧 storyboard 图片进行视觉分析。请基于这些代表性画面给出内容理解、亮点和剪辑建议；如果需要精确动作连续性或完整时间点，请提示用户压缩视频或分析较短片段。`;
-}
-
-function waitForMediaEvent({
-	element,
-	event,
-	errorEvent = "error",
-}: {
-	element: HTMLMediaElement;
-	event: string;
-	errorEvent?: string;
-}): Promise<void> {
-	return new Promise((resolve, reject) => {
-		const cleanup = () => {
-			element.removeEventListener(event, onEvent);
-			element.removeEventListener(errorEvent, onError);
-		};
-		const onEvent = () => {
-			cleanup();
-			resolve();
-		};
-		const onError = () => {
-			cleanup();
-			reject(new Error("无法读取视频抽帧预览"));
-		};
-		element.addEventListener(event, onEvent, { once: true });
-		element.addEventListener(errorEvent, onError, { once: true });
-	});
-}
-
-async function seekVideoFrame({
-	video,
-	time,
-}: {
-	video: HTMLVideoElement;
-	time: number;
-}): Promise<void> {
-	const target = Math.max(0, Math.min(time, video.duration || time));
-	if (Math.abs(video.currentTime - target) < 0.05 && video.readyState >= 2) {
-		return;
-	}
-	const wait = waitForMediaEvent({ element: video, event: "seeked" });
-	video.currentTime = target;
-	await wait;
-}
-
-function sampleVideoTimes({
-	duration,
-	count,
-}: {
-	duration: number;
-	count: number;
-}): number[] {
-	const safeCount = Math.max(1, count);
-	if (!Number.isFinite(duration) || duration <= 0) {
-		return [0];
-	}
-	return Array.from({ length: safeCount }, (_, index) => {
-		const time = (duration * (index + 0.5)) / safeCount;
-		return Math.max(0, Math.min(duration, time));
-	});
-}
-
-export async function createVideoStoryboardDataUrl({
-	file,
-	durationSeconds,
-	maxFrames = LARGE_VIDEO_STORYBOARD_FRAME_COUNT,
-	frameLongSide = LARGE_VIDEO_STORYBOARD_FRAME_LONG_SIDE,
-}: CreateVideoStoryboardDataUrlInput): Promise<VideoStoryboardDataUrl> {
-	if (
-		typeof document === "undefined" ||
-		typeof URL === "undefined" ||
-		typeof URL.createObjectURL !== "function"
-	) {
-		throw new Error("system_error: video storyboard requires browser APIs");
-	}
-
-	const objectUrl = URL.createObjectURL(file);
-	const video = document.createElement("video");
-	video.muted = true;
-	video.playsInline = true;
-	video.preload = "metadata";
-
-	try {
-		const metadataLoaded = waitForMediaEvent({
-			element: video,
-			event: "loadedmetadata",
-		});
-		video.src = objectUrl;
-		video.load();
-		await metadataLoaded;
-
-		const sourceWidth = Math.max(1, video.videoWidth || 1280);
-		const sourceHeight = Math.max(1, video.videoHeight || 720);
-		const scale = Math.min(
-			1,
-			Math.max(120, frameLongSide) / Math.max(sourceWidth, sourceHeight),
-		);
-		const frameWidth = Math.max(1, Math.round(sourceWidth * scale));
-		const frameHeight = Math.max(1, Math.round(sourceHeight * scale));
-		const labelHeight = 22;
-		const duration =
-			Number.isFinite(video.duration) && video.duration > 0
-				? video.duration
-				: (durationSeconds ?? 0);
-		const frameCount = Math.max(
-			1,
-			Math.min(maxFrames, Number.isFinite(duration) && duration > 0 ? maxFrames : 1),
-		);
-		const columns = Math.min(4, frameCount);
-		const rows = Math.ceil(frameCount / columns);
-		const canvas = document.createElement("canvas");
-		canvas.width = columns * frameWidth;
-		canvas.height = rows * (frameHeight + labelHeight);
-		const context = canvas.getContext("2d");
-		if (!context) {
-			throw new Error("system_error: could not render video storyboard");
-		}
-
-		context.fillStyle = "#050505";
-		context.fillRect(0, 0, canvas.width, canvas.height);
-		context.font = "12px sans-serif";
-		context.textBaseline = "middle";
-
-		const times = sampleVideoTimes({ duration, count: frameCount });
-		for (const [index, time] of times.entries()) {
-			await seekVideoFrame({ video, time });
-			const column = index % columns;
-			const row = Math.floor(index / columns);
-			const x = column * frameWidth;
-			const y = row * (frameHeight + labelHeight);
-			context.drawImage(video, x, y, frameWidth, frameHeight);
-			context.fillStyle = "rgba(0, 0, 0, 0.72)";
-			context.fillRect(x, y + frameHeight, frameWidth, labelHeight);
-			context.fillStyle = "#ffffff";
-			context.fillText(`${index + 1}. ${time.toFixed(1)}s`, x + 8, y + frameHeight + labelHeight / 2);
-		}
-
-		return {
-			dataUrl: canvas.toDataURL("image/jpeg", 0.82),
-			mimeType: "image/jpeg",
-			frameCount,
-			width: canvas.width,
-			height: canvas.height,
-		};
-	} finally {
-		URL.revokeObjectURL(objectUrl);
-		video.remove();
-	}
+function buildLargeVideoChoiceResult(asset: VisualMediaAsset) {
+	return {
+		mediaAssetId: asset.id,
+		mediaName: asset.name,
+		mediaType: asset.type,
+		durationSeconds: asset.duration,
+		width: asset.width,
+		height: asset.height,
+		requiresUserChoice: true,
+		reason: "media_size_exceeds_minimax_limit",
+		fileSizeBytes: asset.file.size,
+		limitBytes: MINIMAX_M3_MEDIA_SIZE_LIMIT_BYTES,
+		message: `这个视频约 ${formatMiB(asset.file.size)}，超过 MiniMax M3 单次媒体 50MiB 限制。请让用户选择：切分视频后分段分析，或压缩/上传一个小于 50MiB 的视频。`,
+		options: [
+			{
+				id: "split_video",
+				label: "切分视频分析",
+				description:
+					"将视频拆成多个小于 50MiB 的片段，分段传给 MiniMax 后汇总结果。",
+			},
+			{
+				id: "compress_or_upload_smaller",
+				label: "压缩或上传小视频",
+				description:
+					"用户先压缩视频或上传小于 50MiB 的片段，再进行完整视频理解。",
+			},
+		],
+		instruction:
+			"Do not claim visual analysis is complete. Ask the user to choose whether to split the video for segmented analysis or compress/upload a smaller video before analysis.",
+	};
 }
 
 function emitVisionProgress({
@@ -592,8 +445,6 @@ export function buildVisionTools({
 }: BuildVisionToolsOptions): Tool[] {
 	const fetchFn = deps?.fetchFn ?? fetch;
 	const readDataUrl = deps?.readFileAsDataUrl ?? readFileAsDataUrl;
-	const createStoryboard =
-		deps?.createVideoStoryboardDataUrl ?? createVideoStoryboardDataUrl;
 
 	return [
 		{
@@ -669,29 +520,11 @@ export function buildVisionTools({
 					emitVisionProgress({
 						context,
 						stage: "vision-prepare",
-						label: "视频较大，正在生成抽帧预览",
-						status: "running",
+						label: "视频超过 MiniMax M3 单次媒体限制",
+						status: "error",
 						current: 1,
 					});
-					const storyboard = await createStoryboard({
-						file: asset.file,
-						durationSeconds: asset.duration,
-						maxFrames: LARGE_VIDEO_STORYBOARD_FRAME_COUNT,
-						frameLongSide: LARGE_VIDEO_STORYBOARD_FRAME_LONG_SIDE,
-					});
-					preparedMedia = {
-						name: `${asset.name} storyboard.jpg`,
-						type: "image",
-						mimeType: storyboard.mimeType,
-						dataUrl: storyboard.dataUrl,
-						durationSeconds: asset.duration,
-						width: storyboard.width,
-						height: storyboard.height,
-						promptNote: buildLargeVideoStoryboardPromptNote({
-							fileSize: asset.file.size,
-							frameCount: storyboard.frameCount,
-						}),
-					};
+					return buildLargeVideoChoiceResult(asset);
 				} else {
 					let dataUrl: string;
 					try {
@@ -728,16 +561,12 @@ export function buildVisionTools({
 					status: "running",
 					current: 2,
 				});
-				const promptParts = [prompt, preparedMedia.promptNote].filter(
-					(value): value is string => Boolean(value),
-				);
 				const responsePromise = fetchFn("/api/agent/vision/analyze", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({
 						analysisType,
-						prompt:
-							promptParts.length > 0 ? promptParts.join("\n\n") : undefined,
+						prompt,
 						detail,
 						fps,
 						maxLongSidePixel,

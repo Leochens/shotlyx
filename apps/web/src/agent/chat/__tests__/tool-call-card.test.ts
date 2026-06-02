@@ -189,6 +189,26 @@ describe("tool call card display helpers", () => {
 		});
 	});
 
+	test("shows large video choice prompts instead of completed vision analysis", () => {
+		const toolCall: ToolCallRecord = {
+			tool: "vision_analyze_media",
+			params: { mediaAssetId: "media-1" },
+			result: {
+				status: "success",
+				data: {
+					requiresUserChoice: true,
+					message:
+						"这个视频约 50.0MiB，超过 MiniMax M3 单次媒体 50MiB 限制。请让用户选择：切分视频后分段分析，或压缩/上传一个小于 50MiB 的视频。",
+				},
+			},
+		};
+
+		expect(getToolOutputDisplay(toolCall)).toEqual({
+			tone: "pending",
+			text: "这个视频约 50.0MiB，超过 MiniMax M3 单次媒体 50MiB 限制。请让用户选择：切分视频后分段分析，或压缩/上传一个小于 50MiB 的视频。",
+		});
+	});
+
 	test("renders a failed Shotlyx MG background job as an error", () => {
 		const toolCall: ToolCallRecord = {
 			tool: "shotlyx_generate_mg_component",

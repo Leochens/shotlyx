@@ -148,7 +148,7 @@ describe("vision analysis tools", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
-	test("uses a sampled storyboard instead of sending oversized videos to MiniMax", async () => {
+	test("asks the user to choose a large-video strategy instead of silently sending a storyboard", async () => {
 		const file = new File(["demo"], "large.mp4", { type: "video/mp4" });
 		Object.defineProperty(file, "size", {
 			value: 52_428_801,
@@ -165,27 +165,8 @@ describe("vision analysis tools", () => {
 				file,
 			},
 		]);
-		const fetchFn = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
-			const body = JSON.parse(String(init?.body));
-			expect(body.prompt).toContain("原视频超过 MiniMax M3 的 50MiB 媒体限制");
-			expect(body.media).toMatchObject({
-				mediaAssetId: "media-1",
-				name: "large.mp4 storyboard.jpg",
-				type: "image",
-				mimeType: "image/jpeg",
-				dataUrl: "data:image/jpeg;base64,STORYBOARD",
-				durationSeconds: 120,
-				width: 1200,
-				height: 675,
-			});
-			return createSseResponse([
-				{ type: "content_delta", text: "基于抽帧预览，建议保留开头。" },
-				{
-					type: "done",
-					analysis: "基于抽帧预览，建议保留开头。",
-				},
-				"[DONE]",
-			]);
+		const fetchFn = mock(() => {
+			throw new Error("should not request MiniMax before the user chooses");
 		});
 		const progressEvents: Array<{ stage: string; label: string; status: string }> =
 			[];
@@ -196,15 +177,6 @@ describe("vision analysis tools", () => {
 				readFileAsDataUrl: mock(() => {
 					throw new Error("should not read oversized video as data URL");
 				}),
-				createVideoStoryboardDataUrl: mock(() =>
-					Promise.resolve({
-						dataUrl: "data:image/jpeg;base64,STORYBOARD",
-						mimeType: "image/jpeg",
-						frameCount: 8,
-						width: 1200,
-						height: 675,
-					}),
-				),
 			},
 		});
 
@@ -215,16 +187,37 @@ describe("vision analysis tools", () => {
 
 		expect(result).toMatchObject({
 			mediaAssetId: "media-1",
-			analysis: "基于抽帧预览，建议保留开头。",
+			mediaName: "large.mp4",
+			mediaType: "video",
+			requiresUserChoice: true,
+			reason: "media_size_exceeds_minimax_limit",
+			fileSizeBytes: 52_428_801,
+			limitBytes: 52_428_800,
+			message:
+				"这个视频约 50.0MiB，超过 MiniMax M3 单次媒体 50MiB 限制。请让用户选择：切分视频后分段分析，或压缩/上传一个小于 50MiB 的视频。",
+			options: [
+				{
+					id: "split_video",
+					label: "切分视频分析",
+					description:
+						"将视频拆成多个小于 50MiB 的片段，分段传给 MiniMax 后汇总结果。",
+				},
+				{
+					id: "compress_or_upload_smaller",
+					label: "压缩或上传小视频",
+					description:
+						"用户先压缩视频或上传小于 50MiB 的片段，再进行完整视频理解。",
+				},
+			],
 		});
 		expect(progressEvents).toContainEqual(
 			expect.objectContaining({
 				stage: "vision-prepare",
-				label: "视频较大，正在生成抽帧预览",
-				status: "running",
+				label: "视频超过 MiniMax M3 单次媒体限制",
+				status: "error",
 			}),
 		);
-		expect(fetchFn).toHaveBeenCalledTimes(1);
+		expect(fetchFn).toHaveBeenCalledTimes(0);
 	});
 
 	test("emits progress while preparing and waiting for MiniMax M3 analysis", async () => {

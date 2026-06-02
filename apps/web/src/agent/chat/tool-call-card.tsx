@@ -182,6 +182,16 @@ export function getToolOutputDisplay(
 			const data = toolCall.result.data;
 			if (
 				isRecord(data) &&
+				Reflect.get(data, "requiresUserChoice") === true &&
+				typeof Reflect.get(data, "message") === "string"
+			) {
+				return {
+					tone: "pending",
+					text: Reflect.get(data, "message"),
+				};
+			}
+			if (
+				isRecord(data) &&
 				typeof Reflect.get(data, "analysis") === "string"
 			) {
 				return {
