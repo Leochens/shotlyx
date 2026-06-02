@@ -243,4 +243,32 @@ describe("sanitizeToolResultForModel", () => {
 			},
 		});
 	});
+
+	test("does not describe missing vision analysis as usable evidence", () => {
+		const result = sanitizeToolResultForModel({
+			toolName: "vision_analyze_media",
+			result: {
+				status: "success",
+				data: {
+					mediaAssetId: "media-1",
+					mediaName: "compressed.mp4",
+					mediaType: "video",
+				},
+			},
+		});
+
+		expect(result).toEqual({
+			status: "success",
+			verified: undefined,
+			data: {
+				mediaAssetId: "media-1",
+				mediaName: "compressed.mp4",
+				mediaType: "video",
+				analysisMissing: true,
+				message: "视觉分析没有返回可用内容。",
+				instruction:
+					"Do not claim visual analysis is complete. Retry once with adjusted parameters if appropriate; if the media exceeds provider limits, ask the user to split/compress the video or upload a smaller clip.",
+			},
+		});
+	});
 });

@@ -13,7 +13,6 @@ import { buildSystemPrompt } from "@/agent/llm/prompts";
 import { resolveExecutionMode } from "@/agent/controller/mode-resolver";
 import type { AgentPlan, AgentStep } from "@/agent/controller/types";
 import { AgentLogger } from "@/agent/controller/agent-logger";
-import { sanitizeToolResultForModel } from "@/agent/controller/tool-result-sanitizer";
 import {
 	compactReferencesForModel,
 	isAgentContextReference,
@@ -43,6 +42,7 @@ import {
 	type AgentTokenUsageSource,
 } from "@/agent/token-usage";
 import { registerPendingCall } from "./resolve";
+import { formatToolResultForModel } from "./tool-result-format";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -609,43 +609,12 @@ export async function POST(request: ApiRequest) {
 						signal: request.signal,
 					});
 					console.log(`[agent] tool-result: ${toolName} callId=${callId}`);
-					const modelResult = sanitizeToolResultForModel({
+					const modelResult = formatToolResultForModel({
 						toolName,
 						result,
 					});
 					logger.toolResult(callId, modelResult);
-
-					const r = modelResult as {
-						status?: string;
-						error?: string;
-						errorCategory?: string;
-						suggestion?: string;
-						verified?: boolean;
-						data?: unknown;
-					};
-
-					if (r?.status === "error") {
-						const parts: string[] = [
-							`Tool "${toolName}" failed: ${r.error ?? "unknown error"}`,
-						];
-						if (r.errorCategory) {
-							parts.push(`Category: ${r.errorCategory}`);
-						}
-						if (r.suggestion) {
-							parts.push(`Suggestion: ${r.suggestion}`);
-						}
-						parts.push(
-							"You may retry with corrected parameters or try a different approach.",
-						);
-						return parts.join("\n");
-					}
-
-					const data = r?.data ?? result;
-					const verified =
-						r?.verified !== undefined ? ` (verified: ${r.verified})` : "";
-					return typeof data === "string"
-						? `${data}${verified}`
-						: `${JSON.stringify(data)}${verified}`;
+					return modelResult;
 				} catch (err) {
 					logger.error(err);
 					if (isAbortError(err) || request.signal.aborted) {

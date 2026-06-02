@@ -195,6 +195,17 @@ function compactVisionAnalysisForModel(data: unknown): Record<string, unknown> {
 				"Do not claim visual analysis is complete. Ask the user to choose whether to split the video for segmented analysis or compress/upload a smaller video before analysis.",
 		};
 	}
+	if (typeof data.analysis !== "string" || data.analysis.trim().length === 0) {
+		return {
+			mediaAssetId: data.mediaAssetId,
+			mediaName: data.mediaName,
+			mediaType: data.mediaType,
+			analysisMissing: true,
+			message: "视觉分析没有返回可用内容。",
+			instruction:
+				"Do not claim visual analysis is complete. Retry once with adjusted parameters if appropriate; if the media exceeds provider limits, ask the user to split/compress the video or upload a smaller clip.",
+		};
+	}
 	const media = isRecord(data.media) ? data.media : {};
 	return {
 		provider: data.provider,
