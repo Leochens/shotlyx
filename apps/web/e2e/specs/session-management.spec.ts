@@ -5,6 +5,7 @@ const CHAT_PANEL = '[data-testid="chat-panel"]';
 const CHAT_INPUT = '[data-testid="chat-input"]';
 const CHAT_SEND_BUTTON = '[data-testid="chat-send-button"]';
 const CHAT_MESSAGE_USER = '[data-testid="chat-message-user"]';
+const CHAT_MORE_MENU_BUTTON = '[data-testid="chat-more-menu-button"]';
 const CLEAR_SESSION_BUTTON = '[data-testid="clear-session-button"]';
 const CLEAR_CONFIRM_BUTTON = '[data-testid="clear-confirm-button"]';
 const TOGGLE_SIDEBAR_BUTTON = '[data-testid="toggle-sidebar-button"]';
@@ -41,6 +42,13 @@ async function sendMessage(
 ): Promise<void> {
 	await page.fill(CHAT_INPUT, message);
 	await page.click(CHAT_SEND_BUTTON);
+}
+
+async function openChatMoreMenu(
+	page: import("@playwright/test").Page,
+): Promise<void> {
+	await page.click(CHAT_MORE_MENU_BUTTON);
+	await page.locator(CLEAR_SESSION_BUTTON).waitFor({ state: "visible" });
 }
 
 async function setupPage(
@@ -186,6 +194,7 @@ test.describe("Session management", () => {
 		await page.waitForSelector(CHAT_MESSAGE_USER);
 		await expect(page.locator(CHAT_MESSAGE_USER)).toHaveCount(1);
 
+		await openChatMoreMenu(page);
 		await page.click(CLEAR_SESSION_BUTTON);
 		await page.click(CLEAR_CONFIRM_BUTTON);
 

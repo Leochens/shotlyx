@@ -5,7 +5,7 @@ import { useChatStore } from "./store";
 import { MessageItem } from "./message-item";
 import type { ToolActionResult, ToolCallActionRequest } from "./tool-call-card";
 import { appendToolProgressEvent } from "./progress-history";
-import { AgentModeSelect, BottomToolbar } from "./bottom-toolbar";
+import { BottomToolbar } from "./bottom-toolbar";
 import { useEditor } from "@/editor/use-editor";
 import { parseSSEStream } from "./sse-parser";
 import type { SSEEvent } from "./sse-parser";
@@ -14,16 +14,13 @@ import {
 	BookOpenText,
 	Check,
 	Copy,
-	Gamepad2,
-	Lightbulb,
 	LineChart,
 	Loader2,
 	Megaphone,
+	MoreHorizontal,
 	Scissors,
-	SlidersHorizontal,
 	Sparkles,
 	Trash2,
-	Zap,
 	type LucideIcon,
 } from "lucide-react";
 import type {
@@ -53,20 +50,11 @@ import {
 } from "./rough-cut-review-dialog";
 import type { RoughCutReviewResult } from "@/agent/mcp/rough-cut-tools";
 import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from "@/components/ui/popover";
-import type { ExecutionMode } from "./types";
-
-const MODE_CONFIG: Array<{
-	mode: ExecutionMode;
-	icon: typeof Zap;
-}> = [
-	{ mode: "auto", icon: Zap },
-	{ mode: "suggest", icon: Lightbulb },
-	{ mode: "manual", icon: Gamepad2 },
-];
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 function formatElapsed(ms: number): string {
 	const totalSec = ms / 1000;
@@ -1441,41 +1429,7 @@ export function ChatPanel() {
 		>
 			{/* Multi-session UI is intentionally disabled for the compact Agent surface. */}
 			<div className="flex flex-1 flex-col overflow-hidden">
-				<div className="flex min-h-10 min-w-0 items-center justify-between gap-1.5 border-b border-border/70 bg-card/[0.65] px-2 py-1.5 backdrop-blur dark:bg-background/95">
-					<div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-						<AgentModeSelect
-							selectedAgent={selectedAgent}
-							agents={["default", "editor", "media", "mg"]}
-							onAgentChange={setSelectedAgent}
-						/>
-						<Popover>
-							<PopoverTrigger asChild>
-								<button
-									type="button"
-									className="flex size-8 shrink-0 items-center justify-center rounded-sm border border-border/80 bg-muted/60 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-									aria-label={copy.editor.toolbar.executionMode}
-									title={`${copy.editor.toolbar.executionMode}: ${copy.editor.toolbar.modes[mode]}`}
-								>
-									<SlidersHorizontal size={14} />
-								</button>
-							</PopoverTrigger>
-							<PopoverContent align="start" side="bottom" className="w-48 p-1">
-								{MODE_CONFIG.map(({ mode: value, icon: Icon }) => (
-									<button
-										key={value}
-										type="button"
-										onClick={() => setMode(value)}
-										className={`flex h-9 w-full items-center gap-2 rounded-sm px-2 text-left text-sm hover:bg-accent ${
-											mode === value ? "bg-accent text-foreground" : ""
-										}`}
-									>
-										<Icon size={15} />
-										{copy.editor.toolbar.modes[value]}
-									</button>
-								))}
-							</PopoverContent>
-						</Popover>
-					</div>
+				<div className="flex min-h-10 min-w-0 items-center justify-end gap-1.5 border-b border-border/70 bg-card/[0.65] px-2 py-1.5 backdrop-blur dark:bg-background/95">
 					<div className="flex min-w-0 shrink-0 items-center gap-1">
 						{showClearConfirm ? (
 							<div className="flex min-w-0 items-center gap-1">
@@ -1499,27 +1453,37 @@ export function ChatPanel() {
 								</button>
 							</div>
 						) : (
-							<>
-								<button
-									type="button"
-									onClick={handleCopyChat}
-									className="flex size-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-									aria-label={copy.editor.chat.copyChat}
-									title={copy.editor.chat.copyChat}
-								>
-									{copied ? <Check size={13} /> : <Copy size={13} />}
-								</button>
-								<button
-									type="button"
-									data-testid="clear-session-button"
-									onClick={() => setShowClearConfirm(true)}
-									className="flex size-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-red-400"
-									aria-label={copy.editor.chat.clearChat}
-									title={copy.editor.chat.clearChat}
-								>
-									<Trash2 size={13} />
-								</button>
-							</>
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<button
+										type="button"
+										data-testid="chat-more-menu-button"
+										className="flex size-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+										aria-label={copy.editor.chat.moreActions}
+										title={copy.editor.chat.moreActions}
+									>
+										<MoreHorizontal size={15} />
+									</button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end" className="w-44">
+									<DropdownMenuItem
+										onSelect={() => {
+											void handleCopyChat();
+										}}
+										icon={copied ? <Check size={14} /> : <Copy size={14} />}
+									>
+										{copy.editor.chat.copyChat}
+									</DropdownMenuItem>
+									<DropdownMenuItem
+										data-testid="clear-session-button"
+										onSelect={() => setShowClearConfirm(true)}
+										icon={<Trash2 size={14} />}
+										variant="destructive"
+									>
+										{copy.editor.chat.clearChat}
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</DropdownMenu>
 						)}
 					</div>
 				</div>
@@ -1601,7 +1565,11 @@ export function ChatPanel() {
 				<BottomToolbar
 					input={input}
 					selectedAgent={selectedAgent}
+					agents={["default", "editor", "media", "mg"]}
+					executionMode={mode}
 					disabled={isLoading}
+					onAgentChange={setSelectedAgent}
+					onExecutionModeChange={setMode}
 					onInputChange={setInput}
 					onSubmit={handleSubmit}
 					onMediaSubmit={(prompt) => {

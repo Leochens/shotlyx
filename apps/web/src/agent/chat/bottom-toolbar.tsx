@@ -6,14 +6,18 @@ import {
 	Bot,
 	Clapperboard,
 	ChevronDown,
+	Gamepad2,
 	Image as ImageIcon,
 	ImagePlus,
+	Lightbulb,
 	MousePointer2,
 	Plus,
 	Send,
+	SlidersHorizontal,
 	Sparkles,
 	Square,
 	Video,
+	Zap,
 } from "lucide-react";
 import { BrandKitMenu } from "@/brand-kit/components/brand-kit-menu";
 import { Button } from "@/components/ui/button";
@@ -44,11 +48,16 @@ import {
 	MGTemplatePicker,
 	type MGTemplatePickerValue,
 } from "./mg-template-picker";
+import type { ExecutionMode } from "./types";
 
 interface BottomToolbarProps {
 	input: string;
 	selectedAgent: string;
+	agents?: string[];
+	executionMode?: ExecutionMode;
 	disabled?: boolean;
+	onAgentChange?: (agent: string) => void;
+	onExecutionModeChange?: (mode: ExecutionMode) => void;
 	onInputChange: (input: string) => void;
 	onSubmit: () => void;
 	onMediaSubmit?: (prompt: string) => void;
@@ -63,6 +72,15 @@ const MG_DURATIONS = [3, 5, 8, 10] as const;
 
 const CHAT_INPUT_SURFACE_CLASS_NAME =
 	"rounded-sm border border-border/80 bg-input/85 p-2 shadow-[0_8px_22px_rgba(14,44,56,0.08),inset_0_1px_0_rgba(255,255,255,0.58)] transition-[border-color,box-shadow] focus-within:border-primary/40 focus-within:shadow-[0_12px_28px_rgba(14,165,190,0.11),inset_0_1px_0_rgba(255,255,255,0.68)] dark:border-cyan-300/15 dark:bg-input/90 dark:shadow-[0_14px_40px_rgba(0,0,0,0.22)] dark:focus-within:border-cyan-300/35 dark:focus-within:shadow-[0_16px_42px_rgba(0,0,0,0.34)]";
+
+const MODE_CONFIG: Array<{
+	mode: ExecutionMode;
+	icon: typeof Zap;
+}> = [
+	{ mode: "auto", icon: Zap },
+	{ mode: "suggest", icon: Lightbulb },
+	{ mode: "manual", icon: Gamepad2 },
+];
 
 function formatSeconds(seconds: number): string {
 	const min = Math.floor(seconds / 60);
@@ -96,7 +114,11 @@ type TimelineReferenceItem = {
 export function BottomToolbar({
 	input,
 	selectedAgent,
+	agents = ["default", "editor", "media", "mg"],
+	executionMode = "auto",
 	disabled,
+	onAgentChange = () => {},
+	onExecutionModeChange = () => {},
 	onInputChange,
 	onSubmit,
 	onMediaSubmit,
@@ -130,6 +152,15 @@ export function BottomToolbar({
 	const [mgDuration, setMGDuration] = useState(5);
 	const isMediaMode = selectedAgent === "media";
 	const isMGMode = selectedAgent === "mg";
+	const modeControls = (
+		<ChatModeControls
+			selectedAgent={selectedAgent}
+			agents={agents}
+			executionMode={executionMode}
+			onAgentChange={onAgentChange}
+			onExecutionModeChange={onExecutionModeChange}
+		/>
+	);
 
 	const timelineTracks = useMemo(
 		() => (scene ? getTrackItems(scene.tracks) : []),
@@ -233,6 +264,7 @@ export function BottomToolbar({
 				}}
 				className="border-t border-border/70 bg-background/95 p-2"
 			>
+				{modeControls}
 				<div className={CHAT_INPUT_SURFACE_CLASS_NAME}>
 					<textarea
 						value={input}
@@ -358,6 +390,7 @@ export function BottomToolbar({
 				}}
 				className="border-t border-border/70 bg-background/95 p-2"
 			>
+				{modeControls}
 				<div className={CHAT_INPUT_SURFACE_CLASS_NAME}>
 					<div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-2">
 						<Popover open={referenceOpen} onOpenChange={setReferenceOpen}>
@@ -482,6 +515,7 @@ export function BottomToolbar({
 			}}
 			className="border-t border-border/70 bg-background/95 p-2"
 		>
+			{modeControls}
 			<div className={CHAT_INPUT_SURFACE_CLASS_NAME}>
 				<textarea
 					value={input}
@@ -580,6 +614,81 @@ export function BottomToolbar({
 				</div>
 			</div>
 		</form>
+	);
+}
+
+export function ChatModeControls({
+	selectedAgent,
+	agents,
+	executionMode,
+	onAgentChange,
+	onExecutionModeChange,
+}: {
+	selectedAgent: string;
+	agents: string[];
+	executionMode: ExecutionMode;
+	onAgentChange: (agent: string) => void;
+	onExecutionModeChange: (mode: ExecutionMode) => void;
+}) {
+	return (
+		<div
+			data-testid="chat-mode-controls"
+			className="mb-2 flex min-w-0 items-center justify-between gap-2"
+		>
+			<div className="scrollbar-thin min-w-0 overflow-x-auto pb-px">
+				<AgentModeSelect
+					selectedAgent={selectedAgent}
+					agents={agents}
+					onAgentChange={onAgentChange}
+				/>
+			</div>
+			<ExecutionModeSelect
+				mode={executionMode}
+				onModeChange={onExecutionModeChange}
+			/>
+		</div>
+	);
+}
+
+function ExecutionModeSelect({
+	mode,
+	onModeChange,
+}: {
+	mode: ExecutionMode;
+	onModeChange: (mode: ExecutionMode) => void;
+}) {
+	const { copy } = useAppLocale();
+	const label = copy.editor.toolbar.modes[mode];
+
+	return (
+		<Popover>
+			<PopoverTrigger asChild>
+				<button
+					type="button"
+					className="flex h-8 shrink-0 items-center gap-1.5 rounded-sm border border-border/80 bg-muted/60 px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+					aria-label={copy.editor.toolbar.executionMode}
+					title={`${copy.editor.toolbar.executionMode}: ${label}`}
+				>
+					<SlidersHorizontal size={14} />
+					<span className="whitespace-nowrap">{label}</span>
+				</button>
+			</PopoverTrigger>
+			<PopoverContent align="end" side="top" className="w-48 p-1">
+				{MODE_CONFIG.map(({ mode: value, icon: Icon }) => (
+					<button
+						key={value}
+						type="button"
+						onClick={() => onModeChange(value)}
+						className={`flex h-9 w-full items-center gap-2 rounded-sm px-2 text-left text-sm hover:bg-accent ${
+							mode === value ? "bg-accent text-foreground" : ""
+						}`}
+					>
+						<Icon size={15} />
+						{copy.editor.toolbar.modes[value]}
+					</button>
+				))}
+			</PopoverContent>
+		</Popover>
 	);
 }
 
