@@ -148,6 +148,53 @@ describe("vision analysis route", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
+	test("normalizes octet-stream video data URLs before sending to MiniMax", async () => {
+		process.env.AGENT_VISION_KEY = "minimax-key";
+		delete process.env.AGENT_VISION_PROVIDER;
+		delete process.env.AGENT_VISION_HOST;
+		delete process.env.AGENT_VISION_MODEL;
+		const fetchFn: typeof fetch = mock(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				const body = JSON.parse(String(init?.body));
+				expect(body.messages[1].content[1]).toMatchObject({
+					type: "video_url",
+					video_url: {
+						url: "data:video/mp4;base64,AA==",
+					},
+				});
+				return Response.json({
+					choices: [
+						{
+							message: {
+								content: "视频 MIME 已被规范化。",
+							},
+						},
+					],
+				});
+			},
+		);
+		globalThis.fetch = fetchFn;
+
+		const response = await POST(
+			new ApiRequest("http://localhost/api/agent/vision/analyze", {
+				method: "POST",
+				body: JSON.stringify({
+					analysisType: "editing_suggestions",
+					media: {
+						mediaAssetId: "media-1",
+						name: "demo.mp4",
+						type: "video",
+						mimeType: "application/octet-stream",
+						dataUrl: "data:application/octet-stream;base64,AA==",
+					},
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(fetchFn).toHaveBeenCalledTimes(1);
+	});
+
 	test("requires a dedicated Vision API key", async () => {
 		delete process.env.AGENT_VISION_KEY;
 		delete process.env.AGENT_LLM_KEY;

@@ -14,6 +14,24 @@ const analysisTypeSchema = z
 	.default("editing_suggestions");
 
 const detailSchema = z.enum(["low", "default", "high"]).default("default");
+const GENERIC_MIME_TYPES = new Set([
+	"application/octet-stream",
+	"binary/octet-stream",
+	"application/x-binary",
+]);
+const VIDEO_MIME_BY_EXTENSION: Record<string, string> = {
+	mp4: "video/mp4",
+	m4v: "video/mp4",
+	mov: "video/quicktime",
+	webm: "video/webm",
+};
+const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	png: "image/png",
+	webp: "image/webp",
+	gif: "image/gif",
+};
 
 const requestSchema = z.object({
 	analysisType: analysisTypeSchema.optional(),
@@ -74,6 +92,72 @@ ${prompt || "Analyze this media and provide editing suggestions."}`;
 
 function stripThinkTags(value: string): string {
 	return value.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").trim();
+}
+
+function extensionForName(name: string): string {
+	const match = /\.([^.]+)$/.exec(name.trim().toLowerCase());
+	return match?.[1] ?? "";
+}
+
+function isUsableMimeType({
+	type,
+	mimeType,
+}: {
+	type: VisionAnalyzeRequest["media"]["type"];
+	mimeType: string | undefined;
+}): mimeType is string {
+	if (!mimeType) return false;
+	const normalized = mimeType.trim().toLowerCase();
+	if (!normalized || GENERIC_MIME_TYPES.has(normalized)) return false;
+	return type === "video"
+		? normalized.startsWith("video/")
+		: normalized.startsWith("image/");
+}
+
+function inferMediaMimeType(
+	media: VisionAnalyzeRequest["media"],
+): string {
+	if (isUsableMimeType({ type: media.type, mimeType: media.mimeType })) {
+		return media.mimeType.trim().toLowerCase();
+	}
+	const extension = extensionForName(media.name);
+	if (media.type === "video" && VIDEO_MIME_BY_EXTENSION[extension]) {
+		return VIDEO_MIME_BY_EXTENSION[extension];
+	}
+	if (media.type === "image" && IMAGE_MIME_BY_EXTENSION[extension]) {
+		return IMAGE_MIME_BY_EXTENSION[extension];
+	}
+	return media.type === "video" ? "video/mp4" : "image/png";
+}
+
+function rewriteDataUrlMimeType({
+	dataUrl,
+	mimeType,
+}: {
+	dataUrl: string;
+	mimeType: string;
+}): string {
+	if (!dataUrl.startsWith("data:")) return dataUrl;
+	const commaIndex = dataUrl.indexOf(",");
+	if (commaIndex < 0) return dataUrl;
+	const metadata = dataUrl.slice(5, commaIndex);
+	const suffixIndex = metadata.indexOf(";");
+	const suffix = suffixIndex >= 0 ? metadata.slice(suffixIndex) : "";
+	return `data:${mimeType}${suffix},${dataUrl.slice(commaIndex + 1)}`;
+}
+
+function normalizeMediaForProvider(
+	media: VisionAnalyzeRequest["media"],
+): VisionAnalyzeRequest["media"] {
+	const mimeType = inferMediaMimeType(media);
+	return {
+		...media,
+		mimeType,
+		dataUrl: rewriteDataUrlMimeType({
+			dataUrl: media.dataUrl,
+			mimeType,
+		}),
+	};
 }
 
 function normalizeVisionError(error: unknown): {
@@ -448,9 +532,13 @@ export async function POST(request: ApiRequest) {
 			);
 		}
 
-		const detail = parsed.data.detail ?? "default";
-		const analysisType = parsed.data.analysisType ?? "editing_suggestions";
-		const fps = parsed.data.fps ?? 1;
+		const requestData: VisionAnalyzeRequest = {
+			...parsed.data,
+			media: normalizeMediaForProvider(parsed.data.media),
+		};
+		const detail = requestData.detail ?? "default";
+		const analysisType = requestData.analysisType ?? "editing_suggestions";
+		const fps = requestData.fps ?? 1;
 		const url = `${visionConfig.host.replace(/\/+$/, "")}/chat/completions`;
 		const response = await fetch(url, {
 			method: "POST",
@@ -460,12 +548,12 @@ export async function POST(request: ApiRequest) {
 			},
 			body: JSON.stringify(
 				buildProviderRequestBody({
-					data: parsed.data,
+					data: requestData,
 					model: visionConfig.model,
 					analysisType,
 					detail,
 					fps,
-					stream: parsed.data.stream ?? false,
+					stream: requestData.stream ?? false,
 				}),
 			),
 		});
@@ -477,12 +565,12 @@ export async function POST(request: ApiRequest) {
 			);
 		}
 
-		if (parsed.data.stream) {
+		if (requestData.stream) {
 			return createStreamResponse({
 				upstream: response,
 				model: visionConfig.model,
 				analysisType,
-				media: parsed.data.media,
+				media: requestData.media,
 			});
 		}
 
@@ -493,12 +581,12 @@ export async function POST(request: ApiRequest) {
 			analysisType,
 			analysis: extractMessageContent(data),
 			media: {
-				mediaAssetId: parsed.data.media.mediaAssetId,
-				name: parsed.data.media.name,
-				type: parsed.data.media.type,
-				durationSeconds: parsed.data.media.durationSeconds,
-				width: parsed.data.media.width,
-				height: parsed.data.media.height,
+				mediaAssetId: requestData.media.mediaAssetId,
+				name: requestData.media.name,
+				type: requestData.media.type,
+				durationSeconds: requestData.media.durationSeconds,
+				width: requestData.media.width,
+				height: requestData.media.height,
 			},
 			usage:
 				typeof data === "object" && data !== null && !Array.isArray(data)

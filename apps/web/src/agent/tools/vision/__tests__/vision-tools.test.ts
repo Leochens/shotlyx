@@ -104,6 +104,50 @@ describe("vision analysis tools", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
+	test("normalizes generic octet-stream video data URLs before analysis", async () => {
+		const file = new File(["demo"], "demo.mp4", {
+			type: "application/octet-stream",
+		});
+		const editor = createEditorWithAssets([
+			{
+				id: "media-1",
+				name: "demo.mp4",
+				type: "video",
+				duration: 12,
+				width: 1920,
+				height: 1080,
+				file,
+			},
+		]);
+		const fetchFn = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
+			const body = JSON.parse(String(init?.body));
+			expect(body.media).toMatchObject({
+				mimeType: "video/mp4",
+				dataUrl: "data:video/mp4;base64,AA==",
+			});
+			return Response.json({
+				model: "MiniMax-M3",
+				analysis: "可以正常分析。",
+			});
+		});
+		const [tool] = buildVisionTools({
+			editor,
+			deps: {
+				fetchFn,
+				readFileAsDataUrl: mock(() =>
+					Promise.resolve("data:application/octet-stream;base64,AA=="),
+				),
+			},
+		});
+
+		await tool.handler({
+			mediaAssetId: "media-1",
+			analysisType: "editing_suggestions",
+		});
+
+		expect(fetchFn).toHaveBeenCalledTimes(1);
+	});
+
 	test("emits progress while preparing and waiting for MiniMax M3 analysis", async () => {
 		const file = new File(["demo"], "demo.mp4", { type: "video/mp4" });
 		const editor = createEditorWithAssets([

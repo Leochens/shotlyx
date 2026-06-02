@@ -45,6 +45,24 @@ const ANALYSIS_TYPES: VisionAnalysisType[] = [
 	"content_verification",
 ];
 const DETAILS: VisionDetail[] = ["low", "default", "high"];
+const GENERIC_MIME_TYPES = new Set([
+	"application/octet-stream",
+	"binary/octet-stream",
+	"application/x-binary",
+]);
+const VIDEO_MIME_BY_EXTENSION: Record<string, string> = {
+	mp4: "video/mp4",
+	m4v: "video/mp4",
+	mov: "video/quicktime",
+	webm: "video/webm",
+};
+const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	png: "image/png",
+	webp: "image/webp",
+	gif: "image/gif",
+};
 
 function isVisionAnalysisType(value: string): value is VisionAnalysisType {
 	return ANALYSIS_TYPES.some((item) => item === value);
@@ -130,9 +148,54 @@ function resolveTargetAsset({
 	return asset;
 }
 
+function extensionForName(name: string): string {
+	const match = /\.([^.]+)$/.exec(name.trim().toLowerCase());
+	return match?.[1] ?? "";
+}
+
+function isUsableMimeType({
+	type,
+	mimeType,
+}: {
+	type: VisualMediaAsset["type"];
+	mimeType: string | undefined;
+}): mimeType is string {
+	if (!mimeType) return false;
+	const normalized = mimeType.trim().toLowerCase();
+	if (!normalized || GENERIC_MIME_TYPES.has(normalized)) return false;
+	return type === "video"
+		? normalized.startsWith("video/")
+		: normalized.startsWith("image/");
+}
+
 function mimeTypeForAsset(asset: VisualMediaAsset): string {
-	if (asset.file.type) return asset.file.type;
+	if (isUsableMimeType({ type: asset.type, mimeType: asset.file.type })) {
+		return asset.file.type.trim().toLowerCase();
+	}
+	const extension = extensionForName(asset.name || asset.file.name);
+	if (asset.type === "video" && VIDEO_MIME_BY_EXTENSION[extension]) {
+		return VIDEO_MIME_BY_EXTENSION[extension];
+	}
+	if (asset.type === "image" && IMAGE_MIME_BY_EXTENSION[extension]) {
+		return IMAGE_MIME_BY_EXTENSION[extension];
+	}
 	return asset.type === "video" ? "video/mp4" : "image/png";
+}
+
+function rewriteDataUrlMimeType({
+	dataUrl,
+	mimeType,
+}: {
+	dataUrl: string;
+	mimeType: string;
+}): string {
+	if (!dataUrl.startsWith("data:")) return dataUrl;
+	const commaIndex = dataUrl.indexOf(",");
+	if (commaIndex < 0) return dataUrl;
+	const metadata = dataUrl.slice(5, commaIndex);
+	const suffixIndex = metadata.indexOf(";");
+	const suffix = suffixIndex >= 0 ? metadata.slice(suffixIndex) : "";
+	return `data:${mimeType}${suffix},${dataUrl.slice(commaIndex + 1)}`;
 }
 
 function emitVisionProgress({
@@ -415,6 +478,11 @@ export function buildVisionTools({
 					});
 					throw error;
 				}
+				const mimeType = mimeTypeForAsset(asset);
+				const normalizedDataUrl = rewriteDataUrlMimeType({
+					dataUrl,
+					mimeType,
+				});
 
 				emitVisionProgress({
 					context,
@@ -437,8 +505,8 @@ export function buildVisionTools({
 							mediaAssetId: asset.id,
 							name: asset.name,
 							type: asset.type,
-							mimeType: mimeTypeForAsset(asset),
-							dataUrl,
+							mimeType,
+							dataUrl: normalizedDataUrl,
 							durationSeconds: asset.duration,
 							width: asset.width,
 							height: asset.height,
