@@ -37,6 +37,22 @@ describe("tool result continuation", () => {
 		).toBe(false);
 	});
 
+	test("does not auto-continue when visual analysis says not to retry", () => {
+		expect(
+			shouldRunToolResultContinuation({
+				assistantText: "",
+				toolCallCount: 1,
+				formattedToolResults: [
+					[
+						'Tool "vision_analyze_media" failed: provider_error',
+						"Do not call vision_analyze_media again automatically.",
+					].join("\n"),
+				],
+				continuationDepth: 0,
+			}),
+		).toBe(false);
+	});
+
 	test("builds a synthetic prompt that tells the model to retry or ask after tool failure", () => {
 		const messages = buildToolResultContinuationMessages({
 			messages: [{ role: "user", content: "分析一下视频内容" }],
@@ -58,5 +74,25 @@ describe("tool result continuation", () => {
 		expect(messages[1]?.content).toContain("retry with corrected parameters");
 		expect(messages[1]?.content).toContain("ask the user to choose");
 		expect(messages[1]?.content).toContain("切分视频分析");
+	});
+
+	test("does not encourage retry when a visual analysis result says to wait", () => {
+		const messages = buildToolResultContinuationMessages({
+			messages: [{ role: "user", content: "分析一下视频内容" }],
+			formattedToolResults: [
+				[
+					'Tool "vision_analyze_media" failed: provider_error',
+					"Do not call vision_analyze_media again automatically.",
+					"Ask the user whether to wait, retry with lighter settings, or split the video.",
+				].join("\n"),
+			],
+		});
+
+		expect(messages[1]?.content).toContain(
+			"Do not call the same tool again automatically",
+		);
+		expect(messages[1]?.content).not.toContain(
+			"retry with corrected parameters",
+		);
 	});
 });

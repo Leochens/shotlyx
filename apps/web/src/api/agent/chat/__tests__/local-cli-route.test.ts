@@ -84,13 +84,31 @@ async function readRouteEvents(response: Response) {
 					typeof data.callId === "string"
 				) {
 					expect(sessionId).toBeTruthy();
+					const tool =
+						"tool" in data && typeof data.tool === "string" ? data.tool : "";
 					resolveToolCall({
 						sessionId,
 						callId: data.callId,
-						result: {
-							status: "success",
-							data: { elementId: "text-1" },
-						},
+						result:
+							tool === "vision_analyze_media"
+								? {
+										status: "success",
+										data: {
+											provider: "minimax",
+											model: "MiniMax-M3",
+											analysisType: "visual_summary",
+											analysis: "画面里有人物演示产品流程。",
+											media: {
+												mediaAssetId: "media-1",
+												name: "demo.mp4",
+												type: "video",
+											},
+										},
+									}
+								: {
+										status: "success",
+										data: { elementId: "text-1" },
+									},
 					});
 				}
 			}

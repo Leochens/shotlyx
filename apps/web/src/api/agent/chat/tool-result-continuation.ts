@@ -2,6 +2,23 @@ import type { ModelMessage } from "ai";
 
 const MAX_TOOL_RESULT_CONTINUATION_DEPTH = 1;
 
+function formatContinuationToolResult(result: unknown): string {
+	if (typeof result === "string") return result;
+	try {
+		return JSON.stringify(result);
+	} catch {
+		return String(result);
+	}
+}
+
+function hasNoAutomaticRetryToolResult(results: unknown[]): boolean {
+	return results.some((result) =>
+		formatContinuationToolResult(result).includes(
+			"Do not call vision_analyze_media again automatically.",
+		),
+	);
+}
+
 export function shouldRunToolResultContinuation({
 	assistantText,
 	toolCallCount,
@@ -14,20 +31,12 @@ export function shouldRunToolResultContinuation({
 	continuationDepth: number;
 }): boolean {
 	return (
-		continuationDepth < MAX_TOOL_RESULT_CONTINUATION_DEPTH &&
-		toolCallCount > 0 &&
-		formattedToolResults.length > 0 &&
-		assistantText.trim().length === 0
+			continuationDepth < MAX_TOOL_RESULT_CONTINUATION_DEPTH &&
+			toolCallCount > 0 &&
+			formattedToolResults.length > 0 &&
+			assistantText.trim().length === 0 &&
+			!hasNoAutomaticRetryToolResult(formattedToolResults)
 	);
-}
-
-function formatContinuationToolResult(result: unknown): string {
-	if (typeof result === "string") return result;
-	try {
-		return JSON.stringify(result);
-	} catch {
-		return String(result);
-	}
 }
 
 export function buildToolResultContinuationMessages({
@@ -42,6 +51,8 @@ export function buildToolResultContinuationMessages({
 			return `Result ${index + 1}:\n${formatContinuationToolResult(result)}`;
 		})
 		.join("\n\n");
+	const hasNoAutomaticRetry =
+		hasNoAutomaticRetryToolResult(formattedToolResults);
 
 	return [
 		...messages,
@@ -51,7 +62,9 @@ export function buildToolResultContinuationMessages({
 				"[Tool Result Continuation]",
 				"The previous assistant turn called tools but did not produce a final response after the tool results arrived.",
 				"Continue autonomously from these tool results now.",
-				"If a tool failed, inspect the failure, retry with corrected parameters when possible, or choose an available alternative tool.",
+				hasNoAutomaticRetry
+					? "Do not call the same tool again automatically. If the result says to wait or ask the user, provide that concise user-facing response without invoking another tool."
+					: "If a tool failed, inspect the failure, retry with corrected parameters when possible, or choose an available alternative tool.",
 				"If a tool result says the user must choose an option, ask the user to choose that option in one concise question.",
 				"Do not claim the requested work is complete unless the tool result contains the actual requested output or verified edit.",
 				"",

@@ -44,6 +44,13 @@ export function formatToolResultForModel({
 		if (typeof r.suggestion === "string") {
 			parts.push(`Suggestion: ${r.suggestion}`);
 		}
+		if (toolName === "vision_analyze_media") {
+			parts.push(
+				"Do not call vision_analyze_media again automatically.",
+				"Ask the user whether to keep waiting, retry with lower detail/fps, or split/compress the video before trying again.",
+			);
+			return parts.join("\n");
+		}
 		parts.push(
 			"You may retry with corrected parameters or try a different approach.",
 		);
@@ -81,7 +88,7 @@ export function formatToolResultForModel({
 			typeof data.message === "string"
 				? data.message
 				: "视觉分析没有返回可用内容。",
-			"Do not claim the video has been analyzed. Retry once with adjusted visual parameters, or ask the user to split/compress/upload a smaller clip if the provider limit is the blocker.",
+			"Do not claim the video has been analyzed. Do not call vision_analyze_media again automatically. Ask the user whether to keep waiting, retry with lower detail/fps, or split/compress/upload a smaller clip.",
 		].join("\n");
 	}
 

@@ -2,6 +2,23 @@ import { describe, expect, test } from "bun:test";
 import { formatToolResultForModel } from "../tool-result-format";
 
 describe("formatToolResultForModel", () => {
+	test("does not invite automatic retries for failed vision analysis", () => {
+		const result = formatToolResultForModel({
+			toolName: "vision_analyze_media",
+			result: {
+				status: "error",
+				error:
+					'provider_error: MiniMax M3 vision request failed with 500: {"type":"error","error":{"type":"server_error","message":"unknown error, 999 (1000)","http_code":"500"}}',
+				errorCategory: "provider_error",
+			},
+		});
+
+		expect(result).toContain("Tool \"vision_analyze_media\" failed");
+		expect(result).toContain("Do not call vision_analyze_media again automatically");
+		expect(result).toContain("Ask the user");
+		expect(result).not.toContain("You may retry");
+	});
+
 	test("turns large vision video choices into an explicit user-question instruction", () => {
 		const result = formatToolResultForModel({
 			toolName: "vision_analyze_media",
@@ -71,7 +88,7 @@ describe("formatToolResultForModel", () => {
 		expect(result).not.toContain("Use this visual analysis as evidence");
 	});
 
-	test("tells the model to retry or ask when vision analysis content is missing", () => {
+	test("tells the model to ask before retrying when vision analysis content is missing", () => {
 		const result = formatToolResultForModel({
 			toolName: "vision_analyze_media",
 			result: {
@@ -85,7 +102,8 @@ describe("formatToolResultForModel", () => {
 		});
 
 		expect(result).toContain("did not return usable visual analysis content");
-		expect(result).toContain("Retry once with adjusted visual parameters");
+		expect(result).toContain("Do not call vision_analyze_media again automatically");
+		expect(result).toContain("Ask the user");
 		expect(result).not.toContain("Use this visual analysis as evidence");
 	});
 });

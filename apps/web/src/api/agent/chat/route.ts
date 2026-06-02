@@ -46,7 +46,9 @@ import {
 	buildToolResultContinuationMessages,
 	shouldRunToolResultContinuation,
 } from "./tool-result-continuation";
+import { shouldSuppressDuplicateToolCall } from "./tool-call-dedupe";
 import { formatToolResultForModel } from "./tool-result-format";
+import { getToolResultTimeoutMs } from "./tool-timeouts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -293,7 +295,7 @@ async function proxyExecuteStep(
 			promise: registerPendingCall({
 				sessionId,
 				callId,
-				timeoutMs: 120000,
+				timeoutMs: getToolResultTimeoutMs(step.tool),
 			}),
 			signal,
 		});
@@ -558,6 +560,7 @@ export async function POST(request: ApiRequest) {
 					closed = true;
 				}
 			};
+			const seenVisionAnalysisCalls = new Set<string>();
 			let tokenUsageTotals = createEmptyTokenUsage();
 			const reportTokenUsage: TokenUsageReporter = ({
 				usage,
@@ -596,6 +599,24 @@ export async function POST(request: ApiRequest) {
 				toolName: string,
 				params: Record<string, unknown>,
 			): Promise<unknown> {
+				if (
+					shouldSuppressDuplicateToolCall({
+						seen: seenVisionAnalysisCalls,
+						toolName,
+						params,
+					})
+				) {
+					logger.request({
+						type: "duplicate-tool-call-suppressed",
+						toolName,
+						callId,
+					});
+					return [
+						`Tool "${toolName}" was already called with the same media and analysis parameters in this assistant turn.`,
+						"Do not call vision_analyze_media again automatically.",
+						"Ask the user whether to keep waiting for the existing analysis, retry with lower detail/fps, or split/compress the video.",
+					].join("\n");
+				}
 				console.log(`[agent] tool-call: ${toolName} callId=${callId}`);
 				logger.toolCall(callId, toolName, params);
 				sseSend("tool-call", {
@@ -610,7 +631,7 @@ export async function POST(request: ApiRequest) {
 						promise: registerPendingCall({
 							sessionId,
 							callId,
-							timeoutMs: 120000,
+							timeoutMs: getToolResultTimeoutMs(toolName),
 						}),
 						signal: request.signal,
 					});
@@ -628,6 +649,14 @@ export async function POST(request: ApiRequest) {
 						return;
 					}
 					console.log(`[agent] tool-timeout: ${toolName} callId=${callId}`);
+					if (toolName === "vision_analyze_media") {
+						return [
+							`Tool "${toolName}" timed out while waiting for the visual analysis result.`,
+							"Do not call vision_analyze_media again automatically.",
+							"The current visual analysis may still be running in the tool panel. Ask the user to keep waiting, retry with lower detail/fps, or split the video.",
+							`Error: ${err instanceof Error ? err.message : "Tool execution failed"}`,
+						].join("\n");
+					}
 					return `Tool "${toolName}" timed out or failed. You may retry or try an alternative tool. Error: ${err instanceof Error ? err.message : "Tool execution failed"}`;
 				}
 			}

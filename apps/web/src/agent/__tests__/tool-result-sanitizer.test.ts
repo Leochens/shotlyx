@@ -264,11 +264,11 @@ describe("sanitizeToolResultForModel", () => {
 				mediaAssetId: "media-1",
 				mediaName: "compressed.mp4",
 				mediaType: "video",
-				analysisMissing: true,
-				message: "视觉分析没有返回可用内容。",
-				instruction:
-					"Do not claim visual analysis is complete. Retry once with adjusted parameters if appropriate; if the media exceeds provider limits, ask the user to split/compress the video or upload a smaller clip.",
-			},
+					analysisMissing: true,
+					message: "视觉分析没有返回可用内容。",
+					instruction:
+						"Do not claim visual analysis is complete. Do not call vision_analyze_media again automatically. Ask the user whether to keep waiting, retry with lower detail/fps, or split/compress the video.",
+				},
+			});
 		});
-	});
 });
