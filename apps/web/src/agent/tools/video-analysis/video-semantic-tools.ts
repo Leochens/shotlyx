@@ -216,13 +216,17 @@ async function parseJsonResponse(response: Response): Promise<unknown> {
 		body = null;
 	}
 	if (!response.ok) {
-		const message =
-			typeof body === "object" &&
-			body !== null &&
-			"error" in body &&
-			typeof body.error === "string"
+		const errorCode =
+			isRecord(body) && typeof body.error === "string"
 				? body.error
-				: `provider_error: request failed with ${response.status}`;
+				: "provider_error";
+		const detail =
+			isRecord(body) && typeof body.message === "string"
+				? body.message
+				: undefined;
+		const message = detail
+			? `${errorCode}: ${detail}`
+			: `${errorCode}: request failed with ${response.status}`;
 		throw new Error(message);
 	}
 	return body;

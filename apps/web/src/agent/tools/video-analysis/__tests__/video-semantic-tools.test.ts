@@ -252,4 +252,39 @@ describe("video semantic index tools", () => {
 			"视频语义索引只支持视频素材",
 		);
 	});
+
+	test("surfaces desktop API error details from inspection failures", async () => {
+		const asset: MediaAsset = {
+			id: "media-error",
+			name: "error.mp4",
+			type: "video",
+			duration: 12,
+			width: 1280,
+			height: 720,
+			file: new File(["demo"], "error.mp4", { type: "video/mp4" }),
+		};
+		const fetchFn = mock(async () =>
+			Response.json(
+				{
+					error: "desktop_api_error",
+					message: "ffmpeg_failed: ffmpeg exited with 1",
+				},
+				{ status: 500 },
+			),
+		);
+		const [tool] = buildVideoSemanticTools({
+			editor: createEditorWithAssets([asset]),
+			deps: { fetchFn },
+		});
+
+		await expect(
+			tool.handler({
+				analysisLevel: "deep",
+				intent: "edit_suggestion",
+				mediaAssetId: "media-error",
+			}),
+		).rejects.toThrow(
+			"desktop_api_error: ffmpeg_failed: ffmpeg exited with 1",
+		);
+	});
 });

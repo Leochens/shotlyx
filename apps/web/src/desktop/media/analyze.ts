@@ -80,6 +80,17 @@ function defaultVideoId({ filePath }: { filePath: string }): string {
 		.slice(0, 16);
 }
 
+function warnMediaAnalysisFallback({
+	error,
+	stage,
+}: {
+	error: unknown;
+	stage: string;
+}) {
+	const message = error instanceof Error ? error.message : String(error);
+	console.warn(`[shotlyx-media-analysis] ${stage} fallback: ${message}`);
+}
+
 export async function analyzeVideoAsset({
 	analysisLevel = "basic",
 	ffmpegPaths = resolveFfmpegPaths(),
@@ -103,6 +114,9 @@ export async function analyzeVideoAsset({
 		filePath,
 		ffmpegPath: ffmpegPaths.ffmpegPath,
 		sceneThreshold,
+	}).catch((error) => {
+		warnMediaAnalysisFallback({ error, stage: "scene-detection" });
+		return [];
 	});
 	const hasAudio = probe.streams?.some(
 		(stream) => stream.codec_type === "audio",
@@ -140,6 +154,9 @@ export async function analyzeVideoAsset({
 		filePath,
 		keyframes: planKeyframesForShots({ shots }),
 		outputDir,
+	}).catch((error) => {
+		warnMediaAnalysisFallback({ error, stage: "keyframe-extraction" });
+		return baseInspection.keyframes;
 	});
 	return {
 		...baseInspection,
