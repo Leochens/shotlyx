@@ -209,6 +209,24 @@ describe("tool call card display helpers", () => {
 		});
 	});
 
+	test("shows a useful message when completed vision analysis is empty", () => {
+		const toolCall: ToolCallRecord = {
+			tool: "vision_analyze_media",
+			params: { mediaAssetId: "media-1" },
+			result: {
+				status: "success",
+				data: {
+					analysis: "",
+				},
+			},
+		};
+
+		expect(getToolOutputDisplay(toolCall)).toEqual({
+			tone: "pending",
+			text: "视觉分析没有返回可用内容。请重试，或降低 detail/fps 后再分析。",
+		});
+	});
+
 	test("renders a failed Shotlyx MG background job as an error", () => {
 		const toolCall: ToolCallRecord = {
 			tool: "shotlyx_generate_mg_component",

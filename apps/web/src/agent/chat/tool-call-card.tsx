@@ -194,9 +194,16 @@ export function getToolOutputDisplay(
 				isRecord(data) &&
 				typeof Reflect.get(data, "analysis") === "string"
 			) {
+				const analysis = Reflect.get(data, "analysis").trim();
+				if (!analysis) {
+					return {
+						tone: "pending",
+						text: "视觉分析没有返回可用内容。请重试，或降低 detail/fps 后再分析。",
+					};
+				}
 				return {
 					tone: "success",
-					text: Reflect.get(data, "analysis"),
+					text: analysis,
 				};
 			}
 		}

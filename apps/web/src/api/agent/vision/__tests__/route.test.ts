@@ -232,6 +232,55 @@ describe("vision analysis route", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(2);
 	});
 
+	test("rejects empty MiniMax video analysis content instead of returning a blank success", async () => {
+		process.env.AGENT_VISION_KEY = "minimax-key";
+		delete process.env.AGENT_VISION_PROVIDER;
+		delete process.env.AGENT_VISION_HOST;
+		delete process.env.AGENT_VISION_MODEL;
+		const fetchFn: typeof fetch = mock(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (String(input).endsWith("/files/upload")) {
+					expectMiniMaxVideoUpload({ init, fileName: "empty-demo.mp4" });
+					return miniMaxUploadResponse({ fileId: "empty-file" });
+				}
+				return Response.json({
+					choices: [{ message: { content: "   " } }],
+				});
+			},
+		);
+		globalThis.fetch = fetchFn;
+		const payload = encodeURIComponent(
+			JSON.stringify({
+				analysisType: "visual_summary",
+				prompt: "分析视频",
+				media: {
+					mediaAssetId: "media-1",
+					name: "empty-demo.mp4",
+					type: "video",
+					mimeType: "video/mp4",
+				},
+			}),
+		);
+
+		const response = await POST(
+			new ApiRequest(
+				`http://localhost/api/agent/vision/analyze?payload=${payload}`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "video/mp4" },
+					body: new Blob(["demo"], { type: "video/mp4" }),
+				},
+			),
+		);
+
+		expect(response.status).toBe(502);
+		expect(await response.json()).toMatchObject({
+			error:
+				"provider_error: MiniMax response did not include analysis content",
+		});
+		expect(fetchFn).toHaveBeenCalledTimes(2);
+	});
+
 	test("streams MiniMax M3 reasoning and content chunks for image requests", async () => {
 		process.env.AGENT_VISION_KEY = "minimax-key";
 		delete process.env.AGENT_VISION_PROVIDER;
@@ -545,6 +594,90 @@ describe("vision analysis route", () => {
 		expect(response.status).toBe(200);
 		expect(await response.json()).toMatchObject({
 			analysis: "视频分析内容已稳定返回。",
+		});
+		expect(fetchFn).toHaveBeenCalledTimes(3);
+		expect(chatBodies).toHaveLength(2);
+	});
+
+	test("retries MiniMax video analysis with the minimal request on provider invalid params", async () => {
+		process.env.AGENT_VISION_KEY = "minimax-key";
+		delete process.env.AGENT_VISION_PROVIDER;
+		delete process.env.AGENT_VISION_HOST;
+		delete process.env.AGENT_VISION_MODEL;
+		const chatBodies: unknown[] = [];
+		const fetchFn: typeof fetch = mock(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (String(input).endsWith("/files/upload")) {
+					expectMiniMaxVideoUpload({ init });
+					return miniMaxUploadResponse({ fileId: "invalid-param-file" });
+				}
+				const body = JSON.parse(String(init?.body));
+				chatBodies.push(body);
+				if (chatBodies.length === 1) {
+					expect(body.messages[1].content[1]).toMatchObject({
+						type: "video_url",
+						video_url: {
+							url: "mm_file://invalid-param-file",
+							detail: "default",
+							fps: 0.5,
+							max_long_side_pixel: 672,
+						},
+					});
+					return Response.json(
+						{
+							type: "error",
+							error: {
+								type: "bad_request_error",
+								message: "invalid params, 400 (2013)",
+								http_code: "400",
+							},
+						},
+						{ status: 400 },
+					);
+				}
+				expect(body.messages[1].content[1]).toMatchObject({
+					type: "video_url",
+					video_url: {
+						url: "mm_file://invalid-param-file",
+					},
+				});
+				expect(body.messages[1].content[1].video_url).not.toHaveProperty(
+					"detail",
+				);
+				expect(body.messages[1].content[1].video_url).not.toHaveProperty(
+					"fps",
+				);
+				expect(body.messages[1].content[1].video_url).not.toHaveProperty(
+					"max_long_side_pixel",
+				);
+				return Response.json({
+					choices: [{ message: { content: "最小视频请求已返回。" } }],
+				});
+			},
+		);
+		globalThis.fetch = fetchFn;
+
+		const response = await POST(
+			new ApiRequest("http://localhost/api/agent/vision/analyze", {
+				method: "POST",
+				body: JSON.stringify({
+					analysisType: "visual_summary",
+					fps: 0.5,
+					maxLongSidePixel: 672,
+					media: {
+						mediaAssetId: "media-1",
+						name: "demo.mp4",
+						type: "video",
+						mimeType: "video/mp4",
+						dataUrl: "data:video/mp4;base64,AA==",
+					},
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			analysis: "最小视频请求已返回。",
 		});
 		expect(fetchFn).toHaveBeenCalledTimes(3);
 		expect(chatBodies).toHaveLength(2);

@@ -115,6 +115,16 @@ function stripThinkTags(value: string): string {
 	return value.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").trim();
 }
 
+function assertNonEmptyAnalysis(value: string): string {
+	const analysis = stripThinkTags(value);
+	if (!analysis) {
+		throw new Error(
+			"provider_error: MiniMax response did not include analysis content",
+		);
+	}
+	return analysis;
+}
+
 function extensionForName(name: string): string {
 	const match = /\.([^.]+)$/.exec(name.trim().toLowerCase());
 	return match?.[1] ?? "";
@@ -743,9 +753,9 @@ function extractMessageContent(data: unknown): string {
 		throw new Error("provider_error: MiniMax choice did not include a message");
 	}
 	const content = Reflect.get(message, "content");
-	if (typeof content === "string") return stripThinkTags(content);
+	if (typeof content === "string") return assertNonEmptyAnalysis(content);
 	if (Array.isArray(content)) {
-		return stripThinkTags(
+		return assertNonEmptyAnalysis(
 			content
 				.map((part) => {
 					if (typeof part === "string") return part;
@@ -775,13 +785,17 @@ function formatMiniMaxVisionRequestError({
 }
 
 function shouldRetryWithMinimalVideoRequest({
+	errorText,
 	media,
 	status,
 }: {
+	errorText: string;
 	media: VisionAnalyzeData["media"];
 	status: number;
 }): boolean {
-	return media.type === "video" && status >= 500;
+	if (media.type !== "video") return false;
+	if (status >= 500) return true;
+	return status === 400 && /invalid\s+params?/i.test(errorText);
 }
 
 export async function POST(request: ApiRequest) {
@@ -863,6 +877,7 @@ export async function POST(request: ApiRequest) {
 			const errorText = await response.text();
 			if (
 				shouldRetryWithMinimalVideoRequest({
+					errorText,
 					media: requestData.media,
 					status: response.status,
 				})
