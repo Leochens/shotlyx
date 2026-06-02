@@ -2,14 +2,16 @@ import type { EditorCore } from "@/core";
 import { useAgentContextStore } from "@/agent/context/store";
 import type { Tool } from "./types";
 import type { MediaTime } from "@/wasm";
-import type { CreateTimelineElement } from "@/timeline";
+import type { CreateTimelineElement, RetimeConfig } from "@/timeline";
 import type { ParamValue, ParamValues } from "@/params";
 import {
 	requireStringParam,
 	requireNumberParam,
 	optionalNumberParam,
 	optionalStringParam,
+	optionalBooleanParam,
 } from "./validation";
+import { DEFAULT_RETIME_RATE, buildConstantRetime } from "@/retime";
 import type { AnimationInterpolation } from "@/animation/types";
 import { motionGraphicDefinitions } from "@/graphics/definitions/motion-graphics";
 import {
@@ -32,6 +34,20 @@ function isVisualEffectKind(value: unknown): value is VisualEffectKind {
 		typeof value === "string" &&
 		VISUAL_EFFECT_KINDS.some((kind) => kind === value)
 	);
+}
+
+function buildRetimeForRate({
+	rate,
+	maintainPitch,
+}: {
+	rate: number;
+	maintainPitch: boolean;
+}): RetimeConfig | undefined {
+	const retime = buildConstantRetime({ rate, maintainPitch });
+	if (retime.rate === DEFAULT_RETIME_RATE && !retime.maintainPitch) {
+		return undefined;
+	}
+	return retime;
 }
 
 function getMediaInsertTrackType({
@@ -1202,6 +1218,64 @@ export function buildTimelineTools({
 					elementId,
 					targetTrackId,
 					newStartTime: newStartTimeSeconds,
+				};
+			},
+		},
+		{
+			name: "timeline_update_clip_speed",
+			description:
+				"Update a video or audio clip playback speed. Use this for requests like 2x speed, half speed, slow motion, fast motion, or reset clip speed. " +
+				"rate is the playback multiplier: 1 = normal speed, 2 = twice as fast, 0.5 = half speed. " +
+				"maintainPitch preserves audio pitch when possible.",
+			parameters: {
+				trackId: {
+					type: "string",
+					description: "Track ID containing the clip",
+					optional: true,
+				},
+				elementId: {
+					type: "string",
+					description: "Clip element ID to retime",
+					optional: true,
+				},
+				name: {
+					type: "string",
+					description: "Element name to fuzzy-match",
+					optional: true,
+				},
+				rate: {
+					type: "number",
+					description:
+						"Playback speed multiplier. Use 1 for normal, 2 for 2x, 0.5 for half speed.",
+				},
+				maintainPitch: {
+					type: "boolean",
+					description:
+						"Whether to preserve audio pitch when retiming. Defaults to false.",
+					optional: true,
+				},
+			},
+			mutating: true,
+			handler: (params) => {
+				const { trackId, elementId } = resolveElementFromParams(editor, params);
+				const rate = requireNumberParam(params, "rate");
+				const maintainPitch =
+					optionalBooleanParam(params, "maintainPitch") ?? false;
+				const retime = buildRetimeForRate({ rate, maintainPitch });
+
+				editor.timeline.updateElementRetime({
+					trackId,
+					elementId,
+					retime,
+				});
+
+				return {
+					updated: true,
+					trackId,
+					elementId,
+					rate: retime?.rate ?? DEFAULT_RETIME_RATE,
+					maintainPitch: retime?.maintainPitch ?? false,
+					retime,
 				};
 			},
 		},

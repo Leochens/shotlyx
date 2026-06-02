@@ -32,6 +32,7 @@ function createMockEditor(overrides: MockEditorOverrides = {}): EditorCore {
 		addTrack: () => "track-1",
 		updateElements: () => {},
 		updateElementTrim: () => {},
+		updateElementRetime: () => {},
 		splitElements: () => [],
 		deleteElements: () => {},
 		getTrackById: () => null,
@@ -615,6 +616,69 @@ describe("timeline_update_element_params", () => {
 				params: { opacity: Number.NaN },
 			}),
 		).toThrow("NaN");
+	});
+});
+
+describe("timeline_update_clip_speed", () => {
+	function setup() {
+		const updateElementRetime = mock(() => {});
+		const editor = createMockEditor({
+			timeline: { updateElementRetime },
+			scenes: { getActiveSceneOrNull: () => createSceneWithMainElement() },
+		});
+		const tools = buildTimelineTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find((t) => t.name === "timeline_update_clip_speed");
+		return { tool, updateElementRetime };
+	}
+
+	test("positive path: updates clip playback speed", () => {
+		const { tool, updateElementRetime } = setup();
+		expect(tool).toBeTruthy();
+
+		const result = tool?.handler({
+			elementId: "e1",
+			rate: 2,
+			maintainPitch: true,
+		});
+
+		expect(result).toMatchObject({
+			updated: true,
+			trackId: "t1",
+			elementId: "e1",
+			rate: 2,
+			maintainPitch: true,
+		});
+		expect(updateElementRetime).toHaveBeenCalledWith({
+			trackId: "t1",
+			elementId: "e1",
+			retime: { rate: 2, maintainPitch: true },
+		});
+	});
+
+	test("positive path: clears retime at normal speed without pitch preservation", () => {
+		const { tool, updateElementRetime } = setup();
+		expect(tool).toBeTruthy();
+
+		const result = tool?.handler({
+			elementId: "e1",
+			rate: 1,
+			maintainPitch: false,
+		});
+
+		expect(result.retime).toBeUndefined();
+		expect(updateElementRetime).toHaveBeenCalledWith({
+			trackId: "t1",
+			elementId: "e1",
+			retime: undefined,
+		});
+	});
+
+	test("error: missing rate throws error", () => {
+		const { tool } = setup();
+		expect(() => tool?.handler({ elementId: "e1" })).toThrow("rate");
 	});
 });
 
