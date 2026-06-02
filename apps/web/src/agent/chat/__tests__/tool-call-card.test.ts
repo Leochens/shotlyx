@@ -169,6 +169,26 @@ describe("tool call card display helpers", () => {
 		});
 	});
 
+	test("shows streaming vision analysis details while the tool is pending", () => {
+		const toolCall: ToolCallRecord = {
+			tool: "vision_analyze_media",
+			params: { mediaAssetId: "media-1" },
+			progress: [
+				{
+					stage: "vision-output",
+					label: "MiniMax M3 正在输出分析结果",
+					status: "running",
+					detail: "建议保留开场动作，删除中段停顿。",
+				},
+			],
+		};
+
+		expect(getToolOutputDisplay(toolCall)).toEqual({
+			tone: "pending",
+			text: "建议保留开场动作，删除中段停顿。",
+		});
+	});
+
 	test("renders a failed Shotlyx MG background job as an error", () => {
 		const toolCall: ToolCallRecord = {
 			tool: "shotlyx_generate_mg_component",

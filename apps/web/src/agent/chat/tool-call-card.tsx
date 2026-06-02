@@ -160,6 +160,12 @@ export function getToolOutputDisplay(
 	const status = getToolStatus(toolCall);
 	const latestProgress = getLatestProgress(toolCall);
 	if (!toolCall.result) {
+		if (toolCall.tool === "vision_analyze_media" && latestProgress?.detail) {
+			return {
+				tone: "pending",
+				text: latestProgress.detail,
+			};
+		}
 		return {
 			tone: "pending",
 			text: "等待工具返回结果...",
@@ -172,6 +178,18 @@ export function getToolOutputDisplay(
 		};
 	}
 	if (status === "success") {
+		if (toolCall.tool === "vision_analyze_media") {
+			const data = toolCall.result.data;
+			if (
+				isRecord(data) &&
+				typeof Reflect.get(data, "analysis") === "string"
+			) {
+				return {
+					tone: "success",
+					text: Reflect.get(data, "analysis"),
+				};
+			}
+		}
 		return {
 			tone: "success",
 			text:

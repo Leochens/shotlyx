@@ -93,6 +93,61 @@ describe("vision analysis route", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
+	test("streams MiniMax M3 reasoning and content chunks when requested", async () => {
+		process.env.AGENT_VISION_KEY = "minimax-key";
+		delete process.env.AGENT_VISION_PROVIDER;
+		delete process.env.AGENT_VISION_HOST;
+		delete process.env.AGENT_VISION_MODEL;
+		const upstream = [
+			'data: {"choices":[{"delta":{"reasoning_details":[{"text":"先看主体"}]}}]}',
+			'data: {"choices":[{"delta":{"content":"建议保留开场"}}]}',
+			"data: [DONE]",
+		].join("\n\n");
+		const fetchFn: typeof fetch = mock(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				const body = JSON.parse(String(init?.body));
+				expect(body).toMatchObject({
+					model: "MiniMax-M3",
+					stream: true,
+					stream_options: { include_usage: true },
+				});
+				return new Response(upstream, {
+					headers: { "Content-Type": "text/event-stream" },
+				});
+			},
+		);
+		globalThis.fetch = fetchFn;
+
+		const response = await POST(
+			new ApiRequest("http://localhost/api/agent/vision/analyze", {
+				method: "POST",
+				body: JSON.stringify({
+					analysisType: "editing_suggestions",
+					stream: true,
+					media: {
+						mediaAssetId: "media-1",
+						name: "demo.mp4",
+						type: "video",
+						mimeType: "video/mp4",
+						dataUrl: "data:video/mp4;base64,AA==",
+					},
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Content-Type")).toContain("text/event-stream");
+		expect(await response.text()).toBe(
+			[
+				'data: {"type":"reasoning_delta","text":"先看主体"}',
+				'data: {"type":"content_delta","text":"建议保留开场"}',
+				`data: {"type":"done","provider":"minimax","model":"MiniMax-M3","analysisType":"editing_suggestions","analysis":"建议保留开场","media":{"mediaAssetId":"media-1","name":"demo.mp4","type":"video"}}`,
+				"data: [DONE]",
+			].join("\n\n") + "\n\n",
+		);
+		expect(fetchFn).toHaveBeenCalledTimes(1);
+	});
+
 	test("requires a dedicated Vision API key", async () => {
 		delete process.env.AGENT_VISION_KEY;
 		delete process.env.AGENT_LLM_KEY;

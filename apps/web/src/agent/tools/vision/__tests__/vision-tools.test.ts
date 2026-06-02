@@ -16,6 +16,18 @@ function createEditorWithAssets(assets: MediaAsset[]) {
 	};
 }
 
+function createSseResponse(events: unknown[]): Response {
+	const body =
+		events
+			.map((event) =>
+				typeof event === "string" ? `data: ${event}` : `data: ${JSON.stringify(event)}`,
+			)
+			.join("\n\n") + "\n\n";
+	return new Response(body, {
+		headers: { "Content-Type": "text/event-stream" },
+	});
+}
+
 describe("vision analysis tools", () => {
 	test("builds a video understanding tool for Agent visual analysis", () => {
 		const tools = buildVisionTools({
@@ -164,5 +176,80 @@ describe("vision analysis tools", () => {
 				total: 4,
 			},
 		]);
+	});
+
+	test("streams MiniMax M3 reasoning and content into progress details", async () => {
+		const file = new File(["demo"], "demo.mp4", { type: "video/mp4" });
+		const editor = createEditorWithAssets([
+			{
+				id: "media-1",
+				name: "demo.mp4",
+				type: "video",
+				duration: 12,
+				width: 1920,
+				height: 1080,
+				file,
+			},
+		]);
+		const progressEvents: Array<{
+			stage: string;
+			label: string;
+			status: string;
+			detail?: string;
+			current?: number;
+			total?: number;
+		}> = [];
+		const fetchFn = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
+			const body = JSON.parse(String(init?.body));
+			expect(body.stream).toBe(true);
+			return createSseResponse([
+				{ type: "reasoning_delta", text: "先看画面主体。" },
+				{ type: "content_delta", text: "建议保留开场动作，" },
+				{ type: "content_delta", text: "删除中段停顿。" },
+				{
+					type: "done",
+					provider: "minimax",
+					model: "MiniMax-M3",
+					analysisType: "editing_suggestions",
+					analysis: "建议保留开场动作，删除中段停顿。",
+				},
+				"[DONE]",
+			]);
+		});
+		const [tool] = buildVisionTools({
+			editor,
+			deps: {
+				fetchFn,
+				readFileAsDataUrl: mock(() =>
+					Promise.resolve("data:video/mp4;base64,AA=="),
+				),
+			},
+		});
+
+		const result = await tool.handler(
+			{ mediaAssetId: "media-1", analysisType: "editing_suggestions" },
+			{ onProgress: (event) => progressEvents.push(event) },
+		);
+
+		expect(result).toMatchObject({
+			mediaAssetId: "media-1",
+			analysis: "建议保留开场动作，删除中段停顿。",
+		});
+		expect(progressEvents).toContainEqual({
+			stage: "vision-reasoning",
+			label: "MiniMax M3 正在思考画面内容",
+			status: "running",
+			detail: "先看画面主体。",
+			current: 3,
+			total: 4,
+		});
+		expect(progressEvents).toContainEqual({
+			stage: "vision-output",
+			label: "MiniMax M3 正在输出分析结果",
+			status: "running",
+			detail: "建议保留开场动作，删除中段停顿。",
+			current: 3,
+			total: 4,
+		});
 	});
 });
