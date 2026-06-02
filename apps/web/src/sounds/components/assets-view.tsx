@@ -18,6 +18,8 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -59,6 +61,7 @@ import {
 	ListMusic,
 	Loader2,
 	Mic2,
+	Play,
 	Plus,
 	RefreshCw,
 	Send,
@@ -71,7 +74,11 @@ const MANUAL_SCRIPT_SOURCE_ID = "manual";
 const LOCAL_CUSTOM_VOICES_KEY = "shotlyx.volcengine.custom-voices";
 const DEFAULT_VOICE_PREVIEW_TEXT =
 	"你好，我是 Shotlyx 的 AI 配音音色。正在为你试听这一段声音。";
+const DEFAULT_VOICE_CLONE_TEXT =
+	"你好，欢迎使用 Shotlyx。我正在录制自己的克隆音色，用来生成更自然的视频旁白。";
 const MAX_VOICE_PREVIEW_CHARS = 64;
+const VOICE_CLONE_POLL_INTERVAL_MS = 3_000;
+const VOICE_CLONE_MAX_POLLS = 40;
 
 interface VoiceListResponse {
 	voices: VoiceProfile[];
@@ -105,12 +112,109 @@ interface GeneratedVoiceoverAsset {
 	sizeBytes?: number;
 }
 
+type VoiceCloneStatus =
+	| "not_found"
+	| "training"
+	| "available"
+	| "failed"
+	| "unknown";
+
+interface VoiceCloneResponse {
+	provider: "volcengine";
+	speakerId: string;
+	resourceId: string;
+	status: VoiceCloneStatus;
+	customSpeakerId?: string;
+	demoAudio?: string;
+	availableTrainingTimes?: number;
+}
+
+interface VoiceRecorderSession {
+	audioContext: AudioContext;
+	source: MediaStreamAudioSourceNode;
+	processor: ScriptProcessorNode;
+	stream: MediaStream;
+	chunks: Float32Array[];
+	sampleRate: number;
+}
+
 function isScriptAsset(asset: MediaAsset): boolean {
 	return asset.type === "subtitle" || asset.type === "text";
 }
 
 function createLocalVoiceId(): string {
 	return `local:${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isVoiceCloneResponse(value: unknown): value is VoiceCloneResponse {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"speakerId" in value &&
+		typeof value.speakerId === "string" &&
+		"status" in value &&
+		typeof value.status === "string"
+	);
+}
+
+function mergeFloat32Chunks(chunks: Float32Array[]): Float32Array {
+	const sampleCount = chunks.reduce((total, chunk) => total + chunk.length, 0);
+	const samples = new Float32Array(sampleCount);
+	let offset = 0;
+	for (const chunk of chunks) {
+		samples.set(chunk, offset);
+		offset += chunk.length;
+	}
+	return samples;
+}
+
+function encodeWav({
+	samples,
+	sampleRate,
+}: {
+	samples: Float32Array;
+	sampleRate: number;
+}): Blob {
+	const bytesPerSample = 2;
+	const blockAlign = bytesPerSample;
+	const buffer = new ArrayBuffer(44 + samples.length * bytesPerSample);
+	const view = new DataView(buffer);
+	const writeString = ({ offset, value }: { offset: number; value: string }) => {
+		for (let index = 0; index < value.length; index += 1) {
+			view.setUint8(offset + index, value.charCodeAt(index));
+		}
+	};
+
+	writeString({ offset: 0, value: "RIFF" });
+	view.setUint32(4, 36 + samples.length * bytesPerSample, true);
+	writeString({ offset: 8, value: "WAVE" });
+	writeString({ offset: 12, value: "fmt " });
+	view.setUint32(16, 16, true);
+	view.setUint16(20, 1, true);
+	view.setUint16(22, 1, true);
+	view.setUint32(24, sampleRate, true);
+	view.setUint32(28, sampleRate * blockAlign, true);
+	view.setUint16(32, blockAlign, true);
+	view.setUint16(34, 16, true);
+	writeString({ offset: 36, value: "data" });
+	view.setUint32(40, samples.length * bytesPerSample, true);
+
+	let offset = 44;
+	for (const sample of samples) {
+		const clamped = Math.max(-1, Math.min(1, sample));
+		view.setInt16(
+			offset,
+			clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff,
+			true,
+		);
+		offset += bytesPerSample;
+	}
+
+	return new Blob([buffer], { type: "audio/wav" });
 }
 
 function readLocalCustomVoices(): VoiceProfile[] {
@@ -797,37 +901,328 @@ function VoiceCatalogView() {
 	const { voices, isLoading, refreshVoices, customVoices, setCustomVoices } =
 		useVoiceProfiles();
 	const [isDialogOpen, setIsDialogOpen] = useState(false);
-	const [name, setName] = useState("");
-	const [speaker, setSpeaker] = useState("");
-	const [resourceId, setResourceId] = useState("seed-icl-2.0");
+	const [manualName, setManualName] = useState("");
+	const [manualSpeaker, setManualSpeaker] = useState("");
+	const [manualResourceId, setManualResourceId] = useState("seed-icl-2.0");
+	const [cloneName, setCloneName] = useState("");
+	const [cloneSpeakerId, setCloneSpeakerId] = useState("");
+	const [cloneText, setCloneText] = useState(DEFAULT_VOICE_CLONE_TEXT);
+	const [recordingState, setRecordingState] = useState<
+		"idle" | "recording" | "ready"
+	>("idle");
+	const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+	const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
+	const [recordedDuration, setRecordedDuration] = useState(0);
+	const [cloneProgress, setCloneProgress] = useState(0);
+	const [cloneStage, setCloneStage] = useState("");
+	const [isCloning, setIsCloning] = useState(false);
+	const [cloneDemoAudio, setCloneDemoAudio] = useState<string | null>(null);
+	const recorderRef = useRef<VoiceRecorderSession | null>(null);
+	const recordedAudioUrlRef = useRef<string | null>(null);
 	const { loadingVoiceId, playingVoiceId, previewVoice } =
 		useVoicePreviewPlayer();
 
+	const cleanupRecorder = useCallback(() => {
+		const session = recorderRef.current;
+		if (!session) return;
+		session.processor.disconnect();
+		session.source.disconnect();
+		session.stream.getTracks().forEach((track) => track.stop());
+		void session.audioContext.close();
+		recorderRef.current = null;
+	}, []);
+
+	const setRecordedAudio = useCallback((blob: Blob | null) => {
+		if (recordedAudioUrlRef.current) {
+			URL.revokeObjectURL(recordedAudioUrlRef.current);
+			recordedAudioUrlRef.current = null;
+		}
+		setRecordedBlob(blob);
+		if (!blob) {
+			setRecordedAudioUrl(null);
+			setRecordedDuration(0);
+			return;
+		}
+		const nextUrl = URL.createObjectURL(blob);
+		recordedAudioUrlRef.current = nextUrl;
+		setRecordedAudioUrl(nextUrl);
+	}, []);
+
+	useEffect(() => {
+		return () => {
+			cleanupRecorder();
+			if (recordedAudioUrlRef.current) {
+				URL.revokeObjectURL(recordedAudioUrlRef.current);
+			}
+		};
+	}, [cleanupRecorder]);
+
+	const persistClonedVoice = useCallback(
+		({
+			result,
+			displayName,
+		}: {
+			result: VoiceCloneResponse;
+			displayName: string;
+		}) => {
+			const nextVoice: VoiceProfile = {
+				id: createLocalVoiceId(),
+				name: displayName.trim() || result.speakerId,
+				provider: "volcengine",
+				kind: "cloned",
+				speaker: result.speakerId,
+				resourceId: result.resourceId || "seed-icl-2.0",
+				locale: "zh-CN",
+				status: "available",
+				previewUrl: result.demoAudio,
+			};
+			const nextVoices = [
+				...customVoices.filter(
+					(voice) =>
+						voice.speaker !== nextVoice.speaker ||
+						voice.resourceId !== nextVoice.resourceId,
+				),
+				nextVoice,
+			];
+			setCustomVoices(nextVoices);
+			writeLocalCustomVoices(nextVoices);
+		},
+		[customVoices, setCustomVoices],
+	);
+
 	const addCustomVoice = () => {
-		const nextSpeaker = speaker.trim();
+		const nextSpeaker = manualSpeaker.trim();
 		if (!nextSpeaker) {
 			toast.error("Speaker ID is required");
 			return;
 		}
 		const nextVoices = [
-			...customVoices,
+			...customVoices.filter(
+				(voice) =>
+					voice.speaker !== nextSpeaker ||
+					voice.resourceId !== (manualResourceId.trim() || "seed-icl-2.0"),
+			),
 			{
 				id: createLocalVoiceId(),
-				name: name.trim() || nextSpeaker,
+				name: manualName.trim() || nextSpeaker,
 				provider: "volcengine",
 				kind: "cloned",
 				speaker: nextSpeaker,
-				resourceId: resourceId.trim() || "seed-icl-2.0",
+				resourceId: manualResourceId.trim() || "seed-icl-2.0",
 				locale: "zh-CN",
 				status: "available",
 			} satisfies VoiceProfile,
 		];
 		setCustomVoices(nextVoices);
 		writeLocalCustomVoices(nextVoices);
-		setName("");
-		setSpeaker("");
-		setResourceId("seed-icl-2.0");
+		setManualName("");
+		setManualSpeaker("");
+		setManualResourceId("seed-icl-2.0");
 		setIsDialogOpen(false);
+	};
+
+	const startRecording = async () => {
+		if (!navigator.mediaDevices?.getUserMedia) {
+			toast.error("Microphone recording is not available");
+			return;
+		}
+		try {
+			cleanupRecorder();
+			setRecordedAudio(null);
+			setCloneDemoAudio(null);
+			setCloneProgress(0);
+			setCloneStage("");
+			const stream = await navigator.mediaDevices.getUserMedia({
+				audio: {
+					echoCancellation: true,
+					noiseSuppression: true,
+					autoGainControl: true,
+				},
+			});
+			const audioWindow: Window & {
+				webkitAudioContext?: typeof AudioContext;
+			} = window;
+			const AudioContextCtor =
+				window.AudioContext ?? audioWindow.webkitAudioContext;
+			if (!AudioContextCtor) {
+				throw new Error("Audio recording is not available");
+			}
+			const audioContext = new AudioContextCtor();
+			const source = audioContext.createMediaStreamSource(stream);
+			const processor = audioContext.createScriptProcessor(4096, 1, 1);
+			const chunks: Float32Array[] = [];
+			processor.onaudioprocess = (event) => {
+				chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+			};
+			source.connect(processor);
+			processor.connect(audioContext.destination);
+			recorderRef.current = {
+				audioContext,
+				source,
+				processor,
+				stream,
+				chunks,
+				sampleRate: audioContext.sampleRate,
+			};
+			setRecordingState("recording");
+			toast.success("Recording started");
+		} catch (error) {
+			cleanupRecorder();
+			toast.error(
+				error instanceof Error ? error.message : "Microphone recording failed",
+			);
+		}
+	};
+
+	const stopRecording = () => {
+		const session = recorderRef.current;
+		if (!session) return;
+		const { chunks, sampleRate } = session;
+		cleanupRecorder();
+		if (chunks.length === 0) {
+			setRecordingState("idle");
+			toast.error("No voice sample was captured");
+			return;
+		}
+		const samples = mergeFloat32Chunks(chunks);
+		const nextBlob = encodeWav({ samples, sampleRate });
+		setRecordedDuration(samples.length / sampleRate);
+		setRecordedAudio(nextBlob);
+		setRecordingState("ready");
+		toast.success("Voice sample recorded");
+	};
+
+	const playRecordedAudio = async () => {
+		if (!recordedAudioUrl) return;
+		try {
+			await new Audio(recordedAudioUrl).play();
+		} catch {
+			toast.error("Voice sample playback failed");
+		}
+	};
+
+	const playCloneDemoAudio = async () => {
+		if (!cloneDemoAudio) return;
+		try {
+			await new Audio(cloneDemoAudio).play();
+		} catch {
+			toast.error("Clone demo playback failed");
+		}
+	};
+
+	const fetchCloneStatus = async ({
+		speakerId,
+		customSpeakerId,
+	}: {
+		speakerId: string;
+		customSpeakerId?: string;
+	}): Promise<VoiceCloneResponse> => {
+		const response = await fetch("/api/agent/voiceover/clone/status", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ speakerId, customSpeakerId }),
+		});
+		const data: unknown = await response.json();
+		if (!response.ok) {
+			throw new Error(getErrorMessage(data) ?? "Voice clone status failed");
+		}
+		if (!isVoiceCloneResponse(data)) {
+			throw new Error("Voice clone status response was invalid");
+		}
+		return data;
+	};
+
+	const waitForClone = async (initial: VoiceCloneResponse) => {
+		let latest = initial;
+		for (let index = 0; index < VOICE_CLONE_MAX_POLLS; index += 1) {
+			if (latest.status === "available") return latest;
+			if (latest.status === "failed") {
+				throw new Error("Voice clone training failed");
+			}
+			setCloneProgress(Math.min(90, 45 + index * 2));
+			setCloneStage(
+				latest.availableTrainingTimes !== undefined
+					? `Training voice · ${latest.availableTrainingTimes} tries left`
+					: "Training voice",
+			);
+			await sleep(VOICE_CLONE_POLL_INTERVAL_MS);
+			latest = await fetchCloneStatus({
+				speakerId: latest.speakerId,
+				customSpeakerId: latest.customSpeakerId,
+			});
+			if (latest.demoAudio) setCloneDemoAudio(latest.demoAudio);
+		}
+		throw new Error("Voice clone is still training");
+	};
+
+	const submitClone = async () => {
+		if (!recordedBlob) {
+			toast.error("Record a voice sample first");
+			return;
+		}
+		setIsCloning(true);
+		setCloneProgress(20);
+		setCloneStage("Uploading voice sample");
+		setCloneDemoAudio(null);
+		try {
+			const form = new FormData();
+			const nextName = cloneName.trim() || "Cloned voice";
+			const nextSpeaker = cloneSpeakerId.trim();
+			form.set("name", nextName);
+			if (nextSpeaker) form.set("speakerId", nextSpeaker);
+			form.set("text", cloneText.trim() || DEFAULT_VOICE_CLONE_TEXT);
+			form.set(
+				"demoText",
+				Array.from(cloneText.trim() || DEFAULT_VOICE_CLONE_TEXT)
+					.slice(0, 120)
+					.join(""),
+			);
+			form.set("language", "0");
+			form.set("audioFormat", "wav");
+			form.set(
+				"audio",
+				new File([recordedBlob], "shotlyx-voice-clone.wav", {
+					type: "audio/wav",
+				}),
+			);
+
+			const response = await fetch("/api/agent/voiceover/clone", {
+				method: "POST",
+				body: form,
+			});
+			const data: unknown = await response.json();
+			if (!response.ok) {
+				throw new Error(getErrorMessage(data) ?? "Voice clone failed");
+			}
+			if (!isVoiceCloneResponse(data)) {
+				throw new Error("Voice clone response was invalid");
+			}
+			setCloneProgress(45);
+			setCloneStage("Training voice");
+			if (data.demoAudio) setCloneDemoAudio(data.demoAudio);
+			const readyVoice = await waitForClone(data);
+			if (readyVoice.demoAudio) setCloneDemoAudio(readyVoice.demoAudio);
+			persistClonedVoice({ result: readyVoice, displayName: nextName });
+			setCloneProgress(100);
+			setCloneStage("Voice ready");
+			toast.success("Cloned voice added");
+			void refreshVoices();
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : "Voice clone failed",
+			);
+			setCloneStage("Clone failed");
+		} finally {
+			setIsCloning(false);
+		}
+	};
+
+	const handleDialogOpenChange = (open: boolean) => {
+		setIsDialogOpen(open);
+		if (!open && recordingState === "recording") {
+			cleanupRecorder();
+			setRecordingState(recordedBlob ? "ready" : "idle");
+		}
 	};
 
 	return (
@@ -854,7 +1249,7 @@ function VoiceCatalogView() {
 					>
 						<RefreshCw className={cn("size-4", isLoading && "animate-spin")} />
 					</Button>
-					<Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+					<Dialog open={isDialogOpen} onOpenChange={handleDialogOpenChange}>
 						<DialogTrigger asChild>
 							<Button variant="outline" size="icon" title="Add voice">
 								<Plus className="size-4" />
@@ -864,36 +1259,153 @@ function VoiceCatalogView() {
 							<DialogHeader>
 								<DialogTitle>Add cloned voice</DialogTitle>
 								<DialogDescription>
-									Add a Volcengine SpeakerID for this browser.
+									Volcengine cloned voice.
 								</DialogDescription>
 							</DialogHeader>
-							<div className="flex flex-col gap-3">
-								<Input
-									value={name}
-									onChange={({ currentTarget }) => setName(currentTarget.value)}
-									placeholder="Display name"
-								/>
-								<Input
-									value={speaker}
-									onChange={({ currentTarget }) =>
-										setSpeaker(currentTarget.value)
-									}
-									placeholder="SpeakerID, e.g. S_xxx or icl_xxx"
-								/>
-								<Input
-									value={resourceId}
-									onChange={({ currentTarget }) =>
-										setResourceId(currentTarget.value)
-									}
-									placeholder="Resource ID"
-								/>
-							</div>
-							<DialogFooter>
-								<Button variant="text" onClick={() => setIsDialogOpen(false)}>
-									Cancel
-								</Button>
-								<Button onClick={addCustomVoice}>Add voice</Button>
-							</DialogFooter>
+							<Tabs defaultValue="record" className="flex flex-col gap-4">
+								<TabsList className="grid grid-cols-2">
+									<TabsTrigger value="record">
+										<Mic2 className="size-4" />
+										Record
+									</TabsTrigger>
+									<TabsTrigger value="import">
+										<Plus className="size-4" />
+										Import ID
+									</TabsTrigger>
+								</TabsList>
+								<TabsContent value="record" className="mt-0 flex flex-col gap-4">
+									<div className="grid grid-cols-2 gap-3">
+										<div className="flex flex-col gap-2">
+											<Label>Display name</Label>
+											<Input
+												value={cloneName}
+												onChange={({ currentTarget }) =>
+													setCloneName(currentTarget.value)
+												}
+												placeholder="My voice"
+											/>
+										</div>
+										<div className="flex flex-col gap-2">
+											<Label>SpeakerID slot</Label>
+											<Input
+												value={cloneSpeakerId}
+												onChange={({ currentTarget }) =>
+													setCloneSpeakerId(currentTarget.value)
+												}
+												placeholder="Optional S_xxx"
+											/>
+										</div>
+									</div>
+									<div className="flex flex-col gap-2">
+										<Label>Read aloud</Label>
+										<Textarea
+											value={cloneText}
+											onChange={({ currentTarget }) =>
+												setCloneText(currentTarget.value)
+											}
+											className="min-h-20 resize-none"
+										/>
+									</div>
+									<div className="grid grid-cols-[1fr_auto_auto] gap-2">
+										<Button
+											variant={
+												recordingState === "recording"
+													? "destructive"
+													: "outline"
+											}
+											onClick={() =>
+												recordingState === "recording"
+													? stopRecording()
+													: void startRecording()
+											}
+											disabled={isCloning}
+										>
+											{recordingState === "recording" ? (
+												<Square className="size-4" />
+											) : (
+												<Mic2 className="size-4" />
+											)}
+											{recordingState === "recording" ? "Stop" : "Record"}
+										</Button>
+										<Button
+											variant="outline"
+											size="icon"
+											onClick={() => void playRecordedAudio()}
+											disabled={!recordedAudioUrl || recordingState === "recording"}
+											title="Preview sample"
+										>
+											<Play className="size-4" />
+										</Button>
+										<Button
+											onClick={() => void submitClone()}
+											disabled={!recordedBlob || isCloning || recordingState === "recording"}
+										>
+											{isCloning ? (
+												<Loader2 className="size-4 animate-spin" />
+											) : (
+												<Sparkles className="size-4" />
+											)}
+											Clone
+										</Button>
+									</div>
+									<div className="flex min-h-10 flex-col gap-2">
+										<div className="flex items-center justify-between gap-3">
+											<span className="text-muted-foreground text-xs">
+												{cloneStage
+													? cloneStage
+													: recordingState === "ready" && recordedDuration > 0
+													? `${recordedDuration.toFixed(1)}s sample`
+													: "Ready"}
+											</span>
+											{cloneDemoAudio && (
+												<Button
+													variant="text"
+													size="sm"
+													onClick={() => void playCloneDemoAudio()}
+												>
+													<Play className="size-4" />
+													Demo
+												</Button>
+											)}
+										</div>
+										{cloneProgress > 0 && (
+											<Progress value={cloneProgress} className="h-1.5" />
+										)}
+									</div>
+								</TabsContent>
+								<TabsContent value="import" className="mt-0 flex flex-col gap-3">
+									<Input
+										value={manualName}
+										onChange={({ currentTarget }) =>
+											setManualName(currentTarget.value)
+										}
+										placeholder="Display name"
+									/>
+									<Input
+										value={manualSpeaker}
+										onChange={({ currentTarget }) =>
+											setManualSpeaker(currentTarget.value)
+										}
+										placeholder="SpeakerID, e.g. S_xxx or icl_xxx"
+									/>
+									<Input
+										value={manualResourceId}
+										onChange={({ currentTarget }) =>
+											setManualResourceId(currentTarget.value)
+										}
+										placeholder="Resource ID"
+									/>
+									<DialogFooter>
+										<Button
+											variant="text"
+											onClick={() => setIsDialogOpen(false)}
+										>
+											Cancel
+										</Button>
+										<Button onClick={addCustomVoice}>Add voice</Button>
+									</DialogFooter>
+								</TabsContent>
+							</Tabs>
 						</DialogContent>
 					</Dialog>
 				</div>
