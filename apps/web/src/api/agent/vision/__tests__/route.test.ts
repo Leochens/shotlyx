@@ -167,6 +167,69 @@ describe("vision analysis route", () => {
 		]);
 	});
 
+	test("accepts binary video bodies with payload query instead of parsing JSON", async () => {
+		process.env.AGENT_VISION_KEY = "minimax-key";
+		delete process.env.AGENT_VISION_PROVIDER;
+		delete process.env.AGENT_VISION_HOST;
+		delete process.env.AGENT_VISION_MODEL;
+		const fetchFn: typeof fetch = mock(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (String(input).endsWith("/files/upload")) {
+					expectMiniMaxVideoUpload({
+						init,
+						fileName: "binary-demo.mp4",
+						mimeType: "video/mp4",
+					});
+					return miniMaxUploadResponse({ fileId: "binary-file" });
+				}
+				const body = JSON.parse(String(init?.body));
+				expect(body.messages[1].content[1]).toMatchObject({
+					type: "video_url",
+					video_url: { url: "mm_file://binary-file" },
+				});
+				return Response.json({
+					choices: [{ message: { content: "二进制视频已分析。" } }],
+				});
+			},
+		);
+		globalThis.fetch = fetchFn;
+		const payload = encodeURIComponent(
+			JSON.stringify({
+				analysisType: "visual_summary",
+				prompt: "分析视频",
+				media: {
+					mediaAssetId: "media-1",
+					name: "binary-demo.mp4",
+					type: "video",
+					mimeType: "video/mp4",
+				},
+			}),
+		);
+
+		const response = await POST(
+			new ApiRequest(
+				`http://localhost/api/agent/vision/analyze?payload=${payload}`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "video/mp4" },
+					body: new Blob(["demo"], { type: "video/mp4" }),
+				},
+			),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			analysisType: "visual_summary",
+			analysis: "二进制视频已分析。",
+			media: {
+				mediaAssetId: "media-1",
+				name: "binary-demo.mp4",
+				type: "video",
+			},
+		});
+		expect(fetchFn).toHaveBeenCalledTimes(2);
+	});
+
 	test("streams MiniMax M3 reasoning and content chunks when requested", async () => {
 		process.env.AGENT_VISION_KEY = "minimax-key";
 		delete process.env.AGENT_VISION_PROVIDER;

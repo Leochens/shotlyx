@@ -203,7 +203,64 @@ function normalizeVisionError(error: unknown): {
 async function parseRequestData(
 	request: ApiRequest,
 ): Promise<VisionAnalyzeData | { error: Response }> {
-	const contentType = request.headers.get("Content-Type") ?? "";
+	const payloadParam = request.requestUrl.searchParams.get("payload");
+	if (payloadParam !== null) {
+		let data: unknown;
+		try {
+			data = JSON.parse(payloadParam);
+		} catch {
+			return {
+				error: ApiResponse.json({ error: "Invalid JSON" }, { status: 400 }),
+			};
+		}
+		const parsed = multipartRequestSchema.safeParse(data);
+		if (!parsed.success) {
+			return {
+				error: ApiResponse.json(
+					{
+						error: "Invalid input",
+						details: parsed.error.flatten().fieldErrors,
+					},
+					{ status: 400 },
+				),
+			};
+		}
+		if (parsed.data.media.type !== "video") {
+			return {
+				error: ApiResponse.json(
+					{
+						error: "Invalid input",
+						details: {
+							media: ["Binary media uploads are only supported for video"],
+						},
+					},
+					{ status: 400 },
+				),
+			};
+		}
+		let file: Blob;
+		try {
+			file = await request.blob();
+		} catch {
+			return {
+				error: ApiResponse.json(
+					{ error: "Invalid binary media" },
+					{ status: 400 },
+				),
+			};
+		}
+		return {
+			...parsed.data,
+			media: {
+				...parsed.data.media,
+				file: file.type
+					? file
+					: new Blob([file], { type: parsed.data.media.mimeType }),
+			},
+		};
+	}
+
+	const contentType = (request.headers.get("Content-Type") ?? "").toLowerCase();
 	if (contentType.includes("multipart/form-data")) {
 		let formData: FormData;
 		try {

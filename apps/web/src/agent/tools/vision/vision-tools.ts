@@ -544,30 +544,34 @@ export function buildVisionTools({
 						height: preparedMedia.height,
 					},
 				};
-					const requestInit: RequestInit =
-						preparedMedia.type === "video"
-							? (() => {
-									const file = preparedMedia.file;
-									if (!file) {
-										throw new Error("读取媒体文件失败：缺少视频文件");
-									}
-									const formData = new FormData();
-									formData.set("payload", JSON.stringify(payload));
-									formData.set("file", file, preparedMedia.name);
-									return {
-										method: "POST",
-										body: formData,
-										signal: context?.signal,
-									};
-								})()
-							: {
+				const requestTarget =
+					preparedMedia.type === "video"
+						? `/api/agent/vision/analyze?payload=${encodeURIComponent(
+								JSON.stringify(payload),
+							)}`
+						: "/api/agent/vision/analyze";
+				const requestInit: RequestInit =
+					preparedMedia.type === "video"
+						? (() => {
+								const file = preparedMedia.file;
+								if (!file) {
+									throw new Error("读取媒体文件失败：缺少视频文件");
+								}
+								return {
 									method: "POST",
-									headers: { "Content-Type": "application/json" },
-									body: JSON.stringify(payload),
+									headers: { "Content-Type": preparedMedia.mimeType },
+									body: file,
 									signal: context?.signal,
 								};
+							})()
+						: {
+								method: "POST",
+								headers: { "Content-Type": "application/json" },
+								body: JSON.stringify(payload),
+								signal: context?.signal,
+							};
 				const responsePromise = fetchFn(
-					"/api/agent/vision/analyze",
+					requestTarget,
 					requestInit,
 				);
 				emitVisionProgress({

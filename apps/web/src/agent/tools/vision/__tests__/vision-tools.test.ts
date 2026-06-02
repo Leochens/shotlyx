@@ -30,20 +30,31 @@ function createSseResponse(events: unknown[]): Response {
 	});
 }
 
-function getFormDataBody(init: RequestInit | undefined): FormData {
-	expect(init?.body).toBeInstanceOf(FormData);
-	if (!(init?.body instanceof FormData)) {
-		throw new Error("Expected request body to be FormData");
-	}
-	return init.body;
+function getHeaderValue({
+	headers,
+	key,
+}: {
+	headers: RequestInit["headers"] | undefined;
+	key: string;
+}): string | null {
+	if (!headers) return null;
+	return new Headers(headers).get(key);
 }
 
-function expectFormDataFile(value: FormDataEntryValue | null): File {
-	expect(value).toBeInstanceOf(File);
-	if (!(value instanceof File)) {
-		throw new Error("Expected form data entry to be a File");
+function getBinaryVisionPayload(input: RequestInfo | URL): Record<string, unknown> {
+	const url = new URL(String(input), "http://localhost");
+	expect(url.pathname).toBe("/api/agent/vision/analyze");
+	const payload = url.searchParams.get("payload");
+	expect(payload).toBeTruthy();
+	return JSON.parse(payload ?? "{}");
+}
+
+function expectBinaryVideoBody(init: RequestInit | undefined): File {
+	expect(init?.body).toBeInstanceOf(File);
+	if (!(init?.body instanceof File)) {
+		throw new Error("Expected request body to be a File");
 	}
-	return value;
+	return init.body;
 }
 
 describe("vision analysis tools", () => {
@@ -65,7 +76,7 @@ describe("vision analysis tools", () => {
 		expect(tool?.parameters.mediaAssetId).toBeDefined();
 	});
 
-	test("sends video assets to the vision analysis API as multipart files", async () => {
+	test("sends video assets to the vision analysis API as binary files", async () => {
 		const file = new File(["demo"], "demo.mp4", { type: "video/mp4" });
 		const editor = createEditorWithAssets([
 			{
@@ -80,14 +91,13 @@ describe("vision analysis tools", () => {
 		]);
 		const fetchFn = mock(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
-				expect(String(input)).toBe("/api/agent/vision/analyze");
-				expect(init?.headers).toBeUndefined();
-				const formData = getFormDataBody(init);
-				const uploadedFile = expectFormDataFile(formData.get("file"));
+				const uploadedFile = expectBinaryVideoBody(init);
 				expect(uploadedFile.name).toBe("demo.mp4");
 				expect(uploadedFile.type).toBe("video/mp4");
 				expect(uploadedFile.size).toBe(file.size);
-				const body = JSON.parse(String(formData.get("payload")));
+				expect(getHeaderValue({ headers: init?.headers, key: "Content-Type" }))
+					.toBe("video/mp4");
+				const body = getBinaryVisionPayload(input);
 				expect(body).toMatchObject({
 					analysisType: "editing_suggestions",
 					prompt: "给出剪辑建议",
@@ -131,7 +141,7 @@ describe("vision analysis tools", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
-	test("normalizes generic octet-stream video MIME before multipart analysis", async () => {
+	test("normalizes generic octet-stream video MIME before binary analysis", async () => {
 		const file = new File(["demo"], "demo.mp4", {
 			type: "application/octet-stream",
 		});
@@ -147,11 +157,12 @@ describe("vision analysis tools", () => {
 			},
 		]);
 		const fetchFn = mock(
-			async (_input: RequestInfo | URL, init?: RequestInit) => {
-				const formData = getFormDataBody(init);
-				const uploadedFile = expectFormDataFile(formData.get("file"));
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const uploadedFile = expectBinaryVideoBody(init);
 				expect(uploadedFile.name).toBe("demo.mp4");
-				const body = JSON.parse(String(formData.get("payload")));
+				expect(getHeaderValue({ headers: init?.headers, key: "Content-Type" }))
+					.toBe("video/mp4");
+				const body = getBinaryVisionPayload(input);
 				expect(body.media).toMatchObject({
 					mimeType: "video/mp4",
 				});
@@ -180,7 +191,7 @@ describe("vision analysis tools", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
-	test("sends videos larger than the old data-url limit as multipart files", async () => {
+	test("sends videos larger than the old data-url limit as binary files", async () => {
 		const file = new File(["demo"], "large.mp4", { type: "video/mp4" });
 		Object.defineProperty(file, "size", {
 			value: 52_428_801,
@@ -198,11 +209,10 @@ describe("vision analysis tools", () => {
 			},
 		]);
 		const fetchFn = mock(
-			async (_input: RequestInfo | URL, init?: RequestInit) => {
-				const formData = getFormDataBody(init);
-				const uploadedFile = expectFormDataFile(formData.get("file"));
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const uploadedFile = expectBinaryVideoBody(init);
 				expect(uploadedFile.name).toBe("large.mp4");
-				const body = JSON.parse(String(formData.get("payload")));
+				const body = getBinaryVisionPayload(input);
 				expect(body.media).toMatchObject({
 					mediaAssetId: "media-1",
 					name: "large.mp4",
@@ -347,9 +357,9 @@ describe("vision analysis tools", () => {
 			total?: number;
 		}> = [];
 		const fetchFn = mock(
-			async (_input: RequestInfo | URL, init?: RequestInit) => {
-				const formData = getFormDataBody(init);
-				const body = JSON.parse(String(formData.get("payload")));
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expectBinaryVideoBody(init);
+				const body = getBinaryVisionPayload(input);
 				expect(body.stream).toBe(true);
 				return createSseResponse([
 					{ type: "reasoning_delta", text: "先看画面主体。" },
