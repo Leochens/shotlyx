@@ -178,6 +178,28 @@ function compactRoughCutReviewForModel(data: unknown): Record<string, unknown> {
 	};
 }
 
+function compactVisionAnalysisForModel(data: unknown): Record<string, unknown> {
+	if (!isRecord(data)) return {};
+	const media = isRecord(data.media) ? data.media : {};
+	return {
+		provider: data.provider,
+		model: data.model,
+		analysisType: data.analysisType,
+		analysis: compactTextToLength({
+			value: data.analysis,
+			maxLength: 4000,
+		}),
+		mediaAssetId: data.mediaAssetId ?? media.mediaAssetId,
+		mediaName: data.mediaName ?? media.name,
+		mediaType: data.mediaType ?? media.type,
+		durationSeconds: media.durationSeconds,
+		width: media.width,
+		height: media.height,
+		instruction:
+			"Use this visual analysis as evidence for editing suggestions, visual QA, or content verification. Do not ask the user to describe the same media again unless the result is ambiguous.",
+	};
+}
+
 export function sanitizeToolResultForModel({
 	toolName,
 	result,
@@ -263,6 +285,14 @@ export function sanitizeToolResultForModel({
 				status,
 				verified: result.verified,
 				data: compactRoughCutReviewForModel(data),
+			};
+		}
+		if (toolName === "vision_analyze_media") {
+			const data = isRecord(result.data) ? result.data : {};
+			return {
+				status,
+				verified: result.verified,
+				data: compactVisionAnalysisForModel(data),
 			};
 		}
 		return compactValueForModel(result);

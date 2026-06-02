@@ -12,6 +12,7 @@ import * as stockDownloadRoute from "@/api/agent/stock/download/route";
 import * as stockSearchRoute from "@/api/agent/stock/search/route";
 import * as subtitleTranslationRoute from "@/api/agent/subtitle-translation/route";
 import * as transcriptionRoute from "@/api/agent/transcription/route";
+import * as visionAnalyzeRoute from "@/api/agent/vision/analyze/route";
 import * as webFetchRoute from "@/api/agent/web/fetch/route";
 import * as webSearchRoute from "@/api/agent/web/search/route";
 import * as voiceoverRoute from "@/api/agent/voiceover/route";
@@ -58,6 +59,7 @@ const staticRoutes = new Map<string, RouteModule>([
 	["/api/agent/stock/search", stockSearchRoute],
 	["/api/agent/subtitle-translation", subtitleTranslationRoute],
 	["/api/agent/transcription", transcriptionRoute],
+	["/api/agent/vision/analyze", visionAnalyzeRoute],
 	["/api/agent/web/fetch", webFetchRoute],
 	["/api/agent/web/search", webSearchRoute],
 	["/api/agent/voiceover", voiceoverRoute],

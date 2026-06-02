@@ -25,7 +25,7 @@ describe("ai-sdk providers", () => {
 	});
 
 	test("getVisionModel returns a model", () => {
-		process.env.AGENT_LLM_KEY = "test-key";
+		process.env.AGENT_VISION_KEY = "test-key";
 		const model = getVisionModel();
 		expect(model).toBeDefined();
 	});

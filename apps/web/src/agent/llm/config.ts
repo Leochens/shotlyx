@@ -31,10 +31,12 @@ function inferProvider({
 	explicit,
 	host,
 	model,
+	fallback,
 }: {
 	explicit?: string;
 	host?: string;
 	model?: string;
+	fallback?: LLMProviderId;
 }): LLMProviderId {
 	const provider = normalizeProvider(explicit);
 	if (provider) return provider;
@@ -56,7 +58,7 @@ function inferProvider({
 	if (normalizedHost.includes("api.openai.com")) {
 		return "openai";
 	}
-	return "openai-compatible";
+	return fallback ?? "openai-compatible";
 }
 
 function defaultHostForProvider(provider: LLMProviderId): string {
@@ -95,6 +97,15 @@ function getScopedEnv(name: LLMConfigName) {
 			structuredOutputMode: env.AGENT_LLM_STRUCTURED_OUTPUT_MODE,
 		};
 	}
+	if (name === "vision") {
+		return {
+			provider: env.AGENT_VISION_PROVIDER,
+			host: env.AGENT_VISION_HOST,
+			apiKey: env.AGENT_VISION_KEY,
+			model: env.AGENT_VISION_MODEL,
+			structuredOutputMode: env.AGENT_VISION_STRUCTURED_OUTPUT_MODE,
+		};
+	}
 	const prefix = `AGENT_${name.toUpperCase()}`;
 	return {
 		provider: env[`${prefix}_PROVIDER`] ?? env.AGENT_LLM_PROVIDER,
@@ -107,8 +118,25 @@ function getScopedEnv(name: LLMConfigName) {
 	};
 }
 
+function defaultProviderForName(name: LLMConfigName): LLMProviderId | undefined {
+	if (name === "vision") return "openai-compatible";
+	return undefined;
+}
+
+function defaultHostForName({
+	name,
+	provider,
+}: {
+	name: LLMConfigName;
+	provider: LLMProviderId;
+}): string {
+	if (name === "vision") return "https://api.minimax.io/v1";
+	return defaultHostForProvider(provider);
+}
+
 function defaultModelForName(name: LLMConfigName): string {
 	if (name === "asr") return "gpt-4o-mini";
+	if (name === "vision") return "MiniMax-M3";
 	return "gpt-4o";
 }
 
@@ -118,11 +146,12 @@ function buildConfig(name: LLMConfigName): LLMProviderConfig {
 		explicit: env.provider,
 		host: env.host,
 		model: env.model,
+		fallback: defaultProviderForName(name),
 	});
 	return {
 		name,
 		provider,
-		host: env.host ?? defaultHostForProvider(provider),
+		host: env.host ?? defaultHostForName({ name, provider }),
 		apiKey: env.apiKey ?? "",
 		model: env.model ?? defaultModelForName(name),
 		structuredOutputMode: normalizeStructuredOutputMode(

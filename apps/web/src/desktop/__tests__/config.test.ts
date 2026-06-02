@@ -68,8 +68,35 @@ test("desktop config applies provider defaults and runtime env overrides", () =>
 		AGENT_LLM_PROVIDER: "openai",
 		AGENT_LLM_MODEL: "gpt-4o",
 		IMAGE_GENERATION_BASE_URL: "https://api.openai.com/v1",
+		AGENT_VISION_PROVIDER: "openai-compatible",
+		AGENT_VISION_HOST: "https://api.minimax.io/v1",
+		AGENT_VISION_MODEL: "MiniMax-M3",
 	});
 	expect(getRuntimeEnv().AGENT_LLM_KEY).toBe("agent-key");
+});
+
+test("desktop config stores and masks the dedicated Vision API key", () => {
+	const config = writeDesktopApiConfig({
+		AGENT_VISION_KEY: "minimax-key",
+		AGENT_VISION_MODEL: "MiniMax-M3",
+	});
+
+	expect(readDesktopApiConfig().values).toMatchObject({
+		AGENT_VISION_KEY: "minimax-key",
+		AGENT_VISION_MODEL: "MiniMax-M3",
+	});
+	expect(getPublicDesktopApiValues(config.values)).toMatchObject({
+		AGENT_VISION_KEY: "",
+		AGENT_VISION_MODEL: "MiniMax-M3",
+	});
+	expect(
+		getDesktopConfigStatus(config.values).find(
+			(group) => group.id === "visual-understanding",
+		),
+	).toMatchObject({
+		configured: true,
+		required: false,
+	});
 });
 
 test("mergeDesktopApiConfig supports replacing and clearing values", () => {

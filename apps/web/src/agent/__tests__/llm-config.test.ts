@@ -74,4 +74,45 @@ describe("loadLLMConfigFromEnv", () => {
 			structuredOutputMode: "plain-json",
 		});
 	});
+
+	test("Vision config defaults to MiniMax M3 without reusing the Agent LLM endpoint", () => {
+		process.env.AGENT_LLM_HOST = "https://llm.example.com/v1";
+		process.env.AGENT_LLM_KEY = "agent-key";
+		process.env.AGENT_LLM_MODEL = "agent-model";
+		delete process.env.AGENT_VISION_PROVIDER;
+		delete process.env.AGENT_VISION_HOST;
+		delete process.env.AGENT_VISION_KEY;
+		delete process.env.AGENT_VISION_MODEL;
+		delete process.env.AGENT_VISION_STRUCTURED_OUTPUT_MODE;
+
+		const config = loadLLMConfigFromEnv();
+
+		expect(config.vision).toEqual({
+			name: "vision",
+			provider: "openai-compatible",
+			host: "https://api.minimax.io/v1",
+			apiKey: "",
+			model: "MiniMax-M3",
+			structuredOutputMode: undefined,
+		});
+	});
+
+	test("Vision config can use a dedicated MiniMax key", () => {
+		process.env.AGENT_VISION_PROVIDER = "openai-compatible";
+		process.env.AGENT_VISION_HOST = "https://api.minimax.io/v1";
+		process.env.AGENT_VISION_KEY = "minimax-key";
+		process.env.AGENT_VISION_MODEL = "MiniMax-M3";
+		delete process.env.AGENT_VISION_STRUCTURED_OUTPUT_MODE;
+
+		const config = loadLLMConfigFromEnv();
+
+		expect(config.vision).toEqual({
+			name: "vision",
+			provider: "openai-compatible",
+			host: "https://api.minimax.io/v1",
+			apiKey: "minimax-key",
+			model: "MiniMax-M3",
+			structuredOutputMode: undefined,
+		});
+	});
 });

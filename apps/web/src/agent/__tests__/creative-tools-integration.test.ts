@@ -85,5 +85,6 @@ describe("creative tools integration", () => {
 		expect(names).toContain("creative_get_mg_animation_schema");
 		expect(names).toContain("creative_import_asset");
 		expect(names).toContain("agent_generate_voiceover");
+		expect(names).toContain("vision_analyze_media");
 	});
 });

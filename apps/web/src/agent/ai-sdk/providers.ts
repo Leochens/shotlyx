@@ -275,7 +275,11 @@ function createModelBundle(name: ModelName): AgentLanguageModelBundle {
 	}
 	if (!config.apiKey) {
 		const keyName =
-			name === "mg" ? "AGENT_MG_KEY or AGENT_LLM_KEY" : "AGENT_LLM_KEY";
+			name === "mg"
+				? "AGENT_MG_KEY or AGENT_LLM_KEY"
+				: name === "vision"
+					? "AGENT_VISION_KEY"
+					: "AGENT_LLM_KEY";
 		throw new Error(`configuration_error: missing ${keyName}`);
 	}
 	return {

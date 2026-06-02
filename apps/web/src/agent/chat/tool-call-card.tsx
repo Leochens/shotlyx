@@ -185,7 +185,9 @@ export function getToolOutputDisplay(
 								? "粗剪审核单已生成，请在弹窗里确认后再剪辑。"
 								: toolCall.tool === "rough_cut_apply_review"
 									? "已按审核结果完成粗剪。"
-									: stringifyCompact(toolCall.result.data),
+									: toolCall.tool === "vision_analyze_media"
+										? "视觉分析已完成。"
+										: stringifyCompact(toolCall.result.data),
 		};
 	}
 	return {

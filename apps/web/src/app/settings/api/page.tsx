@@ -245,7 +245,7 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 		},
 		optional: {
 			title: "Optional API integrations",
-			body: "Voice, video, image, transcription, web search, and stock media are optional for first launch. Configure them when users want to try those specific tools.",
+			body: "Voice, video, image, visual understanding, transcription, web search, and stock media are optional for first launch. Configure them when users want to try those specific tools.",
 			howToTitle: "How to configure",
 		},
 		footer: {
@@ -326,7 +326,7 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 		},
 		optional: {
 			title: "可选 API 集成",
-			body: "语音、视频、图片、转写、网页搜索和素材库都不是首次启动必填项。用户想体验对应工具时，再展开配置即可。",
+			body: "语音、视频、图片、视觉理解、转写、网页搜索和素材库都不是首次启动必填项。用户想体验对应工具时，再展开配置即可。",
 			howToTitle: "如何配置",
 		},
 		footer: {
@@ -383,6 +383,13 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 				purpose: "通过 OpenAI 兼容接口按提示词生成静态素材。",
 				requiredFor: "图片生成工具",
 				recommendedProvider: "OpenAI 图片生成或兼容图片接口",
+			},
+			"visual-understanding": {
+				title: "视觉理解",
+				purpose:
+					"使用 MiniMax M3 分析图片或视频内容，用于视觉验证、视频理解和剪辑建议。",
+				requiredFor: "视觉分析、视觉验证和视频剪辑建议",
+				recommendedProvider: "MiniMax M3",
 			},
 			"video-generation": {
 				title: "视频生成",
@@ -477,6 +484,23 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 			IMAGE_GENERATION_MODEL: {
 				label: "模型",
 				help: "图片服务支持的模型名。",
+			},
+			AGENT_VISION_PROVIDER: {
+				label: "服务商",
+				help: "MiniMax M3 使用 OpenAI 兼容的 chat completions 格式。",
+			},
+			AGENT_VISION_KEY: {
+				label: "MiniMax M3 API 密钥",
+				placeholder: "MiniMax API 密钥",
+				help: "用于视觉分析和视频理解的专用密钥。",
+			},
+			AGENT_VISION_MODEL: {
+				label: "视觉模型",
+				help: "用于图片和视频内容理解的模型。",
+			},
+			AGENT_VISION_HOST: {
+				label: "视觉 Base URL",
+				help: "MiniMax OpenAI 兼容 API 基础地址。",
 			},
 			VOLCENGINE_ARK_API_KEY: {
 				label: "Ark API 密钥",
