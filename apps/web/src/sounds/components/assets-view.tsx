@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type ChangeEvent,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -44,6 +51,7 @@ import type { MediaAsset } from "@/media/types";
 import { useSoundSearch } from "@/sounds/use-sound-search";
 import { useSoundsStore } from "@/sounds/sounds-store";
 import type { SavedSound, SoundEffect } from "@/sounds/types";
+import { getVoiceCloneUploadFormat } from "@/sounds/voice-clone-upload";
 import type { VoiceProfile } from "@/agent/tools/voiceover/types";
 import { buildElementFromMedia } from "@/timeline/element-utils";
 import { cn } from "@/utils/ui";
@@ -67,6 +75,7 @@ import {
 	Send,
 	Sparkles,
 	Square,
+	Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -913,12 +922,15 @@ function VoiceCatalogView() {
 	const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
 	const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
 	const [recordedDuration, setRecordedDuration] = useState(0);
+	const [sampleAudioFormat, setSampleAudioFormat] = useState("wav");
+	const [sampleFileName, setSampleFileName] = useState("shotlyx-voice-clone.wav");
 	const [cloneProgress, setCloneProgress] = useState(0);
 	const [cloneStage, setCloneStage] = useState("");
 	const [isCloning, setIsCloning] = useState(false);
 	const [cloneDemoAudio, setCloneDemoAudio] = useState<string | null>(null);
 	const recorderRef = useRef<VoiceRecorderSession | null>(null);
 	const recordedAudioUrlRef = useRef<string | null>(null);
+	const uploadInputRef = useRef<HTMLInputElement | null>(null);
 	const { loadingVoiceId, playingVoiceId, previewVoice } =
 		useVoicePreviewPlayer();
 
@@ -932,21 +944,34 @@ function VoiceCatalogView() {
 		recorderRef.current = null;
 	}, []);
 
-	const setRecordedAudio = useCallback((blob: Blob | null) => {
-		if (recordedAudioUrlRef.current) {
-			URL.revokeObjectURL(recordedAudioUrlRef.current);
-			recordedAudioUrlRef.current = null;
-		}
-		setRecordedBlob(blob);
-		if (!blob) {
-			setRecordedAudioUrl(null);
-			setRecordedDuration(0);
-			return;
-		}
-		const nextUrl = URL.createObjectURL(blob);
-		recordedAudioUrlRef.current = nextUrl;
-		setRecordedAudioUrl(nextUrl);
-	}, []);
+	const setRecordedAudio = useCallback(
+		({
+			blob,
+			audioFormat = "wav",
+			fileName = "shotlyx-voice-clone.wav",
+		}: {
+			blob: Blob | null;
+			audioFormat?: string;
+			fileName?: string;
+		}) => {
+			if (recordedAudioUrlRef.current) {
+				URL.revokeObjectURL(recordedAudioUrlRef.current);
+				recordedAudioUrlRef.current = null;
+			}
+			setRecordedBlob(blob);
+			setSampleAudioFormat(audioFormat);
+			setSampleFileName(fileName);
+			if (!blob) {
+				setRecordedAudioUrl(null);
+				setRecordedDuration(0);
+				return;
+			}
+			const nextUrl = URL.createObjectURL(blob);
+			recordedAudioUrlRef.current = nextUrl;
+			setRecordedAudioUrl(nextUrl);
+		},
+		[],
+	);
 
 	useEffect(() => {
 		return () => {
@@ -1026,11 +1051,11 @@ function VoiceCatalogView() {
 			toast.error("Microphone recording is not available");
 			return;
 		}
-		try {
-			cleanupRecorder();
-			setRecordedAudio(null);
-			setCloneDemoAudio(null);
-			setCloneProgress(0);
+			try {
+				cleanupRecorder();
+				setRecordedAudio({ blob: null });
+				setCloneDemoAudio(null);
+				setCloneProgress(0);
 			setCloneStage("");
 			const stream = await navigator.mediaDevices.getUserMedia({
 				audio: {
@@ -1087,9 +1112,39 @@ function VoiceCatalogView() {
 		const samples = mergeFloat32Chunks(chunks);
 		const nextBlob = encodeWav({ samples, sampleRate });
 		setRecordedDuration(samples.length / sampleRate);
-		setRecordedAudio(nextBlob);
+		setRecordedAudio({
+			blob: nextBlob,
+			audioFormat: "wav",
+			fileName: "shotlyx-voice-clone.wav",
+		});
 		setRecordingState("ready");
 		toast.success("Voice sample recorded");
+	};
+
+	const handleSampleUpload = (event: ChangeEvent<HTMLInputElement>) => {
+		const file = event.currentTarget.files?.[0];
+		event.currentTarget.value = "";
+		if (!file) return;
+		if (file.size <= 0 || file.size > 10 * 1024 * 1024) {
+			toast.error("Voice sample must be between 1 byte and 10MB");
+			return;
+		}
+		cleanupRecorder();
+		const audioFormat = getVoiceCloneUploadFormat({
+			fileName: file.name,
+			mimeType: file.type,
+		});
+		setRecordedAudio({
+			blob: file,
+			audioFormat,
+			fileName: file.name || `shotlyx-voice-clone.${audioFormat}`,
+		});
+		setRecordedDuration(0);
+		setRecordingState("ready");
+		setCloneDemoAudio(null);
+		setCloneProgress(0);
+		setCloneStage("");
+		toast.success("Voice sample uploaded");
 	};
 
 	const playRecordedAudio = async () => {
@@ -1178,11 +1233,11 @@ function VoiceCatalogView() {
 					.join(""),
 			);
 			form.set("language", "0");
-			form.set("audioFormat", "wav");
+			form.set("audioFormat", sampleAudioFormat);
 			form.set(
 				"audio",
-				new File([recordedBlob], "shotlyx-voice-clone.wav", {
-					type: "audio/wav",
+				new File([recordedBlob], sampleFileName, {
+					type: recordedBlob.type || `audio/${sampleAudioFormat}`,
 				}),
 			);
 
@@ -1224,6 +1279,14 @@ function VoiceCatalogView() {
 			setRecordingState(recordedBlob ? "ready" : "idle");
 		}
 	};
+
+	const sampleStatusLabel = cloneStage
+		? cloneStage
+		: recordedBlob
+			? recordedDuration > 0
+				? `${recordedDuration.toFixed(1)}s sample · ${sampleAudioFormat}`
+				: `${sampleFileName} · ${sampleAudioFormat}`
+			: "Ready";
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -1304,12 +1367,19 @@ function VoiceCatalogView() {
 												setCloneText(currentTarget.value)
 											}
 											className="min-h-20 resize-none"
+											/>
+										</div>
+										<input
+											ref={uploadInputRef}
+											type="file"
+											accept=".wav,.mp3,.ogg,.m4a,.aac,.pcm,audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/aac"
+											className="hidden"
+											onChange={handleSampleUpload}
 										/>
-									</div>
-									<div className="grid grid-cols-[1fr_auto_auto] gap-2">
-										<Button
-											variant={
-												recordingState === "recording"
+										<div className="grid grid-cols-[1fr_auto_auto_auto] gap-2">
+											<Button
+												variant={
+													recordingState === "recording"
 													? "destructive"
 													: "outline"
 											}
@@ -1324,12 +1394,20 @@ function VoiceCatalogView() {
 												<Square className="size-4" />
 											) : (
 												<Mic2 className="size-4" />
-											)}
-											{recordingState === "recording" ? "Stop" : "Record"}
-										</Button>
-										<Button
-											variant="outline"
-											size="icon"
+												)}
+												{recordingState === "recording" ? "Stop" : "Record"}
+											</Button>
+											<Button
+												variant="outline"
+												onClick={() => uploadInputRef.current?.click()}
+												disabled={isCloning || recordingState === "recording"}
+											>
+												<Upload className="size-4" />
+												Upload
+											</Button>
+											<Button
+												variant="outline"
+												size="icon"
 											onClick={() => void playRecordedAudio()}
 											disabled={!recordedAudioUrl || recordingState === "recording"}
 											title="Preview sample"
@@ -1348,15 +1426,11 @@ function VoiceCatalogView() {
 											Clone
 										</Button>
 									</div>
-									<div className="flex min-h-10 flex-col gap-2">
-										<div className="flex items-center justify-between gap-3">
-											<span className="text-muted-foreground text-xs">
-												{cloneStage
-													? cloneStage
-													: recordingState === "ready" && recordedDuration > 0
-													? `${recordedDuration.toFixed(1)}s sample`
-													: "Ready"}
-											</span>
+										<div className="flex min-h-10 flex-col gap-2">
+											<div className="flex items-center justify-between gap-3">
+												<span className="text-muted-foreground truncate text-xs">
+													{sampleStatusLabel}
+												</span>
 											{cloneDemoAudio && (
 												<Button
 													variant="text"
