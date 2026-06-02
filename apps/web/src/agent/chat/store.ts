@@ -75,6 +75,7 @@ const initialState: Omit<
 	ChatState,
 	| "getActiveSession"
 	| "getActiveMessages"
+	| "setIsHydrated"
 	| "setActiveProject"
 	| "createSession"
 	| "switchSession"
@@ -100,6 +101,7 @@ const initialState: Omit<
 	sessions: [],
 	activeSessionId: null,
 	activeProjectId: DEFAULT_CHAT_PROJECT_ID,
+	isHydrated: typeof window === "undefined",
 	isLoading: false,
 	mode: "auto",
 	selectedAgent: "default",
@@ -127,8 +129,12 @@ export const useChatStore = create<ChatState>()(
 				return session?.messages ?? [];
 			},
 
+			setIsHydrated: (isHydrated) => set({ isHydrated }),
+
 			setActiveProject: (projectId) => {
 				set((state) => {
+					if (!state.isHydrated) return state;
+
 					const normalizedProjectId = projectId || DEFAULT_CHAT_PROJECT_ID;
 					const currentActive = state.sessions.find(
 						(session) => session.id === state.activeSessionId,
@@ -485,6 +491,9 @@ export const useChatStore = create<ChatState>()(
 			name: "shotlyx-chat-v2",
 			version: 2,
 			storage: getStorage(),
+			onRehydrateStorage: () => (state) => {
+				state?.setIsHydrated(true);
+			},
 			partialize: (state) => ({
 				sessions: state.sessions,
 				activeSessionId: state.activeSessionId,

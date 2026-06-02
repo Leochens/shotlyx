@@ -50,6 +50,7 @@ export interface ChatState {
 	sessions: ChatSession[];
 	activeSessionId: string | null;
 	activeProjectId: string;
+	isHydrated: boolean;
 	isLoading: boolean;
 	mode: ExecutionMode;
 	selectedAgent: string;
@@ -57,6 +58,7 @@ export interface ChatState {
 	streamingMessageId: string | null;
 	getActiveSession: () => ChatSession | null;
 	getActiveMessages: () => ChatMessage[];
+	setIsHydrated: (isHydrated: boolean) => void;
 	setActiveProject: (projectId: string) => void;
 	createSession: (name?: string) => void;
 	switchSession: (id: string) => void;

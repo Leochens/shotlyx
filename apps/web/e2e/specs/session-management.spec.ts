@@ -109,6 +109,22 @@ test.describe("Session management", () => {
 		await expect(page.locator(CHAT_MESSAGE_USER)).toHaveCount(0);
 	});
 
+	test("preserves messages after reopening the project", async ({ page }) => {
+		const plan = createMockPlan([], "simple");
+		await setupPage(page, plan);
+		await sendMessage(page, "Keep this message");
+		await expect(page.locator(CHAT_MESSAGE_USER)).toContainText(
+			"Keep this message",
+		);
+
+		await page.reload();
+		await page.waitForSelector(CHAT_PANEL);
+
+		await expect(page.locator(CHAT_MESSAGE_USER)).toContainText(
+			"Keep this message",
+		);
+	});
+
 	test("can rename a session", async ({ page }) => {
 		const plan = createMockPlan([], "simple");
 		await setupPage(page, plan);

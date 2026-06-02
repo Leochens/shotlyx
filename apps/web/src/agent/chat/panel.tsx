@@ -425,6 +425,7 @@ export function ChatPanel() {
 		updateMessageToolCalls,
 		updateMessageTokenUsage,
 		activeSessionId,
+		isHydrated,
 		setActiveProject,
 		clearSessionMessages,
 		removeMessage,
@@ -455,10 +456,10 @@ export function ChatPanel() {
 	});
 
 	useEffect(() => {
-		if (projectId) {
+		if (isHydrated && projectId) {
 			setActiveProject(projectId);
 		}
-	}, [projectId, setActiveProject]);
+	}, [isHydrated, projectId, setActiveProject]);
 
 	useEffect(() => {
 		const abortControllers = resumedMGJobAbortControllersRef.current;

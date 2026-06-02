@@ -261,4 +261,19 @@ describe("Chat store", () => {
 			"Project B",
 		);
 	});
+
+	test("does not create an empty project session before persistence hydrates", () => {
+		useChatStore.setState({
+			sessions: [],
+			activeSessionId: null,
+			activeProjectId: "default-project",
+			isHydrated: false,
+		});
+
+		useChatStore.getState().setActiveProject("project-a");
+
+		expect(useChatStore.getState().sessions).toHaveLength(0);
+		expect(useChatStore.getState().activeSessionId).toBeNull();
+		expect(useChatStore.getState().activeProjectId).toBe("default-project");
+	});
 });
