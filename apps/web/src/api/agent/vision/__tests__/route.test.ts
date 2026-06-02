@@ -195,6 +195,67 @@ describe("vision analysis route", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
+	test("caps video frame long side and disables thinking for stable MiniMax video analysis", async () => {
+		process.env.AGENT_VISION_KEY = "minimax-key";
+		delete process.env.AGENT_VISION_PROVIDER;
+		delete process.env.AGENT_VISION_HOST;
+		delete process.env.AGENT_VISION_MODEL;
+		const fetchFn: typeof fetch = mock(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				const body = JSON.parse(String(init?.body));
+				expect(body).toMatchObject({
+					thinking: { type: "disabled" },
+					messages: [
+						{ role: "system" },
+						{
+							role: "user",
+							content: [
+								{ type: "text" },
+								{
+									type: "video_url",
+									video_url: {
+										url: "data:video/mp4;base64,AA==",
+										max_long_side_pixel: 672,
+									},
+								},
+							],
+						},
+					],
+				});
+				return Response.json({
+					choices: [
+						{
+							message: {
+								content: "视频分析内容已稳定返回。",
+							},
+						},
+					],
+				});
+			},
+		);
+		globalThis.fetch = fetchFn;
+
+		const response = await POST(
+			new ApiRequest("http://localhost/api/agent/vision/analyze", {
+				method: "POST",
+				body: JSON.stringify({
+					analysisType: "visual_summary",
+					maxLongSidePixel: 1024,
+					media: {
+						mediaAssetId: "media-1",
+						name: "demo.mp4",
+						type: "video",
+						mimeType: "video/mp4",
+						dataUrl: "data:video/mp4;base64,AA==",
+					},
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(fetchFn).toHaveBeenCalledTimes(1);
+	});
+
 	test("requires a dedicated Vision API key", async () => {
 		delete process.env.AGENT_VISION_KEY;
 		delete process.env.AGENT_LLM_KEY;

@@ -42,6 +42,10 @@ import {
 	type AgentTokenUsageSource,
 } from "@/agent/token-usage";
 import { registerPendingCall } from "./resolve";
+import {
+	buildToolResultContinuationMessages,
+	shouldRunToolResultContinuation,
+} from "./tool-result-continuation";
 import { formatToolResultForModel } from "./tool-result-format";
 
 export const runtime = "nodejs";
@@ -293,12 +297,14 @@ async function proxyExecuteStep(
 			}),
 			signal,
 		});
-		const modelResult = sanitizeToolResultForModel({
+		const modelResult = formatToolResultForModel({
 			toolName: step.tool,
 			result,
 		});
 		logger.toolResult(callId, modelResult);
-		return `[SUCCESS] ${step.tool}: ${JSON.stringify(modelResult)}`;
+		return `[SUCCESS] ${step.tool}: ${
+			typeof modelResult === "string" ? modelResult : JSON.stringify(modelResult)
+		}`;
 	} catch (err) {
 		logger.error(err);
 		if (isAbortError(err)) {
@@ -626,17 +632,25 @@ export async function POST(request: ApiRequest) {
 				}
 			}
 
-			const makeProxyTools = () =>
+			const makeProxyTools = (onToolResult?: (result: unknown) => void) =>
 				mcpToolsToAISDKProxyTools({
 					schemas: toolSchemas as FunctionSchema[],
-					onToolCall: proxyOnToolCall,
+					onToolCall: async (callId, toolName, params) => {
+						const result = await proxyOnToolCall(callId, toolName, params);
+						onToolResult?.(result);
+						return result;
+					},
 				});
 
 			async function runApiProxyLoop(
 				messagesForLLM: ModelMessage[],
+				continuationDepth = 0,
 			): Promise<void> {
 				const model = getDefaultModel();
-				const proxyTools = makeProxyTools();
+				const formattedToolResults: unknown[] = [];
+				const proxyTools = makeProxyTools((result) => {
+					formattedToolResults.push(result);
+				});
 
 				console.log(
 					"[agent] runProxyLoop start, messages=" + messagesForLLM.length,
@@ -804,6 +818,28 @@ export async function POST(request: ApiRequest) {
 					totalParts: partCount,
 				});
 
+				if (
+					shouldRunToolResultContinuation({
+						assistantText,
+						toolCallCount,
+						formattedToolResults,
+						continuationDepth,
+					})
+				) {
+					logger.request({
+						type: "runProxyLoop:tool-result-continuation",
+						continuationDepth: continuationDepth + 1,
+					});
+					await runApiProxyLoop(
+						buildToolResultContinuationMessages({
+							messages: messagesForLLM,
+							formattedToolResults,
+						}),
+						continuationDepth + 1,
+					);
+					return;
+				}
+
 				const actions = await generateQuickReplyActions({
 					assistantText,
 					messages: messagesForLLM,
@@ -820,6 +856,7 @@ export async function POST(request: ApiRequest) {
 
 			async function runLocalCliProxyLoop(
 				messagesForLLM: ModelMessage[],
+				continuationDepth = 0,
 			): Promise<void> {
 				const config = resolveLocalCliRuntimeConfig();
 				if (!config.binPath) {
@@ -837,6 +874,7 @@ export async function POST(request: ApiRequest) {
 				let hasReasoningStarted = false;
 				let assistantText = "";
 				let toolCallCount = 0;
+				const formattedToolResults: unknown[] = [];
 
 				function sendTextDelta(text: string) {
 					if (!text) return;
@@ -889,6 +927,7 @@ export async function POST(request: ApiRequest) {
 					onToolCall: async ({ callId, tool, params }) => {
 						toolCallCount += 1;
 						const result = await proxyOnToolCall(callId, tool, params);
+						formattedToolResults.push(result);
 						sseSend("tool-result", { callId, timestamp: Date.now() });
 						return result;
 					},
@@ -907,6 +946,28 @@ export async function POST(request: ApiRequest) {
 					type: "runLocalCliProxyLoop:done",
 					toolCallCount,
 				});
+
+				if (
+					shouldRunToolResultContinuation({
+						assistantText,
+						toolCallCount,
+						formattedToolResults,
+						continuationDepth,
+					})
+				) {
+					logger.request({
+						type: "runLocalCliProxyLoop:tool-result-continuation",
+						continuationDepth: continuationDepth + 1,
+					});
+					await runLocalCliProxyLoop(
+						buildToolResultContinuationMessages({
+							messages: messagesForLLM,
+							formattedToolResults,
+						}),
+						continuationDepth + 1,
+					);
+					return;
+				}
 
 				const actions = await generateQuickReplyActions({
 					assistantText,

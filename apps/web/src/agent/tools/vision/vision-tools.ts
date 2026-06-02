@@ -485,7 +485,7 @@ export function buildVisionTools({
 				maxLongSidePixel: {
 					type: "number",
 					description:
-						"可选最长边像素上限，128 到 4096。用于控制视觉 token 成本。",
+						"可选最长边像素上限，128 到 4096。用于控制视觉 token 成本；视频请求会在服务端自动限制到 MiniMax M3 更稳定的 672 长边。",
 					optional: true,
 				},
 			},

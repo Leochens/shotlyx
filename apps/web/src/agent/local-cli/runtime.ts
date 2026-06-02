@@ -911,6 +911,7 @@ export async function runLocalCliReactLoop({
 	signal?: AbortSignal;
 }): Promise<{ finalText: string; toolCallCount: number }> {
 	const toolResults: string[] = [];
+	const executedToolSignatures = new Set<string>();
 	let finalText = "";
 	let toolCallCount = 0;
 
@@ -947,6 +948,11 @@ export async function runLocalCliReactLoop({
 				finalText += event.text;
 			}
 			if (event.type !== "tool_call") continue;
+			const toolSignature = `${event.tool}:${JSON.stringify(event.params)}`;
+			if (toolResults.length > 0 && executedToolSignatures.has(toolSignature)) {
+				return { finalText, toolCallCount };
+			}
+			executedToolSignatures.add(toolSignature);
 			hadToolCall = true;
 			toolCallCount += 1;
 			const callId =

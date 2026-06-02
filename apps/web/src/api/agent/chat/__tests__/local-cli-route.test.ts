@@ -147,6 +147,58 @@ describe("/api/agent/chat local CLI runtime", () => {
 		).toMatchObject({ text: "完成：已添加标题。" });
 	});
 
+	test("continues after a tool result when the first agent pass has no final text", async () => {
+		writeFileSync(
+			process.env.SHOTLYX_CLAUDE_BIN!,
+			`#!/usr/bin/env bash
+prompt="$(cat)"
+if [[ "$prompt" == *"Tool Result Continuation"* ]]; then
+  echo '{"type":"final","text":"工具返回后继续处理：需要你选择切分分析还是上传小视频。"}'
+else
+  echo '{"type":"reasoning","text":"先调用视觉工具。"}'
+  echo '{"type":"tool_call","tool":"vision_analyze_media","params":{"mediaAssetId":"media-1","analysisType":"visual_summary"}}'
+fi
+`,
+			"utf8",
+		);
+		chmodSync(process.env.SHOTLYX_CLAUDE_BIN!, 0o755);
+		const { POST } = await import("../route");
+		const request = new Request("http://localhost/api/agent/chat", {
+			method: "POST",
+			body: JSON.stringify({
+				messages: [{ role: "user", content: "分析一下视频内容" }],
+				mode: "auto",
+				toolSchemas: [
+					{
+						name: "vision_analyze_media",
+						description: "Analyze video content.",
+						parameters: {
+							type: "object",
+							properties: {
+								mediaAssetId: { type: "string", description: "Media asset ID" },
+								analysisType: { type: "string", description: "Analysis type" },
+							},
+							required: ["mediaAssetId"],
+						},
+					},
+				],
+			}),
+			headers: { "Content-Type": "application/json" },
+		});
+
+		const response = await POST(request as Parameters<typeof POST>[0]);
+		expect(response.status).toBe(200);
+		const events = await readRouteEvents(response);
+
+		expect(events.map((event) => event.event)).toContain("tool-call");
+		expect(
+			events.find((event) => event.event === "text-delta")?.data,
+		).toMatchObject({
+			text: "工具返回后继续处理：需要你选择切分分析还是上传小视频。",
+		});
+		expect(events.at(-1)?.event).toBe("done");
+	});
+
 	test("can generate a suggest-mode plan through a local CLI agent", async () => {
 		writeFileSync(
 			process.env.SHOTLYX_CLAUDE_BIN!,

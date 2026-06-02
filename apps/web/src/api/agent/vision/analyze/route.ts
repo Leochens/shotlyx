@@ -32,6 +32,7 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
 	webp: "image/webp",
 	gif: "image/gif",
 };
+const MINIMAX_M3_VIDEO_MAX_LONG_SIDE_PIXEL = 672;
 
 const requestSchema = z.object({
 	analysisType: analysisTypeSchema.optional(),
@@ -188,10 +189,19 @@ function buildMediaPart({
 	fps: number;
 	maxLongSidePixel?: number;
 }) {
+	const providerMaxLongSidePixel =
+		media.type === "video"
+			? Math.min(
+					maxLongSidePixel ?? MINIMAX_M3_VIDEO_MAX_LONG_SIDE_PIXEL,
+					MINIMAX_M3_VIDEO_MAX_LONG_SIDE_PIXEL,
+				)
+			: maxLongSidePixel;
 	const common = {
 		url: media.dataUrl,
 		detail,
-		...(maxLongSidePixel ? { max_long_side_pixel: maxLongSidePixel } : {}),
+		...(providerMaxLongSidePixel
+			? { max_long_side_pixel: providerMaxLongSidePixel }
+			: {}),
 	};
 	if (media.type === "video") {
 		return {
@@ -225,6 +235,7 @@ function buildProviderRequestBody({
 }) {
 	return {
 		model,
+		thinking: { type: "disabled" },
 		reasoning_split: true,
 		max_completion_tokens: data.maxCompletionTokens ?? 2000,
 		temperature: 0.3,
