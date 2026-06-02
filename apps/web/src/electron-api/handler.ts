@@ -21,6 +21,7 @@ import * as authRoute from "@/api/auth/[...all]/route";
 import * as desktopAgentsRoute from "@/api/desktop/agents/route";
 import * as desktopConfigRoute from "@/api/desktop/config/route";
 import * as desktopConfigRevealRoute from "@/api/desktop/config/reveal/route";
+import * as desktopMediaAnalyzeRoute from "@/api/desktop/media/analyze/route";
 import * as desktopModelsRoute from "@/api/desktop/models/route";
 import * as desktopRemotionMgRenderRoute from "@/api/desktop/remotion/mg-render/route";
 import * as feedbackRoute from "@/api/feedback/route";
@@ -67,6 +68,7 @@ const staticRoutes = new Map<string, RouteModule>([
 	["/api/desktop/agents", desktopAgentsRoute],
 	["/api/desktop/config", desktopConfigRoute],
 	["/api/desktop/config/reveal", desktopConfigRevealRoute],
+	["/api/desktop/media/analyze", desktopMediaAnalyzeRoute],
 	["/api/desktop/models", desktopModelsRoute],
 	["/api/desktop/remotion/mg-render", desktopRemotionMgRenderRoute],
 	["/api/feedback", feedbackRoute],
