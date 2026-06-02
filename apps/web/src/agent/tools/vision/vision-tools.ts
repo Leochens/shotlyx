@@ -530,7 +530,7 @@ export function buildVisionTools({
 					detail,
 					fps,
 					maxLongSidePixel,
-					stream: true,
+					stream: preparedMedia.type !== "video",
 					media: {
 						mediaAssetId: asset.id,
 						name: preparedMedia.name,

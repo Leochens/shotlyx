@@ -49,6 +49,13 @@ function getBinaryVisionPayload(input: RequestInfo | URL): Record<string, unknow
 	return JSON.parse(payload ?? "{}");
 }
 
+function getJsonVisionPayload(init: RequestInit | undefined): Record<string, unknown> {
+	expect(getHeaderValue({ headers: init?.headers, key: "Content-Type" })).toBe(
+		"application/json",
+	);
+	return JSON.parse(String(init?.body));
+}
+
 function expectBinaryVideoBody(init: RequestInit | undefined): File {
 	expect(init?.body).toBeInstanceOf(File);
 	if (!(init?.body instanceof File)) {
@@ -98,6 +105,7 @@ describe("vision analysis tools", () => {
 				expect(getHeaderValue({ headers: init?.headers, key: "Content-Type" }))
 					.toBe("video/mp4");
 				const body = getBinaryVisionPayload(input);
+				expect(body.stream).toBe(false);
 				expect(body).toMatchObject({
 					analysisType: "editing_suggestions",
 					prompt: "给出剪辑建议",
@@ -335,16 +343,15 @@ describe("vision analysis tools", () => {
 		]);
 	});
 
-	test("streams MiniMax M3 reasoning and content into progress details", async () => {
-		const file = new File(["demo"], "demo.mp4", { type: "video/mp4" });
+	test("streams MiniMax M3 reasoning and content into progress details for images", async () => {
+		const file = new File(["demo"], "demo.png", { type: "image/png" });
 		const editor = createEditorWithAssets([
 			{
 				id: "media-1",
-				name: "demo.mp4",
-				type: "video",
-				duration: 12,
-				width: 1920,
-				height: 1080,
+				name: "demo.png",
+				type: "image",
+				width: 1024,
+				height: 768,
 				file,
 			},
 		]);
@@ -358,8 +365,8 @@ describe("vision analysis tools", () => {
 		}> = [];
 		const fetchFn = mock(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
-				expectBinaryVideoBody(init);
-				const body = getBinaryVisionPayload(input);
+				expect(String(input)).toBe("/api/agent/vision/analyze");
+				const body = getJsonVisionPayload(init);
 				expect(body.stream).toBe(true);
 				return createSseResponse([
 					{ type: "reasoning_delta", text: "先看画面主体。" },
@@ -380,9 +387,9 @@ describe("vision analysis tools", () => {
 			editor,
 			deps: {
 				fetchFn,
-				readFileAsDataUrl: mock(() => {
-					throw new Error("video files should not be converted to data URLs");
-				}),
+				readFileAsDataUrl: mock(() =>
+					Promise.resolve("data:image/png;base64,AA=="),
+				),
 			},
 		});
 

@@ -93,7 +93,7 @@ describe("vision analysis route", () => {
 				const body = JSON.parse(String(init?.body));
 				expect(body).toMatchObject({
 					model: "MiniMax-M3",
-					reasoning_split: true,
+					thinking: { type: "adaptive" },
 					messages: [
 						{ role: "system" },
 						{
@@ -112,6 +112,8 @@ describe("vision analysis route", () => {
 						},
 					],
 				});
+				expect(body).not.toHaveProperty("reasoning_split");
+				expect(body).not.toHaveProperty("stream");
 				return Response.json({
 					choices: [
 						{
@@ -230,7 +232,7 @@ describe("vision analysis route", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(2);
 	});
 
-	test("streams MiniMax M3 reasoning and content chunks when requested", async () => {
+	test("streams MiniMax M3 reasoning and content chunks for image requests", async () => {
 		process.env.AGENT_VISION_KEY = "minimax-key";
 		delete process.env.AGENT_VISION_PROVIDER;
 		delete process.env.AGENT_VISION_HOST;
@@ -242,10 +244,9 @@ describe("vision analysis route", () => {
 		].join("\n\n");
 		const fetchFn: typeof fetch = mock(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
-				if (String(input).endsWith("/files/upload")) {
-					expectMiniMaxVideoUpload({ init });
-					return miniMaxUploadResponse({ fileId: "stream-file" });
-				}
+				expect(String(input)).toBe(
+					"https://api.minimaxi.com/v1/chat/completions",
+				);
 				const body = JSON.parse(String(init?.body));
 				expect(body).toMatchObject({
 					model: "MiniMax-M3",
@@ -253,8 +254,8 @@ describe("vision analysis route", () => {
 					stream_options: { include_usage: true },
 				});
 				expect(body.messages[1].content[1]).toMatchObject({
-					type: "video_url",
-					video_url: { url: "mm_file://stream-file" },
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,AA==" },
 				});
 				return new Response(upstream, {
 					headers: { "Content-Type": "text/event-stream" },
@@ -271,10 +272,10 @@ describe("vision analysis route", () => {
 					stream: true,
 					media: {
 						mediaAssetId: "media-1",
-						name: "demo.mp4",
-						type: "video",
-						mimeType: "video/mp4",
-						dataUrl: "data:video/mp4;base64,AA==",
+						name: "demo.png",
+						type: "image",
+						mimeType: "image/png",
+						dataUrl: "data:image/png;base64,AA==",
 					},
 				}),
 			}),
@@ -286,10 +287,62 @@ describe("vision analysis route", () => {
 			[
 				'data: {"type":"reasoning_delta","text":"先看主体"}',
 				'data: {"type":"content_delta","text":"建议保留开场"}',
-				`data: {"type":"done","provider":"minimax","model":"MiniMax-M3","analysisType":"editing_suggestions","analysis":"建议保留开场","media":{"mediaAssetId":"media-1","name":"demo.mp4","type":"video"}}`,
+				`data: {"type":"done","provider":"minimax","model":"MiniMax-M3","analysisType":"editing_suggestions","analysis":"建议保留开场","media":{"mediaAssetId":"media-1","name":"demo.png","type":"image"}}`,
 				"data: [DONE]",
 			].join("\n\n") + "\n\n",
 		);
+		expect(fetchFn).toHaveBeenCalledTimes(1);
+	});
+
+	test("does not request provider streaming for video even when progress stream is requested", async () => {
+		process.env.AGENT_VISION_KEY = "minimax-key";
+		delete process.env.AGENT_VISION_PROVIDER;
+		delete process.env.AGENT_VISION_HOST;
+		delete process.env.AGENT_VISION_MODEL;
+		const fetchFn: typeof fetch = mock(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (String(input).endsWith("/files/upload")) {
+					expectMiniMaxVideoUpload({ init });
+					return miniMaxUploadResponse({ fileId: "non-stream-video" });
+				}
+				const body = JSON.parse(String(init?.body));
+				expect(body).not.toHaveProperty("stream");
+				expect(body).not.toHaveProperty("reasoning_split");
+				expect(body.messages[1].content[1]).toMatchObject({
+					type: "video_url",
+					video_url: { url: "mm_file://non-stream-video" },
+				});
+				return Response.json({
+					choices: [{ message: { content: "视频非流式返回。" } }],
+				});
+			},
+		);
+		globalThis.fetch = fetchFn;
+
+		const response = await POST(
+			new ApiRequest("http://localhost/api/agent/vision/analyze", {
+				method: "POST",
+				body: JSON.stringify({
+					analysisType: "visual_summary",
+					stream: true,
+					media: {
+						mediaAssetId: "media-1",
+						name: "demo.mp4",
+						type: "video",
+						mimeType: "video/mp4",
+						dataUrl: "data:video/mp4;base64,AA==",
+					},
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Content-Type")).not.toContain(
+			"text/event-stream",
+		);
+		expect(await response.json()).toMatchObject({
+			analysis: "视频非流式返回。",
+		});
 		expect(fetchFn).toHaveBeenCalledTimes(2);
 	});
 
@@ -344,11 +397,47 @@ describe("vision analysis route", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(2);
 	});
 
-	test("caps video frame long side and disables thinking for stable MiniMax video analysis", async () => {
+	test("surfaces MiniMax upload base_resp errors from 200 responses", async () => {
 		process.env.AGENT_VISION_KEY = "minimax-key";
 		delete process.env.AGENT_VISION_PROVIDER;
 		delete process.env.AGENT_VISION_HOST;
 		delete process.env.AGENT_VISION_MODEL;
+		const fetchFn: typeof fetch = mock(async () =>
+			Response.json({
+				base_resp: { status_code: 2049, status_msg: "invalid api key" },
+			}),
+		);
+		globalThis.fetch = fetchFn;
+
+		const response = await POST(
+			new ApiRequest("http://localhost/api/agent/vision/analyze", {
+				method: "POST",
+				body: JSON.stringify({
+					analysisType: "visual_summary",
+					media: {
+						mediaAssetId: "media-1",
+						name: "demo.mp4",
+						type: "video",
+						mimeType: "video/mp4",
+						dataUrl: "data:video/mp4;base64,AA==",
+					},
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(502);
+		expect(await response.json()).toMatchObject({
+			error:
+				"provider_error: MiniMax video upload failed: invalid api key (2049)",
+		});
+	});
+
+	test("retries MiniMax video analysis with the documented minimal video request on provider 500", async () => {
+		process.env.AGENT_VISION_KEY = "minimax-key";
+		delete process.env.AGENT_VISION_PROVIDER;
+		delete process.env.AGENT_VISION_HOST;
+		delete process.env.AGENT_VISION_MODEL;
+		const chatBodies: unknown[] = [];
 		const fetchFn: typeof fetch = mock(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
 				if (String(input).endsWith("/files/upload")) {
@@ -356,8 +445,44 @@ describe("vision analysis route", () => {
 					return miniMaxUploadResponse({ fileId: "capped-file" });
 				}
 				const body = JSON.parse(String(init?.body));
+				chatBodies.push(body);
+				if (chatBodies.length === 1) {
+					expect(body).toMatchObject({
+						thinking: { type: "adaptive" },
+						messages: [
+							{ role: "system" },
+							{
+								role: "user",
+								content: [
+									{ type: "text" },
+									{
+										type: "video_url",
+										video_url: {
+											url: "mm_file://capped-file",
+											detail: "high",
+											fps: 0.5,
+											max_long_side_pixel: 672,
+										},
+									},
+								],
+							},
+						],
+					});
+					return Response.json(
+						{
+							type: "error",
+							error: {
+								type: "server_error",
+								message: "unknown error, 999 (1000)",
+								http_code: "500",
+							},
+						},
+						{ status: 500 },
+					);
+				}
 				expect(body).toMatchObject({
-					thinking: { type: "disabled" },
+					model: "MiniMax-M3",
+					thinking: { type: "adaptive" },
 					messages: [
 						{ role: "system" },
 						{
@@ -368,13 +493,23 @@ describe("vision analysis route", () => {
 									type: "video_url",
 									video_url: {
 										url: "mm_file://capped-file",
-										max_long_side_pixel: 672,
 									},
 								},
 							],
 						},
 					],
 				});
+				expect(body.messages[1].content[1].video_url).not.toHaveProperty(
+					"detail",
+				);
+				expect(body.messages[1].content[1].video_url).not.toHaveProperty(
+					"fps",
+				);
+				expect(body.messages[1].content[1].video_url).not.toHaveProperty(
+					"max_long_side_pixel",
+				);
+				expect(body).not.toHaveProperty("stream");
+				expect(body).not.toHaveProperty("reasoning_split");
 				return Response.json({
 					choices: [
 						{
@@ -393,6 +528,8 @@ describe("vision analysis route", () => {
 				method: "POST",
 				body: JSON.stringify({
 					analysisType: "visual_summary",
+					detail: "high",
+					fps: 0.5,
 					maxLongSidePixel: 1024,
 					media: {
 						mediaAssetId: "media-1",
@@ -406,7 +543,11 @@ describe("vision analysis route", () => {
 		);
 
 		expect(response.status).toBe(200);
-		expect(fetchFn).toHaveBeenCalledTimes(2);
+		expect(await response.json()).toMatchObject({
+			analysis: "视频分析内容已稳定返回。",
+		});
+		expect(fetchFn).toHaveBeenCalledTimes(3);
+		expect(chatBodies).toHaveLength(2);
 	});
 
 	test("requires a dedicated Vision API key", async () => {

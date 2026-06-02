@@ -368,6 +368,20 @@ function blobFromDataUrl({
 
 function extractUploadedFileId(data: unknown): string {
 	const record = getRecord(data);
+	const baseResp = getRecord(record?.base_resp);
+	const statusCode = baseResp?.status_code;
+	if (
+		(typeof statusCode === "number" && statusCode !== 0) ||
+		(typeof statusCode === "string" && statusCode !== "0")
+	) {
+		const statusMsg =
+			typeof baseResp?.status_msg === "string" && baseResp.status_msg.trim()
+				? baseResp.status_msg.trim()
+				: "unknown upload error";
+		throw new Error(
+			`provider_error: MiniMax video upload failed: ${statusMsg} (${statusCode})`,
+		);
+	}
 	const file = getRecord(record?.file);
 	const fileId = file?.file_id;
 	if (typeof fileId === "string" && fileId.trim()) return fileId.trim();
@@ -424,12 +438,14 @@ function buildMediaPart({
 	detail,
 	fps,
 	maxLongSidePixel,
+	includeVideoOptions = true,
 }: {
 	media: VisionAnalyzeData["media"];
 	url: string;
 	detail: z.infer<typeof detailSchema>;
 	fps: number;
 	maxLongSidePixel?: number;
+	includeVideoOptions?: boolean;
 }) {
 	const providerMaxLongSidePixel =
 		media.type === "video"
@@ -448,10 +464,7 @@ function buildMediaPart({
 	if (media.type === "video") {
 		return {
 			type: "video_url",
-			video_url: {
-				...common,
-				fps,
-			},
+			video_url: includeVideoOptions ? { ...common, fps } : { url },
 		};
 	}
 	return {
@@ -473,14 +486,15 @@ function buildProviderRequestBody({
 	mediaPart: ReturnType<typeof buildMediaPart>;
 	stream: boolean;
 }) {
+	const isVideoRequest = mediaPart.type === "video_url";
 	return {
 		model,
-		thinking: { type: "disabled" },
-		reasoning_split: true,
+		thinking: { type: "adaptive" },
 		max_completion_tokens: data.maxCompletionTokens ?? 2000,
-		temperature: 0.3,
+		...(isVideoRequest ? {} : { temperature: 0.3 }),
 		...(stream
 			? {
+					reasoning_split: true,
 					stream: true,
 					stream_options: { include_usage: true },
 				}
@@ -750,6 +764,26 @@ function extractMessageContent(data: unknown): string {
 	throw new Error("provider_error: MiniMax message content was empty");
 }
 
+function formatMiniMaxVisionRequestError({
+	status,
+	errorText,
+}: {
+	status: number;
+	errorText: string;
+}): string {
+	return `provider_error: MiniMax M3 vision request failed with ${status}: ${errorText.slice(0, 500)}`;
+}
+
+function shouldRetryWithMinimalVideoRequest({
+	media,
+	status,
+}: {
+	media: VisionAnalyzeData["media"];
+	status: number;
+}): boolean {
+	return media.type === "video" && status >= 500;
+}
+
 export async function POST(request: ApiRequest) {
 	const parsed = await parseRequestData(request);
 	if (isParseError(parsed)) return parsed.error;
@@ -792,7 +826,15 @@ export async function POST(request: ApiRequest) {
 			maxLongSidePixel: requestData.maxLongSidePixel,
 		});
 		const url = `${host}/chat/completions`;
-		const response = await fetch(url, {
+		const shouldUseProviderStream =
+			Boolean(requestData.stream) && requestData.media.type !== "video";
+		const buildFetchInit = ({
+			mediaPart,
+			stream,
+		}: {
+			mediaPart: ReturnType<typeof buildMediaPart>;
+			stream: boolean;
+		}): RequestInit => ({
 			method: "POST",
 			headers: {
 				Authorization: `Bearer ${visionConfig.apiKey}`,
@@ -804,19 +846,62 @@ export async function POST(request: ApiRequest) {
 					model: visionConfig.model,
 					analysisType,
 					mediaPart,
-					stream: requestData.stream ?? false,
+					stream,
 				}),
 			),
 		});
 
+		let response = await fetch(
+			url,
+			buildFetchInit({
+				mediaPart,
+				stream: shouldUseProviderStream,
+			}),
+		);
+
 		if (!response.ok) {
 			const errorText = await response.text();
-			throw new Error(
-				`provider_error: MiniMax M3 vision request failed with ${response.status}: ${errorText.slice(0, 500)}`,
-			);
+			if (
+				shouldRetryWithMinimalVideoRequest({
+					media: requestData.media,
+					status: response.status,
+				})
+			) {
+				const minimalVideoPart = buildMediaPart({
+					media: requestData.media,
+					url: mediaUrl,
+					detail,
+					fps,
+					maxLongSidePixel: requestData.maxLongSidePixel,
+					includeVideoOptions: false,
+				});
+				response = await fetch(
+					url,
+					buildFetchInit({
+						mediaPart: minimalVideoPart,
+						stream: false,
+					}),
+				);
+				if (!response.ok) {
+					const fallbackErrorText = await response.text();
+					throw new Error(
+						`${formatMiniMaxVisionRequestError({
+							status: response.status,
+							errorText: fallbackErrorText,
+						})}; first attempt failed with ${errorText.slice(0, 500)}`,
+					);
+				}
+			} else {
+				throw new Error(
+					formatMiniMaxVisionRequestError({
+						status: response.status,
+						errorText,
+					}),
+				);
+			}
 		}
 
-		if (requestData.stream) {
+		if (shouldUseProviderStream) {
 			return createStreamResponse({
 				upstream: response,
 				model: visionConfig.model,
