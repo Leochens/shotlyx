@@ -1,5 +1,6 @@
 /* eslint-disable shotlyx/prefer-object-params -- This file wraps the native Fetch signature so existing /api calls keep working in Electron. */
 const DESKTOP_API_ORIGIN = process.env.VITE_SHOTLYX_API_ORIGIN;
+const APP_SCHEME_PREFIX = "app://";
 
 declare global {
 	interface Window {
@@ -29,10 +30,45 @@ function rewriteFetchInput(input: RequestInfo | URL): RequestInfo | URL {
 	return new Request(rewrittenUrl, input);
 }
 
-export function installDesktopApiFetch() {
-	if (!DESKTOP_API_ORIGIN || typeof window === "undefined") return;
+function isElectronUserAgent(userAgent: string): boolean {
+	return /\bElectron\//.test(userAgent);
+}
 
-	if (window.__SHOTLYX_DESKTOP_API_FETCH__) return;
+export function shouldInstallDesktopApiFetchForRuntime({
+	alreadyInstalled,
+	desktopApiOrigin,
+	hasWindow,
+	userAgent,
+}: {
+	alreadyInstalled: boolean;
+	desktopApiOrigin: string | undefined;
+	hasWindow: boolean;
+	userAgent: string;
+}): boolean {
+	if (!desktopApiOrigin || !hasWindow || alreadyInstalled) return false;
+	if (
+		desktopApiOrigin.startsWith(APP_SCHEME_PREFIX) &&
+		!isElectronUserAgent(userAgent)
+	) {
+		return false;
+	}
+	return true;
+}
+
+export function installDesktopApiFetch() {
+	if (
+		!shouldInstallDesktopApiFetchForRuntime({
+			alreadyInstalled:
+				typeof window !== "undefined" &&
+				Boolean(window.__SHOTLYX_DESKTOP_API_FETCH__),
+			desktopApiOrigin: DESKTOP_API_ORIGIN,
+			hasWindow: typeof window !== "undefined",
+			userAgent:
+				typeof navigator === "undefined" ? "" : navigator.userAgent,
+		})
+	) {
+		return;
+	}
 	window.__SHOTLYX_DESKTOP_API_FETCH__ = true;
 
 	const nativeFetch = window.fetch.bind(window);
