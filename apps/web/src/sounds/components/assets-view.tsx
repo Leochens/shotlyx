@@ -51,6 +51,7 @@ import type { MediaAsset } from "@/media/types";
 import { useSoundSearch } from "@/sounds/use-sound-search";
 import { useSoundsStore } from "@/sounds/sounds-store";
 import type { SavedSound, SoundEffect } from "@/sounds/types";
+import { createAudioPreviewPlayer } from "@/sounds/audio-preview-player";
 import { getVoiceCloneUploadFormat } from "@/sounds/voice-clone-upload";
 import type { VoiceProfile } from "@/agent/tools/voiceover/types";
 import { buildElementFromMedia } from "@/timeline/element-utils";
@@ -69,6 +70,7 @@ import {
 	ListMusic,
 	Loader2,
 	Mic2,
+	Pause,
 	Play,
 	Plus,
 	RefreshCw,
@@ -928,9 +930,25 @@ function VoiceCatalogView() {
 	const [cloneStage, setCloneStage] = useState("");
 	const [isCloning, setIsCloning] = useState(false);
 	const [cloneDemoAudio, setCloneDemoAudio] = useState<string | null>(null);
+	const [samplePreviewUrl, setSamplePreviewUrl] = useState<string | null>(null);
+	const [demoPreviewUrl, setDemoPreviewUrl] = useState<string | null>(null);
 	const recorderRef = useRef<VoiceRecorderSession | null>(null);
 	const recordedAudioUrlRef = useRef<string | null>(null);
 	const uploadInputRef = useRef<HTMLInputElement | null>(null);
+	const samplePreviewPlayer = useMemo(
+		() =>
+			createAudioPreviewPlayer({
+				onPlayingChange: setSamplePreviewUrl,
+			}),
+		[],
+	);
+	const demoPreviewPlayer = useMemo(
+		() =>
+			createAudioPreviewPlayer({
+				onPlayingChange: setDemoPreviewUrl,
+			}),
+		[],
+	);
 	const { loadingVoiceId, playingVoiceId, previewVoice } =
 		useVoicePreviewPlayer();
 
@@ -954,6 +972,7 @@ function VoiceCatalogView() {
 			audioFormat?: string;
 			fileName?: string;
 		}) => {
+			samplePreviewPlayer.stop();
 			if (recordedAudioUrlRef.current) {
 				URL.revokeObjectURL(recordedAudioUrlRef.current);
 				recordedAudioUrlRef.current = null;
@@ -970,17 +989,19 @@ function VoiceCatalogView() {
 			recordedAudioUrlRef.current = nextUrl;
 			setRecordedAudioUrl(nextUrl);
 		},
-		[],
+		[samplePreviewPlayer],
 	);
 
 	useEffect(() => {
 		return () => {
+			samplePreviewPlayer.stop();
+			demoPreviewPlayer.stop();
 			cleanupRecorder();
 			if (recordedAudioUrlRef.current) {
 				URL.revokeObjectURL(recordedAudioUrlRef.current);
 			}
 		};
-	}, [cleanupRecorder]);
+	}, [cleanupRecorder, demoPreviewPlayer, samplePreviewPlayer]);
 
 	const persistClonedVoice = useCallback(
 		({
@@ -1051,11 +1072,12 @@ function VoiceCatalogView() {
 			toast.error("Microphone recording is not available");
 			return;
 		}
-			try {
-				cleanupRecorder();
-				setRecordedAudio({ blob: null });
-				setCloneDemoAudio(null);
-				setCloneProgress(0);
+		try {
+			cleanupRecorder();
+			setRecordedAudio({ blob: null });
+			demoPreviewPlayer.stop();
+			setCloneDemoAudio(null);
+			setCloneProgress(0);
 			setCloneStage("");
 			const stream = await navigator.mediaDevices.getUserMedia({
 				audio: {
@@ -1130,6 +1152,7 @@ function VoiceCatalogView() {
 			return;
 		}
 		cleanupRecorder();
+		demoPreviewPlayer.stop();
 		const audioFormat = getVoiceCloneUploadFormat({
 			fileName: file.name,
 			mimeType: file.type,
@@ -1150,7 +1173,7 @@ function VoiceCatalogView() {
 	const playRecordedAudio = async () => {
 		if (!recordedAudioUrl) return;
 		try {
-			await new Audio(recordedAudioUrl).play();
+			await samplePreviewPlayer.toggle(recordedAudioUrl);
 		} catch {
 			toast.error("Voice sample playback failed");
 		}
@@ -1159,7 +1182,7 @@ function VoiceCatalogView() {
 	const playCloneDemoAudio = async () => {
 		if (!cloneDemoAudio) return;
 		try {
-			await new Audio(cloneDemoAudio).play();
+			await demoPreviewPlayer.toggle(cloneDemoAudio);
 		} catch {
 			toast.error("Clone demo playback failed");
 		}
@@ -1218,6 +1241,8 @@ function VoiceCatalogView() {
 		setIsCloning(true);
 		setCloneProgress(20);
 		setCloneStage("Uploading voice sample");
+		samplePreviewPlayer.stop();
+		demoPreviewPlayer.stop();
 		setCloneDemoAudio(null);
 		try {
 			const form = new FormData();
@@ -1274,9 +1299,13 @@ function VoiceCatalogView() {
 
 	const handleDialogOpenChange = (open: boolean) => {
 		setIsDialogOpen(open);
-		if (!open && recordingState === "recording") {
-			cleanupRecorder();
-			setRecordingState(recordedBlob ? "ready" : "idle");
+		if (!open) {
+			samplePreviewPlayer.stop();
+			demoPreviewPlayer.stop();
+			if (recordingState === "recording") {
+				cleanupRecorder();
+				setRecordingState(recordedBlob ? "ready" : "idle");
+			}
 		}
 	};
 
@@ -1287,6 +1316,10 @@ function VoiceCatalogView() {
 				? `${recordedDuration.toFixed(1)}s sample · ${sampleAudioFormat}`
 				: `${sampleFileName} · ${sampleAudioFormat}`
 			: "Ready";
+	const isSamplePreviewPlaying =
+		Boolean(recordedAudioUrl) && samplePreviewUrl === recordedAudioUrl;
+	const isDemoPreviewPlaying =
+		Boolean(cloneDemoAudio) && demoPreviewUrl === cloneDemoAudio;
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -1367,19 +1400,19 @@ function VoiceCatalogView() {
 												setCloneText(currentTarget.value)
 											}
 											className="min-h-20 resize-none"
-											/>
-										</div>
-										<input
-											ref={uploadInputRef}
-											type="file"
-											accept=".wav,.mp3,.ogg,.m4a,.aac,.pcm,audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/aac"
-											className="hidden"
-											onChange={handleSampleUpload}
 										/>
-										<div className="grid grid-cols-[1fr_auto_auto_auto] gap-2">
-											<Button
-												variant={
-													recordingState === "recording"
+									</div>
+									<input
+										ref={uploadInputRef}
+										type="file"
+										accept=".wav,.mp3,.ogg,.m4a,.aac,.pcm,audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/aac"
+										className="hidden"
+										onChange={handleSampleUpload}
+									/>
+									<div className="grid grid-cols-[1fr_auto_auto_auto] gap-2">
+										<Button
+											variant={
+												recordingState === "recording"
 													? "destructive"
 													: "outline"
 											}
@@ -1394,29 +1427,43 @@ function VoiceCatalogView() {
 												<Square className="size-4" />
 											) : (
 												<Mic2 className="size-4" />
-												)}
-												{recordingState === "recording" ? "Stop" : "Record"}
-											</Button>
-											<Button
-												variant="outline"
-												onClick={() => uploadInputRef.current?.click()}
-												disabled={isCloning || recordingState === "recording"}
-											>
-												<Upload className="size-4" />
-												Upload
-											</Button>
-											<Button
-												variant="outline"
-												size="icon"
-											onClick={() => void playRecordedAudio()}
-											disabled={!recordedAudioUrl || recordingState === "recording"}
-											title="Preview sample"
+											)}
+											{recordingState === "recording" ? "Stop" : "Record"}
+										</Button>
+										<Button
+											variant="outline"
+											onClick={() => uploadInputRef.current?.click()}
+											disabled={isCloning || recordingState === "recording"}
 										>
-											<Play className="size-4" />
+											<Upload className="size-4" />
+											Upload
+										</Button>
+										<Button
+											variant="outline"
+											size="icon"
+											onClick={() => void playRecordedAudio()}
+											disabled={
+												!recordedAudioUrl || recordingState === "recording"
+											}
+											title={
+												isSamplePreviewPlaying
+													? "Stop sample"
+													: "Preview sample"
+											}
+										>
+											{isSamplePreviewPlaying ? (
+												<Pause className="size-4" />
+											) : (
+												<Play className="size-4" />
+											)}
 										</Button>
 										<Button
 											onClick={() => void submitClone()}
-											disabled={!recordedBlob || isCloning || recordingState === "recording"}
+											disabled={
+												!recordedBlob ||
+												isCloning ||
+												recordingState === "recording"
+											}
 										>
 											{isCloning ? (
 												<Loader2 className="size-4 animate-spin" />
@@ -1426,18 +1473,22 @@ function VoiceCatalogView() {
 											Clone
 										</Button>
 									</div>
-										<div className="flex min-h-10 flex-col gap-2">
-											<div className="flex items-center justify-between gap-3">
-												<span className="text-muted-foreground truncate text-xs">
-													{sampleStatusLabel}
-												</span>
+									<div className="flex min-h-10 flex-col gap-2">
+										<div className="flex items-center justify-between gap-3">
+											<span className="text-muted-foreground truncate text-xs">
+												{sampleStatusLabel}
+											</span>
 											{cloneDemoAudio && (
 												<Button
 													variant="text"
 													size="sm"
 													onClick={() => void playCloneDemoAudio()}
 												>
-													<Play className="size-4" />
+													{isDemoPreviewPlaying ? (
+														<Pause className="size-4" />
+													) : (
+														<Play className="size-4" />
+													)}
 													Demo
 												</Button>
 											)}
