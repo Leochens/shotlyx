@@ -149,7 +149,11 @@ function parseSuggestionLine(line: string): TopicCandidateSuggestion | null {
 
 	const cleaned = normalizeSuggestionText(match[1]);
 	if (cleaned.length < 4) return null;
-	if (/^(脚本|大纲|素材|发布文案|视频描述|封面|参考资料|调研|结构|开场|结尾)[:：]/.test(cleaned)) {
+	if (
+		/^(脚本|大纲|素材|发布文案|视频描述|封面|参考资料|调研|结构|开场|结尾)[:：]/.test(
+			cleaned,
+		)
+	) {
 		return null;
 	}
 
@@ -256,7 +260,8 @@ export function createTopicCandidatesFromPrompt({
 			id: createId("candidate"),
 			title: `${brief} 能不能变成一次小型投放实验`,
 			summary: "站在小广告主视角，把选题转成可测试的短视频创意包。",
-			coreViewpoint: "内容不是一次性作品，而是可以被测试、复用和迭代的广告资产。",
+			coreViewpoint:
+				"内容不是一次性作品，而是可以被测试、复用和迭代的广告资产。",
 			audience: "小型广告主、独立开发者、希望做内容增长的产品团队。",
 			platforms: ["douyin", "xiaohongshu", "video-account"],
 			durationMinutes: 3,
@@ -360,9 +365,7 @@ export function createTopicCandidatesFromDrafts({
 				template.rationale ||
 				"这个方向适合继续展开同题搜索、调研引用和脚本结构设计。",
 			risks:
-				draft.risks && draft.risks.length > 0
-					? draft.risks
-					: template.risks,
+				draft.risks && draft.risks.length > 0 ? draft.risks : template.risks,
 			status: "draft",
 			updatedAt: now,
 		};
@@ -380,7 +383,8 @@ export function replaceTopicCandidates({
 	candidates: TopicCandidateDraft[];
 	now?: number;
 }): TopicProject {
-	const fallbackPrompt = prompt?.trim() || project.originPrompt || project.title;
+	const fallbackPrompt =
+		prompt?.trim() || project.originPrompt || project.title;
 	return {
 		...project,
 		title: clampPrompt(fallbackPrompt),
@@ -420,7 +424,8 @@ export function applyResearchSources({
 		url: source.url,
 		sourceName: source.sourceName ?? source.platform ?? "Web",
 		angle: source.angle ?? "Agent 调研得到的相关资料。",
-		whyRelevant: source.whyRelevant ?? "用于判断同题内容、灵感来源和差异化切口。",
+		whyRelevant:
+			source.whyRelevant ?? "用于判断同题内容、灵感来源和差异化切口。",
 		confidence: source.confidence ?? "medium",
 	}));
 
@@ -508,10 +513,13 @@ export function resetTopicProjectToStage({
 		...project,
 		stage: "ideation",
 		status: "active",
+		candidates: [],
 		selectedCandidateId: null,
 		researchSources: [],
 		structures: [],
 		selectedStructureId: null,
+		packageVersions: [],
+		activePackageVersionId: null,
 		updatedAt: now,
 	};
 }
@@ -768,9 +776,15 @@ export function createStructureOptions({
 			bestFor: "观点清晰、想做深度解释的选题",
 			rationale: "适合把一个核心观点讲透，避免内容变成资料堆砌。",
 			flow: [
-				{ label: "钩子", description: "用反常识问题开场，说明为什么现在要看。" },
+				{
+					label: "钩子",
+					description: "用反常识问题开场，说明为什么现在要看。",
+				},
 				{ label: "背景", description: "快速交代事件、产品或趋势的基本事实。" },
-				{ label: "判断", description: `围绕「${candidate.coreViewpoint}」展开论证。` },
+				{
+					label: "判断",
+					description: `围绕「${candidate.coreViewpoint}」展开论证。`,
+				},
 				{ label: "案例", description: "加入同题雷达或实测案例，降低空泛感。" },
 				{ label: "结论", description: "给创作者一个明确行动建议。" },
 			],
@@ -794,7 +808,10 @@ export function createStructureOptions({
 			rationale: "先讲真实问题，再自然引出工具或产品，避免硬广感。",
 			flow: [
 				{ label: "真实场景", description: "描述一个观众熟悉的创作困境。" },
-				{ label: "失败路径", description: "展示传统做法为什么慢、贵或不稳定。" },
+				{
+					label: "失败路径",
+					description: "展示传统做法为什么慢、贵或不稳定。",
+				},
 				{ label: "新方案", description: "引入产品/方法，展示关键变化。" },
 				{ label: "结果", description: "用前后对比或时间成本说明价值。" },
 				{ label: "行动", description: "给出轻 CTA 或下一步尝试建议。" },
@@ -832,10 +849,16 @@ function createScriptSegments({
 	structure: VideoStructureOption;
 	durationMinutes: number;
 }): ScriptSegment[] {
-	const segmentLength = Math.max(30, Math.round((durationMinutes * 60) / structure.flow.length));
+	const segmentLength = Math.max(
+		30,
+		Math.round((durationMinutes * 60) / structure.flow.length),
+	);
 	return structure.flow.map((step, index) => {
 		const start = index * segmentLength;
-		const end = index === structure.flow.length - 1 ? durationMinutes * 60 : start + segmentLength;
+		const end =
+			index === structure.flow.length - 1
+				? durationMinutes * 60
+				: start + segmentLength;
 		return {
 			timeRange: `${Math.floor(start / 60)}:${String(start % 60).padStart(2, "0")} - ${Math.floor(end / 60)}:${String(end % 60).padStart(2, "0")}`,
 			content: `${step.label}：${step.description}`,
@@ -907,6 +930,43 @@ export function createTopicPackageVersion({
 	};
 }
 
+function getActivePackageVersion(
+	project: TopicProject,
+): TopicPackageVersion | null {
+	return (
+		project.packageVersions.find(
+			(version) => version.id === project.activePackageVersionId,
+		) ??
+		project.packageVersions.at(-1) ??
+		null
+	);
+}
+
+function cloneTopicPackageVersion({
+	project,
+	version,
+	now,
+}: {
+	project: TopicProject;
+	version: TopicPackageVersion;
+	now: number;
+}): TopicPackageVersion {
+	const versionNumber = project.packageVersions.length + 1;
+	return {
+		...version,
+		id: createId("topic-package"),
+		versionName: `V${versionNumber}`,
+		createdAt: now,
+		outline: [...version.outline],
+		scriptSegments: version.scriptSegments.map((segment) => ({ ...segment })),
+		platformRecommendations: version.platformRecommendations.map(
+			(recommendation) => ({ ...recommendation }),
+		),
+		coverIdeas: [...version.coverIdeas],
+		referenceSourceIds: [...version.referenceSourceIds],
+	};
+}
+
 export function advanceToStructureStage({
 	project,
 	now = Date.now(),
@@ -924,7 +984,8 @@ export function advanceToStructureStage({
 		...project,
 		stage: "structure",
 		structures,
-		selectedStructureId: project.selectedStructureId ?? structures[0]?.id ?? null,
+		selectedStructureId:
+			project.selectedStructureId ?? structures[0]?.id ?? null,
 		updatedAt: now,
 	};
 }
@@ -953,7 +1014,11 @@ export function addPackageVersion({
 	project: TopicProject;
 	now?: number;
 }): TopicProject {
-	const version = createTopicPackageVersion({ project, now });
+	const activePackage =
+		project.stage === "package" ? getActivePackageVersion(project) : null;
+	const version = activePackage
+		? cloneTopicPackageVersion({ project, version: activePackage, now })
+		: createTopicPackageVersion({ project, now });
 	if (!version) return project;
 	return {
 		...project,

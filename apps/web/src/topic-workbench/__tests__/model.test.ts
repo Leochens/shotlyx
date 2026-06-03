@@ -84,6 +84,58 @@ describe("topic workbench model", () => {
 		);
 	});
 
+	test("duplicates the active topic package as an isolated version snapshot", () => {
+		const project = createTopicProjectFromPrompt({
+			editorProjectId: "project-1",
+			prompt: "做一个 Shotlyx 选题工作台的视频",
+			now: 1_000,
+		});
+		const candidateId = project.candidates[0]?.id;
+		if (!candidateId) throw new Error("missing candidate");
+
+		const confirmed = confirmSelectedCandidate({
+			project: selectCandidate({ project, candidateId }),
+		});
+		const structured = advanceToStructureStage({ project: confirmed });
+		const structureId = structured.structures[0]?.id;
+		if (!structureId) throw new Error("missing structure");
+		const firstPackaged = addPackageVersion({
+			project: selectStructure({ project: structured, structureId }),
+			now: 4_000,
+		});
+		const firstVersion = firstPackaged.packageVersions[0];
+		if (!firstVersion) throw new Error("missing first version");
+
+		const secondPackaged = addPackageVersion({
+			project: {
+				...firstPackaged,
+				packageVersions: [
+					{
+						...firstVersion,
+						title: "已经手动编辑过的 V1 标题",
+						scriptSegments: firstVersion.scriptSegments.map((segment, index) =>
+							index === 0
+								? { ...segment, content: "V1 已编辑分段内容" }
+								: segment,
+						),
+					},
+				],
+			},
+			now: 5_000,
+		});
+		const clonedVersion = secondPackaged.packageVersions[1];
+
+		expect(secondPackaged.packageVersions).toHaveLength(2);
+		expect(secondPackaged.activePackageVersionId).toBe(clonedVersion?.id);
+		expect(clonedVersion?.versionName).toBe("V2");
+		expect(clonedVersion?.title).toBe("已经手动编辑过的 V1 标题");
+		expect(clonedVersion?.id).not.toBe(firstVersion.id);
+		expect(clonedVersion?.scriptSegments).not.toBe(firstVersion.scriptSegments);
+		expect(clonedVersion?.scriptSegments[0]).not.toBe(
+			firstVersion.scriptSegments[0],
+		);
+	});
+
 	test("refreshes visible candidates when the user revises the topic in chat", () => {
 		const project = createTopicProjectFromPrompt({
 			editorProjectId: "project-1",
@@ -200,5 +252,40 @@ describe("topic workbench model", () => {
 		expect(reset.stage).toBe("research");
 		expect(reset.researchSources).toHaveLength(0);
 		expect(reset.structures).toHaveLength(0);
+	});
+
+	test("resetting a completed package back to ideation clears the current workflow", () => {
+		const project = createTopicProjectFromPrompt({
+			editorProjectId: "project-1",
+			prompt: "AI Agent 内容生产",
+			now: 1_000,
+		});
+		const candidateId = project.candidates[0]?.id;
+		if (!candidateId) throw new Error("missing candidate");
+		const confirmed = confirmSelectedCandidate({
+			project: selectCandidate({ project, candidateId }),
+		});
+		const structured = advanceToStructureStage({ project: confirmed });
+		const structureId = structured.structures[0]?.id;
+		if (!structureId) throw new Error("missing structure");
+		const packaged = addPackageVersion({
+			project: selectStructure({ project: structured, structureId }),
+			now: 2_000,
+		});
+
+		const reset = resetTopicProjectToStage({
+			project: packaged,
+			stage: "ideation",
+			now: 3_000,
+		});
+
+		expect(reset.stage).toBe("ideation");
+		expect(reset.status).toBe("active");
+		expect(reset.candidates).toHaveLength(0);
+		expect(reset.selectedCandidateId).toBeNull();
+		expect(reset.researchSources).toHaveLength(0);
+		expect(reset.structures).toHaveLength(0);
+		expect(reset.packageVersions).toHaveLength(0);
+		expect(reset.activePackageVersionId).toBeNull();
 	});
 });

@@ -324,14 +324,18 @@ function StageResetDialog({
 	onConfirm: () => void;
 }) {
 	const label = stage ? getStageLabel(stage) : "上一步";
+	const description =
+		stage === "ideation"
+			? "确认后，当前候选、资料、结构和选题包版本都会被清空，任务会发送给左侧子 Agent 从选题阶段重新生成。"
+			: "确认后，当前阶段之后的临时结果会被清空，任务会发送给左侧子 Agent 重新处理，并通过工作台工具写回新的结果。已有选题包版本会保留，方便回看。";
+
 	return (
 		<AlertDialog open={stage !== null} onOpenChange={onOpenChange}>
 			<AlertDialogContent className="rounded-sm">
 				<AlertDialogHeader>
 					<AlertDialogTitle>确定回到{label}阶段？</AlertDialogTitle>
 					<AlertDialogDescription className="leading-6">
-						确认后，当前阶段之后的临时结果会被清空，任务会发送给左侧子 Agent
-						重新处理，并通过工作台工具写回新的结果。已有选题包版本会保留，方便回看。
+						{description}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
@@ -374,6 +378,8 @@ function VersionSummaryBar({ project }: { project: TopicProject }) {
 		(state) => state.createPackageVersion,
 	);
 	const activePackage = getActivePackage(project);
+	const canCreateVersion =
+		project.stage === "package" && activePackage !== null;
 
 	return (
 		<section className="rounded-sm border border-border/75 bg-card/[0.38] p-3 dark:bg-cyan-300/[0.03]">
@@ -433,9 +439,10 @@ function VersionSummaryBar({ project }: { project: TopicProject }) {
 				<Button
 					size="sm"
 					variant="outline"
-					disabled={!activePackage}
+					disabled={!canCreateVersion}
 					onClick={createPackageVersion}
 					className="min-h-14 shrink-0 self-stretch"
+					title="基于当前激活选题包复制一个独立新版本"
 				>
 					<Plus size={14} />
 					新版本
