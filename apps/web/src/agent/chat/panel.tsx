@@ -5,7 +5,7 @@ import { useChatStore } from "./store";
 import { MessageItem } from "./message-item";
 import type { ToolActionResult, ToolCallActionRequest } from "./tool-call-card";
 import { appendToolProgressEvent } from "./progress-history";
-import { BottomToolbar } from "./bottom-toolbar";
+import { BottomToolbar, type RunningSubmitMode } from "./bottom-toolbar";
 import { useEditor } from "@/editor/use-editor";
 import { parseSSEStream } from "./sse-parser";
 import type { SSEEvent } from "./sse-parser";
@@ -41,9 +41,21 @@ import {
 	getRunningShotlyxMGJobIdsFromMessages,
 	isRunningShotlyxMGToolCall,
 } from "./mg-job-records";
+import {
+	buildDuplicateToolCallResult,
+	findSuppressibleDuplicateToolCall,
+} from "./tool-call-dedupe";
 import { formatToolCallForCopy } from "./tool-result-copy";
 import { buildToolResultContext } from "./tool-context";
 import { useAppLocale } from "@/i18n/use-app-locale";
+import { WorkbenchSwitcher } from "@/topic-workbench/workbench-switcher";
+import { CreatorProfileDialogTrigger } from "@/topic-workbench/creator-profile-dialog";
+import { useTopicWorkbenchStore } from "@/topic-workbench/store";
+import {
+	executeTopicWorkbenchTool,
+	getTopicWorkbenchToolSchemas,
+	TOPIC_WORKBENCH_TOOL_NAMES,
+} from "@/topic-workbench/tools";
 import {
 	isRoughCutReviewResult,
 	RoughCutReviewDialog,
@@ -128,6 +140,38 @@ const STARTER_PROMPT_STYLES: Array<{
 ];
 
 const STREAM_TEXT_FLUSH_INTERVAL_MS = 80;
+const TOPIC_RESEARCH_TOOL_NAMES = new Set(["web_search", "web_fetch"]);
+
+const TOPIC_STARTERS: Array<{
+	label: string;
+	hint: string;
+	prompt: string;
+}> = [
+	{
+		label: "AI 专题",
+		hint: "热点 / 观点 / 案例",
+		prompt:
+			"我想做一个 AI 专题选题。请先帮我聊出 3-5 个适合自媒体视频的方向，并优先考虑 B 站和 YouTube 上是否已有同类内容。",
+	},
+	{
+		label: "科技专题",
+		hint: "趋势 / 产品 / 人群",
+		prompt:
+			"我想做一个科技专题视频，但方向还比较模糊。请先帮我根据最新资讯和同题内容，整理几个可执行的选题方案。",
+	},
+	{
+		label: "产品测评",
+		hint: "单品 / 合集 / 场景",
+		prompt:
+			"我想做一个产品测评类选题。请帮我判断适合做单品测评、合集对比、场景软引流还是行业分析，并生成候选方案。",
+	},
+	{
+		label: "创作者工作流",
+		hint: "选题 / 调研 / 发布",
+		prompt:
+			"我想做一个自媒体创作者工作流相关的视频。请帮我从选题、调研、视频制作和发布复盘几个角度生成候选选题。",
+	},
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -362,9 +406,19 @@ function parseTokenUsageEventData(
 	};
 }
 
+type QueuedPrompt = {
+	id: string;
+	content: string;
+	mode: RunningSubmitMode;
+	sessionId: string | null;
+};
+
 export function ChatPanel() {
 	const { copy, locale } = useAppLocale();
 	const [input, setInput] = useState("");
+	const [runningSubmitMode, setRunningSubmitMode] =
+		useState<RunningSubmitMode>("queue");
+	const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
 	const [showClearConfirm, setShowClearConfirm] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set());
@@ -378,12 +432,34 @@ export function ChatPanel() {
 	const resumedMGJobAbortControllersRef = useRef<Map<string, AbortController>>(
 		new Map(),
 	);
+	const isSendingQueuedPromptRef = useRef(false);
 	const [startTime, setStartTime] = useState<number | null>(null);
 	const [elapsedMs, setElapsedMs] = useState(0);
 	const [roughCutReview, setRoughCutReview] =
 		useState<RoughCutReviewResult | null>(null);
 	const [roughCutReviewOpen, setRoughCutReviewOpen] = useState(false);
 	const { draftReferences, clearDraftReferences } = useAgentContextStore();
+	const activeWorkbench = useTopicWorkbenchStore(
+		(state) => state.activeWorkbench,
+	);
+	const pendingTopicAgentEvent = useTopicWorkbenchStore(
+		(state) => state.pendingAgentEvent,
+	);
+	const creatorProfile = useTopicWorkbenchStore(
+		(state) => state.creatorProfile,
+	);
+	const setActiveEditorProject = useTopicWorkbenchStore(
+		(state) => state.setActiveEditorProject,
+	);
+	const consumeTopicAgentEvent = useTopicWorkbenchStore(
+		(state) => state.consumeAgentEvent,
+	);
+	const submitPromptRef = useRef<
+		(args: {
+			prompt: string;
+			references?: AgentContextReference[];
+		}) => Promise<void>
+	>(async () => {});
 
 	useEffect(() => {
 		if (startTime === null) return;
@@ -427,6 +503,9 @@ export function ChatPanel() {
 			editor.media.getAssets().filter((asset) => !asset.ephemeral).length,
 	);
 	const messages = getActiveMessages();
+	const queuedPromptsForSession = queuedPrompts.filter(
+		(prompt) => prompt.sessionId === activeSessionId,
+	);
 	const visibleMessages = useMemo(
 		() => messages.filter((msg) => !msg.hidden),
 		[messages],
@@ -446,8 +525,15 @@ export function ChatPanel() {
 	useEffect(() => {
 		if (isHydrated && projectId) {
 			setActiveProject(projectId);
+			setActiveEditorProject({ editorProjectId: projectId });
 		}
-	}, [isHydrated, projectId, setActiveProject]);
+	}, [isHydrated, projectId, setActiveEditorProject, setActiveProject]);
+
+	useEffect(() => {
+		if (activeWorkbench === "topic" && selectedAgent !== "default") {
+			setSelectedAgent("default");
+		}
+	}, [activeWorkbench, selectedAgent, setSelectedAgent]);
 
 	useEffect(() => {
 		const abortControllers = resumedMGJobAbortControllersRef.current;
@@ -640,8 +726,67 @@ export function ChatPanel() {
 			if (!callId || !tool) return;
 			const params = getRecordField({ value: data, key: "params" }) ?? {};
 
-			const pendingRecord: ToolCallRecord = { callId, tool, params };
 			const mid = ensureAssistantMessage();
+			const currentMsgs = getActiveMessages();
+			const currentMsg = currentMsgs.find((m) => m.id === mid);
+			const existingToolCalls = currentMsg?.toolCalls ?? [];
+
+			if (existingToolCalls.some((toolCall) => toolCall.callId === callId)) {
+				return;
+			}
+
+			const postToolResult = async ({
+				modelToolResult,
+				abortSignal,
+			}: {
+				modelToolResult: unknown;
+				abortSignal?: AbortSignal;
+			}) => {
+				const sid = runSessionIdRef.current;
+				if (!sid) return;
+
+				try {
+					const response = await fetch(`/api/agent/chat/${sid}/tool-result`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ callId, result: modelToolResult }),
+					});
+					if (!response.ok) {
+						const errorBody = await response.json().catch(() => null);
+						const errorDetail =
+							getStringField({ value: errorBody, key: "error" }) ??
+							`HTTP ${response.status}`;
+						throw new Error(`HTTP ${response.status}: ${errorDetail}`);
+					}
+				} catch (error) {
+					if (runSignal.aborted || abortSignal?.aborted) return;
+					addMessage({
+						id: `tool-result-post-error-${Date.now()}`,
+						role: "assistant",
+						content: `工具 ${tool} 已执行，但结果回传失败：${getErrorMessage(error)}`,
+						timestamp: Date.now(),
+					});
+				}
+			};
+
+			const duplicateToolCall = findSuppressibleDuplicateToolCall({
+				existingToolCalls,
+				tool,
+				params,
+			});
+			if (duplicateToolCall) {
+				const duplicateResult = buildDuplicateToolCallResult({
+					duplicate: duplicateToolCall,
+				});
+				const modelToolResult = sanitizeToolResultForModel({
+					toolName: tool,
+					result: duplicateResult,
+				});
+				void postToolResult({ modelToolResult });
+				return;
+			}
+
+			const pendingRecord: ToolCallRecord = { callId, tool, params };
 			const toolAbort = new AbortController();
 			toolAbortControllersRef.current.set(callId, toolAbort);
 			const appendToolProgress = (event: ToolProgressEvent) => {
@@ -670,10 +815,6 @@ export function ChatPanel() {
 				});
 			};
 
-			// Append to existing toolCalls on this message
-			const currentMsgs = getActiveMessages();
-			const currentMsg = currentMsgs.find((m) => m.id === mid);
-			const existingToolCalls = currentMsg?.toolCalls ?? [];
 			updateMessageToolCalls({
 				id: mid,
 				toolCalls: [...existingToolCalls, pendingRecord],
@@ -682,7 +823,16 @@ export function ChatPanel() {
 			void (async () => {
 				let toolResult: ToolResult;
 				try {
-					if (!editor) {
+					if (
+						activeWorkbench === "topic" &&
+						TOPIC_WORKBENCH_TOOL_NAMES.has(tool)
+					) {
+						toolResult = executeTopicWorkbenchTool({
+							toolName: tool,
+							params,
+							editorProjectId: projectId ?? "default-project",
+						});
+					} else if (!editor) {
 						toolResult = {
 							status: "error",
 							error: "编辑器尚未准备好，无法执行工具",
@@ -742,31 +892,10 @@ export function ChatPanel() {
 					toolCalls: currentToolCalls,
 				});
 
-				const sid = runSessionIdRef.current;
-				if (!sid) return;
-
-				try {
-					const response = await fetch(`/api/agent/chat/${sid}/tool-result`, {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ callId, result: modelToolResult }),
-					});
-					if (!response.ok) {
-						const errorBody = await response.json().catch(() => null);
-						const errorDetail =
-							getStringField({ value: errorBody, key: "error" }) ??
-							`HTTP ${response.status}`;
-						throw new Error(`HTTP ${response.status}: ${errorDetail}`);
-					}
-				} catch (error) {
-					if (runSignal.aborted || toolAbort.signal.aborted) return;
-					addMessage({
-						id: `tool-result-post-error-${Date.now()}`,
-						role: "assistant",
-						content: `工具 ${tool} 已执行，但结果回传失败：${getErrorMessage(error)}`,
-						timestamp: Date.now(),
-					});
-				}
+				await postToolResult({
+					modelToolResult,
+					abortSignal: toolAbort.signal,
+				});
 			})().finally(() => {
 				toolAbortControllersRef.current.delete(callId);
 			});
@@ -945,9 +1074,22 @@ export function ChatPanel() {
 			const body: Record<string, unknown> = {
 				messages: msgsToSend,
 				mode,
-				toolSchemas: editor.mcp.getToolSchemas(),
+				toolSchemas:
+					activeWorkbench === "topic"
+						? [
+								...getTopicWorkbenchToolSchemas(),
+								...editor.mcp
+									.getToolSchemas()
+									.filter((schema) =>
+										TOPIC_RESEARCH_TOOL_NAMES.has(schema.name),
+									),
+							]
+						: editor.mcp.getToolSchemas(),
 				context: {
 					activeBrandKit: editor.project.getActiveBrandKit(),
+					activeWorkbench,
+					topicCreatorProfile:
+						activeWorkbench === "topic" ? creatorProfile : undefined,
 				},
 			};
 
@@ -1014,6 +1156,16 @@ export function ChatPanel() {
 			});
 		} catch (err) {
 			if (runAbort.signal.aborted) {
+				return;
+			}
+			if (activeWorkbench === "topic") {
+				addMessage({
+					id: `topic-offline-${Date.now()}`,
+					role: "assistant",
+					content:
+						"这次 Agent 没能完成选题生成。请检查模型和联网工具配置后重试，右侧工作台会在 Agent 产出候选选题后出现。",
+					timestamp: Date.now(),
+				});
 				return;
 			}
 			addMessage({
@@ -1129,12 +1281,110 @@ export function ChatPanel() {
 		clearDraftReferences();
 	};
 
+	useEffect(() => {
+		submitPromptRef.current = submitPrompt;
+	});
+
+	useEffect(() => {
+		const nextPrompt = queuedPrompts.find(
+			(prompt) => prompt.sessionId === activeSessionId,
+		);
+		if (
+			isLoading ||
+			!editor ||
+			!nextPrompt ||
+			isSendingQueuedPromptRef.current ||
+			nextPrompt.sessionId !== activeSessionId
+		) {
+			return;
+		}
+		const timeoutId = window.setTimeout(() => {
+			isSendingQueuedPromptRef.current = true;
+			setQueuedPrompts((items) =>
+				items.filter((item) => item.id !== nextPrompt.id),
+			);
+			const prompt =
+				nextPrompt.mode === "guide"
+					? `[引导当前任务]\n${nextPrompt.content}`
+					: nextPrompt.content;
+			void submitPromptRef.current({ prompt, references: [] }).finally(() => {
+				isSendingQueuedPromptRef.current = false;
+			});
+		}, 0);
+		return () => window.clearTimeout(timeoutId);
+	}, [activeSessionId, editor, isLoading, queuedPrompts]);
+
+	useEffect(() => {
+		if (!pendingTopicAgentEvent || isLoading || !editor) {
+			return;
+		}
+		const canRunEvent =
+			activeWorkbench === "topic" ||
+			pendingTopicAgentEvent.source === "handoff-video";
+		if (!canRunEvent) return;
+
+		consumeTopicAgentEvent({ eventId: pendingTopicAgentEvent.id });
+		if (pendingTopicAgentEvent.autoRun) {
+			void submitPromptRef.current({
+				prompt: pendingTopicAgentEvent.content,
+				references: [],
+			});
+			return;
+		}
+
+		addMessage({
+			id: `topic-workbench-event-${Date.now()}`,
+			role: "user",
+			content: `[选题工作台]\n${pendingTopicAgentEvent.content}`,
+			timestamp: Date.now(),
+		});
+	}, [
+		activeWorkbench,
+		addMessage,
+		consumeTopicAgentEvent,
+		editor,
+		isLoading,
+		pendingTopicAgentEvent,
+	]);
+
 	const handleSubmit = async () => {
+		const trimmed = input.trim();
+		if (!trimmed) return;
+		if (isLoading) {
+			setInput("");
+			setQueuedPrompts((items) => {
+				const queuedPrompt: QueuedPrompt = {
+					id: `queued-${items.length}-${trimmed.slice(0, 24)}`,
+					content: trimmed,
+					mode: runningSubmitMode,
+					sessionId: activeSessionId,
+				};
+				return runningSubmitMode === "guide"
+					? [queuedPrompt, ...items]
+					: [...items, queuedPrompt];
+			});
+			if (runningSubmitMode === "guide") handleStop();
+			return;
+		}
 		await submitPrompt({ prompt: input, references: draftReferences });
 	};
 
+	const handleGuideQueuedPrompt = (promptId: string) => {
+		let shouldStop = false;
+		setQueuedPrompts((items) => {
+			const target = items.find((item) => item.id === promptId);
+			if (!target) return items;
+			shouldStop = isLoading;
+			return [
+				{ ...target, mode: "guide" },
+				...items.filter((item) => item.id !== promptId),
+			];
+		});
+		if (shouldStop) handleStop();
+	};
+
 	const handleStarterPrompt = (prompt: string) => {
-		void submitPrompt({ prompt, references: draftReferences });
+		setInput(prompt);
 	};
 
 	const handleClarificationAnswer = async (answer: string) => {
@@ -1429,7 +1679,8 @@ export function ChatPanel() {
 		>
 			{/* Multi-session UI is intentionally disabled for the compact Agent surface. */}
 			<div className="flex flex-1 flex-col overflow-hidden">
-				<div className="flex min-h-10 min-w-0 items-center justify-end gap-1.5 border-b border-border/70 bg-card/[0.65] px-2 py-1.5 backdrop-blur dark:bg-background/95">
+				<div className="flex min-h-10 min-w-0 items-center justify-between gap-2 border-b border-border/70 bg-card/[0.65] px-2 py-1.5 backdrop-blur dark:bg-background/95">
+					<WorkbenchSwitcher compact />
 					<div className="flex min-w-0 shrink-0 items-center gap-1">
 						{showClearConfirm ? (
 							<div className="flex min-w-0 items-center gap-1">
@@ -1492,7 +1743,8 @@ export function ChatPanel() {
 					{visibleMessages.length === 0 && !isLoading ? (
 						<AgentEmptyState
 							disabled={isLoading || !editor}
-							hasMedia={mediaAssetCount > 0}
+							hasMedia={activeWorkbench === "video" && mediaAssetCount > 0}
+							workbench={activeWorkbench}
 							onPromptSelect={handleStarterPrompt}
 						/>
 					) : null}
@@ -1562,14 +1814,56 @@ export function ChatPanel() {
 						</div>
 					</div>
 				)}
+				{queuedPromptsForSession.length > 0 ? (
+					<div className="border-t border-border/70 bg-muted/[0.18] px-3 py-2">
+						<div className="flex items-center justify-between gap-2">
+							<div className="text-xs font-medium text-muted-foreground">
+								排队中 {queuedPromptsForSession.length}
+							</div>
+						</div>
+						<div className="mt-1.5 space-y-1">
+							{queuedPromptsForSession.map((prompt) => (
+								<div
+									key={prompt.id}
+									className="flex items-center gap-2 rounded-sm border border-border/70 bg-background/70 px-2 py-1.5"
+								>
+									<div className="min-w-0 flex-1 truncate text-xs text-foreground">
+										{prompt.content}
+									</div>
+									<span className="shrink-0 rounded-sm border border-border/70 px-1.5 py-0.5 text-[0.68rem] text-muted-foreground">
+										{prompt.mode === "guide" ? "引导" : "排队"}
+									</span>
+									<button
+										type="button"
+										onClick={() => handleGuideQueuedPrompt(prompt.id)}
+										className="shrink-0 rounded-sm px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10"
+									>
+										引导
+									</button>
+								</div>
+							))}
+						</div>
+					</div>
+				) : null}
 				<BottomToolbar
 					input={input}
 					selectedAgent={selectedAgent}
-					agents={["default", "editor", "media", "mg"]}
+					agents={
+						activeWorkbench === "topic"
+							? ["default"]
+							: ["default", "editor", "media", "mg"]
+					}
 					executionMode={mode}
 					disabled={isLoading}
+					runningSubmitMode={runningSubmitMode}
+					placeholder={
+						activeWorkbench === "topic"
+							? "今天想做点什么？可以先说一个模糊方向"
+							: undefined
+					}
 					onAgentChange={setSelectedAgent}
 					onExecutionModeChange={setMode}
+					onRunningSubmitModeChange={setRunningSubmitMode}
 					onInputChange={setInput}
 					onSubmit={handleSubmit}
 					onMediaSubmit={(prompt) => {
@@ -1594,30 +1888,46 @@ export function ChatPanel() {
 function AgentEmptyState({
 	disabled,
 	hasMedia,
+	workbench,
 	onPromptSelect,
 }: {
 	disabled: boolean;
 	hasMedia: boolean;
+	workbench: "video" | "topic";
 	onPromptSelect: (prompt: string) => void;
 }) {
 	const { copy } = useAppLocale();
-	const starters = copy.editor.chat.starters;
+	const starters =
+		workbench === "topic" ? TOPIC_STARTERS : copy.editor.chat.starters;
+	const emptyKicker =
+		workbench === "topic" ? "Topic workbench" : copy.editor.chat.emptyKicker;
+	const emptyTitle =
+		workbench === "topic" ? "今天想做点什么？" : copy.editor.chat.emptyTitle;
+	const emptyBody =
+		workbench === "topic"
+			? "先介绍账号定位，再说一个模糊方向；模板只会载入输入框，改完后再交给 Agent。"
+			: copy.editor.chat.emptyBody;
 
 	return (
 		<div className="flex min-h-full flex-col justify-center gap-4 py-4">
 			<div className="mx-auto max-w-md text-center">
 				<div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-primary/[0.55] dark:text-cyan-300/80">
-					{copy.editor.chat.emptyKicker}
+					{emptyKicker}
 				</div>
 				<h2 className="mt-2 text-xl font-semibold tracking-normal text-foreground">
-					{copy.editor.chat.emptyTitle}
+					{emptyTitle}
 				</h2>
 				<p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-					{copy.editor.chat.emptyBody}
+					{emptyBody}
 				</p>
+				{workbench === "topic" ? (
+					<div className="mt-3 flex justify-center">
+						<CreatorProfileDialogTrigger label="全局用户画像" />
+					</div>
+				) : null}
 			</div>
 
-			{!hasMedia && (
+			{workbench === "video" && !hasMedia && (
 				<div className="rounded-sm border border-border/75 bg-card/[0.45] px-3 py-2 text-sm dark:border-cyan-300/20 dark:bg-cyan-300/5">
 					<div className="font-medium text-foreground dark:text-cyan-200">
 						{copy.editor.chat.emptyNoMediaTitle}

@@ -7,7 +7,12 @@ const fakeEditor = {
 	playback: { subscribe },
 	timeline: { subscribe },
 	scenes: { subscribe, getActiveSceneOrNull: () => null },
-	project: { subscribe },
+	project: {
+		subscribe,
+		getActiveOrNull: () => null,
+		getActiveBrandKit: () => null,
+		getBrandKits: () => [],
+	},
 	media: { subscribe, getAssets: () => [] },
 	renderer: { subscribe },
 	selection: { subscribe },
@@ -43,5 +48,23 @@ describe("BottomToolbar", () => {
 		expect(controlsIndex).toBeGreaterThanOrEqual(0);
 		expect(controlsIndex).toBeLessThan(inputIndex);
 		expect(html).toContain("Execution mode: Auto");
+	});
+
+	test("shows queue and guide controls while the agent is running", () => {
+		const html = renderToStaticMarkup(
+			<BottomToolbar
+				input="继续补充资料"
+				selectedAgent="default"
+				disabled
+				runningSubmitMode="queue"
+				onInputChange={() => {}}
+				onSubmit={() => {}}
+				onRunningSubmitModeChange={() => {}}
+			/>,
+		);
+
+		expect(html).toContain("排队");
+		expect(html).toContain("引导");
+		expect(html).toContain('data-testid="running-submit-mode-controls"');
 	});
 });

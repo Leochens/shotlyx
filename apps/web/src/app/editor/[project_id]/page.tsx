@@ -27,6 +27,8 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
 import { ChangelogNotification } from "@/changelog/components/changelog-notification";
 import { ChatPanel } from "@/agent/chat/panel";
+import { TopicWorkbench } from "@/topic-workbench/topic-workbench";
+import { useTopicWorkbenchStore } from "@/topic-workbench/store";
 import {
 	createPreviewOverlayControl,
 	isPreviewOverlayVisible,
@@ -92,6 +94,12 @@ function DegradedRendererBanner() {
 function EditorLayout() {
 	usePasteMedia();
 	const { panels, setPanel } = usePanelStore();
+	const activeWorkbench = useTopicWorkbenchStore(
+		(state) => state.activeWorkbench,
+	);
+	const editorProjectId = useEditor(
+		(editor) => editor.project.getActiveOrNull()?.metadata.id ?? "default-project",
+	);
 	const activeScene = useEditor((editor) =>
 		editor.scenes.getActiveSceneOrNull(),
 	);
@@ -167,7 +175,11 @@ function EditorLayout() {
 				minSize={50}
 				className="min-h-0 min-w-0"
 			>
-				<EditorWorkspace {...workspaceProps} />
+				{activeWorkbench === "topic" ? (
+					<TopicWorkbench editorProjectId={editorProjectId} />
+				) : (
+					<EditorWorkspace {...workspaceProps} />
+				)}
 			</ResizablePanel>
 		</ResizablePanelGroup>
 	);

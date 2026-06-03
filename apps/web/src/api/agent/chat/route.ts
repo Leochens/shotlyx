@@ -81,6 +81,8 @@ const requestSchema = z.object({
 	context: z
 		.object({
 			activeBrandKit: z.unknown().optional(),
+			activeWorkbench: z.enum(["video", "topic"]).optional(),
+			topicCreatorProfile: z.string().optional(),
 		})
 		.optional(),
 	action: z.enum(["confirm", "continue", "modify"]).optional(),
@@ -142,23 +144,47 @@ function isProjectBrandKit(value: unknown): value is ProjectBrandKit {
 
 function buildRequestContextText({
 	activeBrandKit,
+	activeWorkbench,
+	topicCreatorProfile,
 }: {
 	activeBrandKit?: unknown;
+	activeWorkbench?: "video" | "topic";
+	topicCreatorProfile?: string;
 }): string | null {
-	if (!activeBrandKit) return null;
+	const contextLines: string[] = [];
+	if (activeWorkbench === "topic") {
+		contextLines.push(
+			"Active workbench: topic management. Act as a topic research sub-agent for creators: help turn vague ideas into candidate topics, same-topic research, video structures, script outlines, citations, publishing copy, and a production plan before video handoff. Prefer web_search/web_fetch for current public context. Do not plan timeline edits in this mode. If the creator profile is empty and the current conversation does not already describe the account positioning, ask the user for account positioning before deep topic generation. When you produce structured candidates, select a candidate, write research, write structures, create a package, create a production plan, or reset a stage, call the topic_* tools so the right-side workbench updates; do not leave those results only in chat prose.",
+		);
+		if (topicCreatorProfile?.trim()) {
+			contextLines.push(`Creator profile:\n${topicCreatorProfile.trim()}`);
+		} else {
+			contextLines.push("Creator profile: empty.");
+		}
+	} else if (activeWorkbench === "video") {
+		contextLines.push("Active workbench: video editing.");
+	}
+
 	try {
 		if (isProjectBrandKit(activeBrandKit)) {
 			const compact = compactBrandKit({
 				kit: activeBrandKit,
 			});
-			return `[Shotlyx Context]\nActive brand kit:\n${JSON.stringify(compact)}`;
+			contextLines.push(`Active brand kit:\n${JSON.stringify(compact)}`);
+			return `[Shotlyx Context]\n${contextLines.join("\n")}`;
 		}
 	} catch {
 		// Fall through to sanitized unknown context.
 	}
-	return `[Shotlyx Context]\nActive brand kit:\n${JSON.stringify(
-		sanitizeAgentContextPayload(activeBrandKit),
-	)}`;
+	if (activeBrandKit) {
+		contextLines.push(
+			`Active brand kit:\n${JSON.stringify(
+				sanitizeAgentContextPayload(activeBrandKit),
+			)}`,
+		);
+	}
+	if (contextLines.length === 0) return null;
+	return `[Shotlyx Context]\n${contextLines.join("\n")}`;
 }
 
 async function generatePlanFromLLM(
@@ -305,7 +331,9 @@ async function proxyExecuteStep(
 		});
 		logger.toolResult(callId, modelResult);
 		return `[SUCCESS] ${step.tool}: ${
-			typeof modelResult === "string" ? modelResult : JSON.stringify(modelResult)
+			typeof modelResult === "string"
+				? modelResult
+				: JSON.stringify(modelResult)
 		}`;
 	} catch (err) {
 		logger.error(err);
@@ -525,6 +553,8 @@ export async function POST(request: ApiRequest) {
 	const getPlanningMessages = () => {
 		const contextText = buildRequestContextText({
 			activeBrandKit: context?.activeBrandKit,
+			activeWorkbench: context?.activeWorkbench,
+			topicCreatorProfile: context?.topicCreatorProfile,
 		});
 		if (!contextText) return messages;
 		return [
@@ -1031,6 +1061,8 @@ export async function POST(request: ApiRequest) {
 				}));
 				const contextText = buildRequestContextText({
 					activeBrandKit: context?.activeBrandKit,
+					activeWorkbench: context?.activeWorkbench,
+					topicCreatorProfile: context?.topicCreatorProfile,
 				});
 				if (contextText) {
 					coreMessages.push({
