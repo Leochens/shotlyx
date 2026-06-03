@@ -31,6 +31,10 @@ export const TOPIC_WORKBENCH_TOOL_NAMES = new Set([
 	"topic_workbench_reset_stage",
 ]);
 
+export const TOPIC_PACKAGE_RESOURCE_TOOL_NAMES = new Set([
+	"topic_get_active_package",
+]);
+
 const TOPIC_WORKBENCH_TOOL_ALIASES: Record<string, string> = {
 	topic_workbench_set_candidates: "topic_set_candidates",
 	topic_workbench_set_research_sources: "topic_set_research",
@@ -59,6 +63,25 @@ function arrayParam({
 }
 
 export function getTopicWorkbenchToolSchemas(): FunctionSchema[] {
+	return [...getTopicWriteToolSchemas(), ...getTopicPackageResourceToolSchemas()];
+}
+
+export function getTopicPackageResourceToolSchemas(): FunctionSchema[] {
+	return [
+		{
+			name: "topic_get_active_package",
+			description:
+				"Read the active topic package resource for the current editor project, including package fields, script segments, sources, usable knowledge insights, source materials, selected candidate, selected structure, and production plan.",
+			parameters: {
+				type: "object",
+				required: [],
+				properties: {},
+			},
+		},
+	];
+}
+
+export function getTopicWriteToolSchemas(): FunctionSchema[] {
 	return [
 		{
 			name: "topic_set_candidates",
@@ -501,6 +524,64 @@ function paramError(error: string): ToolResult {
 	};
 }
 
+function getActivePackageResource() {
+	const project = useTopicWorkbenchStore.getState().getActiveTopicProject();
+	if (!project) return null;
+	const activePackage =
+		(project.activePackageVersionId
+			? project.packageVersions.find(
+					(version) => version.id === project.activePackageVersionId,
+				)
+			: null) ??
+		(project.stage === "package" ||
+		project.stage === "production" ||
+		project.stage === "timeline"
+			? project.packageVersions.at(-1)
+			: null) ??
+		null;
+	if (!activePackage) return null;
+	const selectedCandidate =
+		project.candidates.find(
+			(candidate) => candidate.id === project.selectedCandidateId,
+		) ?? null;
+	const selectedStructure =
+		project.structures.find(
+			(structure) => structure.id === project.selectedStructureId,
+		) ?? null;
+	const activeProductionPlan =
+		(project.activeProductionPlanId
+			? project.productionPlans.find(
+					(plan) => plan.id === project.activeProductionPlanId,
+				)
+			: null) ??
+		project.productionPlans.at(-1) ??
+		null;
+	const usableInsights = (project.researchInsights ?? []).filter(
+		(insight) => !insight.hidden,
+	);
+
+	return {
+		project: {
+			id: project.id,
+			editorProjectId: project.editorProjectId,
+			title: project.title,
+			stage: project.stage,
+			status: project.status,
+			updatedAt: project.updatedAt,
+		},
+		selectedCandidate,
+		selectedStructure,
+		topicPackage: activePackage,
+		productionPlan: activeProductionPlan,
+		inputMaterials: project.inputMaterials ?? [],
+		researchSources: project.researchSources ?? [],
+		researchInsights: usableInsights,
+		hiddenResearchInsightCount: (project.researchInsights ?? []).filter(
+			(insight) => insight.hidden,
+		).length,
+	};
+}
+
 export function executeTopicWorkbenchTool({
 	toolName,
 	params,
@@ -513,6 +594,17 @@ export function executeTopicWorkbenchTool({
 	const store = useTopicWorkbenchStore.getState();
 	const normalizedToolName = normalizeToolName(toolName);
 	store.setActiveEditorProject({ editorProjectId });
+
+	if (normalizedToolName === "topic_get_active_package") {
+		const resource = getActivePackageResource();
+		if (!resource) {
+			return paramError("当前项目还没有可读取的完整选题包。");
+		}
+		return success({
+			message: "已读取当前选题包资源。",
+			resource,
+		});
+	}
 
 	if (normalizedToolName === "topic_set_candidates") {
 		const candidates = parseCandidateDrafts(params.candidates);

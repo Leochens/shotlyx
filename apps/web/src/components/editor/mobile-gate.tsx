@@ -9,6 +9,22 @@ import { useRouter } from "@/platform/router";
 
 const STORAGE_KEY = "mobile-acknowledged";
 
+function getMobileAcknowledged() {
+	try {
+		return window.localStorage?.getItem(STORAGE_KEY) === "true";
+	} catch {
+		return false;
+	}
+}
+
+function setMobileAcknowledged() {
+	try {
+		window.localStorage?.setItem(STORAGE_KEY, "true");
+	} catch {
+		// Storage can be unavailable in embedded browser previews.
+	}
+}
+
 interface MobileGateProps {
 	children: React.ReactNode;
 }
@@ -20,7 +36,7 @@ export function MobileGate({ children }: MobileGateProps) {
 	useEffect(() => {
 		const frame = window.requestAnimationFrame(() => {
 			const isMobile = window.innerWidth < 1024;
-			const acknowledged = localStorage.getItem(STORAGE_KEY) === "true";
+			const acknowledged = getMobileAcknowledged();
 			setShow(isMobile && !acknowledged);
 		});
 
@@ -31,7 +47,7 @@ export function MobileGate({ children }: MobileGateProps) {
 	if (!show) return <>{children}</>;
 
 	const handleContinue = () => {
-		localStorage.setItem(STORAGE_KEY, "true");
+		setMobileAcknowledged();
 		setShow(false);
 	};
 

@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import { createIndexedDBPersistStorage } from "@/agent/chat/indexeddb-storage";
 import {
 	addPackageVersion,
+	addResearchInsight,
 	advanceToStructureStage,
 	applyResearchSources,
 	applyStructureOptions,
@@ -13,27 +14,39 @@ import {
 	createTopicProjectFromPrompt,
 	mergePromptIntoProject,
 	mergeTopicInputMaterials,
+	removeTopicInputMaterial,
 	replaceTopicCandidates,
 	resetTopicProjectToStage,
 	selectCandidate,
 	selectStructure,
+	toggleResearchInsightHidden,
 	updateCandidate,
+	updateResearchInsight,
+	updateTopicInputMaterial,
+	updateTopicPackageCoverIdea,
+	updateTopicPackageOutlineItem,
+	updateTopicPackagePlatformRecommendation,
+	updateTopicPackageScriptSegment,
+	updateTopicPackageVersion,
 	type ProductionPlanDraft,
 	type ResearchInsightDraft,
 	type ResearchSourceDraft,
 	type TopicCandidateDraft,
+	type TopicInputMaterialPatch,
 	type TopicInputMaterialDraft,
+	type TopicPackagePatch,
+	type TopicPackagePlatformRecommendationPatch,
 	type VideoStructureOptionDraft,
 } from "./model";
 import type {
 	ScriptSegment,
 	TopicInputMaterial,
 	TopicCandidate,
-	TopicPackageVersion,
 	TopicStage,
 	TopicWorkbenchAgentEvent,
 	TopicProject,
 	WorkbenchMode,
+	ResearchInsight,
 } from "./types";
 
 interface PersistedTopicWorkbenchState {
@@ -110,6 +123,37 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 		candidateId: string;
 		patch: Partial<Pick<TopicCandidate, "title" | "summary" | "coreViewpoint">>;
 	}) => void;
+	updateInputMaterial: ({
+		materialId,
+		patch,
+	}: {
+		materialId: string;
+		patch: TopicInputMaterialPatch;
+	}) => void;
+	removeInputMaterial: ({ materialId }: { materialId: string }) => void;
+	toggleResearchInsightHidden: ({
+		insightId,
+		hidden,
+	}: {
+		insightId: string;
+		hidden?: boolean;
+	}) => void;
+	addResearchInsight: ({
+		title,
+		content,
+		sourceIds,
+	}: {
+		title: string;
+		content: string;
+		sourceIds?: string[];
+	}) => void;
+	updateResearchInsight: ({
+		insightId,
+		patch,
+	}: {
+		insightId: string;
+		patch: Partial<Pick<ResearchInsight, "title" | "content" | "sourceIds">>;
+	}) => void;
 	confirmCandidate: () => void;
 	runResearch: () => void;
 	prepareStructureOptions: () => void;
@@ -126,12 +170,34 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 		patch,
 	}: {
 		versionId?: string;
-		patch: Partial<
-			Pick<
-				TopicPackageVersion,
-				"title" | "summary" | "coreViewpoint" | "audienceAnalysis" | "rationale"
-			>
-		>;
+		patch: TopicPackagePatch;
+	}) => void;
+	updatePackageOutlineItem: ({
+		versionId,
+		outlineIndex,
+		value,
+	}: {
+		versionId?: string;
+		outlineIndex: number;
+		value: string;
+	}) => void;
+	updatePackagePlatformRecommendation: ({
+		versionId,
+		recommendationIndex,
+		patch,
+	}: {
+		versionId?: string;
+		recommendationIndex: number;
+		patch: TopicPackagePlatformRecommendationPatch;
+	}) => void;
+	updatePackageCoverIdea: ({
+		versionId,
+		coverIndex,
+		value,
+	}: {
+		versionId?: string;
+		coverIndex: number;
+		value: string;
 	}) => void;
 	updateScriptSegment: ({
 		versionId,
@@ -508,6 +574,51 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 					}),
 				),
 
+			updateInputMaterial: ({ materialId, patch }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							updateTopicInputMaterial({ project, materialId, patch }),
+					}),
+				),
+
+			removeInputMaterial: ({ materialId }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							removeTopicInputMaterial({ project, materialId }),
+					}),
+				),
+
+			toggleResearchInsightHidden: ({ insightId, hidden }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							toggleResearchInsightHidden({ project, insightId, hidden }),
+					}),
+				),
+
+			addResearchInsight: ({ title, content, sourceIds }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							addResearchInsight({ project, title, content, sourceIds }),
+					}),
+				),
+
+			updateResearchInsight: ({ insightId, patch }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							updateResearchInsight({ project, insightId, patch }),
+					}),
+				),
+
 			confirmCandidate: () =>
 				set((state) =>
 					updateActiveProject({
@@ -619,22 +730,54 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 				set((state) =>
 					updateActiveProject({
 						state,
-						updater: (project) => {
-							const targetVersionId =
-								versionId ??
-								project.activePackageVersionId ??
-								project.packageVersions.at(-1)?.id;
-							if (!targetVersionId) return project;
-							return {
-								...project,
-								packageVersions: project.packageVersions.map((version) =>
-									version.id === targetVersionId
-										? { ...version, ...patch }
-										: version,
-								),
-								updatedAt: Date.now(),
-							};
-						},
+						updater: (project) =>
+							updateTopicPackageVersion({ project, versionId, patch }),
+					}),
+				),
+
+			updatePackageOutlineItem: ({ versionId, outlineIndex, value }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							updateTopicPackageOutlineItem({
+								project,
+								versionId,
+								outlineIndex,
+								value,
+							}),
+					}),
+				),
+
+			updatePackagePlatformRecommendation: ({
+				versionId,
+				recommendationIndex,
+				patch,
+			}) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							updateTopicPackagePlatformRecommendation({
+								project,
+								versionId,
+								recommendationIndex,
+								patch,
+							}),
+					}),
+				),
+
+			updatePackageCoverIdea: ({ versionId, coverIndex, value }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							updateTopicPackageCoverIdea({
+								project,
+								versionId,
+								coverIndex,
+								value,
+							}),
 					}),
 				),
 
@@ -642,30 +785,13 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 				set((state) =>
 					updateActiveProject({
 						state,
-						updater: (project) => {
-							const targetVersionId =
-								versionId ??
-								project.activePackageVersionId ??
-								project.packageVersions.at(-1)?.id;
-							if (!targetVersionId || segmentIndex < 0) return project;
-							return {
-								...project,
-								packageVersions: project.packageVersions.map((version) =>
-									version.id === targetVersionId
-										? {
-												...version,
-												scriptSegments: version.scriptSegments.map(
-													(segment, index) =>
-														index === segmentIndex
-															? { ...segment, ...patch }
-															: segment,
-												),
-											}
-										: version,
-								),
-								updatedAt: Date.now(),
-							};
-						},
+						updater: (project) =>
+							updateTopicPackageScriptSegment({
+								project,
+								versionId,
+								segmentIndex,
+								patch,
+							}),
 					}),
 				),
 

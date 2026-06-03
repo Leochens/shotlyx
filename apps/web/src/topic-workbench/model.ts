@@ -66,11 +66,14 @@ export interface ResearchSourceDraft {
 }
 
 export interface ResearchInsightDraft {
+	id?: string;
 	title?: string;
 	content: string;
 	sourceIndexes?: number[];
 	sourceUrls?: string[];
 	sourceTitles?: string[];
+	hidden?: boolean;
+	kind?: ResearchInsight["kind"];
 }
 
 export interface VideoStructureOptionDraft {
@@ -101,6 +104,26 @@ export interface ProductionPlanDraft {
 		optional?: boolean;
 	}>;
 	nextActions?: string[];
+}
+
+export interface TopicPackagePatch {
+	title?: string;
+	summary?: string;
+	coreViewpoint?: string;
+	audienceAnalysis?: string;
+	durationMinutes?: number;
+	rationale?: string;
+}
+
+export interface TopicPackagePlatformRecommendationPatch {
+	title?: string;
+	description?: string;
+}
+
+export interface TopicInputMaterialPatch {
+	title?: string;
+	summary?: string;
+	content?: string;
 }
 
 function createId(prefix: string): string {
@@ -628,12 +651,14 @@ function createResearchInsightsFromDrafts({
 		if (!content) return [];
 		return [
 			{
-				id: createId("insight"),
+				id: insight.id?.trim() || createId("insight"),
 				title:
 					insight.title?.trim() ||
 					`知识点 ${Math.min((insights ?? []).indexOf(insight) + 1, 10)}`,
 				content,
 				sourceIds: resolveInsightSourceIds({ draft: insight, sources }),
+				hidden: insight.hidden ?? false,
+				kind: insight.kind ?? "agent",
 			},
 		];
 	});
@@ -647,6 +672,8 @@ function createResearchInsightsFromDrafts({
 			source.angle ||
 			"这条资料可作为当前选题调研和事实核查的参考。",
 		sourceIds: [source.id],
+		hidden: false,
+		kind: "agent",
 	}));
 }
 
@@ -956,6 +983,59 @@ export function selectCandidate({
 	};
 }
 
+export function updateTopicInputMaterial({
+	project,
+	materialId,
+	patch,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	materialId: string;
+	patch: TopicInputMaterialPatch;
+	now?: number;
+}): TopicProject {
+	return {
+		...project,
+		inputMaterials: (project.inputMaterials ?? []).map((material) =>
+			material.id === materialId
+				? {
+						...material,
+						title: patch.title
+							? clampText({ value: patch.title, maxLength: 80 })
+							: material.title,
+						summary:
+							patch.summary !== undefined
+								? patch.summary.trim() || undefined
+								: material.summary,
+						content:
+							patch.content !== undefined
+								? clampMaterialContent(patch.content)
+								: material.content,
+					}
+				: material,
+		),
+		updatedAt: now,
+	};
+}
+
+export function removeTopicInputMaterial({
+	project,
+	materialId,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	materialId: string;
+	now?: number;
+}): TopicProject {
+	return {
+		...project,
+		inputMaterials: (project.inputMaterials ?? []).filter(
+			(material) => material.id !== materialId,
+		),
+		updatedAt: now,
+	};
+}
+
 export function updateCandidate({
 	project,
 	candidateId,
@@ -973,6 +1053,93 @@ export function updateCandidate({
 			candidate.id === candidateId
 				? { ...candidate, ...patch, updatedAt: now }
 				: candidate,
+		),
+		updatedAt: now,
+	};
+}
+
+export function toggleResearchInsightHidden({
+	project,
+	insightId,
+	hidden,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	insightId: string;
+	hidden?: boolean;
+	now?: number;
+}): TopicProject {
+	return {
+		...project,
+		researchInsights: (project.researchInsights ?? []).map((insight) =>
+			insight.id === insightId
+				? { ...insight, hidden: hidden ?? !insight.hidden }
+				: insight,
+		),
+		updatedAt: now,
+	};
+}
+
+export function addResearchInsight({
+	project,
+	title,
+	content,
+	sourceIds = [],
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	title: string;
+	content: string;
+	sourceIds?: string[];
+	now?: number;
+}): TopicProject {
+	const trimmedContent = content.trim();
+	if (!trimmedContent) return project;
+	return {
+		...project,
+		researchInsights: [
+			...(project.researchInsights ?? []),
+			{
+				id: createId("insight"),
+				title: title.trim() || "我的补充想法",
+				content: trimmedContent,
+				sourceIds,
+				hidden: false,
+				kind: "custom",
+			},
+		],
+		updatedAt: now,
+	};
+}
+
+export function updateResearchInsight({
+	project,
+	insightId,
+	patch,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	insightId: string;
+	patch: Partial<Pick<ResearchInsight, "title" | "content" | "sourceIds">>;
+	now?: number;
+}): TopicProject {
+	return {
+		...project,
+		researchInsights: (project.researchInsights ?? []).map((insight) =>
+			insight.id === insightId
+				? {
+						...insight,
+						title:
+							patch.title !== undefined
+								? patch.title.trim() || insight.title
+								: insight.title,
+						content:
+							patch.content !== undefined
+								? patch.content.trim() || insight.content
+								: insight.content,
+						sourceIds: patch.sourceIds ?? insight.sourceIds,
+					}
+				: insight,
 		),
 		updatedAt: now,
 	};
@@ -1336,6 +1503,226 @@ export function addPackageVersion({
 		packageVersions: [...project.packageVersions, version],
 		activePackageVersionId: version.id,
 		activeProductionPlanId: null,
+		updatedAt: now,
+	};
+}
+
+function getTargetPackageVersionId({
+	project,
+	versionId,
+}: {
+	project: TopicProject;
+	versionId?: string;
+}): string | null {
+	return (
+		versionId ??
+		project.activePackageVersionId ??
+		project.packageVersions.at(-1)?.id ??
+		null
+	);
+}
+
+export function updateTopicPackageVersion({
+	project,
+	versionId,
+	patch,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	versionId?: string;
+	patch: TopicPackagePatch;
+	now?: number;
+}): TopicProject {
+	const targetVersionId = getTargetPackageVersionId({ project, versionId });
+	if (!targetVersionId) return project;
+	return {
+		...project,
+		packageVersions: project.packageVersions.map((version) =>
+			version.id === targetVersionId
+				? {
+						...version,
+						title:
+							patch.title !== undefined
+								? patch.title
+								: version.title,
+						summary:
+							patch.summary !== undefined
+								? patch.summary
+								: version.summary,
+						coreViewpoint:
+							patch.coreViewpoint !== undefined
+								? patch.coreViewpoint
+								: version.coreViewpoint,
+						audienceAnalysis:
+							patch.audienceAnalysis !== undefined
+								? patch.audienceAnalysis
+								: version.audienceAnalysis,
+						durationMinutes:
+							typeof patch.durationMinutes === "number" &&
+							Number.isFinite(patch.durationMinutes) &&
+							patch.durationMinutes > 0
+								? Math.round(patch.durationMinutes)
+								: version.durationMinutes,
+						rationale:
+							patch.rationale !== undefined
+								? patch.rationale
+								: version.rationale,
+					}
+				: version,
+		),
+		updatedAt: now,
+	};
+}
+
+export function updateTopicPackageOutlineItem({
+	project,
+	versionId,
+	outlineIndex,
+	value,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	versionId?: string;
+	outlineIndex: number;
+	value: string;
+	now?: number;
+}): TopicProject {
+	const targetVersionId = getTargetPackageVersionId({ project, versionId });
+	if (!targetVersionId || outlineIndex < 0) return project;
+	return {
+		...project,
+		packageVersions: project.packageVersions.map((version) =>
+			version.id === targetVersionId
+				? {
+						...version,
+						outline: version.outline.map((item, index) =>
+							index === outlineIndex ? value : item,
+						),
+					}
+				: version,
+		),
+		updatedAt: now,
+	};
+}
+
+export function updateTopicPackagePlatformRecommendation({
+	project,
+	versionId,
+	recommendationIndex,
+	patch,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	versionId?: string;
+	recommendationIndex: number;
+	patch: TopicPackagePlatformRecommendationPatch;
+	now?: number;
+}): TopicProject {
+	const targetVersionId = getTargetPackageVersionId({ project, versionId });
+	if (!targetVersionId || recommendationIndex < 0) return project;
+	return {
+		...project,
+		packageVersions: project.packageVersions.map((version) =>
+			version.id === targetVersionId
+				? {
+						...version,
+						platformRecommendations: version.platformRecommendations.map(
+							(recommendation, index) =>
+								index === recommendationIndex
+									? {
+											...recommendation,
+											title:
+												patch.title !== undefined
+													? patch.title
+													: recommendation.title,
+											description:
+												patch.description !== undefined
+													? patch.description
+													: recommendation.description,
+										}
+									: recommendation,
+						),
+					}
+				: version,
+		),
+		updatedAt: now,
+	};
+}
+
+export function updateTopicPackageCoverIdea({
+	project,
+	versionId,
+	coverIndex,
+	value,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	versionId?: string;
+	coverIndex: number;
+	value: string;
+	now?: number;
+}): TopicProject {
+	const targetVersionId = getTargetPackageVersionId({ project, versionId });
+	if (!targetVersionId || coverIndex < 0) return project;
+	return {
+		...project,
+		packageVersions: project.packageVersions.map((version) =>
+			version.id === targetVersionId
+				? {
+						...version,
+						coverIdeas: version.coverIdeas.map((idea, index) =>
+							index === coverIndex ? value : idea,
+						),
+					}
+				: version,
+		),
+		updatedAt: now,
+	};
+}
+
+export function updateTopicPackageScriptSegment({
+	project,
+	versionId,
+	segmentIndex,
+	patch,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	versionId?: string;
+	segmentIndex: number;
+	patch: Partial<ScriptSegment>;
+	now?: number;
+}): TopicProject {
+	const targetVersionId = getTargetPackageVersionId({ project, versionId });
+	if (!targetVersionId || segmentIndex < 0) return project;
+	return {
+		...project,
+		packageVersions: project.packageVersions.map((version) =>
+			version.id === targetVersionId
+				? {
+						...version,
+						scriptSegments: version.scriptSegments.map((segment, index) =>
+							index === segmentIndex
+								? {
+										...segment,
+										timeRange:
+											patch.timeRange !== undefined
+												? patch.timeRange
+												: segment.timeRange,
+										content:
+											patch.content !== undefined
+												? patch.content
+												: segment.content,
+										materialSuggestion:
+											patch.materialSuggestion !== undefined
+												? patch.materialSuggestion
+												: segment.materialSuggestion,
+									}
+								: segment,
+						),
+					}
+				: version,
+		),
 		updatedAt: now,
 	};
 }

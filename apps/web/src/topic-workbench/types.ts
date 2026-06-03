@@ -48,6 +48,8 @@ export interface ResearchInsight {
 	title: string;
 	content: string;
 	sourceIds: string[];
+	hidden?: boolean;
+	kind?: "agent" | "custom";
 }
 
 export interface VideoStructureStep {

@@ -25,7 +25,9 @@ describe("topic workbench integration contract", () => {
 	});
 
 	test("clears one-shot draft references immediately after sending", () => {
-		const addMessageIndex = chatPanelSource.indexOf("addMessage(userMsg);");
+		const addMessageIndex = chatPanelSource.indexOf(
+			"addMessage(userMsg, chatSessionId);",
+		);
 		const clearIndex = chatPanelSource.indexOf("clearDraftReferences();");
 		const runIndex = chatPanelSource.indexOf("await runSSEAgent({");
 
@@ -39,6 +41,19 @@ describe("topic workbench integration contract", () => {
 		expect(editorPageSource).toContain('activeWorkbench === "topic"');
 		expect(editorPageSource).toContain("!activeTopicProject");
 		expect(editorPageSource).toContain("<AgentPanelFrame />");
+		expect(chatPanelSource).toContain("isFocusedTopicChat");
+		expect(chatPanelSource).toContain("max-w-4xl");
+		expect(chatPanelSource).toContain("centered={isFocusedTopicChat}");
+	});
+
+	test("keeps topic and video chat sessions scoped separately", () => {
+		expect(chatPanelSource).toContain(
+			"`${editorProjectId}::${activeWorkbench}`",
+		);
+		expect(chatPanelSource).toContain("chatSessionId");
+		expect(chatPanelSource).toContain("getSessionMessages(chatSessionId)");
+		expect(chatPanelSource).toContain("TOPIC_PACKAGE_RESOURCE_TOOL_NAMES");
+		expect(chatPanelSource).toContain("getTopicPackageResourceToolSchemas");
 	});
 
 	test("offers broad topic intent capsules with intake-first prompts", () => {

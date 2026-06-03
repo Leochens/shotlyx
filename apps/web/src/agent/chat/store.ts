@@ -2,7 +2,12 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createIndexedDBPersistStorage } from "./indexeddb-storage";
-import type { ChatSession, ChatState, ExecutionMode } from "./types";
+import type {
+	ChatSession,
+	ChatSessionRunState,
+	ChatState,
+	ExecutionMode,
+} from "./types";
 
 interface PersistedChatState {
 	sessions: ChatSession[];
@@ -71,10 +76,29 @@ function getProjectSessions({
 	return sessions.filter((session) => getSessionProjectId(session) === projectId);
 }
 
+const EMPTY_RUN_STATE: ChatSessionRunState = {
+	isLoading: false,
+	pendingPlan: null,
+	streamingMessageId: null,
+};
+
+function getRunStateForSession({
+	runStatesBySessionId,
+	sessionId,
+}: {
+	runStatesBySessionId: Record<string, ChatSessionRunState>;
+	sessionId: string | null | undefined;
+}): ChatSessionRunState {
+	if (!sessionId) return EMPTY_RUN_STATE;
+	return runStatesBySessionId[sessionId] ?? EMPTY_RUN_STATE;
+}
+
 const initialState: Omit<
 	ChatState,
 	| "getActiveSession"
 	| "getActiveMessages"
+	| "getSessionMessages"
+	| "getSessionRunState"
 	| "setIsHydrated"
 	| "setActiveProject"
 	| "createSession"
@@ -107,6 +131,7 @@ const initialState: Omit<
 	selectedAgent: "default",
 	pendingPlan: null,
 	streamingMessageId: null,
+	runStatesBySessionId: {},
 };
 
 export const useChatStore = create<ChatState>()(
@@ -127,6 +152,22 @@ export const useChatStore = create<ChatState>()(
 			getActiveMessages: () => {
 				const session = get().getActiveSession();
 				return session?.messages ?? [];
+			},
+
+			getSessionMessages: (sessionId) => {
+				if (!sessionId) return [];
+				return (
+					get().sessions.find((session) => session.id === sessionId)?.messages ??
+					[]
+				);
+			},
+
+			getSessionRunState: (sessionId) => {
+				const state = get();
+				return getRunStateForSession({
+					runStatesBySessionId: state.runStatesBySessionId,
+					sessionId: sessionId ?? state.activeSessionId,
+				});
 			},
 
 			setIsHydrated: (isHydrated) => set({ isHydrated }),
@@ -158,8 +199,10 @@ export const useChatStore = create<ChatState>()(
 						return {
 							activeProjectId: normalizedProjectId,
 							activeSessionId: nextActive.id,
-							pendingPlan: null,
-							streamingMessageId: null,
+							...getRunStateForSession({
+								runStatesBySessionId: state.runStatesBySessionId,
+								sessionId: nextActive.id,
+							}),
 						};
 					}
 
@@ -170,8 +213,7 @@ export const useChatStore = create<ChatState>()(
 						sessions: [...state.sessions, newSession],
 						activeProjectId: normalizedProjectId,
 						activeSessionId: newSession.id,
-						pendingPlan: null,
-						streamingMessageId: null,
+						...EMPTY_RUN_STATE,
 					};
 				});
 			},
@@ -190,8 +232,7 @@ export const useChatStore = create<ChatState>()(
 				set((state) => ({
 					sessions: [...state.sessions, newSession],
 					activeSessionId: newSession.id,
-					pendingPlan: null,
-					streamingMessageId: null,
+					...EMPTY_RUN_STATE,
 				}));
 			},
 
@@ -202,8 +243,10 @@ export const useChatStore = create<ChatState>()(
 					return {
 						activeProjectId: getSessionProjectId(session),
 						activeSessionId: id,
-						pendingPlan: null,
-						streamingMessageId: null,
+						...getRunStateForSession({
+							runStatesBySessionId: state.runStatesBySessionId,
+							sessionId: id,
+						}),
 					};
 				});
 			},
@@ -218,8 +261,8 @@ export const useChatStore = create<ChatState>()(
 						return {
 							sessions: [replacement],
 							activeSessionId: replacement.id,
-							pendingPlan: null,
-							streamingMessageId: null,
+							runStatesBySessionId: {},
+							...EMPTY_RUN_STATE,
 						};
 					}
 					const activeProjectSessions = getProjectSessions({
@@ -233,8 +276,12 @@ export const useChatStore = create<ChatState>()(
 						return {
 							sessions: [...filtered, replacement],
 							activeSessionId: replacement.id,
-							pendingPlan: null,
-							streamingMessageId: null,
+							runStatesBySessionId: Object.fromEntries(
+								Object.entries(state.runStatesBySessionId).filter(
+									([sessionId]) => sessionId !== id,
+								),
+							),
+							...EMPTY_RUN_STATE,
 						};
 					}
 					const newActive =
@@ -244,8 +291,15 @@ export const useChatStore = create<ChatState>()(
 					return {
 						sessions: filtered,
 						activeSessionId: newActive,
-						pendingPlan: null,
-						streamingMessageId: null,
+						runStatesBySessionId: Object.fromEntries(
+							Object.entries(state.runStatesBySessionId).filter(
+								([sessionId]) => sessionId !== id,
+							),
+						),
+						...getRunStateForSession({
+							runStatesBySessionId: state.runStatesBySessionId,
+							sessionId: newActive,
+						}),
 					};
 				});
 			},
@@ -268,8 +322,11 @@ export const useChatStore = create<ChatState>()(
 								? { ...s, messages: [], updatedAt: Date.now() }
 								: s,
 						),
-						pendingPlan: null,
-						streamingMessageId: null,
+						runStatesBySessionId: {
+							...state.runStatesBySessionId,
+							[targetId]: EMPTY_RUN_STATE,
+						},
+						...(targetId === state.activeSessionId ? EMPTY_RUN_STATE : {}),
 					};
 				});
 			},
@@ -318,11 +375,74 @@ export const useChatStore = create<ChatState>()(
 				});
 			},
 
-			setLoading: (loading) => set({ isLoading: loading }),
+			setLoading: (loading, sessionId) =>
+				set((state) => {
+					const targetId = sessionId ?? state.activeSessionId;
+					if (!targetId) return { isLoading: loading };
+					const currentRunState = getRunStateForSession({
+						runStatesBySessionId: state.runStatesBySessionId,
+						sessionId: targetId,
+					});
+					const nextRunState = {
+						...currentRunState,
+						isLoading: loading,
+					};
+					return {
+						runStatesBySessionId: {
+							...state.runStatesBySessionId,
+							[targetId]: nextRunState,
+						},
+						...(targetId === state.activeSessionId
+							? { isLoading: loading }
+							: {}),
+					};
+				}),
 			setMode: (mode) => set({ mode }),
 			setSelectedAgent: (agent) => set({ selectedAgent: agent }),
-			setPendingPlan: (plan) => set({ pendingPlan: plan }),
-			setStreamingMessageId: (id) => set({ streamingMessageId: id }),
+			setPendingPlan: (plan, sessionId) =>
+				set((state) => {
+					const targetId = sessionId ?? state.activeSessionId;
+					if (!targetId) return { pendingPlan: plan };
+					const currentRunState = getRunStateForSession({
+						runStatesBySessionId: state.runStatesBySessionId,
+						sessionId: targetId,
+					});
+					const nextRunState = {
+						...currentRunState,
+						pendingPlan: plan,
+					};
+					return {
+						runStatesBySessionId: {
+							...state.runStatesBySessionId,
+							[targetId]: nextRunState,
+						},
+						...(targetId === state.activeSessionId
+							? { pendingPlan: plan }
+							: {}),
+					};
+				}),
+			setStreamingMessageId: (id, sessionId) =>
+				set((state) => {
+					const targetId = sessionId ?? state.activeSessionId;
+					if (!targetId) return { streamingMessageId: id };
+					const currentRunState = getRunStateForSession({
+						runStatesBySessionId: state.runStatesBySessionId,
+						sessionId: targetId,
+					});
+					const nextRunState = {
+						...currentRunState,
+						streamingMessageId: id,
+					};
+					return {
+						runStatesBySessionId: {
+							...state.runStatesBySessionId,
+							[targetId]: nextRunState,
+						},
+						...(targetId === state.activeSessionId
+							? { streamingMessageId: id }
+							: {}),
+					};
+				}),
 
 			updateMessageContent: ({ id, content }, sessionId) => {
 				set((state) => {
@@ -483,6 +603,7 @@ export const useChatStore = create<ChatState>()(
 					selectedAgent: "default",
 					pendingPlan: null,
 					streamingMessageId: null,
+					runStatesBySessionId: {},
 				});
 				return get();
 			},

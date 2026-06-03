@@ -80,6 +80,7 @@ interface BottomToolbarProps {
 		name: string;
 		content: string;
 	}) => void;
+	centered?: boolean;
 }
 
 const MEDIA_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"] as const;
@@ -157,6 +158,7 @@ export function BottomToolbar({
 	onTopicSourceMaterialOpenChange,
 	onTopicMaterialUploadClick,
 	onTopicSourceMaterialAdd,
+	centered = false,
 }: BottomToolbarProps) {
 	const { copy } = useAppLocale();
 	const toolbarCopy = copy.editor.toolbar;
@@ -582,8 +584,9 @@ export function BottomToolbar({
 			}}
 			className="border-t border-border/70 bg-background/95 p-2"
 		>
-			{modeControls}
-			<div className={CHAT_INPUT_SURFACE_CLASS_NAME}>
+			<div className={cn(centered && "mx-auto w-full max-w-4xl")}>
+				{modeControls}
+				<div className={CHAT_INPUT_SURFACE_CLASS_NAME}>
 				<textarea
 					value={input}
 					data-testid="chat-input"
@@ -815,6 +818,7 @@ export function BottomToolbar({
 						</Button>
 					)}
 				</div>
+			</div>
 			</div>
 		</form>
 	);

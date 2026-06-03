@@ -93,6 +93,20 @@ describe("BottomToolbar", () => {
 		expect(videoHtml).not.toContain("上传素材");
 	});
 
+	test("can center the default chat input for the focused topic chat", () => {
+		const html = renderToStaticMarkup(
+			<BottomToolbar
+				input=""
+				selectedAgent="default"
+				centered
+				onInputChange={() => {}}
+				onSubmit={() => {}}
+			/>,
+		);
+
+		expect(html).toContain("max-w-4xl");
+	});
+
 	test("expands long topic workflow prompts in the chat input", () => {
 		const longTopicPrompt = `${"我想做一个口播观点类视频。".repeat(45)}
 

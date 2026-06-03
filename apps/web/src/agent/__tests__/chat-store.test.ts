@@ -105,6 +105,27 @@ describe("Chat store", () => {
 		expect(useChatStore.getState().streamingMessageId).toBe("stream-1");
 	});
 
+	test("keeps loading and streaming state isolated per session", () => {
+		const state = useChatStore.getState();
+		const firstSessionId = state.activeSessionId;
+		if (firstSessionId === null) throw new Error("firstSessionId is null");
+		state.createSession("Second Session");
+		const secondSessionId = useChatStore.getState().activeSessionId;
+		if (secondSessionId === null) throw new Error("secondSessionId is null");
+
+		useChatStore.getState().switchSession(firstSessionId);
+		useChatStore.getState().setLoading(true, firstSessionId);
+		useChatStore.getState().setStreamingMessageId("stream-first", firstSessionId);
+
+		useChatStore.getState().switchSession(secondSessionId);
+		expect(useChatStore.getState().isLoading).toBe(false);
+		expect(useChatStore.getState().streamingMessageId).toBeNull();
+
+		useChatStore.getState().switchSession(firstSessionId);
+		expect(useChatStore.getState().isLoading).toBe(true);
+		expect(useChatStore.getState().streamingMessageId).toBe("stream-first");
+	});
+
 	test("creates a new session and switches to it", () => {
 		const state = useChatStore.getState();
 		const initialSessionId = state.activeSessionId;

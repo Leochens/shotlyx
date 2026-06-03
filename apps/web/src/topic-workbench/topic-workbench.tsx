@@ -11,18 +11,26 @@ import {
 import {
 	ArrowRight,
 	BookOpenText,
+	BrainCircuit,
 	Check,
 	CheckCircle2,
+	ChevronDown,
+	ChevronRight,
 	Clapperboard,
+	Eye,
+	EyeOff,
 	ExternalLink,
 	FileText,
 	History,
 	LayoutTemplate,
 	Lightbulb,
+	Loader2,
+	Pencil,
 	Plus,
 	Radar,
 	RefreshCw,
 	Search,
+	Trash2,
 	Video,
 	type LucideIcon,
 } from "lucide-react";
@@ -96,6 +104,25 @@ const STAGES: Array<{
 		icon: Video,
 	},
 ];
+
+type TopicWorkbenchSectionId =
+	| "inputMaterials"
+	| "ideation"
+	| "research"
+	| "structure"
+	| "package"
+	| "production";
+
+type CollapsedSections = Record<TopicWorkbenchSectionId, boolean>;
+
+const DEFAULT_COLLAPSED_SECTIONS: CollapsedSections = {
+	inputMaterials: false,
+	ideation: false,
+	research: false,
+	structure: false,
+	package: false,
+	production: false,
+};
 
 const PLATFORM_LABELS: Record<TopicPlatform, string> = {
 	bilibili: "B 站",
@@ -234,7 +261,13 @@ function getResearchInsights(project: TopicProject): ResearchInsight[] {
 			source.angle ||
 			"这条资料可作为当前选题调研和事实核查的参考。",
 		sourceIds: [source.id],
+		hidden: false,
+		kind: "agent",
 	}));
+}
+
+function getUsableResearchInsights(project: TopicProject): ResearchInsight[] {
+	return getResearchInsights(project).filter((insight) => !insight.hidden);
 }
 
 function getStageLabel(stage: TopicStage): string {
@@ -323,65 +356,18 @@ function buildStageResetTask({
 }
 
 function buildVideoProductionHandoffPrompt({
-	project,
 	topicPackage,
-	productionPlan,
+	action,
 }: {
-	project: TopicProject;
 	topicPackage: TopicPackageVersion;
-	productionPlan?: ProductionPlan | null;
+	action: string;
 }): string {
-	const segmentText = topicPackage.scriptSegments
-		.map(
-			(segment, index) =>
-				`${index + 1}. ${segment.timeRange}｜${segment.content}｜素材建议：${segment.materialSuggestion}`,
-		)
-		.join("\n");
-	const platformText = topicPackage.platformRecommendations
-		.map(
-			(item) =>
-				`${PLATFORM_LABELS[item.platform]}：${item.title}\n${item.description}`,
-		)
-		.join("\n\n");
-	const referenceText = project.researchSources
-		.map((source) => `${source.sourceName}｜${source.title}｜${source.url}`)
-		.join("\n");
-	const insightText = getResearchInsights(project)
-		.map(
-			(insight, index) => `${index + 1}. ${insight.title}：${insight.content}`,
-		)
-		.join("\n");
-	const materialText = buildInputMaterialContext(project);
-	const productionPlanText = productionPlan
-		? `\n制作计划：\n视频类型：${productionPlan.videoType}\n目标平台：${productionPlan.targetPlatform.join("、")}\n预估时长：${productionPlan.estimatedDurationMinutes} 分钟\n素材需求：${productionPlan.requiredAssets.map((asset) => `${asset.optional ? "可选" : "必需"} ${asset.type}：${asset.description}`).join("\n")}\n制作分段：\n${productionPlan.segments.map((segment, index) => `${index + 1}. ${segment.timeRange}｜${segment.goal}｜视觉：${segment.visualNeed}｜剪辑：${segment.editSuggestion}`).join("\n")}`
-		: "";
+	return `请接手当前选题包资源，进入视频制作流程。不要要求我重新粘贴完整选题包；请先调用 topic_get_active_package 读取结构化资源，再基于其中的脚本分段、素材建议、调研资料、知识脉络和制作计划，规划占位素材、口播/配音建议、MG 动画位置和剪辑结构。
 
-	return `请接手这个选题包，进入视频制作流程。请基于下列内容自动规划占位素材、口播/配音建议、可做 MG 动画的位置和剪辑结构，先给出制作方案，再等待我确认是否执行。
+资源标题：${topicPackage.title}
+本次优先动作：${action}
 
-标题：${topicPackage.title}
-摘要：${topicPackage.summary}
-核心观点：${topicPackage.coreViewpoint}
-受众：${topicPackage.audienceAnalysis}
-预期时长：${topicPackage.durationMinutes} 分钟
-选题缘由：${topicPackage.rationale}
-
-脚本大纲：
-${topicPackage.outline.join("\n")}
-
-时间段、内容与素材建议：
-${segmentText}
-
-发布文案：
-${platformText}
-
-封面建议：
-${topicPackage.coverIdeas.join("\n")}
-
-参考资料：
-${referenceText || "暂无资料，请先根据选题包做占位制作规划。"}
-
-调研知识脉络：
-${insightText || "暂无知识脉络，请先根据选题包做占位制作规划。"}${materialText}${productionPlanText}`;
+读取资源后，先给出可执行制作方案，再等我确认是否真正生成时间线或素材。`;
 }
 
 export function TopicWorkbench({
@@ -395,6 +381,9 @@ export function TopicWorkbench({
 	const [pendingResetStage, setPendingResetStage] = useState<TopicStage | null>(
 		null,
 	);
+	const [collapsedSections, setCollapsedSections] =
+		useState<CollapsedSections>(DEFAULT_COLLAPSED_SECTIONS);
+	const lastAutoCollapsedPackageIdRef = useRef<string | null>(null);
 	const ideationSectionRef = useRef<HTMLElement | null>(null);
 	const researchSectionRef = useRef<HTMLElement | null>(null);
 	const structureSectionRef = useRef<HTMLElement | null>(null);
@@ -434,6 +423,33 @@ export function TopicWorkbench({
 		});
 		return () => cancelAnimationFrame(frameId);
 	}, [activeProject, stageSectionRefs]);
+
+	useEffect(() => {
+		const activePackageId = activeProject?.activePackageVersionId ?? null;
+		if (
+			!activePackageId ||
+			lastAutoCollapsedPackageIdRef.current === activePackageId
+		) {
+			return;
+		}
+		lastAutoCollapsedPackageIdRef.current = activePackageId;
+		setCollapsedSections((current) => ({
+			...current,
+			inputMaterials: true,
+			ideation: true,
+			research: true,
+			structure: true,
+			package: false,
+			production: false,
+		}));
+	}, [activeProject?.activePackageVersionId]);
+
+	const toggleSection = (sectionId: TopicWorkbenchSectionId) => {
+		setCollapsedSections((current) => ({
+			...current,
+			[sectionId]: !current[sectionId],
+		}));
+	};
 
 	if (!activeProject) {
 		return (
@@ -483,7 +499,11 @@ export function TopicWorkbench({
 			<div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
 				<div className="min-h-full min-w-0 space-y-3 p-3">
 					<VersionSummaryBar project={activeProject} />
-					<InputMaterialsSection project={activeProject} />
+					<InputMaterialsSection
+						project={activeProject}
+						isCollapsed={collapsedSections.inputMaterials}
+						onToggleCollapse={() => toggleSection("inputMaterials")}
+					/>
 					<StageProgress
 						project={activeProject}
 						onStageClick={handleStageClick}
@@ -492,22 +512,32 @@ export function TopicWorkbench({
 						project={activeProject}
 						onRequestStageReset={(stage) => setPendingResetStage(stage)}
 						sectionRef={ideationSectionRef}
+						isCollapsed={collapsedSections.ideation}
+						onToggleCollapse={() => toggleSection("ideation")}
 					/>
 					<ResearchSection
 						project={activeProject}
 						sectionRef={researchSectionRef}
+						isCollapsed={collapsedSections.research}
+						onToggleCollapse={() => toggleSection("research")}
 					/>
 					<StructureSection
 						project={activeProject}
 						sectionRef={structureSectionRef}
+						isCollapsed={collapsedSections.structure}
+						onToggleCollapse={() => toggleSection("structure")}
 					/>
 					<PackageSection
 						project={activeProject}
 						sectionRef={packageSectionRef}
+						isCollapsed={collapsedSections.package}
+						onToggleCollapse={() => toggleSection("package")}
 					/>
 					<ProductionPlanSection
 						project={activeProject}
 						sectionRef={productionSectionRef}
+						isCollapsed={collapsedSections.production}
+						onToggleCollapse={() => toggleSection("production")}
 					/>
 				</div>
 			</div>
@@ -578,48 +608,164 @@ function TopicWorkbenchHeader({ project }: { project: TopicProject }) {
 	);
 }
 
-function InputMaterialsSection({ project }: { project: TopicProject }) {
+function InputMaterialsSection({
+	project,
+	isCollapsed,
+	onToggleCollapse,
+}: {
+	project: TopicProject;
+	isCollapsed: boolean;
+	onToggleCollapse: () => void;
+}) {
 	const inputMaterials = project.inputMaterials ?? [];
+	const updateInputMaterial = useTopicWorkbenchStore(
+		(state) => state.updateInputMaterial,
+	);
+	const removeInputMaterial = useTopicWorkbenchStore(
+		(state) => state.removeInputMaterial,
+	);
 	if (inputMaterials.length === 0) return null;
 
 	return (
-		<section className="rounded-sm border border-border/75 bg-card/[0.34] p-3 dark:bg-cyan-300/[0.03]">
-			<SectionHeading
+		<CollapsibleSection
 				icon={FileText}
 				title="素材输入"
 				description="用户提供的素材、脚本和录屏说明会作为后续选题、调研、脚本包的上下文。"
-			/>
+			isCollapsed={isCollapsed}
+			onToggleCollapse={onToggleCollapse}
+			className="bg-card/[0.34] dark:bg-cyan-300/[0.03]"
+		>
 			<div className="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))]">
 				{inputMaterials.map((material) => (
-					<article
+					<InputMaterialCard
 						key={material.id}
-						className="rounded-sm border border-border/70 bg-background px-3 py-2"
-					>
-						<div className="flex items-start justify-between gap-2">
-							<div className="min-w-0">
-								<div className="text-sm font-semibold leading-5 text-foreground">
-									{material.title}
-								</div>
-								<div className="mt-1 text-xs text-muted-foreground">
-									{INPUT_MATERIAL_KIND_LABELS[material.kind]}
-									{material.durationSeconds
-										? ` · ${Math.round(material.durationSeconds)}s`
-										: ""}
-								</div>
-							</div>
-							<span className="shrink-0 rounded-sm border border-border/70 bg-muted/[0.25] px-1.5 py-0.5 text-[0.68rem] text-muted-foreground">
-								{material.mediaType ?? "文本"}
-							</span>
-						</div>
-						{material.summary || material.content ? (
-							<p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">
-								{material.summary ?? material.content}
-							</p>
-						) : null}
-					</article>
+						material={material}
+						onSave={(patch) =>
+							updateInputMaterial({ materialId: material.id, patch })
+						}
+						onRemove={() => removeInputMaterial({ materialId: material.id })}
+					/>
 				))}
 			</div>
-		</section>
+		</CollapsibleSection>
+	);
+}
+
+function InputMaterialCard({
+	material,
+	onSave,
+	onRemove,
+}: {
+	material: TopicProject["inputMaterials"][number];
+	onSave: (patch: {
+		title?: string;
+		summary?: string;
+		content?: string;
+	}) => void;
+	onRemove: () => void;
+}) {
+	const [isEditing, setEditing] = useState(false);
+	const [title, setTitle] = useState(material.title);
+	const [summary, setSummary] = useState(material.summary ?? "");
+	const [content, setContent] = useState(material.content ?? "");
+
+	return (
+		<article className="rounded-sm border border-border/70 bg-background px-3 py-2">
+			<div className="flex items-start justify-between gap-2">
+				<div className="min-w-0 flex-1">
+					{isEditing ? (
+						<input
+							value={title}
+							onChange={(event) => setTitle(event.target.value)}
+							className="h-8 w-full rounded-sm border border-border bg-background px-2 text-sm font-semibold outline-none focus:border-primary/40"
+							aria-label="素材标题"
+						/>
+					) : (
+						<div className="text-sm font-semibold leading-5 text-foreground">
+							{material.title}
+						</div>
+					)}
+					<div className="mt-1 text-xs text-muted-foreground">
+						{INPUT_MATERIAL_KIND_LABELS[material.kind]}
+						{material.durationSeconds
+							? ` · ${Math.round(material.durationSeconds)}s`
+							: ""}
+					</div>
+				</div>
+				<span className="shrink-0 rounded-sm border border-border/70 bg-muted/[0.25] px-1.5 py-0.5 text-[0.68rem] text-muted-foreground">
+					{material.mediaType ?? "文本"}
+				</span>
+			</div>
+			{isEditing ? (
+				<div className="mt-2 space-y-2">
+					<textarea
+						value={summary}
+						onChange={(event) => setSummary(event.target.value)}
+						placeholder="摘要，可选"
+						rows={2}
+						className="w-full resize-y rounded-sm border border-border bg-background px-2 py-1.5 text-xs leading-5 outline-none placeholder:text-muted-foreground focus:border-primary/40"
+					/>
+					<textarea
+						value={content}
+						onChange={(event) => setContent(event.target.value)}
+						placeholder="内容摘录或补充说明"
+						rows={4}
+						className="w-full resize-y rounded-sm border border-border bg-background px-2 py-1.5 text-xs leading-5 outline-none placeholder:text-muted-foreground focus:border-primary/40"
+					/>
+					<div className="flex justify-end gap-2">
+						<Button
+							size="sm"
+							variant="ghost"
+							onClick={() => setEditing(false)}
+						>
+							取消
+						</Button>
+						<Button
+							size="sm"
+							onClick={() => {
+								onSave({ title, summary, content });
+								setEditing(false);
+							}}
+						>
+							保存
+						</Button>
+					</div>
+				</div>
+			) : (
+				<>
+					{material.summary || material.content ? (
+						<p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">
+							{material.summary ?? material.content}
+						</p>
+					) : null}
+					<div className="mt-2 flex justify-end gap-1">
+						<Button
+							size="sm"
+							variant="ghost"
+							onClick={() => {
+								setTitle(material.title);
+								setSummary(material.summary ?? "");
+								setContent(material.content ?? "");
+								setEditing(true);
+							}}
+							title="编辑素材输入"
+						>
+							<Pencil size={13} />
+							编辑
+						</Button>
+						<Button
+							size="sm"
+							variant="ghost"
+							onClick={onRemove}
+							title="删除素材输入"
+						>
+							<Trash2 size={13} />
+							删除
+						</Button>
+					</div>
+				</>
+			)}
+		</article>
 	);
 }
 
@@ -771,19 +917,32 @@ function CandidatesSection({
 	project,
 	onRequestStageReset,
 	sectionRef,
+	isCollapsed,
+	onToggleCollapse,
 }: {
 	project: TopicProject;
 	onRequestStageReset: (stage: TopicStage) => void;
 	sectionRef?: Ref<HTMLElement>;
+	isCollapsed: boolean;
+	onToggleCollapse: () => void;
 }) {
 	const emitAgentEvent = useTopicWorkbenchStore(
 		(state) => state.emitAgentEvent,
 	);
 	const [evidenceCandidate, setEvidenceCandidate] =
 		useState<TopicCandidate | null>(null);
+	const [showOtherCandidates, setShowOtherCandidates] = useState(false);
 	const hasSelection = project.selectedCandidateId !== null;
 	const canInteract = project.stage === "ideation";
 	const selectedCandidate = getSelectedCandidate(project);
+	const shouldCollapseOtherCandidates = !canInteract && selectedCandidate !== null;
+	const selectedCandidates = selectedCandidate ? [selectedCandidate] : [];
+	const otherCandidates = project.candidates.filter(
+		(candidate) => candidate.id !== selectedCandidate?.id,
+	);
+	const visibleCandidates = shouldCollapseOtherCandidates
+		? selectedCandidates
+		: project.candidates;
 	const materialContext = buildInputMaterialContext(project);
 
 	const handleSelectCandidate = (candidate: TopicCandidate) => {
@@ -827,11 +986,8 @@ function CandidatesSection({
 	};
 
 	return (
-		<section
-			ref={sectionRef}
-			className="rounded-sm border border-border/75 bg-background p-3"
-		>
-			<SectionHeading
+		<CollapsibleSection
+			sectionRef={sectionRef}
 				icon={Lightbulb}
 				title="候选选题"
 				description="Agent 聊出来的方向会先在这里变成可查看、可选择的方案。"
@@ -859,18 +1015,26 @@ function CandidatesSection({
 						新版
 					</Button>
 				}
-			/>
+			isCollapsed={isCollapsed}
+			onToggleCollapse={onToggleCollapse}
+		>
 			<div className="mt-3 space-y-2">
 				{project.candidates.length === 0 ? (
 					<div className="rounded-sm border border-dashed border-border/75 bg-muted/[0.18] p-4 text-sm leading-6 text-muted-foreground">
 						等待左侧 Agent 生成新的候选选题后写入这里。
 					</div>
 				) : null}
-				{project.candidates.map((candidate, index) => (
+				{visibleCandidates.map((candidate, index) => (
 					<CandidateCard
 						key={candidate.id}
 						candidate={candidate}
-						index={index}
+						index={
+							shouldCollapseOtherCandidates
+								? project.candidates.findIndex(
+										(item) => item.id === candidate.id,
+									)
+								: index
+						}
 						canInteract={canInteract}
 						isSelected={candidate.id === project.selectedCandidateId}
 						onSelect={() => handleSelectCandidate(candidate)}
@@ -878,6 +1042,40 @@ function CandidatesSection({
 						onShowEvidence={() => setEvidenceCandidate(candidate)}
 					/>
 				))}
+				{shouldCollapseOtherCandidates && otherCandidates.length > 0 ? (
+					<div className="rounded-sm border border-dashed border-border/70 bg-muted/[0.12]">
+						<button
+							type="button"
+							onClick={() => setShowOtherCandidates((current) => !current)}
+							className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+							aria-expanded={showOtherCandidates}
+						>
+							<span>其他候选已折叠（{otherCandidates.length}）</span>
+							{showOtherCandidates ? (
+								<ChevronDown size={14} />
+							) : (
+								<ChevronRight size={14} />
+							)}
+						</button>
+						{showOtherCandidates ? (
+							<div className="space-y-2 border-t border-border/70 p-2">
+								{otherCandidates.map((candidate) => (
+									<div
+										key={candidate.id}
+										className="rounded-sm border border-border/70 bg-background px-3 py-2"
+									>
+										<div className="text-sm font-semibold leading-5 text-foreground">
+											{candidate.title}
+										</div>
+										<p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+											{candidate.summary}
+										</p>
+									</div>
+								))}
+							</div>
+						) : null}
+					</div>
+				) : null}
 			</div>
 			<div className="mt-3 flex justify-end">
 				<Button
@@ -921,7 +1119,7 @@ function CandidatesSection({
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
-		</section>
+		</CollapsibleSection>
 	);
 }
 
@@ -1037,16 +1235,27 @@ function CandidateCard({
 function ResearchSection({
 	project,
 	sectionRef,
+	isCollapsed,
+	onToggleCollapse,
 }: {
 	project: TopicProject;
 	sectionRef?: Ref<HTMLElement>;
+	isCollapsed: boolean;
+	onToggleCollapse: () => void;
 }) {
 	const emitAgentEvent = useTopicWorkbenchStore(
 		(state) => state.emitAgentEvent,
 	);
+	const toggleResearchInsightHidden = useTopicWorkbenchStore(
+		(state) => state.toggleResearchInsightHidden,
+	);
+	const addResearchInsight = useTopicWorkbenchStore(
+		(state) => state.addResearchInsight,
+	);
 	const hasSelection = project.selectedCandidateId !== null;
 	const hasResearchSources = project.researchSources.length > 0;
 	const researchInsights = getResearchInsights(project);
+	const usableResearchInsights = getUsableResearchInsights(project);
 	const sourceById = new Map(
 		project.researchSources.map((source) => [source.id, source]),
 	);
@@ -1054,15 +1263,18 @@ function ResearchSection({
 	const canShow =
 		project.stage !== "ideation" || project.researchSources.length > 0;
 	const selectedCandidate = getSelectedCandidate(project);
+	const isResearchLoading =
+		project.stage === "research" && hasSelection && !hasResearchSources;
+	const [sourcesOpen, setSourcesOpen] = useState(false);
+	const [showAddInsight, setShowAddInsight] = useState(false);
+	const [customInsightTitle, setCustomInsightTitle] = useState("");
+	const [customInsightContent, setCustomInsightContent] = useState("");
 
 	if (!canShow) return null;
 
 	return (
-		<section
-			ref={sectionRef}
-			className="rounded-sm border border-border/75 bg-background p-3"
-		>
-			<SectionHeading
+		<CollapsibleSection
+			sectionRef={sectionRef}
 				icon={Radar}
 				title="同题雷达与资料汇总"
 				description="先判断 B 站、YouTube 和网页资料里有哪些相似选题，再找差异化切口。"
@@ -1084,19 +1296,93 @@ function ResearchSection({
 						重新调研
 					</Button>
 				}
-			/>
+			isCollapsed={isCollapsed}
+			onToggleCollapse={onToggleCollapse}
+		>
 			<div className="mt-3 space-y-3">
 				{project.researchSources.length === 0 ? (
 					<div className="rounded-sm border border-dashed border-border/75 bg-muted/[0.18] p-4 text-sm leading-6 text-muted-foreground">
-						等待 Agent 检索 B 站、YouTube 和网页资料后写入这里。
+						<div className="flex items-center gap-2">
+							{isResearchLoading ? (
+								<Loader2 size={15} className="animate-spin text-primary" />
+							) : null}
+							<span>
+								{isResearchLoading
+									? "Agent 正在检索同题内容、资料来源和知识脉络，写入后这里会自动更新。"
+									: "等待 Agent 检索 B 站、YouTube 和网页资料后写入这里。"}
+							</span>
+						</div>
 					</div>
 				) : null}
 				{researchInsights.length > 0 ? (
 					<div className="rounded-sm border border-border/75 bg-muted/[0.18] p-3">
-						<div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-							<BookOpenText size={15} />
-							知识脉络
+						<div className="flex flex-wrap items-center justify-between gap-2">
+							<div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+								<BookOpenText size={15} />
+								知识脉络
+								<span className="rounded-sm border border-border/70 px-1.5 py-0.5 text-[0.68rem] font-normal text-muted-foreground">
+									可用 {usableResearchInsights.length} / 全部{" "}
+									{researchInsights.length}
+								</span>
+							</div>
+							<Button
+								size="sm"
+								variant="outline"
+								onClick={() => setShowAddInsight((current) => !current)}
+							>
+								<Plus size={14} />
+								补充想法
+							</Button>
 						</div>
+						<ContentMindMap
+							project={project}
+							insights={usableResearchInsights}
+						/>
+						{showAddInsight ? (
+							<div className="mt-3 rounded-sm border border-border/70 bg-background p-3">
+								<input
+									value={customInsightTitle}
+									onChange={(event) =>
+										setCustomInsightTitle(event.target.value)
+									}
+									placeholder="知识点标题"
+									className="h-9 w-full rounded-sm border border-border bg-background px-2 text-sm outline-none focus:border-primary/40"
+								/>
+								<textarea
+									value={customInsightContent}
+									onChange={(event) =>
+										setCustomInsightContent(event.target.value)
+									}
+									placeholder="写下你希望脚本参考的补充想法"
+									rows={4}
+									className="mt-2 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 outline-none placeholder:text-muted-foreground focus:border-primary/40"
+								/>
+								<div className="mt-2 flex justify-end gap-2">
+									<Button
+										size="sm"
+										variant="ghost"
+										onClick={() => setShowAddInsight(false)}
+									>
+										取消
+									</Button>
+									<Button
+										size="sm"
+										disabled={!customInsightContent.trim()}
+										onClick={() => {
+											addResearchInsight({
+												title: customInsightTitle,
+												content: customInsightContent,
+											});
+											setCustomInsightTitle("");
+											setCustomInsightContent("");
+											setShowAddInsight(false);
+										}}
+									>
+										加入知识脉络
+									</Button>
+								</div>
+							</div>
+						) : null}
 						<div className="mt-3 space-y-3">
 							{researchInsights.map((insight, index) => {
 								const citedSources = insight.sourceIds
@@ -1107,16 +1393,31 @@ function ResearchSection({
 								return (
 									<article
 										key={insight.id}
-										className="rounded-sm border border-border/70 bg-background px-3 py-3"
+										className={cn(
+											"rounded-sm border border-border/70 bg-background px-3 py-3",
+											insight.hidden && "opacity-55",
+										)}
 									>
 										<div className="flex items-start gap-2">
 											<span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-sm bg-muted text-[0.68rem] font-semibold text-muted-foreground">
 												{index + 1}
 											</span>
-											<div className="min-w-0">
-												<h3 className="text-sm font-semibold leading-5 text-foreground">
-													{insight.title}
-												</h3>
+											<div className="min-w-0 flex-1">
+												<div className="flex flex-wrap items-center gap-2">
+													<h3 className="text-sm font-semibold leading-5 text-foreground">
+														{insight.title}
+													</h3>
+													{insight.kind === "custom" ? (
+														<span className="rounded-sm border border-primary/20 bg-primary/[0.06] px-1.5 py-0.5 text-[0.68rem] text-primary">
+															用户补充
+														</span>
+													) : null}
+													{insight.hidden ? (
+														<span className="rounded-sm border border-border/70 bg-muted/[0.24] px-1.5 py-0.5 text-[0.68rem] text-muted-foreground">
+															已屏蔽
+														</span>
+													) : null}
+												</div>
 												<p className="mt-1 whitespace-pre-line text-sm leading-6 text-muted-foreground">
 													{insight.content}
 												</p>
@@ -1142,6 +1443,23 @@ function ResearchSection({
 													</div>
 												) : null}
 											</div>
+											<Button
+												size="sm"
+												variant="ghost"
+												onClick={() =>
+													toggleResearchInsightHidden({
+														insightId: insight.id,
+													})
+												}
+												title={insight.hidden ? "恢复使用" : "屏蔽不用"}
+											>
+												{insight.hidden ? (
+													<Eye size={14} />
+												) : (
+													<EyeOff size={14} />
+												)}
+												{insight.hidden ? "恢复" : "屏蔽"}
+											</Button>
 										</div>
 									</article>
 								);
@@ -1151,41 +1469,58 @@ function ResearchSection({
 				) : null}
 				{project.researchSources.length > 0 ? (
 					<div className="rounded-sm border border-border/75 bg-muted/[0.14] p-3">
-						<div className="text-sm font-semibold text-foreground">
-							引用资料
-						</div>
-						<div className="mt-2 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(13rem,1fr))]">
-							{project.researchSources.map((source) => (
-								<a
-									key={source.id}
-									href={source.url}
-									target="_blank"
-									rel="noreferrer"
-									className="rounded-sm border border-border/75 bg-background p-3 transition-colors hover:border-primary/30 hover:bg-accent"
-								>
-									<div className="flex items-center justify-between gap-2">
-										<span
-											className={cn(
-												"rounded-sm border px-1.5 py-0.5 text-[0.68rem] font-semibold",
-												RESEARCH_PLATFORM_CLASS_NAMES[source.platform],
-											)}
+						<button
+							type="button"
+							onClick={() => setSourcesOpen((current) => !current)}
+							className="flex w-full items-center justify-between gap-2 text-left text-sm font-semibold text-foreground"
+							aria-expanded={sourcesOpen}
+						>
+							<span>引用资料（{project.researchSources.length}）</span>
+							{sourcesOpen ? (
+								<ChevronDown size={15} />
+							) : (
+								<ChevronRight size={15} />
+							)}
+						</button>
+						{sourcesOpen ? (
+							<div className="scrollbar-thin mt-2 max-h-80 overflow-y-auto pr-1">
+								<div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(13rem,1fr))]">
+									{project.researchSources.map((source) => (
+										<a
+											key={source.id}
+											href={source.url}
+											target="_blank"
+											rel="noreferrer"
+											className="rounded-sm border border-border/75 bg-background p-3 transition-colors hover:border-primary/30 hover:bg-accent"
 										>
-											{RESEARCH_PLATFORM_LABELS[source.platform]}
-										</span>
-										<ExternalLink size={13} className="text-muted-foreground" />
-									</div>
-									<div className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-foreground">
-										{source.title}
-									</div>
-									<p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">
-										{source.angle}
-									</p>
-									<p className="mt-2 text-xs leading-5 text-muted-foreground">
-										{source.whyRelevant}
-									</p>
-								</a>
-							))}
-						</div>
+											<div className="flex items-center justify-between gap-2">
+												<span
+													className={cn(
+														"rounded-sm border px-1.5 py-0.5 text-[0.68rem] font-semibold",
+														RESEARCH_PLATFORM_CLASS_NAMES[source.platform],
+													)}
+												>
+													{RESEARCH_PLATFORM_LABELS[source.platform]}
+												</span>
+												<ExternalLink
+													size={13}
+													className="text-muted-foreground"
+												/>
+											</div>
+											<div className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-foreground">
+												{source.title}
+											</div>
+											<p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">
+												{source.angle}
+											</p>
+											<p className="mt-2 text-xs leading-5 text-muted-foreground">
+												{source.whyRelevant}
+											</p>
+										</a>
+									))}
+								</div>
+							</div>
+						) : null}
 					</div>
 				) : null}
 			</div>
@@ -1206,39 +1541,122 @@ function ResearchSection({
 					<ArrowRight size={14} />
 				</Button>
 			</div>
-		</section>
+		</CollapsibleSection>
+	);
+}
+
+function ContentMindMap({
+	project,
+	insights,
+}: {
+	project: TopicProject;
+	insights: ResearchInsight[];
+}) {
+	const selectedCandidate = getSelectedCandidate(project);
+	const selectedStructure =
+		project.structures.find(
+			(structure) => structure.id === project.selectedStructureId,
+		) ?? project.structures[0];
+	const rootTitle = selectedCandidate?.title ?? project.title;
+	const structureSteps = selectedStructure?.flow.slice(0, 5) ?? [];
+	const insightItems = insights.slice(0, 5);
+
+	return (
+		<div className="mt-3 rounded-sm border border-border/70 bg-background px-3 py-3">
+			<div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+				<BrainCircuit size={15} />
+				视频内容脑图
+			</div>
+			<div className="mt-3 grid gap-3 [grid-template-columns:minmax(0,0.9fr)_minmax(0,1.1fr)] max-[760px]:grid-cols-1">
+				<div className="rounded-sm border border-primary/25 bg-primary/[0.05] px-3 py-2">
+					<div className="text-[0.68rem] font-semibold text-primary">
+						主线
+					</div>
+					<div className="mt-1 text-sm font-semibold leading-5 text-foreground">
+						{rootTitle}
+					</div>
+					<p className="mt-1 text-xs leading-5 text-muted-foreground">
+						{selectedCandidate?.coreViewpoint ?? "等待选题确认后形成核心观点。"}
+					</p>
+				</div>
+				<div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]">
+					<div className="rounded-sm border border-border/70 bg-muted/[0.14] px-3 py-2">
+						<div className="text-xs font-semibold text-foreground">
+							叙事结构
+						</div>
+						<ul className="mt-2 space-y-1 text-xs leading-5 text-muted-foreground">
+							{structureSteps.length > 0 ? (
+								structureSteps.map((step) => (
+									<li key={`${step.label}-${step.description}`}>
+										{step.label}
+									</li>
+								))
+							) : (
+								<li>等待结构模板生成</li>
+							)}
+						</ul>
+					</div>
+					<div className="rounded-sm border border-border/70 bg-muted/[0.14] px-3 py-2">
+						<div className="text-xs font-semibold text-foreground">
+							参考知识
+						</div>
+						<ul className="mt-2 space-y-1 text-xs leading-5 text-muted-foreground">
+							{insightItems.length > 0 ? (
+								insightItems.map((insight) => (
+									<li key={insight.id}>{insight.title}</li>
+								))
+							) : (
+								<li>等待知识脉络写入</li>
+							)}
+						</ul>
+					</div>
+				</div>
+			</div>
+		</div>
 	);
 }
 
 function StructureSection({
 	project,
 	sectionRef,
+	isCollapsed,
+	onToggleCollapse,
 }: {
 	project: TopicProject;
 	sectionRef?: Ref<HTMLElement>;
+	isCollapsed: boolean;
+	onToggleCollapse: () => void;
 }) {
 	const [isPackageConfirmOpen, setPackageConfirmOpen] = useState(false);
+	const [showOtherStructures, setShowOtherStructures] = useState(false);
 	const selectStructureAction = useTopicWorkbenchStore(
 		(state) => state.selectStructure,
 	);
 	const selectedStructure = project.structures.find(
 		(structure) => structure.id === project.selectedStructureId,
 	);
+	const shouldCollapseOtherStructures = selectedStructure !== undefined;
+	const otherStructures = project.structures.filter(
+		(structure) => structure.id !== selectedStructure?.id,
+	);
+	const visibleStructures =
+		shouldCollapseOtherStructures && selectedStructure
+			? [selectedStructure]
+			: project.structures;
 
 	if (project.stage === "ideation" || project.stage === "research") return null;
 
 	return (
-		<section
-			ref={sectionRef}
-			className="rounded-sm border border-border/75 bg-background p-3"
-		>
-			<SectionHeading
+		<CollapsibleSection
+			sectionRef={sectionRef}
 				icon={LayoutTemplate}
 				title="视频结构模板"
 				description="选题确定后，先选择叙事结构，再进入脚本和发布包。"
-			/>
-			<div className="mt-3 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(17rem,1fr))]">
-				{project.structures.map((structure) => (
+			isCollapsed={isCollapsed}
+			onToggleCollapse={onToggleCollapse}
+		>
+			<div className="mt-3 space-y-2">
+				{visibleStructures.map((structure) => (
 					<StructureCard
 						key={structure.id}
 						structure={structure}
@@ -1248,6 +1666,39 @@ function StructureSection({
 						}}
 					/>
 				))}
+				{shouldCollapseOtherStructures && otherStructures.length > 0 ? (
+					<div className="rounded-sm border border-dashed border-border/70 bg-muted/[0.12]">
+						<button
+							type="button"
+							onClick={() => setShowOtherStructures((current) => !current)}
+							className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+							aria-expanded={showOtherStructures}
+						>
+							<span>其他结构模板已折叠（{otherStructures.length}）</span>
+							{showOtherStructures ? (
+								<ChevronDown size={14} />
+							) : (
+								<ChevronRight size={14} />
+							)}
+						</button>
+						{showOtherStructures ? (
+							<div className="space-y-2 border-t border-border/70 p-2">
+								{otherStructures.map((structure) => (
+									<StructureCard
+										key={structure.id}
+										structure={structure}
+										isSelected={false}
+										onSelect={() => {
+											selectStructureAction({ structureId: structure.id });
+											setShowOtherStructures(false);
+										}}
+										compact
+									/>
+								))}
+							</div>
+						) : null}
+					</div>
+				) : null}
 			</div>
 			<div className="mt-3 flex justify-end">
 				<Button
@@ -1290,7 +1741,7 @@ function StructureSection({
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
-		</section>
+		</CollapsibleSection>
 	);
 }
 
@@ -1298,17 +1749,19 @@ function StructureCard({
 	structure,
 	isSelected,
 	onSelect,
+	compact = false,
 }: {
 	structure: VideoStructureOption;
 	isSelected: boolean;
 	onSelect: () => void;
+	compact?: boolean;
 }) {
 	return (
 		<button
 			type="button"
 			onClick={onSelect}
 			className={cn(
-				"min-w-0 rounded-sm border p-3 text-left transition-colors",
+				"w-full min-w-0 rounded-sm border p-3 text-left transition-colors",
 				isSelected
 					? "border-primary/40 bg-primary/[0.06]"
 					: "border-border/75 bg-muted/[0.22] hover:border-primary/25",
@@ -1327,7 +1780,7 @@ function StructureCard({
 					<CheckCircle2 size={17} className="shrink-0 text-primary" />
 				) : null}
 			</div>
-			<div className="mt-3 space-y-2">
+			<div className={cn("mt-3 space-y-2", compact && "hidden")}>
 				{structure.flow.map((step, index) => (
 					<div key={`${step.label}-${index}`} className="flex gap-2">
 						<div className="flex flex-col items-center">
@@ -1356,11 +1809,27 @@ function StructureCard({
 function PackageSection({
 	project,
 	sectionRef,
+	isCollapsed,
+	onToggleCollapse,
 }: {
 	project: TopicProject;
 	sectionRef?: Ref<HTMLElement>;
+	isCollapsed: boolean;
+	onToggleCollapse: () => void;
 }) {
 	const activePackage = getActivePackage(project);
+	const updatePackageVersion = useTopicWorkbenchStore(
+		(state) => state.updatePackageVersion,
+	);
+	const updatePackageOutlineItem = useTopicWorkbenchStore(
+		(state) => state.updatePackageOutlineItem,
+	);
+	const updatePackagePlatformRecommendation = useTopicWorkbenchStore(
+		(state) => state.updatePackagePlatformRecommendation,
+	);
+	const updatePackageCoverIdea = useTopicWorkbenchStore(
+		(state) => state.updatePackageCoverIdea,
+	);
 	if (!activePackage) return null;
 	const activeProductionPlan = getActiveProductionPlan(project);
 
@@ -1373,62 +1842,138 @@ function PackageSection({
 	};
 
 	return (
-		<section
-			ref={sectionRef}
-			className="rounded-sm border border-border/75 bg-background p-3"
-		>
-			<SectionHeading
+		<CollapsibleSection
+			sectionRef={sectionRef}
 				icon={BookOpenText}
 				title="完整选题包"
 				description="这里会成为后续视频制作流程的输入：脚本、素材表、封面和发布文案。"
-			/>
+			isCollapsed={isCollapsed}
+			onToggleCollapse={onToggleCollapse}
+		>
 			<div className="mt-3 grid gap-3 [grid-template-columns:minmax(0,1fr)_minmax(17rem,0.9fr)] max-[980px]:grid-cols-1">
 				<div className="rounded-sm border border-border/75 bg-muted/[0.18] p-3">
 					<div className="text-xs font-semibold text-muted-foreground">
 						标题
 					</div>
-					<h3 className="mt-1 text-base font-semibold leading-6 tracking-normal text-foreground">
-						{activePackage.title}
-					</h3>
+					<input
+						value={activePackage.title}
+						onChange={(event) =>
+							updatePackageVersion({
+								versionId: activePackage.id,
+								patch: { title: event.target.value },
+							})
+						}
+						className="mt-1 h-10 w-full rounded-sm border border-border bg-background px-2 text-base font-semibold tracking-normal text-foreground outline-none focus:border-primary/40"
+						aria-label="选题包标题"
+					/>
 					<div className="mt-3 text-xs font-semibold text-muted-foreground">
 						摘要
 					</div>
-					<p className="mt-1 text-sm leading-6 text-muted-foreground">
-						{activePackage.summary}
-					</p>
+					<textarea
+						value={activePackage.summary}
+						onChange={(event) =>
+							updatePackageVersion({
+								versionId: activePackage.id,
+								patch: { summary: event.target.value },
+							})
+						}
+						rows={3}
+						className="mt-1 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-muted-foreground outline-none focus:border-primary/40"
+						aria-label="选题包摘要"
+					/>
 					<div className="mt-3 rounded-sm border border-border/70 bg-background px-3 py-2 text-sm leading-6">
 						<div className="font-semibold text-foreground">核心观点</div>
-						<p className="mt-1 text-muted-foreground">
-							{activePackage.coreViewpoint}
-						</p>
+						<textarea
+							value={activePackage.coreViewpoint}
+							onChange={(event) =>
+								updatePackageVersion({
+									versionId: activePackage.id,
+									patch: { coreViewpoint: event.target.value },
+								})
+							}
+							rows={3}
+							className="mt-1 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-muted-foreground outline-none focus:border-primary/40"
+							aria-label="核心观点"
+						/>
 					</div>
 					<div className="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(12rem,1fr))]">
 						<div className="rounded-sm border border-border/70 bg-background px-2 py-2">
 							<div className="text-xs font-semibold text-muted-foreground">
 								受众分析
 							</div>
-							<p className="mt-1 text-xs leading-5 text-muted-foreground">
-								{activePackage.audienceAnalysis}
-							</p>
+							<textarea
+								value={activePackage.audienceAnalysis}
+								onChange={(event) =>
+									updatePackageVersion({
+										versionId: activePackage.id,
+										patch: { audienceAnalysis: event.target.value },
+									})
+								}
+								rows={4}
+								className="mt-1 w-full resize-y rounded-sm border border-border bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/40"
+								aria-label="受众分析"
+							/>
 						</div>
 						<div className="rounded-sm border border-border/70 bg-background px-2 py-2">
 							<div className="text-xs font-semibold text-muted-foreground">
 								选题缘由
 							</div>
-							<p className="mt-1 text-xs leading-5 text-muted-foreground">
-								{activePackage.rationale}
-							</p>
+							<textarea
+								value={activePackage.rationale}
+								onChange={(event) =>
+									updatePackageVersion({
+										versionId: activePackage.id,
+										patch: { rationale: event.target.value },
+									})
+								}
+								rows={4}
+								className="mt-1 w-full resize-y rounded-sm border border-border bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/40"
+								aria-label="选题缘由"
+							/>
+						</div>
+						<div className="rounded-sm border border-border/70 bg-background px-2 py-2">
+							<div className="text-xs font-semibold text-muted-foreground">
+								预期时长
+							</div>
+							<input
+								type="number"
+								min={1}
+								value={activePackage.durationMinutes}
+								onChange={(event) =>
+									updatePackageVersion({
+										versionId: activePackage.id,
+										patch: {
+											durationMinutes: Number(event.target.value),
+										},
+									})
+								}
+								className="mt-1 h-8 w-full rounded-sm border border-border bg-background px-2 text-xs text-muted-foreground outline-none focus:border-primary/40"
+								aria-label="预期时长"
+							/>
 						</div>
 					</div>
 					<div className="mt-3">
 						<div className="text-sm font-semibold text-foreground">
 							脚本结构
 						</div>
-						<ul className="mt-2 space-y-1.5 text-sm leading-6 text-muted-foreground">
-							{activePackage.outline.map((item) => (
-								<li key={item}>{item}</li>
+						<div className="mt-2 space-y-2">
+							{activePackage.outline.map((item, index) => (
+								<textarea
+									key={`${activePackage.id}-outline-${index}`}
+									value={item}
+									onChange={(event) =>
+										updatePackageOutlineItem({
+											versionId: activePackage.id,
+											outlineIndex: index,
+											value: event.target.value,
+										})
+									}
+									rows={2}
+									className="w-full resize-y rounded-sm border border-border bg-background px-2 py-1.5 text-sm leading-6 text-muted-foreground outline-none focus:border-primary/40"
+									aria-label={`脚本结构 ${index + 1}`}
+								/>
 							))}
-						</ul>
+						</div>
 					</div>
 				</div>
 				<div className="rounded-sm border border-border/75 bg-muted/[0.18] p-3">
@@ -1437,7 +1982,7 @@ function PackageSection({
 						发布文案与封面
 					</div>
 					<div className="mt-2 space-y-2">
-						{activePackage.platformRecommendations.map((item) => (
+						{activePackage.platformRecommendations.map((item, index) => (
 							<div
 								key={`${item.platform}-${item.title}`}
 								className="rounded-sm border border-border/70 bg-background px-2 py-2"
@@ -1451,22 +1996,56 @@ function PackageSection({
 									</span>
 								</div>
 								<div className="mt-1 text-xs font-semibold leading-5 text-foreground">
-									{item.title}
+									<input
+										value={item.title}
+										onChange={(event) =>
+											updatePackagePlatformRecommendation({
+												versionId: activePackage.id,
+												recommendationIndex: index,
+												patch: { title: event.target.value },
+											})
+										}
+										className="h-8 w-full rounded-sm border border-border bg-background px-2 text-xs font-semibold text-foreground outline-none focus:border-primary/40"
+										aria-label={`${PLATFORM_LABELS[item.platform]} 标题建议`}
+									/>
 								</div>
-								<p className="mt-1 text-xs leading-5 text-muted-foreground">
-									{item.description}
-								</p>
+								<textarea
+									value={item.description}
+									onChange={(event) =>
+										updatePackagePlatformRecommendation({
+											versionId: activePackage.id,
+											recommendationIndex: index,
+											patch: { description: event.target.value },
+										})
+									}
+									rows={4}
+									className="mt-1 w-full resize-y rounded-sm border border-border bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/40"
+									aria-label={`${PLATFORM_LABELS[item.platform]} 视频描述`}
+								/>
 							</div>
 						))}
 					</div>
 					<div className="mt-3 text-xs font-semibold text-foreground">
 						封面建议
 					</div>
-					<ul className="mt-2 space-y-1.5 text-xs leading-5 text-muted-foreground">
-						{activePackage.coverIdeas.map((idea) => (
-							<li key={idea}>{idea}</li>
+					<div className="mt-2 space-y-2">
+						{activePackage.coverIdeas.map((idea, index) => (
+							<textarea
+								key={`${activePackage.id}-cover-${index}`}
+								value={idea}
+								onChange={(event) =>
+									updatePackageCoverIdea({
+										versionId: activePackage.id,
+										coverIndex: index,
+										value: event.target.value,
+									})
+								}
+								rows={2}
+								className="w-full resize-y rounded-sm border border-border bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/40"
+								aria-label={`封面建议 ${index + 1}`}
+							/>
 						))}
-					</ul>
+					</div>
 				</div>
 			</div>
 			<div className="mt-3 rounded-sm border border-border/75 bg-muted/[0.18] p-3">
@@ -1477,6 +2056,7 @@ function PackageSection({
 					{activePackage.scriptSegments.map((segment, index) => (
 						<ScriptSegmentViewRow
 							key={`${activePackage.id}-${index}`}
+							versionId={activePackage.id}
 							index={index}
 							segment={segment}
 						/>
@@ -1489,16 +2069,20 @@ function PackageSection({
 					<ArrowRight size={14} />
 				</Button>
 			</div>
-		</section>
+		</CollapsibleSection>
 	);
 }
 
 function ProductionPlanSection({
 	project,
 	sectionRef,
+	isCollapsed,
+	onToggleCollapse,
 }: {
 	project: TopicProject;
 	sectionRef?: Ref<HTMLElement>;
+	isCollapsed: boolean;
+	onToggleCollapse: () => void;
 }) {
 	const activePackage = getActivePackage(project);
 	const activeProductionPlan = getActiveProductionPlan(project);
@@ -1516,24 +2100,22 @@ function ProductionPlanSection({
 			editorProjectId: project.editorProjectId,
 			source: "handoff-video",
 			autoRun: true,
-			content: `${buildVideoProductionHandoffPrompt({
-				project,
+			content: buildVideoProductionHandoffPrompt({
 				topicPackage: activePackage,
-				productionPlan: activeProductionPlan,
-			})}\n\n本次优先动作：${action}`,
+				action,
+			}),
 		});
 	};
 
 	return (
-		<section
-			ref={sectionRef}
-			className="rounded-sm border border-border/75 bg-background p-3"
-		>
-			<SectionHeading
+		<CollapsibleSection
+			sectionRef={sectionRef}
 				icon={Clapperboard}
 				title="视频制作计划"
 				description="把选题包转成剪辑 Agent 可执行的素材、配音和占位计划。"
-			/>
+			isCollapsed={isCollapsed}
+			onToggleCollapse={onToggleCollapse}
+		>
 			<div className="mt-3 grid gap-3 [grid-template-columns:minmax(0,0.85fr)_minmax(0,1.15fr)] max-[980px]:grid-cols-1">
 				<div className="rounded-sm border border-border/75 bg-muted/[0.18] p-3">
 					<div className="flex flex-wrap items-center gap-2">
@@ -1613,42 +2195,76 @@ function ProductionPlanSection({
 					</Button>
 				))}
 			</div>
-		</section>
+		</CollapsibleSection>
 	);
 }
 
 function ScriptSegmentViewRow({
 	segment,
 	index,
+	versionId,
 }: {
 	segment: TopicPackageVersion["scriptSegments"][number];
 	index: number;
+	versionId: string;
 }) {
+	const updateScriptSegment = useTopicWorkbenchStore(
+		(state) => state.updateScriptSegment,
+	);
 	return (
 		<div className="grid gap-2 rounded-sm border border-border/70 bg-background px-3 py-2 [grid-template-columns:8rem_minmax(0,1.1fr)_minmax(0,0.9fr)] max-[940px]:grid-cols-1">
 			<div>
 				<div className="text-[0.68rem] font-semibold text-muted-foreground">
 					时间段 {index + 1}
 				</div>
-				<div className="mt-1 rounded-sm border border-primary/20 bg-primary/[0.06] px-2 py-1.5 text-xs font-semibold text-primary">
-					{segment.timeRange}
-				</div>
+				<input
+					value={segment.timeRange}
+					onChange={(event) =>
+						updateScriptSegment({
+							versionId,
+							segmentIndex: index,
+							patch: { timeRange: event.target.value },
+						})
+					}
+					className="mt-1 h-9 w-full rounded-sm border border-primary/20 bg-primary/[0.06] px-2 text-xs font-semibold text-primary outline-none focus:border-primary/50"
+					aria-label={`时间段 ${index + 1}`}
+				/>
 			</div>
 			<div>
 				<div className="text-[0.68rem] font-semibold text-muted-foreground">
 					内容
 				</div>
-				<p className="mt-1 text-sm leading-5 text-foreground">
-					{segment.content}
-				</p>
+				<textarea
+					value={segment.content}
+					onChange={(event) =>
+						updateScriptSegment({
+							versionId,
+							segmentIndex: index,
+							patch: { content: event.target.value },
+						})
+					}
+					rows={3}
+					className="mt-1 w-full resize-y rounded-sm border border-border bg-background px-2 py-1.5 text-sm leading-5 text-foreground outline-none focus:border-primary/40"
+					aria-label={`内容 ${index + 1}`}
+				/>
 			</div>
 			<div>
 				<div className="text-[0.68rem] font-semibold text-muted-foreground">
 					素材建议
 				</div>
-				<p className="mt-1 text-xs leading-5 text-muted-foreground">
-					{segment.materialSuggestion}
-				</p>
+				<textarea
+					value={segment.materialSuggestion}
+					onChange={(event) =>
+						updateScriptSegment({
+							versionId,
+							segmentIndex: index,
+							patch: { materialSuggestion: event.target.value },
+						})
+					}
+					rows={3}
+					className="mt-1 w-full resize-y rounded-sm border border-border bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/40"
+					aria-label={`素材建议 ${index + 1}`}
+				/>
 			</div>
 		</div>
 	);
@@ -1693,5 +2309,63 @@ function SectionHeading({
 			</div>
 			{action ? <div className="shrink-0">{action}</div> : null}
 		</div>
+	);
+}
+
+function CollapsibleSection({
+	sectionRef,
+	icon,
+	title,
+	description,
+	action,
+	isCollapsed,
+	onToggleCollapse,
+	children,
+	className,
+}: {
+	sectionRef?: Ref<HTMLElement>;
+	icon: LucideIcon;
+	title: string;
+	description: string;
+	action?: ReactNode;
+	isCollapsed: boolean;
+	onToggleCollapse: () => void;
+	children: ReactNode;
+	className?: string;
+}) {
+	return (
+		<section
+			ref={sectionRef}
+			className={cn(
+				"rounded-sm border border-border/75 bg-background p-3",
+				className,
+			)}
+		>
+			<SectionHeading
+				icon={icon}
+				title={title}
+				description={description}
+				action={
+					<div className="flex items-center gap-2">
+						{action}
+						<Button
+							type="button"
+							size="sm"
+							variant="ghost"
+							onClick={onToggleCollapse}
+							aria-expanded={!isCollapsed}
+							title={isCollapsed ? "展开" : "折叠"}
+						>
+							{isCollapsed ? (
+								<ChevronRight size={14} />
+							) : (
+								<ChevronDown size={14} />
+							)}
+						</Button>
+					</div>
+				}
+			/>
+			{isCollapsed ? null : children}
+		</section>
 	);
 }

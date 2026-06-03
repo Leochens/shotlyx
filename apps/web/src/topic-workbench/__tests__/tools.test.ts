@@ -82,6 +82,31 @@ function moveToPackage() {
 	});
 }
 
+function readResourceInsights(
+	value: unknown,
+): Array<{ title: string }> | undefined {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return undefined;
+	}
+	const resource = Reflect.get(value, "resource");
+	if (
+		typeof resource !== "object" ||
+		resource === null ||
+		Array.isArray(resource)
+	) {
+		return undefined;
+	}
+	const insights = Reflect.get(resource, "researchInsights");
+	if (!Array.isArray(insights)) return undefined;
+	return insights.flatMap((item) => {
+		if (typeof item !== "object" || item === null || Array.isArray(item)) {
+			return [];
+		}
+		const title = Reflect.get(item, "title");
+		return typeof title === "string" ? [{ title }] : [];
+	});
+}
+
 describe("topic workbench tools", () => {
 	beforeEach(() => {
 		resetStore();
@@ -98,9 +123,12 @@ describe("topic workbench tools", () => {
 			"topic_create_package",
 			"topic_create_production_plan",
 			"topic_reset_to_stage",
+			"topic_get_active_package",
 		]) {
 			expect(names).toContain(name);
-			expect(TOPIC_WORKBENCH_TOOL_NAMES.has(name)).toBe(true);
+			if (name !== "topic_get_active_package") {
+				expect(TOPIC_WORKBENCH_TOOL_NAMES.has(name)).toBe(true);
+			}
 		}
 		expect(names).not.toContain("topic_workbench_set_candidates");
 		expect(
@@ -231,6 +259,31 @@ describe("topic workbench tools", () => {
 		expect(project?.researchInsights[0]?.sourceIds).toEqual([
 			project?.researchSources[0]?.id,
 		]);
+	});
+
+	test("reads active topic package as a structured resource and excludes hidden insights", () => {
+		moveToPackage();
+		const project = useTopicWorkbenchStore.getState().getActiveTopicProject();
+		const insightId = project?.researchInsights[0]?.id;
+		if (!insightId) throw new Error("missing insight");
+		useTopicWorkbenchStore
+			.getState()
+			.toggleResearchInsightHidden({ insightId, hidden: true });
+		useTopicWorkbenchStore.getState().addResearchInsight({
+			title: "用户补充知识",
+			content: "这条补充应该进入剪辑 Agent 的资源上下文。",
+		});
+
+		const result = executeTopicWorkbenchTool({
+			toolName: "topic_get_active_package",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: {},
+		});
+
+		expect(result.status).toBe("success");
+		const insights = readResourceInsights(result.data);
+		expect(insights).toHaveLength(1);
+		expect(insights?.[0]?.title).toBe("用户补充知识");
 	});
 
 	test("switches isolated package versions and reset clears only the active workflow", () => {

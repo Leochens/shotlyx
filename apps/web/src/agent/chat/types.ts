@@ -46,6 +46,12 @@ export interface ChatSession {
 	messages: ChatMessage[];
 }
 
+export interface ChatSessionRunState {
+	isLoading: boolean;
+	pendingPlan: AgentPlan | null;
+	streamingMessageId: string | null;
+}
+
 export interface ChatState {
 	sessions: ChatSession[];
 	activeSessionId: string | null;
@@ -56,8 +62,13 @@ export interface ChatState {
 	selectedAgent: string;
 	pendingPlan: AgentPlan | null;
 	streamingMessageId: string | null;
+	runStatesBySessionId: Record<string, ChatSessionRunState>;
 	getActiveSession: () => ChatSession | null;
 	getActiveMessages: () => ChatMessage[];
+	getSessionMessages: (sessionId: string | null | undefined) => ChatMessage[];
+	getSessionRunState: (
+		sessionId?: string | null,
+	) => ChatSessionRunState;
 	setIsHydrated: (isHydrated: boolean) => void;
 	setActiveProject: (projectId: string) => void;
 	createSession: (name?: string) => void;
@@ -67,11 +78,11 @@ export interface ChatState {
 	clearSessionMessages: (sessionId?: string) => void;
 	addMessage: (msg: ChatMessage, sessionId?: string) => void;
 	removeMessage: (id: string, sessionId?: string) => void;
-	setLoading: (loading: boolean) => void;
+	setLoading: (loading: boolean, sessionId?: string | null) => void;
 	setMode: (mode: ExecutionMode) => void;
 	setSelectedAgent: (agent: string) => void;
-	setPendingPlan: (plan: AgentPlan | null) => void;
-	setStreamingMessageId: (id: string | null) => void;
+	setPendingPlan: (plan: AgentPlan | null, sessionId?: string | null) => void;
+	setStreamingMessageId: (id: string | null, sessionId?: string | null) => void;
 	updateMessageContent: (
 		args: { id: string; content: string },
 		sessionId?: string,

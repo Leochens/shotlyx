@@ -62,7 +62,9 @@ import { CreatorProfileDialogTrigger } from "@/topic-workbench/creator-profile-d
 import { useTopicWorkbenchStore } from "@/topic-workbench/store";
 import {
 	executeTopicWorkbenchTool,
+	getTopicPackageResourceToolSchemas,
 	getTopicWorkbenchToolSchemas,
+	TOPIC_PACKAGE_RESOURCE_TOOL_NAMES,
 	TOPIC_WORKBENCH_TOOL_NAMES,
 } from "@/topic-workbench/tools";
 import {
@@ -76,6 +78,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/utils/ui";
 
 function formatElapsed(ms: number): string {
 	const totalSec = ms / 1000;
@@ -1839,16 +1842,34 @@ export function ChatPanel() {
 		setActiveProject,
 		clearSessionMessages,
 		removeMessage,
+		getSessionMessages,
 	} = useChatStore();
 	const editor = useEditor();
 	const projectId = useEditor(
 		(editor) => editor.project.getActiveOrNull()?.metadata.id ?? null,
 	);
+	const editorProjectId = projectId ?? "default-project";
+	const chatProjectId = useMemo(
+		() => `${editorProjectId}::${activeWorkbench}`,
+		[activeWorkbench, editorProjectId],
+	);
+	const activeTopicProject = useTopicWorkbenchStore((state) => {
+		const topicProjectId =
+			state.activeTopicProjectIdByEditorProject[editorProjectId];
+		if (!topicProjectId) return null;
+		return (
+			state.topicProjects.find((project) => project.id === topicProjectId) ??
+			null
+		);
+	});
 	const mediaAssetCount = useEditor(
 		(editor) =>
 			editor.media.getAssets().filter((asset) => !asset.ephemeral).length,
 	);
 	const messages = getActiveMessages();
+	const activeChatSession = useChatStore((state) =>
+		state.sessions.find((session) => session.id === state.activeSessionId),
+	);
 	const queuedPromptsForSession = queuedPrompts.filter(
 		(prompt) => prompt.sessionId === activeSessionId,
 	);
@@ -1856,6 +1877,8 @@ export function ChatPanel() {
 		() => messages.filter((msg) => !msg.hidden),
 		[messages],
 	);
+	const isFocusedTopicChat =
+		activeWorkbench === "topic" && activeTopicProject === null;
 	const toRequestMessage = (
 		message: Pick<ChatMessage, "role" | "content" | "toolCalls"> & {
 			references?: AgentContextReference[];
@@ -1870,10 +1893,16 @@ export function ChatPanel() {
 
 	useEffect(() => {
 		if (isHydrated && projectId) {
-			setActiveProject(projectId);
+			setActiveProject(chatProjectId);
 			setActiveEditorProject({ editorProjectId: projectId });
 		}
-	}, [isHydrated, projectId, setActiveEditorProject, setActiveProject]);
+	}, [
+		chatProjectId,
+		isHydrated,
+		projectId,
+		setActiveEditorProject,
+		setActiveProject,
+	]);
 
 	useEffect(() => {
 		if (activeWorkbench === "topic" && selectedAgent !== "default") {
@@ -1983,6 +2012,7 @@ export function ChatPanel() {
 		accumulated,
 		currentAssistantMsgIdRef,
 		runSessionIdRef,
+		chatSessionId,
 		runSignal,
 		queueMessageContentUpdate,
 		flushMessageContentUpdate,
@@ -1991,6 +2021,7 @@ export function ChatPanel() {
 		accumulated: { text: string; thought: string };
 		currentAssistantMsgIdRef: { current: string | null };
 		runSessionIdRef: { current: string | null };
+		chatSessionId: string;
 		runSignal: AbortSignal;
 		queueMessageContentUpdate: (args: {
 			id: string;
@@ -2013,9 +2044,9 @@ export function ChatPanel() {
 					content: accumulated.text,
 					thought: accumulated.thought,
 					timestamp: getClientNow(),
-				});
+				}, chatSessionId);
 				currentAssistantMsgIdRef.current = mid;
-				setStreamingMessageId(mid);
+				setStreamingMessageId(mid, chatSessionId);
 			}
 			return currentAssistantMsgIdRef.current;
 		};
@@ -2040,7 +2071,10 @@ export function ChatPanel() {
 			const text = getStringField({ value: data, key: "text" }) ?? "";
 			accumulated.thought += text;
 			const mid = ensureAssistantMessage();
-			updateMessageThought({ id: mid, thought: accumulated.thought });
+			updateMessageThought(
+				{ id: mid, thought: accumulated.thought },
+				chatSessionId,
+			);
 			return;
 		}
 
@@ -2073,7 +2107,7 @@ export function ChatPanel() {
 			const params = getRecordField({ value: data, key: "params" }) ?? {};
 
 			const mid = ensureAssistantMessage();
-			const currentMsgs = getActiveMessages();
+			const currentMsgs = getSessionMessages(chatSessionId);
 			const currentMsg = currentMsgs.find((m) => m.id === mid);
 			const existingToolCalls = currentMsg?.toolCalls ?? [];
 
@@ -2111,7 +2145,7 @@ export function ChatPanel() {
 						role: "assistant",
 						content: `工具 ${tool} 已执行，但结果回传失败：${getErrorMessage(error)}`,
 						timestamp: getClientNow(),
-					});
+					}, chatSessionId);
 				}
 			};
 
@@ -2136,7 +2170,7 @@ export function ChatPanel() {
 			const toolAbort = new AbortController();
 			toolAbortControllersRef.current.set(callId, toolAbort);
 			const appendToolProgress = (event: ToolProgressEvent) => {
-				const updatedMsgs = getActiveMessages();
+				const updatedMsgs = getSessionMessages(chatSessionId);
 				const updatedMsg = updatedMsgs.find((m) => m.id === mid);
 				let didRecordProgress = false;
 				const currentToolCalls = (updatedMsg?.toolCalls ?? []).map((tc) => {
@@ -2158,20 +2192,21 @@ export function ChatPanel() {
 				updateMessageToolCalls({
 					id: mid,
 					toolCalls: currentToolCalls,
-				});
+				}, chatSessionId);
 			};
 
 			updateMessageToolCalls({
 				id: mid,
 				toolCalls: [...existingToolCalls, pendingRecord],
-			});
+			}, chatSessionId);
 
 			void (async () => {
 				let toolResult: ToolResult;
 				try {
 					if (
-						activeWorkbench === "topic" &&
-						TOPIC_WORKBENCH_TOOL_NAMES.has(tool)
+						(activeWorkbench === "topic" &&
+							TOPIC_WORKBENCH_TOOL_NAMES.has(tool)) ||
+						TOPIC_PACKAGE_RESOURCE_TOOL_NAMES.has(tool)
 					) {
 						toolResult = executeTopicWorkbenchTool({
 							toolName: tool,
@@ -2212,7 +2247,7 @@ export function ChatPanel() {
 					setRoughCutReview(toolResult.data);
 					setRoughCutReviewOpen(true);
 				}
-				const updatedMsgs = getActiveMessages();
+				const updatedMsgs = getSessionMessages(chatSessionId);
 				const updatedMsg = updatedMsgs.find((m) => m.id === mid);
 				const currentToolCalls = (updatedMsg?.toolCalls ?? []).map((tc) => {
 					const isSameCall =
@@ -2236,7 +2271,7 @@ export function ChatPanel() {
 				updateMessageToolCalls({
 					id: mid,
 					toolCalls: currentToolCalls,
-				});
+				}, chatSessionId);
 
 				await postToolResult({
 					modelToolResult,
@@ -2257,7 +2292,10 @@ export function ChatPanel() {
 			const usage = parseTokenUsageEventData(data);
 			if (!usage || usage.totalTokens <= 0) return;
 			const mid = ensureAssistantMessage();
-			updateMessageTokenUsage({ id: mid, tokenUsage: usage });
+			updateMessageTokenUsage(
+				{ id: mid, tokenUsage: usage },
+				chatSessionId,
+			);
 			return;
 		}
 
@@ -2278,7 +2316,7 @@ export function ChatPanel() {
 				actions: planData.actions,
 			};
 
-			setPendingPlan(plan);
+			setPendingPlan(plan, chatSessionId);
 
 			if (planData.reasoning) {
 				accumulated.thought = planData.reasoning;
@@ -2286,7 +2324,7 @@ export function ChatPanel() {
 				updateMessageThought({
 					id: mid,
 					thought: planData.reasoning,
-				});
+				}, chatSessionId);
 			}
 			if (planData.displayContent) {
 				accumulated.text = planData.displayContent;
@@ -2302,7 +2340,7 @@ export function ChatPanel() {
 				updateMessageActions({
 					id: mid,
 					actions: planData.actions,
-				});
+				}, chatSessionId);
 			}
 		}
 		if (sseEvent.event === "message-actions") {
@@ -2313,7 +2351,7 @@ export function ChatPanel() {
 			const actions = rawActions?.filter(isMessageAction);
 			if (!rawActions || actions?.length !== rawActions.length) return;
 			const mid = ensureAssistantMessage();
-			updateMessageActions({ id: mid, actions });
+			updateMessageActions({ id: mid, actions }, chatSessionId);
 			return;
 		}
 		if (sseEvent.event === "clarification-request") {
@@ -2323,7 +2361,7 @@ export function ChatPanel() {
 			});
 			if (!isClarificationRequest(clarification)) return;
 			const mid = ensureAssistantMessage();
-			updateMessageClarification({ id: mid, clarification });
+			updateMessageClarification({ id: mid, clarification }, chatSessionId);
 			return;
 		}
 		if (sseEvent.event === "error") {
@@ -2340,10 +2378,10 @@ export function ChatPanel() {
 				content: "",
 				error: { message, category, isRetryable },
 				timestamp: getClientNow(),
-			});
+			}, chatSessionId);
 
-			setLoading(false);
-			setStreamingMessageId(null);
+			setLoading(false, chatSessionId);
+			setStreamingMessageId(null, chatSessionId);
 			setStartTime(null);
 			return;
 		}
@@ -2351,6 +2389,7 @@ export function ChatPanel() {
 
 	const runSSEAgent = async ({
 		msgsToSend,
+		chatSessionId,
 		extra,
 	}: {
 		msgsToSend: Array<{
@@ -2358,6 +2397,7 @@ export function ChatPanel() {
 			content: string;
 			references?: AgentContextReference[];
 		}>;
+		chatSessionId: string;
 		extra?: { action?: string; plan?: AgentPlan };
 	}) => {
 		setStartTime(getClientNow());
@@ -2389,7 +2429,7 @@ export function ChatPanel() {
 			updateMessageContent({
 				id: pendingContentUpdateRef.id,
 				content: pendingContentUpdateRef.content,
-			});
+			}, chatSessionId);
 			pendingContentUpdateRef.id = null;
 		};
 		const queueMessageContentUpdate = ({
@@ -2430,7 +2470,10 @@ export function ChatPanel() {
 										TOPIC_SUPPORT_TOOL_NAMES.has(schema.name),
 									),
 							]
-						: editor.mcp.getToolSchemas(),
+						: [
+								...editor.mcp.getToolSchemas(),
+								...getTopicPackageResourceToolSchemas(),
+							],
 				context: {
 					activeBrandKit: editor.project.getActiveBrandKit(),
 					activeWorkbench,
@@ -2478,6 +2521,7 @@ export function ChatPanel() {
 							accumulated,
 							currentAssistantMsgIdRef,
 							runSessionIdRef,
+							chatSessionId,
 							runSignal: runAbort.signal,
 							queueMessageContentUpdate,
 							flushMessageContentUpdate,
@@ -2494,7 +2538,7 @@ export function ChatPanel() {
 							role: "assistant",
 							content: `SSE 流错误: ${error.message}`,
 							timestamp: getClientNow(),
-						});
+						}, chatSessionId);
 						reject(error);
 					},
 				});
@@ -2511,7 +2555,7 @@ export function ChatPanel() {
 					content:
 						"这次 Agent 没能完成选题生成。请检查模型和联网工具配置后重试，右侧工作台会在 Agent 产出候选选题后出现。",
 					timestamp: getClientNow(),
-				});
+				}, chatSessionId);
 				return;
 			}
 			addMessage({
@@ -2519,11 +2563,11 @@ export function ChatPanel() {
 				role: "assistant",
 				content: `调用失败: ${err instanceof Error ? err.message : String(err)}`,
 				timestamp: getClientNow(),
-			});
+			}, chatSessionId);
 		} finally {
 			flushMessageContentUpdate();
-			setStreamingMessageId(null);
-			setLoading(false);
+			setStreamingMessageId(null, chatSessionId);
+			setLoading(false, chatSessionId);
 			setStartTime(null);
 			if (runAbortRef.current === runAbort) {
 				runAbortRef.current = null;
@@ -2533,7 +2577,10 @@ export function ChatPanel() {
 	};
 
 	const handleStop = () => {
-		const activeMessages = getActiveMessages();
+		const chatSessionId = activeSessionId;
+		const activeMessages = chatSessionId
+			? getSessionMessages(chatSessionId)
+			: getActiveMessages();
 		const runningMGJobIds = getRunningShotlyxMGJobIdsFromMessages({
 			messages: activeMessages,
 		});
@@ -2586,17 +2633,17 @@ export function ChatPanel() {
 									},
 								},
 				),
-			});
+			}, chatSessionId ?? undefined);
 		}
-		setStreamingMessageId(null);
-		setLoading(false);
+		setStreamingMessageId(null, chatSessionId);
+		setLoading(false, chatSessionId);
 		setStartTime(null);
 		addMessage({
 			id: `stop-${getClientNow()}`,
 			role: "assistant",
 			content: "已停止当前 Agent 流程。你可以直接输入新的需求重新开始。",
 			timestamp: getClientNow(),
-		});
+		}, chatSessionId ?? undefined);
 	};
 
 	const recordReferencesAsTopicMaterials = ({
@@ -2722,7 +2769,8 @@ export function ChatPanel() {
 		references?: AgentContextReference[];
 	}) => {
 		const trimmed = prompt.trim();
-		if (!trimmed || isLoading || !editor) return;
+		const chatSessionId = activeSessionId;
+		if (!trimmed || isLoading || !editor || !chatSessionId) return;
 		recordReferencesAsTopicMaterials({ references });
 
 		const userMsg = {
@@ -2732,14 +2780,15 @@ export function ChatPanel() {
 			references,
 			timestamp: getClientNow(),
 		};
-		addMessage(userMsg);
+		addMessage(userMsg, chatSessionId);
 		setInput("");
 		clearDraftReferences();
-		setLoading(true);
+		setLoading(true, chatSessionId);
 
-		const allMsgs = [...getActiveMessages(), userMsg];
+		const allMsgs = [...getSessionMessages(chatSessionId), userMsg];
 		await runSSEAgent({
 			msgsToSend: allMsgs.map(toRequestMessage),
+			chatSessionId,
 		});
 	};
 
@@ -2784,6 +2833,12 @@ export function ChatPanel() {
 			activeWorkbench === "topic" ||
 			pendingTopicAgentEvent.source === "handoff-video";
 		if (!canRunEvent) return;
+		if (
+			pendingTopicAgentEvent.source === "handoff-video" &&
+			activeChatSession?.projectId !== chatProjectId
+		) {
+			return;
+		}
 
 		consumeTopicAgentEvent({ eventId: pendingTopicAgentEvent.id });
 		if (pendingTopicAgentEvent.autoRun) {
@@ -2799,10 +2854,13 @@ export function ChatPanel() {
 			role: "user",
 			content: `[选题工作台]\n${pendingTopicAgentEvent.content}`,
 			timestamp: getClientNow(),
-		});
+		}, activeSessionId ?? undefined);
 	}, [
 		activeWorkbench,
+		activeChatSession?.projectId,
+		activeSessionId,
 		addMessage,
+		chatProjectId,
 		consumeTopicAgentEvent,
 		editor,
 		isLoading,
@@ -2851,7 +2909,8 @@ export function ChatPanel() {
 
 	const handleClarificationAnswer = async (answer: string) => {
 		const trimmed = answer.trim();
-		if (!trimmed || isLoading || !editor) return;
+		const chatSessionId = activeSessionId;
+		if (!trimmed || isLoading || !editor || !chatSessionId) return;
 
 		const userMsg = {
 			id: `u-clarification-${getClientNow()}`,
@@ -2859,12 +2918,13 @@ export function ChatPanel() {
 			content: trimmed,
 			timestamp: getClientNow(),
 		};
-		addMessage(userMsg);
-		setLoading(true);
+		addMessage(userMsg, chatSessionId);
+		setLoading(true, chatSessionId);
 
-		const allMsgs = [...getActiveMessages(), userMsg];
+		const allMsgs = [...getSessionMessages(chatSessionId), userMsg];
 		await runSSEAgent({
 			msgsToSend: allMsgs.map(toRequestMessage),
+			chatSessionId,
 		});
 	};
 
@@ -2875,11 +2935,12 @@ export function ChatPanel() {
 		actionId: string;
 		action?: MessageAction;
 	}) => {
-		if (!editor) return;
+		const chatSessionId = activeSessionId;
+		if (!editor || !chatSessionId) return;
 
 		if (actionId.startsWith("option-")) {
 			const selectedValue = actionId.slice("option-".length);
-			const currentMessages = getActiveMessages();
+			const currentMessages = getSessionMessages(chatSessionId);
 			const lastAssistant = [...currentMessages]
 				.reverse()
 				.find(
@@ -2904,46 +2965,50 @@ export function ChatPanel() {
 						: label,
 				timestamp: getClientNow(),
 			};
-			addMessage(userMsg);
-			setLoading(true);
+			addMessage(userMsg, chatSessionId);
+			setLoading(true, chatSessionId);
 
-			const allMsgs = [...getActiveMessages(), userMsg];
+			const allMsgs = [...getSessionMessages(chatSessionId), userMsg];
 			await runSSEAgent({
 				msgsToSend: allMsgs.map(toRequestMessage),
+				chatSessionId,
 			});
 			return;
 		}
 
 		if (actionId === "confirm") {
 			if (!pendingPlan) return;
-			setLoading(true);
+			setLoading(true, chatSessionId);
 
-			const allMsgs = getActiveMessages();
+			const allMsgs = getSessionMessages(chatSessionId);
 			await runSSEAgent({
 				msgsToSend: allMsgs.map(toRequestMessage),
+				chatSessionId,
 				extra: { action: "confirm", plan: pendingPlan },
 			});
-			setPendingPlan(null);
+			setPendingPlan(null, chatSessionId);
 			return;
 		}
 
 		if (actionId === "continue") {
 			if (!pendingPlan) {
-				setLoading(true);
-				const allMsgs = getActiveMessages();
+				setLoading(true, chatSessionId);
+				const allMsgs = getSessionMessages(chatSessionId);
 				await runSSEAgent({
 					msgsToSend: allMsgs.map(toRequestMessage),
+					chatSessionId,
 				});
 				return;
 			}
-			setLoading(true);
+			setLoading(true, chatSessionId);
 
-			const allMsgs = getActiveMessages();
+			const allMsgs = getSessionMessages(chatSessionId);
 			await runSSEAgent({
 				msgsToSend: allMsgs.map(toRequestMessage),
+				chatSessionId,
 				extra: { action: "continue", plan: pendingPlan },
 			});
-			setPendingPlan(null);
+			setPendingPlan(null, chatSessionId);
 			return;
 		}
 
@@ -2954,7 +3019,7 @@ export function ChatPanel() {
 					role: "assistant",
 					content: "当前没有待确认的计划。请告诉我你想怎么修改？",
 					timestamp: getClientNow(),
-				});
+				}, chatSessionId);
 				return;
 			}
 			addMessage({
@@ -2962,8 +3027,8 @@ export function ChatPanel() {
 				role: "assistant",
 				content: `当前计划：\n${pendingPlan.steps.map((s, i) => `${i + 1}. ${s.description}`).join("\n")}\n\n告诉我你想怎么修改`,
 				timestamp: getClientNow(),
-			});
-			setPendingPlan(null);
+			}, chatSessionId);
+			setPendingPlan(null, chatSessionId);
 		}
 	};
 
@@ -3036,19 +3101,21 @@ export function ChatPanel() {
 	};
 
 	const handleRetry = async () => {
-		if (!editor || isLoading) return;
+		const chatSessionId = activeSessionId;
+		if (!editor || isLoading || !chatSessionId) return;
 
-		const msgs = getActiveMessages();
+		const msgs = getSessionMessages(chatSessionId);
 		const lastMsg = msgs[msgs.length - 1];
 		if (lastMsg?.error) {
-			removeMessage(lastMsg.id);
+			removeMessage(lastMsg.id, chatSessionId);
 		}
 
-		setLoading(true);
+		setLoading(true, chatSessionId);
 
-		const allMsgs = getActiveMessages();
+		const allMsgs = getSessionMessages(chatSessionId);
 		await runSSEAgent({
 			msgsToSend: allMsgs.map(toRequestMessage),
+			chatSessionId,
 		});
 	};
 	const handleClearConfirm = () => {
@@ -3214,60 +3281,68 @@ export function ChatPanel() {
 				</div>
 
 				<div className="scrollbar-thin min-w-0 flex-1 select-text overflow-y-auto overflow-x-hidden bg-[linear-gradient(180deg,rgba(8,145,178,0.025),rgba(255,255,255,0)_14rem)] p-3 dark:bg-[linear-gradient(180deg,rgba(34,211,238,0.045),transparent_18rem)]">
-					{visibleMessages.length === 0 && !isLoading ? (
-						<AgentEmptyState
-							disabled={isLoading || !editor}
-							hasMedia={activeWorkbench === "video" && mediaAssetCount > 0}
-							workbench={activeWorkbench}
-							onPromptSelect={handleStarterPrompt}
-							onMaterialUploadClick={() =>
-								topicMaterialFileInputRef.current?.click()
-							}
-							onSourceMaterialClick={() => setTopicSourceMaterialOpen(true)}
-						/>
-					) : null}
-					{visibleMessages.map((msg) => (
-						<div
-							key={msg.id}
-							className={`relative select-text ${isSelecting ? "cursor-pointer" : "cursor-text"} ${selectedMsgIds.has(msg.id) ? "rounded bg-primary/10 ring-1 ring-primary/40" : ""}`}
-							style={{
-								contentVisibility: "auto",
-								containIntrinsicSize: "0 220px",
-							}}
-							onClick={(event) =>
-								handleMessageClick({
-									msgId: msg.id,
-									isToggleGesture: event.metaKey || event.ctrlKey,
-								})
-							}
-							onKeyDown={undefined}
-							role={isSelecting ? "button" : undefined}
-							tabIndex={isSelecting ? 0 : undefined}
-						>
-							<MessageItem
-								message={msg}
-								onActionClick={(request) => {
-									void handleActionClick(request);
-								}}
-								onOptionCustomAnswer={handleClarificationAnswer}
-								onClarificationAnswer={handleClarificationAnswer}
-								onToolAction={(request) =>
-									handleToolAction({ messageId: msg.id, request })
+					<div
+						className={cn(
+							"min-h-full",
+							isFocusedTopicChat &&
+								"mx-auto flex w-full max-w-4xl flex-col justify-center",
+						)}
+					>
+						{visibleMessages.length === 0 && !isLoading ? (
+							<AgentEmptyState
+								disabled={isLoading || !editor}
+								hasMedia={activeWorkbench === "video" && mediaAssetCount > 0}
+								workbench={activeWorkbench}
+								onPromptSelect={handleStarterPrompt}
+								onMaterialUploadClick={() =>
+									topicMaterialFileInputRef.current?.click()
 								}
-								onRetry={handleRetry}
-								isStreaming={msg.id === streamingMessageId}
+								onSourceMaterialClick={() => setTopicSourceMaterialOpen(true)}
 							/>
-						</div>
-					))}
-					{isLoading && (
-						<div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
-							<Loader2 size={14} className="animate-spin" />
-							<span>
-								{copy.editor.chat.running}{" "}
-								{startTime !== null ? `(${formatElapsed(elapsedMs)})` : ""}
-							</span>
-						</div>
-					)}
+						) : null}
+						{visibleMessages.map((msg) => (
+							<div
+								key={msg.id}
+								className={`relative select-text ${isSelecting ? "cursor-pointer" : "cursor-text"} ${selectedMsgIds.has(msg.id) ? "rounded bg-primary/10 ring-1 ring-primary/40" : ""}`}
+								style={{
+									contentVisibility: "auto",
+									containIntrinsicSize: "0 220px",
+								}}
+								onClick={(event) =>
+									handleMessageClick({
+										msgId: msg.id,
+										isToggleGesture: event.metaKey || event.ctrlKey,
+									})
+								}
+								onKeyDown={undefined}
+								role={isSelecting ? "button" : undefined}
+								tabIndex={isSelecting ? 0 : undefined}
+							>
+								<MessageItem
+									message={msg}
+									onActionClick={(request) => {
+										void handleActionClick(request);
+									}}
+									onOptionCustomAnswer={handleClarificationAnswer}
+									onClarificationAnswer={handleClarificationAnswer}
+									onToolAction={(request) =>
+										handleToolAction({ messageId: msg.id, request })
+									}
+									onRetry={handleRetry}
+									isStreaming={msg.id === streamingMessageId}
+								/>
+							</div>
+						))}
+						{isLoading && (
+							<div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+								<Loader2 size={14} className="animate-spin" />
+								<span>
+									{copy.editor.chat.running}{" "}
+									{startTime !== null ? `(${formatElapsed(elapsedMs)})` : ""}
+								</span>
+							</div>
+						)}
+					</div>
 				</div>
 				{isSelecting && (
 					<div className="flex items-center justify-between border-t bg-muted px-3 py-2">
@@ -3358,6 +3433,7 @@ export function ChatPanel() {
 						void submitPrompt({ prompt, references: draftReferences });
 					}}
 					onStop={handleStop}
+					centered={isFocusedTopicChat}
 				/>
 				<RoughCutReviewDialog
 					key={roughCutReview?.reviewId ?? "rough-cut-empty"}
