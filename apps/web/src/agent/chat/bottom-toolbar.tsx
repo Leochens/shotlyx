@@ -192,6 +192,10 @@ export function BottomToolbar({
 	const isMediaMode = selectedAgent === "media";
 	const isMGMode = selectedAgent === "mg";
 	const isTopicWorkbench = workbench === "topic";
+	const shouldExpandTopicPrompt =
+		isTopicWorkbench &&
+		input.length > 480 &&
+		input.includes("候选选题产出要求");
 	const isSourceMaterialOpen =
 		topicSourceMaterialOpen ?? internalSourceMaterialOpen;
 	const setSourceMaterialOpen =
@@ -594,8 +598,11 @@ export function BottomToolbar({
 						handleSubmit();
 					}}
 					placeholder={placeholder ?? toolbarCopy.placeholder}
-					rows={2}
-					className="max-h-28 min-h-12 w-full resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
+					rows={shouldExpandTopicPrompt ? 10 : 2}
+					className={cn(
+						"w-full resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground",
+						shouldExpandTopicPrompt ? "max-h-80 min-h-56" : "max-h-28 min-h-12",
+					)}
 				/>
 
 				<ReferenceChipList

@@ -92,4 +92,26 @@ describe("BottomToolbar", () => {
 		expect(topicHtml).toContain("粘贴脚本或录屏稿");
 		expect(videoHtml).not.toContain("上传素材");
 	});
+
+	test("expands long topic workflow prompts in the chat input", () => {
+		const longTopicPrompt = `${"我想做一个口播观点类视频。".repeat(45)}
+
+候选选题产出要求：
+- 标题
+- 核心观点
+`;
+
+		const html = renderToStaticMarkup(
+			<BottomToolbar
+				input={longTopicPrompt}
+				selectedAgent="default"
+				workbench="topic"
+				onInputChange={() => {}}
+				onSubmit={() => {}}
+			/>,
+		);
+
+		expect(html).toContain('rows="10"');
+		expect(html).toContain("min-h-56");
+	});
 });
