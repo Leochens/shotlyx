@@ -47,6 +47,14 @@ import type { OverlayTrack } from "@/timeline/types";
 import { getRaisedProjectFpsForImportedMedia } from "@/fps/utils";
 import type { MediaAsset } from "@/media/types";
 import type { ProjectBrandKit } from "@/brand-kit/types";
+import {
+	getGlobalActiveBrandKit,
+	getGlobalBrandKits,
+	mergeGlobalBrandKits,
+	removeGlobalBrandKit,
+	setGlobalActiveBrandKit,
+	upsertGlobalBrandKit,
+} from "@/brand-kit/global-store";
 import { buildMotionGraphicProgressAnimation } from "@/motion-graphics/project-assets";
 import type { ProjectMotionGraphicAsset } from "@/motion-graphics/types";
 
@@ -270,7 +278,7 @@ export class ProjectManager {
 					progress: nextProgress,
 					stage: stage ?? this.exportState.stage,
 					subProgress: shouldUpdateSubProgress
-						? subProgress ?? null
+						? (subProgress ?? null)
 						: this.exportState.subProgress,
 				};
 				this.notify();
@@ -688,82 +696,46 @@ export class ProjectManager {
 		this.notify();
 	}
 
+	private migrateLegacyProjectBrandKitsToGlobal(): void {
+		const legacyBrandKits = this.active?.brandKits ?? [];
+		if (legacyBrandKits.length === 0) return;
+		mergeGlobalBrandKits({
+			brandKits: legacyBrandKits,
+			activeBrandKitId: this.active?.activeBrandKitId ?? null,
+		});
+	}
+
 	getBrandKits(): ProjectBrandKit[] {
-		return this.active?.brandKits ?? [];
+		this.migrateLegacyProjectBrandKitsToGlobal();
+		return getGlobalBrandKits();
 	}
 
 	getActiveBrandKit(): ProjectBrandKit | null {
-		if (!this.active?.activeBrandKitId) return null;
-		return (
-			(this.active.brandKits ?? []).find(
-				(kit) => kit.id === this.active?.activeBrandKitId,
-			) ?? null
-		);
+		this.migrateLegacyProjectBrandKitsToGlobal();
+		return getGlobalActiveBrandKit();
 	}
 
 	upsertBrandKit({ kit }: { kit: ProjectBrandKit }): void {
 		if (!this.active) return;
-		const existing = this.active.brandKits ?? [];
 		const now = new Date().toISOString();
 		const nextKit: ProjectBrandKit = {
 			...kit,
 			updatedAt: now,
 			createdAt: kit.createdAt || now,
 		};
-		const hasExisting = existing.some((item) => item.id === kit.id);
-		const brandKits = hasExisting
-			? existing.map((item) => (item.id === kit.id ? nextKit : item))
-			: [...existing, nextKit];
-
-		this.active = {
-			...this.active,
-			brandKits,
-			activeBrandKitId: this.active.activeBrandKitId ?? nextKit.id,
-			metadata: {
-				...this.active.metadata,
-				updatedAt: new Date(),
-			},
-		};
-		this.editor.save.markDirty();
+		upsertGlobalBrandKit({ kit: nextKit });
 		this.notify();
 	}
 
 	removeBrandKit({ id }: { id: string }): void {
 		if (!this.active) return;
-		const brandKits = (this.active.brandKits ?? []).filter(
-			(kit) => kit.id !== id,
-		);
-		this.active = {
-			...this.active,
-			brandKits,
-			activeBrandKitId:
-				this.active.activeBrandKitId === id
-					? null
-					: (this.active.activeBrandKitId ?? null),
-			metadata: {
-				...this.active.metadata,
-				updatedAt: new Date(),
-			},
-		};
-		this.editor.save.markDirty();
+		removeGlobalBrandKit({ id });
 		this.notify();
 	}
 
 	setActiveBrandKit({ id }: { id: string | null }): void {
 		if (!this.active) return;
-		const nextId =
-			id && (this.active.brandKits ?? []).some((kit) => kit.id === id)
-				? id
-				: null;
-		this.active = {
-			...this.active,
-			activeBrandKitId: nextId,
-			metadata: {
-				...this.active.metadata,
-				updatedAt: new Date(),
-			},
-		};
-		this.editor.save.markDirty();
+		setGlobalActiveBrandKit({ id });
 		this.notify();
 	}
 

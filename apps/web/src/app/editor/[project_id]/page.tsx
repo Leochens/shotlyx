@@ -98,8 +98,17 @@ function EditorLayout() {
 		(state) => state.activeWorkbench,
 	);
 	const editorProjectId = useEditor(
-		(editor) => editor.project.getActiveOrNull()?.metadata.id ?? "default-project",
+		(editor) =>
+			editor.project.getActiveOrNull()?.metadata.id ?? "default-project",
 	);
+	const activeTopicProject = useTopicWorkbenchStore((state) => {
+		const projectId =
+			state.activeTopicProjectIdByEditorProject[editorProjectId];
+		if (!projectId) return null;
+		return (
+			state.topicProjects.find((project) => project.id === projectId) ?? null
+		);
+	});
 	const activeScene = useEditor((editor) =>
 		editor.scenes.getActiveSceneOrNull(),
 	);
@@ -145,11 +154,21 @@ function EditorLayout() {
 	);
 
 	const agentPanelSize = Math.min(42, Math.max(18, panels.chat));
+	const shouldUseFocusedTopicChat =
+		activeWorkbench === "topic" && !activeTopicProject;
 	const workspaceProps = {
 		overlayControls,
 		overlayInstances: overlaySource.instances,
 		onOverlayVisibilityChange: setOverlayVisibility,
 	};
+
+	if (shouldUseFocusedTopicChat) {
+		return (
+			<div className="size-full px-3 pb-3">
+				<AgentPanelFrame />
+			</div>
+		);
+	}
 
 	return (
 		<ResizablePanelGroup

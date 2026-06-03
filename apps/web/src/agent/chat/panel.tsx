@@ -153,7 +153,16 @@ const STARTER_PROMPT_STYLES: Array<{
 ];
 
 const STREAM_TEXT_FLUSH_INTERVAL_MS = 80;
-const TOPIC_RESEARCH_TOOL_NAMES = new Set(["web_search", "web_fetch"]);
+const TOPIC_SUPPORT_TOOL_NAMES = new Set([
+	"web_search",
+	"web_fetch",
+	"media_search",
+	"media_get_all",
+	"media_read_text_asset",
+	"video_semantic_index_analyze",
+	"video_semantic_index_get",
+	"vision_analyze_media",
+]);
 
 const TOPIC_STARTERS: Array<{
 	label: string;
@@ -1100,7 +1109,7 @@ export function ChatPanel() {
 								...editor.mcp
 									.getToolSchemas()
 									.filter((schema) =>
-										TOPIC_RESEARCH_TOOL_NAMES.has(schema.name),
+										TOPIC_SUPPORT_TOOL_NAMES.has(schema.name),
 									),
 							]
 						: editor.mcp.getToolSchemas(),
@@ -1407,13 +1416,13 @@ export function ChatPanel() {
 		};
 		addMessage(userMsg);
 		setInput("");
+		clearDraftReferences();
 		setLoading(true);
 
 		const allMsgs = [...getActiveMessages(), userMsg];
 		await runSSEAgent({
 			msgsToSend: allMsgs.map(toRequestMessage),
 		});
-		clearDraftReferences();
 	};
 
 	useEffect(() => {

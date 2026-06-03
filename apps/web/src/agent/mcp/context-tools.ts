@@ -25,7 +25,7 @@ export function buildContextTools(editor: EditorCore): Tool[] {
 		{
 			name: "brand_get_active",
 			description:
-				"获取当前启用的品牌套件摘要。没有启用品牌套件时返回 null。",
+				"获取当前启用的全局品牌套件摘要。没有启用品牌套件时返回 null。",
 			parameters: {},
 			handler: () => {
 				const kit = editor.project.getActiveBrandKit();
@@ -34,7 +34,7 @@ export function buildContextTools(editor: EditorCore): Tool[] {
 		},
 		{
 			name: "brand_list_kits",
-			description: "列出当前项目里可用的品牌套件摘要",
+			description: "列出全局可用的品牌套件摘要",
 			parameters: {},
 			handler: () => ({
 				kits: editor.project

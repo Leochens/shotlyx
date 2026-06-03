@@ -67,6 +67,10 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain(
 			"call topic_set_candidates with candidates and inputMaterials",
 		);
+		expect(prompt).toContain("call video_semantic_index_analyze first");
+		expect(prompt).toContain(
+			"visual understanding may be slower and token-heavy",
+		);
 		expect(prompt).toContain("Use web_search");
 		expect(prompt).toContain("Use web_fetch");
 		expect(prompt).toContain("Search snippets are leads, not source text");
