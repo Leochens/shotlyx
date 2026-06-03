@@ -41,6 +41,10 @@ import {
 	getRunningShotlyxMGJobIdsFromMessages,
 	isRunningShotlyxMGToolCall,
 } from "./mg-job-records";
+import {
+	buildDuplicateToolCallResult,
+	findSuppressibleDuplicateToolCall,
+} from "./tool-call-dedupe";
 import { formatToolCallForCopy } from "./tool-result-copy";
 import { buildToolResultContext } from "./tool-context";
 import { useAppLocale } from "@/i18n/use-app-locale";
@@ -722,8 +726,67 @@ export function ChatPanel() {
 			if (!callId || !tool) return;
 			const params = getRecordField({ value: data, key: "params" }) ?? {};
 
-			const pendingRecord: ToolCallRecord = { callId, tool, params };
 			const mid = ensureAssistantMessage();
+			const currentMsgs = getActiveMessages();
+			const currentMsg = currentMsgs.find((m) => m.id === mid);
+			const existingToolCalls = currentMsg?.toolCalls ?? [];
+
+			if (existingToolCalls.some((toolCall) => toolCall.callId === callId)) {
+				return;
+			}
+
+			const postToolResult = async ({
+				modelToolResult,
+				abortSignal,
+			}: {
+				modelToolResult: unknown;
+				abortSignal?: AbortSignal;
+			}) => {
+				const sid = runSessionIdRef.current;
+				if (!sid) return;
+
+				try {
+					const response = await fetch(`/api/agent/chat/${sid}/tool-result`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ callId, result: modelToolResult }),
+					});
+					if (!response.ok) {
+						const errorBody = await response.json().catch(() => null);
+						const errorDetail =
+							getStringField({ value: errorBody, key: "error" }) ??
+							`HTTP ${response.status}`;
+						throw new Error(`HTTP ${response.status}: ${errorDetail}`);
+					}
+				} catch (error) {
+					if (runSignal.aborted || abortSignal?.aborted) return;
+					addMessage({
+						id: `tool-result-post-error-${Date.now()}`,
+						role: "assistant",
+						content: `工具 ${tool} 已执行，但结果回传失败：${getErrorMessage(error)}`,
+						timestamp: Date.now(),
+					});
+				}
+			};
+
+			const duplicateToolCall = findSuppressibleDuplicateToolCall({
+				existingToolCalls,
+				tool,
+				params,
+			});
+			if (duplicateToolCall) {
+				const duplicateResult = buildDuplicateToolCallResult({
+					duplicate: duplicateToolCall,
+				});
+				const modelToolResult = sanitizeToolResultForModel({
+					toolName: tool,
+					result: duplicateResult,
+				});
+				void postToolResult({ modelToolResult });
+				return;
+			}
+
+			const pendingRecord: ToolCallRecord = { callId, tool, params };
 			const toolAbort = new AbortController();
 			toolAbortControllersRef.current.set(callId, toolAbort);
 			const appendToolProgress = (event: ToolProgressEvent) => {
@@ -752,10 +815,6 @@ export function ChatPanel() {
 				});
 			};
 
-			// Append to existing toolCalls on this message
-			const currentMsgs = getActiveMessages();
-			const currentMsg = currentMsgs.find((m) => m.id === mid);
-			const existingToolCalls = currentMsg?.toolCalls ?? [];
 			updateMessageToolCalls({
 				id: mid,
 				toolCalls: [...existingToolCalls, pendingRecord],
@@ -833,31 +892,10 @@ export function ChatPanel() {
 					toolCalls: currentToolCalls,
 				});
 
-				const sid = runSessionIdRef.current;
-				if (!sid) return;
-
-				try {
-					const response = await fetch(`/api/agent/chat/${sid}/tool-result`, {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ callId, result: modelToolResult }),
-					});
-					if (!response.ok) {
-						const errorBody = await response.json().catch(() => null);
-						const errorDetail =
-							getStringField({ value: errorBody, key: "error" }) ??
-							`HTTP ${response.status}`;
-						throw new Error(`HTTP ${response.status}: ${errorDetail}`);
-					}
-				} catch (error) {
-					if (runSignal.aborted || toolAbort.signal.aborted) return;
-					addMessage({
-						id: `tool-result-post-error-${Date.now()}`,
-						role: "assistant",
-						content: `工具 ${tool} 已执行，但结果回传失败：${getErrorMessage(error)}`,
-						timestamp: Date.now(),
-					});
-				}
+				await postToolResult({
+					modelToolResult,
+					abortSignal: toolAbort.signal,
+				});
 			})().finally(() => {
 				toolAbortControllersRef.current.delete(callId);
 			});
@@ -1269,11 +1307,9 @@ export function ChatPanel() {
 				nextPrompt.mode === "guide"
 					? `[引导当前任务]\n${nextPrompt.content}`
 					: nextPrompt.content;
-			void submitPromptRef
-				.current({ prompt, references: [] })
-				.finally(() => {
-					isSendingQueuedPromptRef.current = false;
-				});
+			void submitPromptRef.current({ prompt, references: [] }).finally(() => {
+				isSendingQueuedPromptRef.current = false;
+			});
 		}, 0);
 		return () => window.clearTimeout(timeoutId);
 	}, [activeSessionId, editor, isLoading, queuedPrompts]);
