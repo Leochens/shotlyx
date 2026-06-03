@@ -19,6 +19,8 @@ export function parseSSEStream({
 	const abort = new AbortController();
 	const decoder = new TextDecoder();
 	let buffer = "";
+	let currentEvent = "";
+	let currentData = "";
 
 	(async () => {
 		try {
@@ -39,14 +41,14 @@ export function parseSSEStream({
 				const lines = buffer.split("\n");
 				buffer = lines.pop() ?? "";
 
-				let currentEvent = "";
-				let currentData = "";
-
 				for (const line of lines) {
 					if (line.startsWith("event: ")) {
 						currentEvent = line.slice(7).trim();
 					} else if (line.startsWith("data: ")) {
-						currentData = line.slice(6);
+						const dataLine = line.slice(6);
+						currentData = currentData
+							? `${currentData}\n${dataLine}`
+							: dataLine;
 					} else if (line === "" && currentData) {
 						onEvent({
 							event: currentEvent || "message",
