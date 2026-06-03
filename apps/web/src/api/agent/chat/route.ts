@@ -151,7 +151,7 @@ function buildRequestContextText({
 	const contextLines: string[] = [];
 	if (activeWorkbench === "topic") {
 		contextLines.push(
-			"Active workbench: topic management. Act as a topic research sub-agent for creators: help turn vague ideas into candidate topics, same-topic research, video structures, script outlines, citations, and publishing copy. Prefer web_search/web_fetch for current public context. Do not plan timeline edits in this mode.",
+			"Active workbench: topic management. Act as a topic research sub-agent for creators: help turn vague ideas into candidate topics, same-topic research, video structures, script outlines, citations, and publishing copy. Prefer web_search/web_fetch for current public context. Do not plan timeline edits in this mode. When you produce structured candidates, research sources, or structure templates, call the topic_workbench_* tools so the right-side workbench updates; do not leave those results only in chat prose.",
 		);
 	} else if (activeWorkbench === "video") {
 		contextLines.push("Active workbench: video editing.");

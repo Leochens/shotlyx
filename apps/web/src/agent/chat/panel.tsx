@@ -47,6 +47,11 @@ import { useAppLocale } from "@/i18n/use-app-locale";
 import { WorkbenchSwitcher } from "@/topic-workbench/workbench-switcher";
 import { useTopicWorkbenchStore } from "@/topic-workbench/store";
 import {
+	executeTopicWorkbenchTool,
+	getTopicWorkbenchToolSchemas,
+	TOPIC_WORKBENCH_TOOL_NAMES,
+} from "@/topic-workbench/tools";
+import {
 	isRoughCutReviewResult,
 	RoughCutReviewDialog,
 } from "./rough-cut-review-dialog";
@@ -421,10 +426,23 @@ export function ChatPanel() {
 	const activeWorkbench = useTopicWorkbenchStore(
 		(state) => state.activeWorkbench,
 	);
+	const pendingTopicAgentEvent = useTopicWorkbenchStore(
+		(state) => state.pendingAgentEvent,
+	);
 	const setActiveEditorProject = useTopicWorkbenchStore(
 		(state) => state.setActiveEditorProject,
 	);
 	const recordTopicPrompt = useTopicWorkbenchStore((state) => state.recordPrompt);
+	const consumeTopicAgentEvent = useTopicWorkbenchStore(
+		(state) => state.consumeAgentEvent,
+	);
+	const submitPromptRef = useRef<
+		(args: {
+			prompt: string;
+			references?: AgentContextReference[];
+			syncTopicPrompt?: boolean;
+		}) => Promise<void>
+	>(async () => {});
 
 	useEffect(() => {
 		if (startTime === null) return;
@@ -730,7 +748,16 @@ export function ChatPanel() {
 			void (async () => {
 				let toolResult: ToolResult;
 				try {
-					if (!editor) {
+					if (
+						activeWorkbench === "topic" &&
+						TOPIC_WORKBENCH_TOOL_NAMES.has(tool)
+					) {
+						toolResult = executeTopicWorkbenchTool({
+							toolName: tool,
+							params,
+							editorProjectId: projectId ?? "default-project",
+						});
+					} else if (!editor) {
 						toolResult = {
 							status: "error",
 							error: "编辑器尚未准备好，无法执行工具",
@@ -995,9 +1022,14 @@ export function ChatPanel() {
 				mode,
 				toolSchemas:
 					activeWorkbench === "topic"
-						? editor.mcp
-								.getToolSchemas()
-								.filter((schema) => TOPIC_RESEARCH_TOOL_NAMES.has(schema.name))
+						? [
+								...getTopicWorkbenchToolSchemas(),
+								...editor.mcp
+									.getToolSchemas()
+									.filter((schema) =>
+										TOPIC_RESEARCH_TOOL_NAMES.has(schema.name),
+									),
+							]
 						: editor.mcp.getToolSchemas(),
 				context: {
 					activeBrandKit: editor.project.getActiveBrandKit(),
@@ -1168,13 +1200,15 @@ export function ChatPanel() {
 	const submitPrompt = async ({
 		prompt,
 		references = draftReferences,
+		syncTopicPrompt = true,
 	}: {
 		prompt: string;
 		references?: AgentContextReference[];
+		syncTopicPrompt?: boolean;
 	}) => {
 		const trimmed = prompt.trim();
 		if (!trimmed || isLoading || !editor) return;
-		if (activeWorkbench === "topic") {
+		if (activeWorkbench === "topic" && syncTopicPrompt) {
 			recordTopicPrompt({
 				editorProjectId: projectId ?? "default-project",
 				prompt: trimmed,
@@ -1198,6 +1232,45 @@ export function ChatPanel() {
 		});
 		clearDraftReferences();
 	};
+
+	useEffect(() => {
+		submitPromptRef.current = submitPrompt;
+	});
+
+	useEffect(() => {
+		if (
+			!pendingTopicAgentEvent ||
+			activeWorkbench !== "topic" ||
+			isLoading ||
+			!editor
+		) {
+			return;
+		}
+
+		consumeTopicAgentEvent({ eventId: pendingTopicAgentEvent.id });
+		if (pendingTopicAgentEvent.autoRun) {
+			void submitPromptRef.current({
+				prompt: pendingTopicAgentEvent.content,
+				references: [],
+				syncTopicPrompt: false,
+			});
+			return;
+		}
+
+		addMessage({
+			id: `topic-workbench-event-${Date.now()}`,
+			role: "user",
+			content: `[选题工作台]\n${pendingTopicAgentEvent.content}`,
+			timestamp: Date.now(),
+		});
+	}, [
+		activeWorkbench,
+		addMessage,
+		consumeTopicAgentEvent,
+		editor,
+		isLoading,
+		pendingTopicAgentEvent,
+	]);
 
 	const handleSubmit = async () => {
 		await submitPrompt({ prompt: input, references: draftReferences });

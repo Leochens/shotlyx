@@ -1,5 +1,6 @@
 import type {
 	PlatformRecommendation,
+	ResearchPlatform,
 	ResearchSource,
 	ScriptSegment,
 	TopicCandidate,
@@ -10,6 +11,47 @@ import type {
 } from "./types";
 
 const DEFAULT_PLATFORMS: TopicPlatform[] = ["bilibili", "youtube"];
+const PARAMETER_HINT_PATTERN =
+	/(B\s*站|bilibili|YouTube|油管|小红书|抖音|视频号|分钟|时长|平台|口播|竖屏|横屏)/i;
+const REVISION_INTENT_PATTERN =
+	/(重新|再来|换成|换一个|改成|调整|新选题|另一个|第二版|新版|重做|不对|不是这个)/;
+const TOPIC_CONTEXT_PATTERN = /(选题|方向|候选|方案|标题|主题)/;
+
+export interface TopicCandidateDraft {
+	title: string;
+	summary?: string;
+	coreViewpoint?: string;
+	audience?: string;
+	platforms?: TopicPlatform[];
+	durationMinutes?: number;
+	rationale?: string;
+	risks?: string[];
+}
+
+interface TopicCandidateSuggestion {
+	title: string;
+	detail?: string;
+}
+
+export interface ResearchSourceDraft {
+	platform?: ResearchPlatform;
+	title: string;
+	url: string;
+	sourceName?: string;
+	angle?: string;
+	whyRelevant?: string;
+	confidence?: ResearchSource["confidence"];
+}
+
+export interface VideoStructureOptionDraft {
+	name: string;
+	bestFor?: string;
+	rationale?: string;
+	flow: Array<{
+		label: string;
+		description: string;
+	}>;
+}
 
 function createId(prefix: string): string {
 	if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -24,8 +66,127 @@ function clampPrompt(prompt: string): string {
 	return trimmed.length > 34 ? `${trimmed.slice(0, 34)}...` : trimmed;
 }
 
+function clampText({
+	value,
+	maxLength,
+}: {
+	value: string;
+	maxLength: number;
+}): string {
+	const trimmed = value.trim().replace(/\s+/g, " ");
+	if (trimmed.length <= maxLength) return trimmed;
+	return `${trimmed.slice(0, maxLength)}...`;
+}
+
 function encodeQuery(query: string): string {
 	return encodeURIComponent(query.trim());
+}
+
+function appendPromptHistory({
+	promptHistory,
+	prompt,
+}: {
+	promptHistory: string[];
+	prompt: string;
+}): string[] {
+	return [...promptHistory, prompt].slice(-12);
+}
+
+function appendOptionalPromptHistory({
+	promptHistory,
+	prompt,
+}: {
+	promptHistory: string[];
+	prompt?: string;
+}): string[] {
+	const trimmed = prompt?.trim();
+	if (!trimmed) return promptHistory;
+	return appendPromptHistory({ promptHistory, prompt: trimmed });
+}
+
+function shouldRefreshCandidatesFromText({
+	project,
+	text,
+}: {
+	project: TopicProject;
+	text: string;
+}): boolean {
+	if (project.candidates.length === 0) return true;
+	if (project.stage === "ideation") return true;
+	return REVISION_INTENT_PATTERN.test(text);
+}
+
+function buildRevisionPrompt({
+	project,
+	prompt,
+}: {
+	project: TopicProject;
+	prompt: string;
+}): string {
+	if (
+		PARAMETER_HINT_PATTERN.test(prompt) &&
+		!REVISION_INTENT_PATTERN.test(prompt)
+	) {
+		const base = project.originPrompt || project.title;
+		return `${base} ${prompt}`.trim();
+	}
+	return prompt;
+}
+
+function normalizeSuggestionText(value: string): string {
+	return value
+		.replace(/\*\*/g, "")
+		.replace(/[`_]/g, "")
+		.replace(/^["'“”《]+|["'“”》]+$/g, "")
+		.trim();
+}
+
+function parseSuggestionLine(line: string): TopicCandidateSuggestion | null {
+	const match = line.match(
+		/^\s*(?:[-*]\s*)?(?:(?:\d{1,2}|[一二三四五六七八九十])[).、]|方案\s*(?:\d{1,2}|[一二三四五六七八九十])[:：]|选题\s*(?:\d{1,2}|[一二三四五六七八九十])?[:：]|方向\s*(?:\d{1,2}|[一二三四五六七八九十])?[:：])\s*(.+)$/,
+	);
+	if (!match?.[1]) return null;
+
+	const cleaned = normalizeSuggestionText(match[1]);
+	if (cleaned.length < 4) return null;
+	if (/^(脚本|大纲|素材|发布文案|视频描述|封面|参考资料|调研|结构|开场|结尾)[:：]/.test(cleaned)) {
+		return null;
+	}
+
+	const separatorMatch = cleaned.match(/^(.{4,58}?)[：:]\s*(.+)$/);
+	if (!separatorMatch?.[1]) {
+		return { title: clampText({ value: cleaned, maxLength: 72 }) };
+	}
+
+	return {
+		title: clampText({
+			value: normalizeSuggestionText(separatorMatch[1]),
+			maxLength: 72,
+		}),
+		detail: separatorMatch[2]
+			? clampText({
+					value: normalizeSuggestionText(separatorMatch[2]),
+					maxLength: 120,
+				})
+			: undefined,
+	};
+}
+
+export function extractTopicCandidateSuggestions(
+	content: string,
+): TopicCandidateSuggestion[] {
+	if (!TOPIC_CONTEXT_PATTERN.test(content)) return [];
+
+	const suggestions: TopicCandidateSuggestion[] = [];
+	const seenTitles = new Set<string>();
+	for (const line of content.split(/\r?\n/)) {
+		const suggestion = parseSuggestionLine(line);
+		if (!suggestion || seenTitles.has(suggestion.title)) continue;
+		seenTitles.add(suggestion.title);
+		suggestions.push(suggestion);
+		if (suggestions.length >= 5) break;
+	}
+	return suggestions;
 }
 
 export function createTopicCandidatesFromPrompt({
@@ -107,6 +268,254 @@ export function createTopicCandidatesFromPrompt({
 	];
 }
 
+function createTopicCandidatesFromSuggestions({
+	suggestions,
+	now,
+}: {
+	suggestions: TopicCandidateSuggestion[];
+	now: number;
+}): TopicCandidate[] {
+	const platformSets: TopicPlatform[][] = [
+		["bilibili", "youtube"],
+		["bilibili", "xiaohongshu"],
+		["youtube", "bilibili", "douyin"],
+		["bilibili", "youtube"],
+		["douyin", "xiaohongshu", "video-account"],
+	];
+	const audiences = [
+		"关注 AI、科技工具和内容生产效率的创作者。",
+		"想少走弯路、寻找真实工具体验的个人创作者。",
+		"想把新技术用于具体产出的创作者、小团队和小广告主。",
+		"喜欢观点、行业判断和深度分析的观众。",
+		"小型广告主、独立开发者、希望做内容增长的产品团队。",
+	];
+
+	return suggestions.map((suggestion, index) => ({
+		id: createId("candidate"),
+		title: suggestion.title,
+		summary:
+			suggestion.detail ??
+			`围绕「${suggestion.title}」展开，把左侧 Agent 聊出的方向沉淀成可继续调研的视频选题。`,
+		coreViewpoint:
+			"这个选题的价值不只在热点本身，而在它如何影响创作者的真实工作流和发布策略。",
+		audience: audiences[index] ?? audiences[0],
+		platforms: platformSets[index] ?? DEFAULT_PLATFORMS,
+		durationMinutes: index === 4 ? 3 : index === 3 ? 10 : 6 + index,
+		rationale:
+			"来自当前选题对话，可继续在右侧编辑、确认，并进入同题调研与结构设计。",
+		risks: ["需要继续做同题搜索和事实核验，避免只停留在概念判断。"],
+		status: "draft",
+		updatedAt: now,
+	}));
+}
+
+export function createTopicCandidatesFromDrafts({
+	drafts,
+	fallbackPrompt,
+	now = Date.now(),
+}: {
+	drafts: TopicCandidateDraft[];
+	fallbackPrompt: string;
+	now?: number;
+}): TopicCandidate[] {
+	const templateCandidates = createTopicCandidatesFromPrompt({
+		prompt: fallbackPrompt,
+		now,
+	});
+
+	if (drafts.length === 0) return templateCandidates;
+
+	return drafts.slice(0, 5).map((draft, index) => {
+		const template = templateCandidates[index] ?? templateCandidates[0];
+		return {
+			id: createId("candidate"),
+			title: clampText({
+				value: draft.title || template.title,
+				maxLength: 72,
+			}),
+			summary:
+				draft.summary?.trim() ||
+				template.summary ||
+				"Agent 已把左侧对话沉淀成这个可继续调研的视频选题。",
+			coreViewpoint:
+				draft.coreViewpoint?.trim() ||
+				template.coreViewpoint ||
+				"先找到同题内容里的空位，再形成自己的差异化观点。",
+			audience:
+				draft.audience?.trim() ||
+				template.audience ||
+				"关注内容生产效率和创作者工作流的用户。",
+			platforms:
+				draft.platforms && draft.platforms.length > 0
+					? draft.platforms
+					: template.platforms,
+			durationMinutes:
+				typeof draft.durationMinutes === "number" &&
+				Number.isFinite(draft.durationMinutes) &&
+				draft.durationMinutes > 0
+					? Math.round(draft.durationMinutes)
+					: template.durationMinutes,
+			rationale:
+				draft.rationale?.trim() ||
+				template.rationale ||
+				"这个方向适合继续展开同题搜索、调研引用和脚本结构设计。",
+			risks:
+				draft.risks && draft.risks.length > 0
+					? draft.risks
+					: template.risks,
+			status: "draft",
+			updatedAt: now,
+		};
+	});
+}
+
+export function replaceTopicCandidates({
+	project,
+	prompt,
+	candidates,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	prompt?: string;
+	candidates: TopicCandidateDraft[];
+	now?: number;
+}): TopicProject {
+	const fallbackPrompt = prompt?.trim() || project.originPrompt || project.title;
+	return {
+		...project,
+		title: clampPrompt(fallbackPrompt),
+		originPrompt: fallbackPrompt,
+		stage: "ideation",
+		status: "active",
+		candidates: createTopicCandidatesFromDrafts({
+			drafts: candidates,
+			fallbackPrompt,
+			now,
+		}),
+		selectedCandidateId: null,
+		researchSources: [],
+		structures: [],
+		selectedStructureId: null,
+		promptHistory: appendOptionalPromptHistory({
+			promptHistory: project.promptHistory,
+			prompt,
+		}),
+		updatedAt: now,
+	};
+}
+
+export function applyResearchSources({
+	project,
+	sources,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	sources: ResearchSourceDraft[];
+	now?: number;
+}): TopicProject {
+	const researchSources = sources.slice(0, 12).map((source) => ({
+		id: createId("source"),
+		platform: source.platform ?? "web",
+		title: source.title,
+		url: source.url,
+		sourceName: source.sourceName ?? source.platform ?? "Web",
+		angle: source.angle ?? "Agent 调研得到的相关资料。",
+		whyRelevant: source.whyRelevant ?? "用于判断同题内容、灵感来源和差异化切口。",
+		confidence: source.confidence ?? "medium",
+	}));
+
+	return {
+		...project,
+		stage: "research",
+		status: "active",
+		researchSources,
+		structures: [],
+		selectedStructureId: null,
+		updatedAt: now,
+	};
+}
+
+export function applyStructureOptions({
+	project,
+	structures,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	structures: VideoStructureOptionDraft[];
+	now?: number;
+}): TopicProject {
+	const structureOptions = structures.slice(0, 5).map((structure) => ({
+		id: createId("structure"),
+		name: structure.name,
+		bestFor: structure.bestFor ?? "适合当前选题继续拆解脚本和素材表。",
+		flow: structure.flow.length > 0 ? structure.flow : [],
+		rationale:
+			structure.rationale ??
+			"由 Agent 根据当前选题和调研资料生成，可在右侧选择后进入选题包。",
+	}));
+
+	return {
+		...project,
+		stage: "structure",
+		status: "active",
+		structures: structureOptions,
+		selectedStructureId: null,
+		updatedAt: now,
+	};
+}
+
+export function resetTopicProjectToStage({
+	project,
+	stage,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	stage: TopicStage;
+	now?: number;
+}): TopicProject {
+	if (stage === "package") {
+		return {
+			...project,
+			stage: "package",
+			updatedAt: now,
+		};
+	}
+
+	if (stage === "structure") {
+		return {
+			...project,
+			stage: "structure",
+			status: "active",
+			structures: [],
+			selectedStructureId: null,
+			updatedAt: now,
+		};
+	}
+
+	if (stage === "research") {
+		return {
+			...project,
+			stage: "research",
+			status: "active",
+			researchSources: [],
+			structures: [],
+			selectedStructureId: null,
+			updatedAt: now,
+		};
+	}
+
+	return {
+		...project,
+		stage: "ideation",
+		status: "active",
+		selectedCandidateId: null,
+		researchSources: [],
+		structures: [],
+		selectedStructureId: null,
+		updatedAt: now,
+	};
+}
+
 export function createTopicProjectFromPrompt({
 	editorProjectId,
 	prompt,
@@ -149,20 +558,73 @@ export function mergePromptIntoProject({
 }): TopicProject {
 	const trimmed = prompt.trim();
 	if (!trimmed) return project;
-	if (project.candidates.length === 0) {
+	const promptHistory = appendPromptHistory({
+		promptHistory: project.promptHistory,
+		prompt: trimmed,
+	});
+
+	if (!shouldRefreshCandidatesFromText({ project, text: trimmed })) {
 		return {
 			...project,
-			candidates: createTopicCandidatesFromPrompt({ prompt: trimmed, now }),
-			originPrompt: trimmed,
-			title: clampPrompt(trimmed),
-			promptHistory: [...project.promptHistory, trimmed],
+			promptHistory,
 			updatedAt: now,
 		};
 	}
 
+	const revisionPrompt = buildRevisionPrompt({ project, prompt: trimmed });
 	return {
 		...project,
-		promptHistory: [...project.promptHistory, trimmed].slice(-12),
+		title: clampPrompt(revisionPrompt),
+		originPrompt: revisionPrompt,
+		stage: "ideation",
+		status: "active",
+		candidates: createTopicCandidatesFromPrompt({
+			prompt: revisionPrompt,
+			now,
+		}),
+		selectedCandidateId: null,
+		researchSources: [],
+		structures: [],
+		selectedStructureId: null,
+		promptHistory,
+		updatedAt: now,
+	};
+}
+
+export function mergeAssistantTopicOutputIntoProject({
+	project,
+	content,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	content: string;
+	now?: number;
+}): TopicProject {
+	const trimmed = content.trim();
+	if (!trimmed) return project;
+	if (!shouldRefreshCandidatesFromText({ project, text: trimmed })) {
+		return project;
+	}
+
+	const suggestions = extractTopicCandidateSuggestions(trimmed);
+	if (suggestions.length === 0) return project;
+
+	return {
+		...project,
+		title: clampPrompt(suggestions[0]?.title ?? project.title),
+		stage: "ideation",
+		status: "active",
+		candidates:
+			suggestions.length >= 2
+				? createTopicCandidatesFromSuggestions({ suggestions, now })
+				: createTopicCandidatesFromPrompt({
+						prompt: suggestions[0]?.title ?? trimmed,
+						now,
+					}),
+		selectedCandidateId: null,
+		researchSources: [],
+		structures: [],
+		selectedStructureId: null,
 		updatedAt: now,
 	};
 }
@@ -235,10 +697,9 @@ export function confirmSelectedCandidate({
 			status: candidate.id === selected.id ? "confirmed" : "draft",
 			updatedAt: candidate.id === selected.id ? now : candidate.updatedAt,
 		})),
-		researchSources:
-			project.researchSources.length > 0
-				? project.researchSources
-				: createResearchSources({ candidate: selected }),
+		researchSources: [],
+		structures: [],
+		selectedStructureId: null,
 		updatedAt: now,
 	};
 }

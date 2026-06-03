@@ -100,3 +100,16 @@ export interface TopicProject {
 	activePackageVersionId: string | null;
 }
 
+export interface TopicWorkbenchAgentEvent {
+	id: string;
+	editorProjectId: string;
+	content: string;
+	autoRun: boolean;
+	createdAt: number;
+	source:
+		| "candidate-select"
+		| "candidate-edit"
+		| "candidate-confirm"
+		| "stage-forward"
+		| "stage-reset";
+}

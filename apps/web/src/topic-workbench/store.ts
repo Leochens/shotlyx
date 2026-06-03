@@ -4,17 +4,26 @@ import { createIndexedDBPersistStorage } from "@/agent/chat/indexeddb-storage";
 import {
 	addPackageVersion,
 	advanceToStructureStage,
+	applyResearchSources,
+	applyStructureOptions,
 	confirmSelectedCandidate,
 	createResearchSources,
 	createStructureOptions,
 	createTopicProjectFromPrompt,
 	mergePromptIntoProject,
+	replaceTopicCandidates,
+	resetTopicProjectToStage,
 	selectCandidate,
 	selectStructure,
 	updateCandidate,
+	type ResearchSourceDraft,
+	type TopicCandidateDraft,
+	type VideoStructureOptionDraft,
 } from "./model";
 import type {
 	TopicCandidate,
+	TopicStage,
+	TopicWorkbenchAgentEvent,
 	TopicProject,
 	WorkbenchMode,
 } from "./types";
@@ -28,6 +37,7 @@ interface PersistedTopicWorkbenchState {
 
 interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 	isHydrated: boolean;
+	pendingAgentEvent: TopicWorkbenchAgentEvent | null;
 	setIsHydrated: ({ isHydrated }: { isHydrated: boolean }) => void;
 	setActiveWorkbench: ({ mode }: { mode: WorkbenchMode }) => void;
 	setActiveEditorProject: ({ editorProjectId }: { editorProjectId: string }) => void;
@@ -46,6 +56,26 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 		editorProjectId: string;
 		prompt: string;
 	}) => void;
+	replaceCandidates: ({
+		editorProjectId,
+		prompt,
+		candidates,
+	}: {
+		editorProjectId: string;
+		prompt?: string;
+		candidates: TopicCandidateDraft[];
+	}) => TopicProject | null;
+	applyResearchSources: ({
+		sources,
+	}: {
+		sources: ResearchSourceDraft[];
+	}) => TopicProject | null;
+	applyStructureOptions: ({
+		structures,
+	}: {
+		structures: VideoStructureOptionDraft[];
+	}) => TopicProject | null;
+	resetToStage: ({ stage }: { stage: TopicStage }) => TopicProject | null;
 	selectCandidate: ({ candidateId }: { candidateId: string }) => void;
 	updateCandidate: ({
 		candidateId,
@@ -60,6 +90,13 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 	selectStructure: ({ structureId }: { structureId: string }) => void;
 	createPackageVersion: () => void;
 	setActivePackageVersion: ({ versionId }: { versionId: string }) => void;
+	emitAgentEvent: ({
+		editorProjectId,
+		content,
+		autoRun,
+		source,
+	}: Omit<TopicWorkbenchAgentEvent, "id" | "createdAt">) => void;
+	consumeAgentEvent: ({ eventId }: { eventId: string }) => void;
 }
 
 const DEFAULT_EDITOR_PROJECT_ID = "default-project";
@@ -97,6 +134,22 @@ function updateActiveProject({
 	};
 }
 
+function createAgentEvent({
+	editorProjectId,
+	content,
+	autoRun,
+	source,
+}: Omit<TopicWorkbenchAgentEvent, "id" | "createdAt">): TopicWorkbenchAgentEvent {
+	return {
+		id: `topic-event-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+		editorProjectId,
+		content,
+		autoRun,
+		source,
+		createdAt: Date.now(),
+	};
+}
+
 export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 	persist(
 		(set, get) => ({
@@ -105,6 +158,7 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 			activeTopicProjectIdByEditorProject: {},
 			topicProjects: [],
 			isHydrated: typeof window === "undefined",
+			pendingAgentEvent: null,
 
 			setIsHydrated: ({ isHydrated }) => set({ isHydrated }),
 			setActiveWorkbench: ({ mode }) => set({ activeWorkbench: mode }),
@@ -173,6 +227,101 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 						[editorProjectId || DEFAULT_EDITOR_PROJECT_ID]: project.id,
 					},
 				}));
+			},
+
+			replaceCandidates: ({ editorProjectId, prompt, candidates }) => {
+				const normalizedEditorProjectId =
+					editorProjectId || DEFAULT_EDITOR_PROJECT_ID;
+				let nextProject: TopicProject | null = null;
+				set((state) => {
+					const activeId =
+						state.activeTopicProjectIdByEditorProject[
+							normalizedEditorProjectId
+						];
+					const activeProject =
+						state.topicProjects.find((project) => project.id === activeId) ??
+						null;
+					const fallbackPrompt =
+						prompt?.trim() ||
+						activeProject?.originPrompt ||
+						activeProject?.title ||
+						"新的选题方向";
+
+					if (!activeProject) {
+						nextProject = createTopicProjectFromPrompt({
+							editorProjectId: normalizedEditorProjectId,
+							prompt: fallbackPrompt,
+						});
+						nextProject = replaceTopicCandidates({
+							project: nextProject,
+							prompt: fallbackPrompt,
+							candidates,
+						});
+						return {
+							activeEditorProjectId: normalizedEditorProjectId,
+							topicProjects: [...state.topicProjects, nextProject],
+							activeTopicProjectIdByEditorProject: {
+								...state.activeTopicProjectIdByEditorProject,
+								[normalizedEditorProjectId]: nextProject.id,
+							},
+						};
+					}
+
+					nextProject = replaceTopicCandidates({
+						project: activeProject,
+						prompt: fallbackPrompt,
+						candidates,
+					});
+					return {
+						activeEditorProjectId: normalizedEditorProjectId,
+						topicProjects: state.topicProjects.map((project) =>
+							project.id === activeProject.id ? nextProject! : project,
+						),
+					};
+				});
+				return nextProject;
+			},
+
+			applyResearchSources: ({ sources }) => {
+				let nextProject: TopicProject | null = null;
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) => {
+							nextProject = applyResearchSources({ project, sources });
+							return nextProject;
+						},
+					}),
+				);
+				return nextProject;
+			},
+
+			applyStructureOptions: ({ structures }) => {
+				let nextProject: TopicProject | null = null;
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) => {
+							nextProject = applyStructureOptions({ project, structures });
+							return nextProject;
+						},
+					}),
+				);
+				return nextProject;
+			},
+
+			resetToStage: ({ stage }) => {
+				let nextProject: TopicProject | null = null;
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) => {
+							nextProject = resetTopicProjectToStage({ project, stage });
+							return nextProject;
+						},
+					}),
+				);
+				return nextProject;
 			},
 
 			selectCandidate: ({ candidateId }) =>
@@ -269,6 +418,23 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 						}),
 					}),
 				),
+
+			emitAgentEvent: ({ editorProjectId, content, autoRun, source }) =>
+				set({
+					pendingAgentEvent: createAgentEvent({
+						editorProjectId: editorProjectId || DEFAULT_EDITOR_PROJECT_ID,
+						content,
+						autoRun,
+						source,
+					}),
+				}),
+
+			consumeAgentEvent: ({ eventId }) =>
+				set((state) =>
+					state.pendingAgentEvent?.id === eventId
+						? { pendingAgentEvent: null }
+						: state,
+				),
 		}),
 		{
 			name: "shotlyx-topic-workbench-v1",
@@ -287,4 +453,3 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 		},
 	),
 );
-
