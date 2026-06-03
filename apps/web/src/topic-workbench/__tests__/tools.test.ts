@@ -136,6 +136,43 @@ describe("topic workbench tools", () => {
 		expect(project?.candidates[0]?.status).toBe("confirmed");
 	});
 
+	test("persists user-provided materials when candidates are written", () => {
+		const result = executeTopicWorkbenchTool({
+			toolName: "topic_set_candidates",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: {
+				prompt: "根据素材生成选题方向",
+				inputMaterials: [
+					{
+						id: "material-1",
+						kind: "uploaded-media",
+						title: "产品演示录屏.mp4",
+						summary: "用户提供的产品操作录屏。",
+						mediaAssetId: "media-1",
+					},
+					{
+						id: "material-2",
+						kind: "script",
+						title: "口播稿",
+						content: "这一期想讲 AI 如何把长视频变成短视频投放素材。",
+					},
+				],
+				candidates: [
+					{
+						title: "把一条产品录屏拆成 5 个投放短视频选题",
+						summary: "基于用户提供的录屏和口播稿生成可执行方向。",
+					},
+				],
+			},
+		});
+		const project = useTopicWorkbenchStore.getState().getActiveTopicProject();
+
+		expect(result.status).toBe("success");
+		expect(project?.inputMaterials).toHaveLength(2);
+		expect(project?.inputMaterials[0]?.title).toBe("产品演示录屏.mp4");
+		expect(project?.inputMaterials[1]?.content).toContain("长视频");
+	});
+
 	test("creates package and production plan through tools", () => {
 		const packageResult = moveToPackage();
 		const productionResult = executeTopicWorkbenchTool({

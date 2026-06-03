@@ -6,6 +6,7 @@ import {
 	Bot,
 	Clapperboard,
 	ChevronDown,
+	ClipboardList,
 	Gamepad2,
 	Image as ImageIcon,
 	ImagePlus,
@@ -16,6 +17,7 @@ import {
 	SlidersHorizontal,
 	Sparkles,
 	Square,
+	Upload,
 	Video,
 	Zap,
 } from "lucide-react";
@@ -51,6 +53,7 @@ import {
 import type { ExecutionMode } from "./types";
 
 export type RunningSubmitMode = "queue" | "guide";
+type TopicSourceMaterialType = "script" | "screen-recording" | "note";
 
 interface BottomToolbarProps {
 	input: string;
@@ -68,12 +71,29 @@ interface BottomToolbarProps {
 	onMediaSubmit?: (prompt: string) => void;
 	onMGSubmit?: (prompt: string) => void;
 	onStop?: () => void;
+	workbench?: "video" | "topic";
+	topicSourceMaterialOpen?: boolean;
+	onTopicSourceMaterialOpenChange?: (open: boolean) => void;
+	onTopicMaterialUploadClick?: () => void;
+	onTopicSourceMaterialAdd?: (material: {
+		materialType: TopicSourceMaterialType;
+		name: string;
+		content: string;
+	}) => void;
 }
 
 const MEDIA_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"] as const;
 const MEDIA_DURATIONS = [5, 8, 10, 12] as const;
 const MG_RATIOS = ["16:9", "9:16", "1:1"] as const;
 const MG_DURATIONS = [3, 5, 8, 10] as const;
+const SOURCE_MATERIAL_TYPE_OPTIONS: Array<{
+	value: TopicSourceMaterialType;
+	label: string;
+}> = [
+	{ value: "script", label: "脚本" },
+	{ value: "screen-recording", label: "录屏稿" },
+	{ value: "note", label: "备注" },
+];
 
 const CHAT_INPUT_SURFACE_CLASS_NAME =
 	"rounded-sm border border-border/80 bg-input/85 p-2 shadow-[0_8px_22px_rgba(14,44,56,0.08),inset_0_1px_0_rgba(255,255,255,0.58)] transition-[border-color,box-shadow] focus-within:border-primary/40 focus-within:shadow-[0_12px_28px_rgba(14,165,190,0.11),inset_0_1px_0_rgba(255,255,255,0.68)] dark:border-cyan-300/15 dark:bg-input/90 dark:shadow-[0_14px_40px_rgba(0,0,0,0.22)] dark:focus-within:border-cyan-300/35 dark:focus-within:shadow-[0_16px_42px_rgba(0,0,0,0.34)]";
@@ -132,6 +152,11 @@ export function BottomToolbar({
 	onMediaSubmit,
 	onMGSubmit,
 	onStop,
+	workbench = "video",
+	topicSourceMaterialOpen,
+	onTopicSourceMaterialOpenChange,
+	onTopicMaterialUploadClick,
+	onTopicSourceMaterialAdd,
 }: BottomToolbarProps) {
 	const { copy } = useAppLocale();
 	const toolbarCopy = copy.editor.toolbar;
@@ -158,8 +183,19 @@ export function BottomToolbar({
 		useState<MGTemplatePickerValue>("smart-composition");
 	const [mgRatio, setMGRatio] = useState("16:9");
 	const [mgDuration, setMGDuration] = useState(5);
+	const [internalSourceMaterialOpen, setInternalSourceMaterialOpen] =
+		useState(false);
+	const [sourceMaterialType, setSourceMaterialType] =
+		useState<TopicSourceMaterialType>("script");
+	const [sourceMaterialTitle, setSourceMaterialTitle] = useState("");
+	const [sourceMaterialContent, setSourceMaterialContent] = useState("");
 	const isMediaMode = selectedAgent === "media";
 	const isMGMode = selectedAgent === "mg";
+	const isTopicWorkbench = workbench === "topic";
+	const isSourceMaterialOpen =
+		topicSourceMaterialOpen ?? internalSourceMaterialOpen;
+	const setSourceMaterialOpen =
+		onTopicSourceMaterialOpenChange ?? setInternalSourceMaterialOpen;
 	const modeControls = (
 		<ChatModeControls
 			selectedAgent={selectedAgent}
@@ -263,6 +299,25 @@ export function BottomToolbar({
 		setReferenceOpen(false);
 	};
 
+	const handleAddSourceMaterial = () => {
+		const content = sourceMaterialContent.trim();
+		if (!content) return;
+		onTopicSourceMaterialAdd?.({
+			materialType: sourceMaterialType,
+			name:
+				sourceMaterialTitle.trim() ||
+				(sourceMaterialType === "screen-recording"
+					? "录屏稿"
+					: sourceMaterialType === "script"
+						? "脚本"
+						: "素材备注"),
+			content,
+		});
+		setSourceMaterialTitle("");
+		setSourceMaterialContent("");
+		setSourceMaterialOpen(false);
+	};
+
 	if (isMGMode) {
 		return (
 			<form
@@ -287,7 +342,7 @@ export function BottomToolbar({
 							event.preventDefault();
 							handleMGSubmit();
 						}}
-							placeholder="描述你想生成的 MG 动画、视觉特效或字幕强调..."
+						placeholder="描述你想生成的 MG 动画、视觉特效或字幕强调..."
 						rows={2}
 						className="max-h-28 min-h-14 w-full resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
 					/>
@@ -581,6 +636,90 @@ export function BottomToolbar({
 				) : null}
 
 				<div className="flex items-center gap-1 pt-1">
+					{isTopicWorkbench ? (
+						<>
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon"
+								onClick={onTopicMaterialUploadClick}
+								disabled={disabled}
+								className="size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+								aria-label="上传素材"
+								title="上传素材"
+							>
+								<Upload size={17} />
+							</Button>
+							<Popover
+								open={isSourceMaterialOpen}
+								onOpenChange={setSourceMaterialOpen}
+							>
+								<PopoverTrigger asChild>
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										disabled={disabled}
+										className="size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+										aria-label="粘贴脚本或录屏稿"
+										title="粘贴脚本或录屏稿"
+									>
+										<ClipboardList size={17} />
+									</Button>
+								</PopoverTrigger>
+								<PopoverContent
+									align="start"
+									side="top"
+									className="w-[min(28rem,calc(100vw-2rem))] rounded-sm p-3"
+								>
+									<div className="flex items-center gap-1">
+										{SOURCE_MATERIAL_TYPE_OPTIONS.map((option) => (
+											<button
+												key={option.value}
+												type="button"
+												onClick={() => setSourceMaterialType(option.value)}
+												className={cn(
+													"rounded-sm px-2 py-1 text-xs font-medium transition-colors",
+													sourceMaterialType === option.value
+														? "bg-primary text-primary-foreground"
+														: "text-muted-foreground hover:bg-accent hover:text-foreground",
+												)}
+											>
+												{option.label}
+											</button>
+										))}
+									</div>
+									<input
+										value={sourceMaterialTitle}
+										onChange={(event) =>
+											setSourceMaterialTitle(event.target.value)
+										}
+										placeholder="标题，可选"
+										className="mt-2 h-9 w-full rounded-sm border border-border bg-background px-2 text-sm outline-none focus:border-primary/40"
+									/>
+									<textarea
+										value={sourceMaterialContent}
+										onChange={(event) =>
+											setSourceMaterialContent(event.target.value)
+										}
+										placeholder="粘贴脚本、口播稿、录屏转写或素材说明"
+										rows={7}
+										className="mt-2 max-h-64 min-h-32 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/40"
+									/>
+									<div className="mt-2 flex justify-end">
+										<Button
+											type="button"
+											size="sm"
+											disabled={!sourceMaterialContent.trim()}
+											onClick={handleAddSourceMaterial}
+										>
+											加入上下文
+										</Button>
+									</div>
+								</PopoverContent>
+							</Popover>
+						</>
+					) : null}
 					<Popover open={referenceOpen} onOpenChange={setReferenceOpen}>
 						<PopoverTrigger asChild>
 							<Button

@@ -2,6 +2,7 @@ import type {
 	AgentBrandKitReference,
 	AgentContextReference,
 	AgentMediaAssetReference,
+	AgentSourceMaterialReference,
 	AgentTimelineElementReference,
 	AgentTimelineTrackReference,
 	CompactAgentReferences,
@@ -17,6 +18,7 @@ const BLOCKED_KEYS = new Set([
 	"downloadUrl",
 	"sourceUrl",
 ]);
+const MAX_SOURCE_MATERIAL_CONTENT_LENGTH = 6000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -51,6 +53,9 @@ export function isAgentContextReference(
 	}
 	if (value.kind === "brand-kit") {
 		return typeof value.payload.brandKitId === "string";
+	}
+	if (value.kind === "source-material") {
+		return typeof value.payload.materialId === "string";
 	}
 	return false;
 }
@@ -124,6 +129,24 @@ function compactBrandKit(payload: AgentBrandKitReference) {
 	};
 }
 
+function compactSourceMaterial(payload: AgentSourceMaterialReference) {
+	const content = payload.content?.trim();
+	return {
+		materialId: payload.materialId,
+		materialType: payload.materialType,
+		name: payload.name,
+		summary: payload.summary,
+		content:
+			content && content.length > MAX_SOURCE_MATERIAL_CONTENT_LENGTH
+				? `${content.slice(0, MAX_SOURCE_MATERIAL_CONTENT_LENGTH)}... [truncated ${content.length} chars]`
+				: content,
+		mediaAssetId: payload.mediaAssetId,
+		mediaType: payload.mediaType,
+		durationSeconds: payload.durationSeconds,
+		sizeBytes: payload.sizeBytes,
+	};
+}
+
 function compactPayload(reference: AgentContextReference) {
 	if (reference.kind === "media-asset") {
 		return compactMediaAsset(reference.payload);
@@ -134,10 +157,15 @@ function compactPayload(reference: AgentContextReference) {
 	if (reference.kind === "timeline-track") {
 		return compactTimelineTrack(reference.payload);
 	}
+	if (reference.kind === "source-material") {
+		return compactSourceMaterial(reference.payload);
+	}
 	return compactBrandKit(reference.payload);
 }
 
-export function getReferenceTargetKey(reference: AgentContextReference): string {
+export function getReferenceTargetKey(
+	reference: AgentContextReference,
+): string {
 	if (reference.kind === "media-asset") {
 		return `media:${reference.payload.mediaAssetId}`;
 	}
@@ -147,27 +175,44 @@ export function getReferenceTargetKey(reference: AgentContextReference): string 
 	if (reference.kind === "timeline-track") {
 		return `timeline-track:${reference.payload.trackId}`;
 	}
+	if (reference.kind === "source-material") {
+		return `source-material:${reference.payload.materialId}`;
+	}
 	return `brand-kit:${reference.payload.brandKitId}`;
 }
 
-export function formatReferenceForChip(reference: AgentContextReference): string {
+export function formatReferenceForChip(
+	reference: AgentContextReference,
+): string {
 	if (reference.kind === "media-asset") return reference.label;
 	if (reference.kind === "timeline-element") return reference.label;
 	if (reference.kind === "timeline-track") return reference.label;
+	if (reference.kind === "source-material") return reference.label;
 	return reference.label || "品牌套件";
 }
 
 export function compactReferenceForModel(
 	reference: AgentContextReference,
 ): Record<string, unknown> {
+	const payload = compactPayload(reference);
 	const compact = sanitizeValue({
 		id: reference.id,
 		kind: reference.kind,
 		label: reference.label,
 		source: reference.source,
-		...compactPayload(reference),
+		...payload,
 	});
-	return isRecord(compact) ? compact : {};
+	if (!isRecord(compact)) return {};
+	if (
+		reference.kind === "source-material" &&
+		isRecord(payload) &&
+		typeof payload.content === "string"
+	) {
+		compact.content = payload.content.startsWith("data:")
+			? "[hidden data url]"
+			: payload.content;
+	}
+	return compact;
 }
 
 export function compactReferencesForModel({

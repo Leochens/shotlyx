@@ -8,6 +8,8 @@ import type {
 	ResearchSource,
 	ScriptSegment,
 	TopicCandidate,
+	TopicInputMaterial,
+	TopicInputMaterialKind,
 	TopicPackageVersion,
 	TopicPlatform,
 	TopicProject,
@@ -21,6 +23,7 @@ const PARAMETER_HINT_PATTERN =
 const REVISION_INTENT_PATTERN =
 	/(重新|再来|换成|换一个|改成|调整|新选题|另一个|第二版|新版|重做|不对|不是这个)/;
 const TOPIC_CONTEXT_PATTERN = /(选题|方向|候选|方案|标题|主题)/;
+const MAX_INPUT_MATERIAL_CONTENT_LENGTH = 12_000;
 
 export interface TopicCandidateDraft {
 	title: string;
@@ -31,6 +34,20 @@ export interface TopicCandidateDraft {
 	durationMinutes?: number;
 	rationale?: string;
 	risks?: string[];
+}
+
+export interface TopicInputMaterialDraft {
+	id?: string;
+	kind?: TopicInputMaterialKind;
+	title?: string;
+	name?: string;
+	summary?: string;
+	content?: string;
+	mediaAssetId?: string;
+	mediaType?: string;
+	durationSeconds?: number;
+	sizeBytes?: number;
+	createdAt?: number;
 }
 
 interface TopicCandidateSuggestion {
@@ -109,6 +126,91 @@ function clampText({
 	const trimmed = value.trim().replace(/\s+/g, " ");
 	if (trimmed.length <= maxLength) return trimmed;
 	return `${trimmed.slice(0, maxLength)}...`;
+}
+
+function isTopicInputMaterialKind(
+	value: string,
+): value is TopicInputMaterialKind {
+	return (
+		value === "uploaded-media" ||
+		value === "script" ||
+		value === "screen-recording" ||
+		value === "note"
+	);
+}
+
+function clampMaterialContent(value?: string): string | undefined {
+	const trimmed = value?.trim();
+	if (!trimmed) return undefined;
+	if (trimmed.length <= MAX_INPUT_MATERIAL_CONTENT_LENGTH) return trimmed;
+	return `${trimmed.slice(0, MAX_INPUT_MATERIAL_CONTENT_LENGTH)}...`;
+}
+
+function createMaterialDedupKey(material: TopicInputMaterial): string {
+	if (material.mediaAssetId) return `media:${material.mediaAssetId}`;
+	const contentKey = material.content?.slice(0, 180) ?? material.summary ?? "";
+	return `${material.kind}:${material.title}:${contentKey}`;
+}
+
+function normalizeInputMaterial({
+	material,
+	now,
+}: {
+	material: TopicInputMaterialDraft;
+	now: number;
+}): TopicInputMaterial | null {
+	const rawKind = material.kind ?? "note";
+	const kind = isTopicInputMaterialKind(rawKind) ? rawKind : "note";
+	const title = (material.title ?? material.name ?? "").trim();
+	if (!title) return null;
+	const content = clampMaterialContent(material.content);
+	const summary = material.summary?.trim() || undefined;
+
+	return {
+		id: material.id?.trim() || createId("material"),
+		kind,
+		title: clampText({ value: title, maxLength: 80 }),
+		summary,
+		content,
+		mediaAssetId: material.mediaAssetId?.trim() || undefined,
+		mediaType: material.mediaType?.trim() || undefined,
+		durationSeconds:
+			typeof material.durationSeconds === "number" &&
+			Number.isFinite(material.durationSeconds)
+				? material.durationSeconds
+				: undefined,
+		sizeBytes:
+			typeof material.sizeBytes === "number" &&
+			Number.isFinite(material.sizeBytes)
+				? material.sizeBytes
+				: undefined,
+		createdAt:
+			typeof material.createdAt === "number" &&
+			Number.isFinite(material.createdAt)
+				? material.createdAt
+				: now,
+	};
+}
+
+export function mergeTopicInputMaterials({
+	existing = [],
+	incoming = [],
+	now = Date.now(),
+}: {
+	existing?: TopicInputMaterial[];
+	incoming?: TopicInputMaterialDraft[];
+	now?: number;
+}): TopicInputMaterial[] {
+	const nextMaterials = new Map<string, TopicInputMaterial>();
+	for (const material of existing) {
+		nextMaterials.set(createMaterialDedupKey(material), material);
+	}
+	for (const draft of incoming) {
+		const material = normalizeInputMaterial({ material: draft, now });
+		if (!material) continue;
+		nextMaterials.set(createMaterialDedupKey(material), material);
+	}
+	return [...nextMaterials.values()].slice(-12);
 }
 
 function encodeQuery(query: string): string {
@@ -228,13 +330,19 @@ export function extractTopicCandidateSuggestions(
 
 export function createTopicCandidatesFromPrompt({
 	prompt,
+	inputMaterials = [],
 	now = Date.now(),
 }: {
 	prompt: string;
+	inputMaterials?: TopicInputMaterial[];
 	now?: number;
 }): TopicCandidate[] {
 	const brief = clampPrompt(prompt);
 	const platformDefaults = DEFAULT_PLATFORMS;
+	const materialRationale =
+		inputMaterials.length > 0
+			? `基于用户提供的 ${inputMaterials.length} 个素材输入生成，适合继续把素材里的场景、脚本或录屏内容转成可执行选题。`
+			: null;
 
 	return [
 		{
@@ -245,7 +353,8 @@ export function createTopicCandidatesFromPrompt({
 			audience: "关注 AI、科技工具和内容生产效率的创作者。",
 			platforms: platformDefaults,
 			durationMinutes: 6,
-			rationale: "适合做成趋势解读，能自然承接同题调研和资料引用。",
+			rationale:
+				materialRationale ?? "适合做成趋势解读，能自然承接同题调研和资料引用。",
 			risks: ["容易泛泛而谈，需要找到一个具体案例或对比对象。"],
 			status: "draft",
 			updatedAt: now,
@@ -258,7 +367,9 @@ export function createTopicCandidatesFromPrompt({
 			audience: "想少走弯路、寻找真实工具体验的个人创作者。",
 			platforms: ["bilibili", "xiaohongshu"],
 			durationMinutes: 8,
-			rationale: "自测类选题更容易形成可信度，也方便后续转入视频制作。",
+			rationale:
+				materialRationale ??
+				"自测类选题更容易形成可信度，也方便后续转入视频制作。",
 			risks: ["需要真实素材、录屏或过程记录，否则说服力不足。"],
 			status: "draft",
 			updatedAt: now,
@@ -271,7 +382,8 @@ export function createTopicCandidatesFromPrompt({
 			audience: "想把新技术用于具体产出的创作者、小团队和小广告主。",
 			platforms: ["youtube", "bilibili", "douyin"],
 			durationMinutes: 5,
-			rationale: "结构清晰，适合后续做分段脚本、MG 动画和素材表。",
+			rationale:
+				materialRationale ?? "结构清晰，适合后续做分段脚本、MG 动画和素材表。",
 			risks: ["案例太多会变散，需要控制在 3 个以内。"],
 			status: "draft",
 			updatedAt: now,
@@ -284,7 +396,9 @@ export function createTopicCandidatesFromPrompt({
 			audience: "喜欢观点、行业判断和深度分析的观众。",
 			platforms: ["bilibili", "youtube"],
 			durationMinutes: 10,
-			rationale: "非常适合同题雷达：先看别人怎么做，再设计自己的切入点。",
+			rationale:
+				materialRationale ??
+				"非常适合同题雷达：先看别人怎么做，再设计自己的切入点。",
 			risks: ["需要引用充分，避免把推测说成事实。"],
 			status: "draft",
 			updatedAt: now,
@@ -298,7 +412,9 @@ export function createTopicCandidatesFromPrompt({
 			audience: "小型广告主、独立开发者、希望做内容增长的产品团队。",
 			platforms: ["douyin", "xiaohongshu", "video-account"],
 			durationMinutes: 3,
-			rationale: "和 Shotlyx 的长远定位最贴近，能自然进入发布和复盘闭环。",
+			rationale:
+				materialRationale ??
+				"和 Shotlyx 的长远定位最贴近，能自然进入发布和复盘闭环。",
 			risks: ["需要明确转化目标，否则会像普通宣传片。"],
 			status: "draft",
 			updatedAt: now,
@@ -350,16 +466,23 @@ function createTopicCandidatesFromSuggestions({
 export function createTopicCandidatesFromDrafts({
 	drafts,
 	fallbackPrompt,
+	inputMaterials = [],
 	now = Date.now(),
 }: {
 	drafts: TopicCandidateDraft[];
 	fallbackPrompt: string;
+	inputMaterials?: TopicInputMaterial[];
 	now?: number;
 }): TopicCandidate[] {
 	const templateCandidates = createTopicCandidatesFromPrompt({
 		prompt: fallbackPrompt,
+		inputMaterials,
 		now,
 	});
+	const materialRationale =
+		inputMaterials.length > 0
+			? `基于用户提供的 ${inputMaterials.length} 个素材输入生成，后续调研和脚本应继续围绕这些素材里的场景、脚本或录屏内容展开。`
+			: null;
 
 	if (drafts.length === 0) return templateCandidates;
 
@@ -395,6 +518,7 @@ export function createTopicCandidatesFromDrafts({
 					: template.durationMinutes,
 			rationale:
 				draft.rationale?.trim() ||
+				materialRationale ||
 				template.rationale ||
 				"这个方向适合继续展开同题搜索、调研引用和脚本结构设计。",
 			risks:
@@ -409,15 +533,22 @@ export function replaceTopicCandidates({
 	project,
 	prompt,
 	candidates,
+	inputMaterials,
 	now = Date.now(),
 }: {
 	project: TopicProject;
 	prompt?: string;
 	candidates: TopicCandidateDraft[];
+	inputMaterials?: TopicInputMaterialDraft[];
 	now?: number;
 }): TopicProject {
 	const fallbackPrompt =
 		prompt?.trim() || project.originPrompt || project.title;
+	const nextInputMaterials = mergeTopicInputMaterials({
+		existing: project.inputMaterials ?? [],
+		incoming: inputMaterials,
+		now,
+	});
 	return {
 		...project,
 		title: clampPrompt(fallbackPrompt),
@@ -427,8 +558,10 @@ export function replaceTopicCandidates({
 		candidates: createTopicCandidatesFromDrafts({
 			drafts: candidates,
 			fallbackPrompt,
+			inputMaterials: nextInputMaterials,
 			now,
 		}),
+		inputMaterials: nextInputMaterials,
 		selectedCandidateId: null,
 		researchSources: [],
 		researchInsights: [],
@@ -671,13 +804,23 @@ export function resetTopicProjectToStage({
 export function createTopicProjectFromPrompt({
 	editorProjectId,
 	prompt,
+	inputMaterials,
 	now = Date.now(),
 }: {
 	editorProjectId: string;
 	prompt: string;
+	inputMaterials?: TopicInputMaterialDraft[];
 	now?: number;
 }): TopicProject {
-	const candidates = createTopicCandidatesFromPrompt({ prompt, now });
+	const normalizedInputMaterials = mergeTopicInputMaterials({
+		incoming: inputMaterials,
+		now,
+	});
+	const candidates = createTopicCandidatesFromPrompt({
+		prompt,
+		inputMaterials: normalizedInputMaterials,
+		now,
+	});
 
 	return {
 		id: createId("topic-project"),
@@ -689,6 +832,7 @@ export function createTopicProjectFromPrompt({
 		createdAt: now,
 		updatedAt: now,
 		promptHistory: [prompt.trim()].filter(Boolean),
+		inputMaterials: normalizedInputMaterials,
 		candidates,
 		selectedCandidateId: null,
 		researchSources: [],
@@ -735,6 +879,7 @@ export function mergePromptIntoProject({
 		status: "active",
 		candidates: createTopicCandidatesFromPrompt({
 			prompt: revisionPrompt,
+			inputMaterials: project.inputMaterials ?? [],
 			now,
 		}),
 		selectedCandidateId: null,

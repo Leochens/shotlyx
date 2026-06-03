@@ -1,11 +1,12 @@
 import type { EditorCore } from "@/core";
-import type { MediaAsset } from "@/media/types";
+import type { MediaAsset, MediaType } from "@/media/types";
 import { mediaTimeToSeconds } from "@/wasm";
 import type { ProjectBrandKit } from "@/brand-kit/types";
 import { compactBrandKit } from "@/brand-kit/compact";
 import type {
 	AgentContextReference,
 	AgentContextReferenceSource,
+	AgentSourceMaterialType,
 } from "./types";
 
 function createReferenceId(): string {
@@ -135,6 +136,49 @@ export function createBrandKitReference({
 			logoMediaAssetIds: compact.logoMediaAssetIds,
 			imageMediaAssetIds: compact.imageMediaAssetIds,
 			styleGuide: compact.styleGuide,
+		},
+	};
+}
+
+export function createSourceMaterialReference({
+	materialType,
+	name,
+	summary,
+	content,
+	mediaAssetId,
+	mediaType,
+	durationSeconds,
+	sizeBytes,
+	source,
+}: {
+	materialType: AgentSourceMaterialType;
+	name: string;
+	summary?: string;
+	content?: string;
+	mediaAssetId?: string;
+	mediaType?: MediaType;
+	durationSeconds?: number;
+	sizeBytes?: number;
+	source: AgentContextReferenceSource;
+}): AgentContextReference {
+	const trimmedName = name.trim() || "创作素材";
+	const materialId = createReferenceId().replace(/^ref_/, "material_");
+	return {
+		id: createReferenceId(),
+		kind: "source-material",
+		label: trimmedName,
+		source,
+		createdAt: Date.now(),
+		payload: {
+			materialId,
+			materialType,
+			name: trimmedName,
+			summary: summary?.trim() || undefined,
+			content: content?.trim() || undefined,
+			mediaAssetId,
+			mediaType,
+			durationSeconds,
+			sizeBytes,
 		},
 	};
 }

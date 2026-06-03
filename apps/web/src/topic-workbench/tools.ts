@@ -6,6 +6,7 @@ import type {
 	ResearchInsightDraft,
 	ResearchSourceDraft,
 	TopicCandidateDraft,
+	TopicInputMaterialDraft,
 	VideoStructureOptionDraft,
 } from "./model";
 import type {
@@ -75,6 +76,11 @@ export function getTopicWorkbenchToolSchemas(): FunctionSchema[] {
 					candidates: arrayParam({
 						description:
 							"Array of topic candidates. Each item should include title, summary, coreViewpoint, audience, platforms, durationMinutes, rationale, and risks when available.",
+					}),
+					inputMaterials: arrayParam({
+						description:
+							"Optional user-provided materials that informed these candidates, such as uploaded media, scripts, screen-recording notes, or transcripts.",
+						optional: true,
 					}),
 				},
 			},
@@ -328,6 +334,38 @@ function parseCandidateDrafts(value: unknown): TopicCandidateDraft[] {
 	});
 }
 
+function parseInputMaterialDrafts(value: unknown): TopicInputMaterialDraft[] {
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((item) => {
+		if (!isRecord(item)) return [];
+		const title = readString(item.title) ?? readString(item.name);
+		const id = readString(item.id);
+		const kind = readString(item.kind);
+		if (!title) return [];
+		return [
+			{
+				id,
+				kind:
+					kind === "uploaded-media" ||
+					kind === "script" ||
+					kind === "screen-recording" ||
+					kind === "note"
+						? kind
+						: undefined,
+				title,
+				name: readString(item.name),
+				summary: readString(item.summary),
+				content: readString(item.content),
+				mediaAssetId: readString(item.mediaAssetId),
+				mediaType: readString(item.mediaType),
+				durationSeconds: readNumber(item.durationSeconds),
+				sizeBytes: readNumber(item.sizeBytes),
+				createdAt: readNumber(item.createdAt),
+			},
+		];
+	});
+}
+
 function parseResearchSourceDrafts(value: unknown): ResearchSourceDraft[] {
 	if (!Array.isArray(value)) return [];
 	return value.flatMap((item) => {
@@ -485,11 +523,13 @@ export function executeTopicWorkbenchTool({
 			editorProjectId,
 			prompt: readString(params.prompt),
 			candidates,
+			inputMaterials: parseInputMaterialDrafts(params.inputMaterials),
 		});
 		return success({
 			message: "候选选题已写入右侧选题工作台。",
 			stage: project?.stage,
 			candidateCount: project?.candidates.length ?? candidates.length,
+			materialCount: project?.inputMaterials.length ?? 0,
 		});
 	}
 

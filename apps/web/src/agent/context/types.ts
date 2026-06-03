@@ -5,13 +5,15 @@ export type AgentContextReferenceKind =
 	| "media-asset"
 	| "timeline-element"
 	| "timeline-track"
-	| "brand-kit";
+	| "brand-kit"
+	| "source-material";
 
 export type AgentContextReferenceSource =
 	| "manual-add"
 	| "mention"
 	| "point-select"
-	| "active-brand-kit";
+	| "active-brand-kit"
+	| "topic-material";
 
 export interface AgentMediaAssetReference {
 	mediaAssetId: string;
@@ -51,6 +53,24 @@ export interface AgentBrandKitReference {
 	styleGuide?: string;
 }
 
+export type AgentSourceMaterialType =
+	| "uploaded-media"
+	| "script"
+	| "screen-recording"
+	| "note";
+
+export interface AgentSourceMaterialReference {
+	materialId: string;
+	materialType: AgentSourceMaterialType;
+	name: string;
+	summary?: string;
+	content?: string;
+	mediaAssetId?: string;
+	mediaType?: MediaType;
+	durationSeconds?: number;
+	sizeBytes?: number;
+}
+
 interface BaseAgentContextReference<
 	TKind extends AgentContextReferenceKind,
 	TPayload,
@@ -67,7 +87,8 @@ export type AgentContextReference =
 	| BaseAgentContextReference<"media-asset", AgentMediaAssetReference>
 	| BaseAgentContextReference<"timeline-element", AgentTimelineElementReference>
 	| BaseAgentContextReference<"timeline-track", AgentTimelineTrackReference>
-	| BaseAgentContextReference<"brand-kit", AgentBrandKitReference>;
+	| BaseAgentContextReference<"brand-kit", AgentBrandKitReference>
+	| BaseAgentContextReference<"source-material", AgentSourceMaterialReference>;
 
 export interface CompactAgentReferences {
 	primaryReferenceId: string | null;

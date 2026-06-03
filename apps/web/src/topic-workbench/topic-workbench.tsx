@@ -147,6 +147,16 @@ const PRODUCTION_ASSET_TYPE_LABELS: Record<
 	mg: "MG 动画",
 };
 
+const INPUT_MATERIAL_KIND_LABELS: Record<
+	TopicProject["inputMaterials"][number]["kind"],
+	string
+> = {
+	"uploaded-media": "上传素材",
+	script: "脚本",
+	"screen-recording": "录屏",
+	note: "备注",
+};
+
 function getStageIndex(stage: TopicStage): number {
 	return STAGES.findIndex((item) => item.stage === stage);
 }
@@ -158,6 +168,30 @@ function formatDate(timestamp: number): string {
 		hour: "2-digit",
 		minute: "2-digit",
 	}).format(new Date(timestamp));
+}
+
+function buildInputMaterialContext(project: TopicProject): string {
+	const materials = project.inputMaterials ?? [];
+	if (materials.length === 0) return "";
+
+	const materialLines = materials.map((material, index) => {
+		const meta = [
+			INPUT_MATERIAL_KIND_LABELS[material.kind],
+			material.mediaType,
+			material.durationSeconds
+				? `${Math.round(material.durationSeconds)} 秒`
+				: null,
+		]
+			.filter(Boolean)
+			.join(" / ");
+		const summary = material.summary?.trim() || "用户提供的选题素材。";
+		const content = material.content?.trim()
+			? `\n内容摘录：${material.content.trim().slice(0, 1200)}`
+			: "";
+		return `${index + 1}. ${material.title}（${meta || "素材"}）\n摘要：${summary}${content}`;
+	});
+
+	return `\n\n用户提供素材上下文：\n${materialLines.join("\n")}`;
 }
 
 function getActivePackage(project: TopicProject): TopicPackageVersion | null {
@@ -246,23 +280,24 @@ function buildStageForwardTask({
 	const topicText = selected
 		? `当前已选题：「${selected.title}」。核心观点：${selected.coreViewpoint}`
 		: `当前选题方向：「${project.title}」。`;
+	const materialContext = buildInputMaterialContext(project);
 
 	if (stage === "research") {
-		return `${topicText}\n请进入调研阶段：搜索 B 站、YouTube 和网页资料，判断是否有人做同类选题、他们的灵感来源和差异化空位。请同时总结 3-6 段可直接参考的知识点，每段绑定引用来源。完成后调用 topic_set_research，用 sources 写来源链接，用 insights 写知识脉络段落。`;
+		return `${topicText}${materialContext}\n请进入调研阶段：搜索 B 站、YouTube 和网页资料，判断是否有人做同类选题、他们的灵感来源和差异化空位。请同时总结 3-6 段可直接参考的知识点，每段绑定引用来源。完成后调用 topic_set_research，用 sources 写来源链接，用 insights 写知识脉络段落。`;
 	}
 	if (stage === "structure") {
-		return `${topicText}\n请进入结构设计阶段：基于当前选题和已有资料，生成 2-4 个视频结构模板。完成后调用 topic_set_structures 写入右侧选题工作台。`;
+		return `${topicText}${materialContext}\n请进入结构设计阶段：基于当前选题、已有资料和用户提供素材，生成 2-4 个视频结构模板。完成后调用 topic_set_structures 写入右侧选题工作台。`;
 	}
 	if (stage === "package") {
-		return `${topicText}\n请进入选题包阶段：基于当前选题、调研和结构，调用 topic_create_package 生成标题、摘要、核心观点、脚本大纲、分段素材建议和发布文案。`;
+		return `${topicText}${materialContext}\n请进入选题包阶段：基于当前选题、调研、结构和用户提供素材，调用 topic_create_package 生成标题、摘要、核心观点、脚本大纲、分段素材建议和发布文案。`;
 	}
 	if (stage === "production") {
-		return `${topicText}\n请进入制作计划阶段：基于当前选题包调用 topic_create_production_plan，拆解视频类型、时间段、素材需求、配音/口播建议和下一步制作动作。`;
+		return `${topicText}${materialContext}\n请进入制作计划阶段：基于当前选题包和用户提供素材调用 topic_create_production_plan，拆解视频类型、时间段、素材需求、配音/口播建议和下一步制作动作。`;
 	}
 	if (stage === "timeline") {
-		return `${topicText}\n请先确认制作计划，再把制作计划交给视频 Agent 生成时间线草稿。`;
+		return `${topicText}${materialContext}\n请先确认制作计划，再把制作计划交给视频 Agent 生成时间线草稿。`;
 	}
-	return "请重新生成一版候选选题，并调用 topic_set_candidates 写入右侧选题工作台。";
+	return `${materialContext}\n请重新生成一版候选选题，并调用 topic_set_candidates 写入右侧选题工作台。`;
 }
 
 function buildStageResetTask({
@@ -272,16 +307,17 @@ function buildStageResetTask({
 	project: TopicProject;
 	stage: TopicStage;
 }): string {
+	const materialContext = buildInputMaterialContext(project);
 	if (stage === "ideation") {
-		return `我已经在右侧工作台确认要回到选题阶段。请重新理解当前方向「${project.originPrompt || project.title}」，生成新一版候选选题，并调用 topic_set_candidates 写入右侧选题工作台。`;
+		return `我已经在右侧工作台确认要回到选题阶段。请重新理解当前方向「${project.originPrompt || project.title}」和用户提供素材，生成新一版候选选题，并调用 topic_set_candidates 写入右侧选题工作台。${materialContext}`;
 	}
 	if (stage === "research") {
 		const selected = getSelectedCandidate(project);
-		return `我已经在右侧工作台确认要重新调研。当前选题是「${selected?.title ?? project.title}」。请重新搜索同题内容和资料来源，输出 3-6 段知识脉络并绑定引用来源，然后调用 topic_set_research 写入 sources 和 insights。`;
+		return `我已经在右侧工作台确认要重新调研。当前选题是「${selected?.title ?? project.title}」。请结合用户提供素材重新搜索同题内容和资料来源，输出 3-6 段知识脉络并绑定引用来源，然后调用 topic_set_research 写入 sources 和 insights。${materialContext}`;
 	}
 	if (stage === "structure") {
 		const selected = getSelectedCandidate(project);
-		return `我已经在右侧工作台确认要重新设计结构。当前选题是「${selected?.title ?? project.title}」。请生成新的视频结构模板，并调用 topic_set_structures 写入右侧选题工作台。`;
+		return `我已经在右侧工作台确认要重新设计结构。当前选题是「${selected?.title ?? project.title}」。请结合用户提供素材生成新的视频结构模板，并调用 topic_set_structures 写入右侧选题工作台。${materialContext}`;
 	}
 	return buildStageForwardTask({ project, stage });
 }
@@ -311,8 +347,11 @@ function buildVideoProductionHandoffPrompt({
 		.map((source) => `${source.sourceName}｜${source.title}｜${source.url}`)
 		.join("\n");
 	const insightText = getResearchInsights(project)
-		.map((insight, index) => `${index + 1}. ${insight.title}：${insight.content}`)
+		.map(
+			(insight, index) => `${index + 1}. ${insight.title}：${insight.content}`,
+		)
 		.join("\n");
+	const materialText = buildInputMaterialContext(project);
 	const productionPlanText = productionPlan
 		? `\n制作计划：\n视频类型：${productionPlan.videoType}\n目标平台：${productionPlan.targetPlatform.join("、")}\n预估时长：${productionPlan.estimatedDurationMinutes} 分钟\n素材需求：${productionPlan.requiredAssets.map((asset) => `${asset.optional ? "可选" : "必需"} ${asset.type}：${asset.description}`).join("\n")}\n制作分段：\n${productionPlan.segments.map((segment, index) => `${index + 1}. ${segment.timeRange}｜${segment.goal}｜视觉：${segment.visualNeed}｜剪辑：${segment.editSuggestion}`).join("\n")}`
 		: "";
@@ -342,7 +381,7 @@ ${topicPackage.coverIdeas.join("\n")}
 ${referenceText || "暂无资料，请先根据选题包做占位制作规划。"}
 
 调研知识脉络：
-${insightText || "暂无知识脉络，请先根据选题包做占位制作规划。"}${productionPlanText}`;
+${insightText || "暂无知识脉络，请先根据选题包做占位制作规划。"}${materialText}${productionPlanText}`;
 }
 
 export function TopicWorkbench({
@@ -444,6 +483,7 @@ export function TopicWorkbench({
 			<div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
 				<div className="min-h-full min-w-0 space-y-3 p-3">
 					<VersionSummaryBar project={activeProject} />
+					<InputMaterialsSection project={activeProject} />
 					<StageProgress
 						project={activeProject}
 						onStageClick={handleStageClick}
@@ -535,6 +575,51 @@ function TopicWorkbenchHeader({ project }: { project: TopicProject }) {
 			</div>
 			<CreatorProfileDialogTrigger />
 		</header>
+	);
+}
+
+function InputMaterialsSection({ project }: { project: TopicProject }) {
+	const inputMaterials = project.inputMaterials ?? [];
+	if (inputMaterials.length === 0) return null;
+
+	return (
+		<section className="rounded-sm border border-border/75 bg-card/[0.34] p-3 dark:bg-cyan-300/[0.03]">
+			<SectionHeading
+				icon={FileText}
+				title="素材输入"
+				description="用户提供的素材、脚本和录屏说明会作为后续选题、调研、脚本包的上下文。"
+			/>
+			<div className="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))]">
+				{inputMaterials.map((material) => (
+					<article
+						key={material.id}
+						className="rounded-sm border border-border/70 bg-background px-3 py-2"
+					>
+						<div className="flex items-start justify-between gap-2">
+							<div className="min-w-0">
+								<div className="text-sm font-semibold leading-5 text-foreground">
+									{material.title}
+								</div>
+								<div className="mt-1 text-xs text-muted-foreground">
+									{INPUT_MATERIAL_KIND_LABELS[material.kind]}
+									{material.durationSeconds
+										? ` · ${Math.round(material.durationSeconds)}s`
+										: ""}
+								</div>
+							</div>
+							<span className="shrink-0 rounded-sm border border-border/70 bg-muted/[0.25] px-1.5 py-0.5 text-[0.68rem] text-muted-foreground">
+								{material.mediaType ?? "文本"}
+							</span>
+						</div>
+						{material.summary || material.content ? (
+							<p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">
+								{material.summary ?? material.content}
+							</p>
+						) : null}
+					</article>
+				))}
+			</div>
+		</section>
 	);
 }
 
@@ -699,6 +784,7 @@ function CandidatesSection({
 	const hasSelection = project.selectedCandidateId !== null;
 	const canInteract = project.stage === "ideation";
 	const selectedCandidate = getSelectedCandidate(project);
+	const materialContext = buildInputMaterialContext(project);
 
 	const handleSelectCandidate = (candidate: TopicCandidate) => {
 		if (!canInteract) return;
@@ -726,7 +812,7 @@ function CandidatesSection({
 			editorProjectId: project.editorProjectId,
 			source: "candidate-confirm",
 			autoRun: true,
-			content: `我已经在右侧确认选题「${selectedCandidate.title}」。请搜索 B 站、YouTube 和网页资料，判断是否有人做同类选题、他们的灵感来源和差异化空位。请总结 3-6 段可直接参考的知识脉络，每段绑定引用来源。完成后调用 topic_set_research，用 sources 写来源链接，用 insights 写知识点段落。`,
+			content: `我已经在右侧确认选题「${selectedCandidate.title}」。${materialContext}\n请搜索 B 站、YouTube 和网页资料，判断是否有人做同类选题、他们的灵感来源和差异化空位。请总结 3-6 段可直接参考的知识脉络，每段绑定引用来源。完成后调用 topic_set_research，用 sources 写来源链接，用 insights 写知识点段落。`,
 		});
 	};
 
@@ -736,7 +822,7 @@ function CandidatesSection({
 			editorProjectId: project.editorProjectId,
 			source: "candidate-edit",
 			autoRun: false,
-			content: `请基于候选选题「${candidate.title}」做一版调整。当前摘要：${candidate.summary}。当前核心观点：${candidate.coreViewpoint}。请先和我确认调整方向，完成后调用 topic_set_candidates 刷新右侧候选方案。`,
+			content: `请基于候选选题「${candidate.title}」和用户提供素材做一版调整。当前摘要：${candidate.summary}。当前核心观点：${candidate.coreViewpoint}。${materialContext}\n请先和我确认调整方向，完成后调用 topic_set_candidates 刷新右侧候选方案。`,
 		});
 	};
 
@@ -765,7 +851,7 @@ function CandidatesSection({
 								editorProjectId: project.editorProjectId,
 								source: "stage-reset",
 								autoRun: true,
-								content: `请基于当前方向「${project.originPrompt || project.title}」重新生成一版候选选题，并调用 topic_set_candidates 写入右侧选题工作台。`,
+								content: `请基于当前方向「${project.originPrompt || project.title}」和用户提供素材重新生成一版候选选题，并调用 topic_set_candidates 写入右侧选题工作台。${materialContext}`,
 							});
 						}}
 					>
@@ -964,6 +1050,7 @@ function ResearchSection({
 	const sourceById = new Map(
 		project.researchSources.map((source) => [source.id, source]),
 	);
+	const materialContext = buildInputMaterialContext(project);
 	const canShow =
 		project.stage !== "ideation" || project.researchSources.length > 0;
 	const selectedCandidate = getSelectedCandidate(project);
@@ -989,7 +1076,7 @@ function ResearchSection({
 								editorProjectId: project.editorProjectId,
 								source: "stage-forward",
 								autoRun: true,
-								content: `请重新调研当前选题「${selectedCandidate?.title ?? project.title}」。重点搜索 B 站、YouTube 和网页资料，判断同类选题、灵感来源和差异化空位。请输出 3-6 段知识脉络并绑定引用来源，然后调用 topic_set_research 写入 sources 和 insights。`,
+								content: `请重新调研当前选题「${selectedCandidate?.title ?? project.title}」。${materialContext}\n重点搜索 B 站、YouTube 和网页资料，判断同类选题、灵感来源和差异化空位。请输出 3-6 段知识脉络并绑定引用来源，然后调用 topic_set_research 写入 sources 和 insights。`,
 							})
 						}
 					>
@@ -1085,10 +1172,7 @@ function ResearchSection({
 										>
 											{RESEARCH_PLATFORM_LABELS[source.platform]}
 										</span>
-										<ExternalLink
-											size={13}
-											className="text-muted-foreground"
-										/>
+										<ExternalLink size={13} className="text-muted-foreground" />
 									</div>
 									<div className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-foreground">
 										{source.title}

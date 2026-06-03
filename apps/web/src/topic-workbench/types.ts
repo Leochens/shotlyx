@@ -75,6 +75,25 @@ export interface PlatformRecommendation {
 	description: string;
 }
 
+export type TopicInputMaterialKind =
+	| "uploaded-media"
+	| "script"
+	| "screen-recording"
+	| "note";
+
+export interface TopicInputMaterial {
+	id: string;
+	kind: TopicInputMaterialKind;
+	title: string;
+	summary?: string;
+	content?: string;
+	mediaAssetId?: string;
+	mediaType?: string;
+	durationSeconds?: number;
+	sizeBytes?: number;
+	createdAt: number;
+}
+
 export interface TopicPackageVersion {
 	id: string;
 	versionName: string;
@@ -149,6 +168,7 @@ export interface TopicProject {
 	createdAt: number;
 	updatedAt: number;
 	promptHistory: string[];
+	inputMaterials: TopicInputMaterial[];
 	candidates: TopicCandidate[];
 	selectedCandidateId: string | null;
 	researchSources: ResearchSource[];

@@ -62,14 +62,23 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain("then create MG from the timed subtitle segments");
 		expect(prompt).toContain("If token timing exists");
 		expect(prompt).toContain("If only line timing exists");
+		expect(prompt).toContain("source-material items");
+		expect(prompt).toContain("根据素材/脚本/录屏");
+		expect(prompt).toContain(
+			"call topic_set_candidates with candidates and inputMaterials",
+		);
 		expect(prompt).toContain("Use web_search");
 		expect(prompt).toContain("Use web_fetch");
 		expect(prompt).toContain("Search snippets are leads, not source text");
 		expect(prompt).toContain("Use video_semantic_index_analyze");
 		expect(prompt).toContain("sub Agent should read Video Semantic Index");
 		expect(prompt).toContain("Video semantic analysis is ASR-first");
-		expect(prompt).toContain("use extracted keyframes for visual understanding");
-		expect(prompt).toContain("Use full-video understanding only as the last fallback");
+		expect(prompt).toContain(
+			"use extracted keyframes for visual understanding",
+		);
+		expect(prompt).toContain(
+			"Use full-video understanding only as the last fallback",
+		);
 		expect(prompt).toContain(
 			"Do not call vision_analyze_media as the first step",
 		);

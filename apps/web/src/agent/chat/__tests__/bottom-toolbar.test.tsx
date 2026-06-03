@@ -67,4 +67,29 @@ describe("BottomToolbar", () => {
 		expect(html).toContain("引导");
 		expect(html).toContain('data-testid="running-submit-mode-controls"');
 	});
+
+	test("shows material controls only in the topic workbench", () => {
+		const topicHtml = renderToStaticMarkup(
+			<BottomToolbar
+				input=""
+				selectedAgent="default"
+				workbench="topic"
+				onInputChange={() => {}}
+				onSubmit={() => {}}
+			/>,
+		);
+		const videoHtml = renderToStaticMarkup(
+			<BottomToolbar
+				input=""
+				selectedAgent="default"
+				workbench="video"
+				onInputChange={() => {}}
+				onSubmit={() => {}}
+			/>,
+		);
+
+		expect(topicHtml).toContain("上传素材");
+		expect(topicHtml).toContain("粘贴脚本或录屏稿");
+		expect(videoHtml).not.toContain("上传素材");
+	});
 });

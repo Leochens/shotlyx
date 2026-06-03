@@ -15,6 +15,49 @@ import {
 } from "@/topic-workbench/model";
 
 describe("topic workbench model", () => {
+	test("keeps user-provided materials with the topic project", () => {
+		const project = createTopicProjectFromPrompt({
+			editorProjectId: "project-1",
+			prompt: "根据素材帮我找选题",
+			inputMaterials: [
+				{
+					id: "material-1",
+					kind: "script",
+					title: "AI 工具实测脚本",
+					summary: "脚本里有三段关于 AI 剪辑工作流的实测。",
+					content: "开场：我用 AI 把一条长视频拆成多个短视频选题。",
+					createdAt: 900,
+				},
+			],
+			now: 1_000,
+		});
+
+		expect(project.inputMaterials).toHaveLength(1);
+		expect(project.inputMaterials[0]?.title).toBe("AI 工具实测脚本");
+
+		const revised = replaceTopicCandidates({
+			project,
+			prompt: "基于这份脚本重新生成方向",
+			inputMaterials: [
+				{
+					id: "material-2",
+					kind: "screen-recording",
+					title: "Cursor 录屏素材",
+					summary: "录屏展示了从需求到代码提交的完整过程。",
+					createdAt: 1_100,
+				},
+			],
+			candidates: [{ title: "把录屏素材变成 AI 编程工作流选题" }],
+			now: 2_000,
+		});
+
+		expect(revised.inputMaterials.map((material) => material.id)).toEqual([
+			"material-1",
+			"material-2",
+		]);
+		expect(revised.candidates[0]?.rationale).toContain("素材");
+	});
+
 	test("turns a vague creator idea into editable topic candidates", () => {
 		const project = createTopicProjectFromPrompt({
 			editorProjectId: "project-1",

@@ -27,6 +27,8 @@ describe("topic workbench UI contract", () => {
 		expect(topicWorkbenchSource).toContain("选择这个");
 		expect(topicWorkbenchSource).toContain("让 Agent 调整");
 		expect(topicWorkbenchSource).toContain("查看依据");
+		expect(topicWorkbenchSource).toContain("素材输入");
+		expect(topicWorkbenchSource).toContain("用户提供素材上下文");
 		expect(topicWorkbenchSource).toContain('toolName: "topic_reset_to_stage"');
 	});
 

@@ -70,4 +70,33 @@ describe("agent reference formatting", () => {
 		expect(compact.primaryReferenceId).toBe(second.id);
 		expect(compact.references[0]?.id).toBe(second.id);
 	});
+
+	test("keeps source material content for topic ideation", () => {
+		const sourceMaterial: AgentContextReference = {
+			id: "ref_script",
+			kind: "source-material",
+			label: "录屏脚本",
+			source: "topic-material",
+			createdAt: 3,
+			payload: {
+				materialId: "material-1",
+				materialType: "screen-recording",
+				name: "录屏脚本",
+				summary: "讲解一个 AI 剪辑工作流的录屏。",
+				content: "这是脚本正文。".repeat(140),
+			},
+		};
+
+		const compact = compactReferenceForModel(sourceMaterial);
+		const serialized = JSON.stringify(compact);
+
+		expect(compact).toMatchObject({
+			id: "ref_script",
+			kind: "source-material",
+			materialType: "screen-recording",
+			name: "录屏脚本",
+		});
+		expect(serialized).toContain("这是脚本正文。".repeat(80));
+		expect(serialized).not.toContain("[hidden data url]");
+	});
 });

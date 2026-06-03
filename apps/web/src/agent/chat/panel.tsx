@@ -14,6 +14,7 @@ import {
 	BookOpenText,
 	Check,
 	Copy,
+	FileText,
 	LineChart,
 	Loader2,
 	Megaphone,
@@ -21,6 +22,7 @@ import {
 	Scissors,
 	Sparkles,
 	Trash2,
+	Upload,
 	type LucideIcon,
 } from "lucide-react";
 import type {
@@ -30,6 +32,10 @@ import type {
 } from "@/agent/controller/types";
 import { isClarificationRequest } from "@/agent/controller/clarification";
 import { sanitizeToolResultForModel } from "@/agent/controller/tool-result-sanitizer";
+import {
+	createMediaAssetReference,
+	createSourceMaterialReference,
+} from "@/agent/context/resolve-references";
 import { useAgentContextStore } from "@/agent/context/store";
 import type { AgentContextReference } from "@/agent/context/types";
 import type { ChatMessage } from "./types";
@@ -48,6 +54,9 @@ import {
 import { formatToolCallForCopy } from "./tool-result-copy";
 import { buildToolResultContext } from "./tool-context";
 import { useAppLocale } from "@/i18n/use-app-locale";
+import { processMediaAssets } from "@/media/processing";
+import { showMediaUploadToast } from "@/media/upload-toast";
+import { buildTopicInputMaterialsFromReferences } from "@/topic-workbench/input-materials";
 import { WorkbenchSwitcher } from "@/topic-workbench/workbench-switcher";
 import { CreatorProfileDialogTrigger } from "@/topic-workbench/creator-profile-dialog";
 import { useTopicWorkbenchStore } from "@/topic-workbench/store";
@@ -101,6 +110,10 @@ function buildClientToolErrorResult({
 		errorCategory: "system_error",
 		suggestion: "请稍后重试，或先刷新编辑器状态后再执行。",
 	};
+}
+
+function getClientNow(): number {
+	return Date.now();
 }
 
 const STARTER_PROMPT_STYLES: Array<{
@@ -402,7 +415,7 @@ function parseTokenUsageEventData(
 		approximate: getBooleanField({ value: usage, key: "approximate" }) ?? false,
 		sources,
 		updatedAt:
-			getTokenCountField({ value: usage, key: "updatedAt" }) || Date.now(),
+			getTokenCountField({ value: usage, key: "updatedAt" }) || getClientNow(),
 	};
 }
 
@@ -419,12 +432,14 @@ export function ChatPanel() {
 	const [runningSubmitMode, setRunningSubmitMode] =
 		useState<RunningSubmitMode>("queue");
 	const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
+	const [topicSourceMaterialOpen, setTopicSourceMaterialOpen] = useState(false);
 	const [showClearConfirm, setShowClearConfirm] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set());
 	const isSelecting = selectedMsgIds.size > 0;
 	const runAbortRef = useRef<AbortController | null>(null);
 	const streamAbortRef = useRef<AbortController | null>(null);
+	const topicMaterialFileInputRef = useRef<HTMLInputElement | null>(null);
 	const toolAbortControllersRef = useRef<Map<string, AbortController>>(
 		new Map(),
 	);
@@ -438,7 +453,8 @@ export function ChatPanel() {
 	const [roughCutReview, setRoughCutReview] =
 		useState<RoughCutReviewResult | null>(null);
 	const [roughCutReviewOpen, setRoughCutReviewOpen] = useState(false);
-	const { draftReferences, clearDraftReferences } = useAgentContextStore();
+	const { draftReferences, addReference, clearDraftReferences } =
+		useAgentContextStore();
 	const activeWorkbench = useTopicWorkbenchStore(
 		(state) => state.activeWorkbench,
 	);
@@ -447,6 +463,9 @@ export function ChatPanel() {
 	);
 	const creatorProfile = useTopicWorkbenchStore(
 		(state) => state.creatorProfile,
+	);
+	const recordTopicInputMaterials = useTopicWorkbenchStore(
+		(state) => state.recordInputMaterials,
 	);
 	const setActiveEditorProject = useTopicWorkbenchStore(
 		(state) => state.setActiveEditorProject,
@@ -464,7 +483,7 @@ export function ChatPanel() {
 	useEffect(() => {
 		if (startTime === null) return;
 		const interval = setInterval(() => {
-			setElapsedMs(Date.now() - startTime);
+			setElapsedMs(getClientNow() - startTime);
 		}, 1_000);
 		return () => clearInterval(interval);
 	}, [startTime]);
@@ -660,13 +679,13 @@ export function ChatPanel() {
 		// All content (thinking, text, tool calls) accumulates here.
 		const ensureAssistantMessage = (): string => {
 			if (!currentAssistantMsgIdRef.current) {
-				const mid = `assistant-${Date.now()}`;
+				const mid = `assistant-${getClientNow()}`;
 				addMessage({
 					id: mid,
 					role: "assistant",
 					content: accumulated.text,
 					thought: accumulated.thought,
-					timestamp: Date.now(),
+					timestamp: getClientNow(),
 				});
 				currentAssistantMsgIdRef.current = mid;
 				setStreamingMessageId(mid);
@@ -761,10 +780,10 @@ export function ChatPanel() {
 				} catch (error) {
 					if (runSignal.aborted || abortSignal?.aborted) return;
 					addMessage({
-						id: `tool-result-post-error-${Date.now()}`,
+						id: `tool-result-post-error-${getClientNow()}`,
 						role: "assistant",
 						content: `工具 ${tool} 已执行，但结果回传失败：${getErrorMessage(error)}`,
-						timestamp: Date.now(),
+						timestamp: getClientNow(),
 					});
 				}
 			};
@@ -989,11 +1008,11 @@ export function ChatPanel() {
 			const isRetryable = category === "network" || category === "rate_limit";
 
 			addMessage({
-				id: `error-${Date.now()}`,
+				id: `error-${getClientNow()}`,
 				role: "assistant",
 				content: "",
 				error: { message, category, isRetryable },
-				timestamp: Date.now(),
+				timestamp: getClientNow(),
 			});
 
 			setLoading(false);
@@ -1014,7 +1033,7 @@ export function ChatPanel() {
 		}>;
 		extra?: { action?: string; plan?: AgentPlan };
 	}) => {
-		setStartTime(Date.now());
+		setStartTime(getClientNow());
 		const runAbort = new AbortController();
 		runAbortRef.current = runAbort;
 
@@ -1144,10 +1163,10 @@ export function ChatPanel() {
 					onError: (error) => {
 						flushMessageContentUpdate();
 						addMessage({
-							id: `err-${Date.now()}`,
+							id: `err-${getClientNow()}`,
 							role: "assistant",
 							content: `SSE 流错误: ${error.message}`,
-							timestamp: Date.now(),
+							timestamp: getClientNow(),
 						});
 						reject(error);
 					},
@@ -1160,19 +1179,19 @@ export function ChatPanel() {
 			}
 			if (activeWorkbench === "topic") {
 				addMessage({
-					id: `topic-offline-${Date.now()}`,
+					id: `topic-offline-${getClientNow()}`,
 					role: "assistant",
 					content:
 						"这次 Agent 没能完成选题生成。请检查模型和联网工具配置后重试，右侧工作台会在 Agent 产出候选选题后出现。",
-					timestamp: Date.now(),
+					timestamp: getClientNow(),
 				});
 				return;
 			}
 			addMessage({
-				id: `err-${Date.now()}`,
+				id: `err-${getClientNow()}`,
 				role: "assistant",
 				content: `调用失败: ${err instanceof Error ? err.message : String(err)}`,
-				timestamp: Date.now(),
+				timestamp: getClientNow(),
 			});
 		} finally {
 			flushMessageContentUpdate();
@@ -1221,7 +1240,7 @@ export function ChatPanel() {
 										stage: "cancelled",
 										label: "MG 子智能体已停止",
 										status: "error",
-										timestamp: Date.now(),
+										timestamp: getClientNow(),
 									},
 								],
 								result: {
@@ -1246,11 +1265,126 @@ export function ChatPanel() {
 		setLoading(false);
 		setStartTime(null);
 		addMessage({
-			id: `stop-${Date.now()}`,
+			id: `stop-${getClientNow()}`,
 			role: "assistant",
 			content: "已停止当前 Agent 流程。你可以直接输入新的需求重新开始。",
-			timestamp: Date.now(),
+			timestamp: getClientNow(),
 		});
+	};
+
+	const recordReferencesAsTopicMaterials = ({
+		references,
+	}: {
+		references: AgentContextReference[];
+	}) => {
+		if (activeWorkbench !== "topic" || references.length === 0) return;
+		const materials = buildTopicInputMaterialsFromReferences({ references });
+		if (materials.length === 0) return;
+		recordTopicInputMaterials({
+			editorProjectId: projectId ?? "default-project",
+			materials,
+		});
+	};
+
+	const primeTopicMaterialPrompt = (prompt: string) => {
+		if (activeWorkbench !== "topic") return;
+		setInput((current) => (current.trim() ? current : prompt));
+	};
+
+	const handleTopicMaterialFilesSelected = async (files: File[]) => {
+		if (files.length === 0 || !editor) return;
+		const activeProject = editor.project.getActiveOrNull();
+		if (!activeProject) return;
+
+		const addedReferences: AgentContextReference[] = [];
+		try {
+			await showMediaUploadToast({
+				filesCount: files.length,
+				promise: async () => {
+					const processedAssets = await processMediaAssets({ files });
+					const savedAssetNames: string[] = [];
+
+					for (const asset of processedAssets) {
+						const saved = await editor.media.addMediaAsset({
+							projectId: activeProject.metadata.id,
+							asset,
+						});
+						if (!saved) continue;
+						savedAssetNames.push(saved.name);
+
+						if (saved.type === "text" || saved.type === "subtitle") {
+							const content = await saved.file.text();
+							const reference = createSourceMaterialReference({
+								materialType:
+									saved.type === "subtitle" ? "screen-recording" : "script",
+								name: saved.name,
+								summary:
+									saved.type === "subtitle"
+										? "用户上传的字幕或录屏转写文本。"
+										: "用户上传的脚本或文稿文本。",
+								content,
+								mediaAssetId: saved.id,
+								mediaType: saved.type,
+								sizeBytes: saved.file.size,
+								source: "topic-material",
+							});
+							addReference(reference);
+							addedReferences.push(reference);
+							continue;
+						}
+
+						const reference = createMediaAssetReference({
+							asset: saved,
+							source: "topic-material",
+						});
+						addReference(reference);
+						addedReferences.push(reference);
+					}
+
+					return {
+						uploadedCount: savedAssetNames.length,
+						assetNames: savedAssetNames,
+					};
+				},
+			});
+		} catch (error) {
+			console.error("Failed to add topic materials:", error);
+		}
+
+		recordReferencesAsTopicMaterials({ references: addedReferences });
+		primeTopicMaterialPrompt(
+			"请根据我提供的素材，生成 3-5 个适合自媒体视频的选题方向，并调用 topic_set_candidates 写入右侧工作台。",
+		);
+	};
+
+	const handleTopicSourceMaterialAdd = ({
+		materialType,
+		name,
+		content,
+	}: {
+		materialType: "script" | "screen-recording" | "note";
+		name: string;
+		content: string;
+	}) => {
+		const reference = createSourceMaterialReference({
+			materialType,
+			name,
+			content,
+			summary:
+				materialType === "screen-recording"
+					? "用户提供的录屏说明、字幕或转写稿。"
+					: materialType === "script"
+						? "用户提供的脚本或口播稿。"
+						: "用户提供的选题素材备注。",
+			source: "topic-material",
+		});
+		addReference(reference);
+		recordReferencesAsTopicMaterials({ references: [reference] });
+		primeTopicMaterialPrompt(
+			materialType === "screen-recording"
+				? "请根据我提供的录屏内容，生成 3-5 个可拍的视频方向，并调用 topic_set_candidates 写入右侧工作台。"
+				: "请根据我提供的脚本内容，生成 3-5 个可拍的视频方向，并调用 topic_set_candidates 写入右侧工作台。",
+		);
 	};
 
 	const submitPrompt = async ({
@@ -1262,13 +1396,14 @@ export function ChatPanel() {
 	}) => {
 		const trimmed = prompt.trim();
 		if (!trimmed || isLoading || !editor) return;
+		recordReferencesAsTopicMaterials({ references });
 
 		const userMsg = {
-			id: `u-${Date.now()}`,
+			id: `u-${getClientNow()}`,
 			role: "user" as const,
 			content: trimmed,
 			references,
-			timestamp: Date.now(),
+			timestamp: getClientNow(),
 		};
 		addMessage(userMsg);
 		setInput("");
@@ -1333,10 +1468,10 @@ export function ChatPanel() {
 		}
 
 		addMessage({
-			id: `topic-workbench-event-${Date.now()}`,
+			id: `topic-workbench-event-${getClientNow()}`,
 			role: "user",
 			content: `[选题工作台]\n${pendingTopicAgentEvent.content}`,
-			timestamp: Date.now(),
+			timestamp: getClientNow(),
 		});
 	}, [
 		activeWorkbench,
@@ -1392,10 +1527,10 @@ export function ChatPanel() {
 		if (!trimmed || isLoading || !editor) return;
 
 		const userMsg = {
-			id: `u-clarification-${Date.now()}`,
+			id: `u-clarification-${getClientNow()}`,
 			role: "user" as const,
 			content: trimmed,
-			timestamp: Date.now(),
+			timestamp: getClientNow(),
 		};
 		addMessage(userMsg);
 		setLoading(true);
@@ -1434,13 +1569,13 @@ export function ChatPanel() {
 			}
 
 			const userMsg = {
-				id: `u-option-${Date.now()}`,
+				id: `u-option-${getClientNow()}`,
 				role: "user" as const,
 				content:
 					typeof selectedAction?.value === "string" && selectedAction.value
 						? selectedAction.value
 						: label,
-				timestamp: Date.now(),
+				timestamp: getClientNow(),
 			};
 			addMessage(userMsg);
 			setLoading(true);
@@ -1488,18 +1623,18 @@ export function ChatPanel() {
 		if (actionId === "modify") {
 			if (!pendingPlan) {
 				addMessage({
-					id: `modify-${Date.now()}`,
+					id: `modify-${getClientNow()}`,
 					role: "assistant",
 					content: "当前没有待确认的计划。请告诉我你想怎么修改？",
-					timestamp: Date.now(),
+					timestamp: getClientNow(),
 				});
 				return;
 			}
 			addMessage({
-				id: `modify-${Date.now()}`,
+				id: `modify-${getClientNow()}`,
 				role: "assistant",
 				content: `当前计划：\n${pendingPlan.steps.map((s, i) => `${i + 1}. ${s.description}`).join("\n")}\n\n告诉我你想怎么修改`,
-				timestamp: Date.now(),
+				timestamp: getClientNow(),
 			});
 			setPendingPlan(null);
 		}
@@ -1677,6 +1812,18 @@ export function ChatPanel() {
 			data-testid="chat-panel"
 			className="flex h-full bg-background text-foreground"
 		>
+			<input
+				ref={topicMaterialFileInputRef}
+				type="file"
+				accept="image/*,video/*,audio/*,.srt,.vtt,.ass,.ssa,.txt,text/plain,text/vtt"
+				multiple
+				className="hidden"
+				onChange={(event) => {
+					const files = Array.from(event.currentTarget.files ?? []);
+					event.currentTarget.value = "";
+					void handleTopicMaterialFilesSelected(files);
+				}}
+			/>
 			{/* Multi-session UI is intentionally disabled for the compact Agent surface. */}
 			<div className="flex flex-1 flex-col overflow-hidden">
 				<div className="flex min-h-10 min-w-0 items-center justify-between gap-2 border-b border-border/70 bg-card/[0.65] px-2 py-1.5 backdrop-blur dark:bg-background/95">
@@ -1746,6 +1893,10 @@ export function ChatPanel() {
 							hasMedia={activeWorkbench === "video" && mediaAssetCount > 0}
 							workbench={activeWorkbench}
 							onPromptSelect={handleStarterPrompt}
+							onMaterialUploadClick={() =>
+								topicMaterialFileInputRef.current?.click()
+							}
+							onSourceMaterialClick={() => setTopicSourceMaterialOpen(true)}
 						/>
 					) : null}
 					{visibleMessages.map((msg) => (
@@ -1866,6 +2017,13 @@ export function ChatPanel() {
 					onRunningSubmitModeChange={setRunningSubmitMode}
 					onInputChange={setInput}
 					onSubmit={handleSubmit}
+					workbench={activeWorkbench}
+					topicSourceMaterialOpen={topicSourceMaterialOpen}
+					onTopicSourceMaterialOpenChange={setTopicSourceMaterialOpen}
+					onTopicMaterialUploadClick={() =>
+						topicMaterialFileInputRef.current?.click()
+					}
+					onTopicSourceMaterialAdd={handleTopicSourceMaterialAdd}
 					onMediaSubmit={(prompt) => {
 						void submitPrompt({ prompt, references: draftReferences });
 					}}
@@ -1890,11 +2048,15 @@ function AgentEmptyState({
 	hasMedia,
 	workbench,
 	onPromptSelect,
+	onMaterialUploadClick,
+	onSourceMaterialClick,
 }: {
 	disabled: boolean;
 	hasMedia: boolean;
 	workbench: "video" | "topic";
 	onPromptSelect: (prompt: string) => void;
+	onMaterialUploadClick: () => void;
+	onSourceMaterialClick: () => void;
 }) {
 	const { copy } = useAppLocale();
 	const starters =
@@ -1921,8 +2083,26 @@ function AgentEmptyState({
 					{emptyBody}
 				</p>
 				{workbench === "topic" ? (
-					<div className="mt-3 flex justify-center">
+					<div className="mt-3 flex flex-wrap justify-center gap-2">
 						<CreatorProfileDialogTrigger label="全局用户画像" />
+						<button
+							type="button"
+							disabled={disabled}
+							onClick={onMaterialUploadClick}
+							className="inline-flex h-9 items-center gap-2 rounded-sm border border-border/75 bg-background px-3 text-sm font-semibold text-foreground transition-colors hover:border-primary/35 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							<Upload size={15} />
+							上传素材
+						</button>
+						<button
+							type="button"
+							disabled={disabled}
+							onClick={onSourceMaterialClick}
+							className="inline-flex h-9 items-center gap-2 rounded-sm border border-border/75 bg-background px-3 text-sm font-semibold text-foreground transition-colors hover:border-primary/35 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							<FileText size={15} />
+							粘贴脚本/录屏稿
+						</button>
 					</div>
 				) : null}
 			</div>

@@ -12,6 +12,7 @@ import {
 	createStructureOptions,
 	createTopicProjectFromPrompt,
 	mergePromptIntoProject,
+	mergeTopicInputMaterials,
 	replaceTopicCandidates,
 	resetTopicProjectToStage,
 	selectCandidate,
@@ -21,10 +22,12 @@ import {
 	type ResearchInsightDraft,
 	type ResearchSourceDraft,
 	type TopicCandidateDraft,
+	type TopicInputMaterialDraft,
 	type VideoStructureOptionDraft,
 } from "./model";
 import type {
 	ScriptSegment,
+	TopicInputMaterial,
 	TopicCandidate,
 	TopicPackageVersion,
 	TopicStage,
@@ -38,6 +41,7 @@ interface PersistedTopicWorkbenchState {
 	activeEditorProjectId: string;
 	activeTopicProjectIdByEditorProject: Record<string, string>;
 	creatorProfile: string;
+	pendingInputMaterialsByEditorProject: Record<string, TopicInputMaterial[]>;
 	topicProjects: TopicProject[];
 }
 
@@ -60,6 +64,13 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 		editorProjectId: string;
 		prompt: string;
 	}) => void;
+	recordInputMaterials: ({
+		editorProjectId,
+		materials,
+	}: {
+		editorProjectId: string;
+		materials: TopicInputMaterialDraft[];
+	}) => void;
 	createTopicProject: ({
 		editorProjectId,
 		prompt,
@@ -71,10 +82,12 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 		editorProjectId,
 		prompt,
 		candidates,
+		inputMaterials,
 	}: {
 		editorProjectId: string;
 		prompt?: string;
 		candidates: TopicCandidateDraft[];
+		inputMaterials?: TopicInputMaterialDraft[];
 	}) => TopicProject | null;
 	applyResearchSources: ({
 		sources,
@@ -199,6 +212,7 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 			activeEditorProjectId: DEFAULT_EDITOR_PROJECT_ID,
 			activeTopicProjectIdByEditorProject: {},
 			creatorProfile: "",
+			pendingInputMaterialsByEditorProject: {},
 			topicProjects: [],
 			isHydrated: typeof window === "undefined",
 			pendingAgentEvent: null,
@@ -239,9 +253,14 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 						state.topicProjects.find((project) => project.id === activeId) ??
 						null;
 					if (!activeProject) {
+						const pendingMaterials =
+							(state.pendingInputMaterialsByEditorProject ?? {})[
+								normalizedEditorProjectId
+							] ?? [];
 						const project = createTopicProjectFromPrompt({
 							editorProjectId: normalizedEditorProjectId,
 							prompt: trimmed,
+							inputMaterials: pendingMaterials,
 						});
 						return {
 							activeEditorProjectId: normalizedEditorProjectId,
@@ -249,6 +268,10 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 							activeTopicProjectIdByEditorProject: {
 								...state.activeTopicProjectIdByEditorProject,
 								[normalizedEditorProjectId]: project.id,
+							},
+							pendingInputMaterialsByEditorProject: {
+								...(state.pendingInputMaterialsByEditorProject ?? {}),
+								[normalizedEditorProjectId]: [],
 							},
 						};
 					}
@@ -264,27 +287,105 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 				});
 			},
 
+			recordInputMaterials: ({ editorProjectId, materials }) => {
+				if (materials.length === 0) return;
+				const normalizedEditorProjectId =
+					editorProjectId || DEFAULT_EDITOR_PROJECT_ID;
+				set((state) => {
+					const activeId =
+						state.activeTopicProjectIdByEditorProject[
+							normalizedEditorProjectId
+						];
+					const activeProject =
+						state.topicProjects.find((project) => project.id === activeId) ??
+						null;
+					const existingPending =
+						(state.pendingInputMaterialsByEditorProject ?? {})[
+							normalizedEditorProjectId
+						] ?? [];
+					const nextPending = mergeTopicInputMaterials({
+						existing: existingPending,
+						incoming: materials,
+					});
+
+					if (!activeProject) {
+						return {
+							activeEditorProjectId: normalizedEditorProjectId,
+							pendingInputMaterialsByEditorProject: {
+								...(state.pendingInputMaterialsByEditorProject ?? {}),
+								[normalizedEditorProjectId]: nextPending,
+							},
+						};
+					}
+
+					const nextProjectMaterials = mergeTopicInputMaterials({
+						existing: activeProject.inputMaterials ?? [],
+						incoming: materials,
+					});
+					return {
+						activeEditorProjectId: normalizedEditorProjectId,
+						pendingInputMaterialsByEditorProject: {
+							...(state.pendingInputMaterialsByEditorProject ?? {}),
+							[normalizedEditorProjectId]: nextPending,
+						},
+						topicProjects: state.topicProjects.map((project) =>
+							project.id === activeProject.id
+								? {
+										...project,
+										inputMaterials: nextProjectMaterials,
+										updatedAt: Date.now(),
+									}
+								: project,
+						),
+					};
+				});
+			},
+
 			createTopicProject: ({ editorProjectId, prompt }) => {
+				const normalizedEditorProjectId =
+					editorProjectId || DEFAULT_EDITOR_PROJECT_ID;
+				const pendingMaterials =
+					(get().pendingInputMaterialsByEditorProject ?? {})[
+						normalizedEditorProjectId
+					] ?? [];
 				const project = createTopicProjectFromPrompt({
-					editorProjectId,
+					editorProjectId: normalizedEditorProjectId,
 					prompt,
+					inputMaterials: pendingMaterials,
 				});
 				set((state) => ({
 					activeWorkbench: "topic",
-					activeEditorProjectId: editorProjectId || DEFAULT_EDITOR_PROJECT_ID,
+					activeEditorProjectId: normalizedEditorProjectId,
 					topicProjects: [...state.topicProjects, project],
 					activeTopicProjectIdByEditorProject: {
 						...state.activeTopicProjectIdByEditorProject,
-						[editorProjectId || DEFAULT_EDITOR_PROJECT_ID]: project.id,
+						[normalizedEditorProjectId]: project.id,
+					},
+					pendingInputMaterialsByEditorProject: {
+						...(state.pendingInputMaterialsByEditorProject ?? {}),
+						[normalizedEditorProjectId]: [],
 					},
 				}));
 			},
 
-			replaceCandidates: ({ editorProjectId, prompt, candidates }) => {
+			replaceCandidates: ({
+				editorProjectId,
+				prompt,
+				candidates,
+				inputMaterials,
+			}) => {
 				const normalizedEditorProjectId =
 					editorProjectId || DEFAULT_EDITOR_PROJECT_ID;
 				let nextProject: TopicProject | null = null;
 				set((state) => {
+					const pendingMaterials =
+						(state.pendingInputMaterialsByEditorProject ?? {})[
+							normalizedEditorProjectId
+						] ?? [];
+					const nextInputMaterials = [
+						...pendingMaterials,
+						...(inputMaterials ?? []),
+					];
 					const activeId =
 						state.activeTopicProjectIdByEditorProject[
 							normalizedEditorProjectId
@@ -302,11 +403,13 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 						nextProject = createTopicProjectFromPrompt({
 							editorProjectId: normalizedEditorProjectId,
 							prompt: fallbackPrompt,
+							inputMaterials: nextInputMaterials,
 						});
 						nextProject = replaceTopicCandidates({
 							project: nextProject,
 							prompt: fallbackPrompt,
 							candidates,
+							inputMaterials: nextInputMaterials,
 						});
 						return {
 							activeEditorProjectId: normalizedEditorProjectId,
@@ -315,6 +418,10 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 								...state.activeTopicProjectIdByEditorProject,
 								[normalizedEditorProjectId]: nextProject.id,
 							},
+							pendingInputMaterialsByEditorProject: {
+								...(state.pendingInputMaterialsByEditorProject ?? {}),
+								[normalizedEditorProjectId]: [],
+							},
 						};
 					}
 
@@ -322,12 +429,17 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 						project: activeProject,
 						prompt: fallbackPrompt,
 						candidates,
+						inputMaterials: nextInputMaterials,
 					});
 					return {
 						activeEditorProjectId: normalizedEditorProjectId,
 						topicProjects: state.topicProjects.map((project) =>
 							project.id === activeProject.id ? nextProject! : project,
 						),
+						pendingInputMaterialsByEditorProject: {
+							...(state.pendingInputMaterialsByEditorProject ?? {}),
+							[normalizedEditorProjectId]: [],
+						},
 					};
 				});
 				return nextProject;
@@ -587,6 +699,8 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 				activeTopicProjectIdByEditorProject:
 					state.activeTopicProjectIdByEditorProject,
 				creatorProfile: state.creatorProfile,
+				pendingInputMaterialsByEditorProject:
+					state.pendingInputMaterialsByEditorProject,
 				topicProjects: state.topicProjects,
 			}),
 		},
