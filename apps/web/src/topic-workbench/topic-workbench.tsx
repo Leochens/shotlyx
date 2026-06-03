@@ -30,7 +30,6 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/utils/ui";
 import { CreatorProfileDialogTrigger } from "./creator-profile-dialog";
 import { useTopicWorkbenchStore } from "./store";
@@ -38,7 +37,6 @@ import { executeTopicWorkbenchTool } from "./tools";
 import type {
 	ProductionPlan,
 	ResearchPlatform,
-	ScriptSegment,
 	TopicCandidate,
 	TopicPackageVersion,
 	TopicPlatform,
@@ -55,19 +53,19 @@ const STAGES: Array<{
 }> = [
 	{
 		stage: "ideation",
-		label: "选题",
+		label: "方向生成",
 		description: "把想法聊成候选方案",
 		icon: Lightbulb,
 	},
 	{
 		stage: "research",
-		label: "调研",
+		label: "调研分析",
 		description: "搜索同题和资料来源",
 		icon: Radar,
 	},
 	{
 		stage: "structure",
-		label: "结构",
+		label: "结构设计",
 		description: "选择视频叙事模板",
 		icon: LayoutTemplate,
 	},
@@ -85,7 +83,7 @@ const STAGES: Array<{
 	},
 	{
 		stage: "timeline",
-		label: "时间线",
+		label: "时间线草稿",
 		description: "生成可微调草稿",
 		icon: Video,
 	},
@@ -333,7 +331,6 @@ export function TopicWorkbench({
 	const setActiveEditorProject = useTopicWorkbenchStore(
 		(state) => state.setActiveEditorProject,
 	);
-	const resetToStage = useTopicWorkbenchStore((state) => state.resetToStage);
 	const emitAgentEvent = useTopicWorkbenchStore(
 		(state) => state.emitAgentEvent,
 	);
@@ -367,7 +364,11 @@ export function TopicWorkbench({
 
 	const handleConfirmStageReset = () => {
 		if (!pendingResetStage) return;
-		resetToStage({ stage: pendingResetStage });
+		executeTopicWorkbenchTool({
+			toolName: "topic_reset_to_stage",
+			editorProjectId,
+			params: { stage: pendingResetStage },
+		});
 		emitAgentEvent({
 			editorProjectId,
 			source: "stage-reset",
@@ -618,32 +619,25 @@ function CandidatesSection({
 	project: TopicProject;
 	onRequestStageReset: (stage: TopicStage) => void;
 }) {
-	const selectCandidate = useTopicWorkbenchStore(
-		(state) => state.selectCandidate,
-	);
-	const updateCandidate = useTopicWorkbenchStore(
-		(state) => state.updateCandidate,
-	);
 	const emitAgentEvent = useTopicWorkbenchStore(
 		(state) => state.emitAgentEvent,
 	);
+	const [evidenceCandidate, setEvidenceCandidate] =
+		useState<TopicCandidate | null>(null);
 	const hasSelection = project.selectedCandidateId !== null;
 	const canInteract = project.stage === "ideation";
 	const selectedCandidate = getSelectedCandidate(project);
 
 	const handleSelectCandidate = (candidate: TopicCandidate) => {
 		if (!canInteract) return;
-		selectCandidate({ candidateId: candidate.id });
-	};
-
-	const handleSaveCandidate = ({
-		candidate,
-		patch,
-	}: {
-		candidate: TopicCandidate;
-		patch: Partial<Pick<TopicCandidate, "title" | "summary" | "coreViewpoint">>;
-	}) => {
-		updateCandidate({ candidateId: candidate.id, patch });
+		executeTopicWorkbenchTool({
+			toolName: "topic_select_candidate",
+			editorProjectId: project.editorProjectId,
+			params: {
+				candidateId: candidate.id,
+				advance: false,
+			},
+		});
 	};
 
 	const handleConfirmCandidate = () => {
@@ -661,6 +655,16 @@ function CandidatesSection({
 			source: "candidate-confirm",
 			autoRun: true,
 			content: `我已经在右侧确认选题「${selectedCandidate.title}」。请搜索 B 站、YouTube 和网页资料，判断是否有人做同类选题、他们的灵感来源和差异化空位。完成后调用 topic_set_research 写入右侧选题工作台。`,
+		});
+	};
+
+	const handleAskAdjust = (candidate: TopicCandidate) => {
+		if (!canInteract) return;
+		emitAgentEvent({
+			editorProjectId: project.editorProjectId,
+			source: "candidate-adjust",
+			autoRun: false,
+			content: `请基于候选选题「${candidate.title}」做一版调整。当前摘要：${candidate.summary}。当前核心观点：${candidate.coreViewpoint}。请先和我确认调整方向，完成后调用 topic_set_candidates 刷新右侧候选方案。`,
 		});
 	};
 
@@ -709,7 +713,8 @@ function CandidatesSection({
 						canInteract={canInteract}
 						isSelected={candidate.id === project.selectedCandidateId}
 						onSelect={() => handleSelectCandidate(candidate)}
-						onSave={(patch) => handleSaveCandidate({ candidate, patch })}
+						onAskAdjust={() => handleAskAdjust(candidate)}
+						onShowEvidence={() => setEvidenceCandidate(candidate)}
 					/>
 				))}
 			</div>
@@ -723,6 +728,38 @@ function CandidatesSection({
 					<ArrowRight size={14} />
 				</Button>
 			</div>
+			<AlertDialog
+				open={evidenceCandidate !== null}
+				onOpenChange={(open) => {
+					if (!open) setEvidenceCandidate(null);
+				}}
+			>
+				<AlertDialogContent className="rounded-sm">
+					<AlertDialogHeader>
+						<AlertDialogTitle>
+							{evidenceCandidate?.title ?? "选题依据"}
+						</AlertDialogTitle>
+						<AlertDialogDescription className="space-y-3 leading-6">
+							<span className="block">
+								{evidenceCandidate?.rationale ?? "Agent 暂未写入依据。"}
+							</span>
+							{evidenceCandidate?.risks.length ? (
+								<span className="block">
+									<span className="font-semibold text-foreground">
+										风险提示：
+									</span>
+									{evidenceCandidate.risks.join("；")}
+								</span>
+							) : null}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogAction onClick={() => setEvidenceCandidate(null)}>
+							知道了
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</section>
 	);
 }
@@ -733,29 +770,17 @@ function CandidateCard({
 	canInteract,
 	isSelected,
 	onSelect,
-	onSave,
+	onAskAdjust,
+	onShowEvidence,
 }: {
 	candidate: TopicCandidate;
 	index: number;
 	canInteract: boolean;
 	isSelected: boolean;
 	onSelect: () => void;
-	onSave: (
-		patch: Partial<Pick<TopicCandidate, "title" | "summary" | "coreViewpoint">>,
-	) => void;
+	onAskAdjust: () => void;
+	onShowEvidence: () => void;
 }) {
-	const [isEditing, setIsEditing] = useState(false);
-	const [draft, setDraft] = useState({
-		title: candidate.title,
-		summary: candidate.summary,
-		coreViewpoint: candidate.coreViewpoint,
-	});
-
-	const handleSave = () => {
-		onSave(draft);
-		setIsEditing(false);
-	};
-
 	return (
 		<article
 			className={cn(
@@ -767,15 +792,20 @@ function CandidateCard({
 		>
 			<div className="grid gap-3 [grid-template-columns:auto_minmax(0,1fr)_auto] max-[820px]:grid-cols-[auto_minmax(0,1fr)]">
 				<div className="flex items-start gap-2">
-					<Checkbox
-						checked={isSelected}
+					<button
+						type="button"
 						disabled={!canInteract}
-						onCheckedChange={(checked) => {
-							if (checked === true) onSelect();
-						}}
-						className="mt-1"
+						onClick={onSelect}
+						className={cn(
+							"mt-1 flex size-5 shrink-0 items-center justify-center rounded-sm border transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+							isSelected
+								? "border-primary bg-primary text-primary-foreground"
+								: "border-border/75 bg-background text-transparent",
+						)}
 						aria-label={`选择候选选题 ${candidate.title}`}
-					/>
+					>
+						<Check size={13} />
+					</button>
 					<span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-sm bg-background text-xs font-semibold text-muted-foreground">
 						{index + 1}
 					</span>
@@ -796,75 +826,20 @@ function CandidateCard({
 							))}
 						</div>
 					</div>
-					{isEditing ? (
-						<div className="mt-2 space-y-2">
-							<input
-								value={draft.title}
-								onChange={(event) =>
-									setDraft((value) => ({ ...value, title: event.target.value }))
-								}
-								className="w-full rounded-sm border border-border/70 bg-background px-2 py-1.5 text-sm font-semibold leading-5 text-foreground outline-none focus:border-primary/35"
-							/>
-							<textarea
-								value={draft.summary}
-								onChange={(event) =>
-									setDraft((value) => ({
-										...value,
-										summary: event.target.value,
-									}))
-								}
-								rows={2}
-								className="w-full resize-none rounded-sm border border-border/70 bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/35"
-							/>
-							<textarea
-								value={draft.coreViewpoint}
-								onChange={(event) =>
-									setDraft((value) => ({
-										...value,
-										coreViewpoint: event.target.value,
-									}))
-								}
-								rows={2}
-								className="w-full resize-none rounded-sm border border-border/70 bg-background px-2 py-1.5 text-xs leading-5 text-foreground outline-none focus:border-primary/35"
-							/>
-							<div className="flex justify-end gap-2">
-								<Button
-									size="sm"
-									variant="ghost"
-									onClick={() => {
-										setDraft({
-											title: candidate.title,
-											summary: candidate.summary,
-											coreViewpoint: candidate.coreViewpoint,
-										});
-										setIsEditing(false);
-									}}
-								>
-									取消
-								</Button>
-								<Button size="sm" onClick={handleSave}>
-									保存
-								</Button>
-							</div>
-						</div>
-					) : (
-						<>
-							<h3 className="mt-2 text-sm font-semibold leading-5 text-foreground">
-								{candidate.title}
-							</h3>
-							<p className="mt-1 text-xs leading-5 text-muted-foreground">
-								{candidate.summary}
-							</p>
-							<div className="mt-2 rounded-sm border border-border/65 bg-background/55 px-2 py-1.5 text-xs leading-5 text-foreground">
-								{candidate.coreViewpoint}
-							</div>
-						</>
-					)}
+					<h3 className="mt-2 text-sm font-semibold leading-5 text-foreground">
+						{candidate.title}
+					</h3>
+					<p className="mt-1 text-xs leading-5 text-muted-foreground">
+						{candidate.summary}
+					</p>
+					<div className="mt-2 rounded-sm border border-border/65 bg-background/55 px-2 py-1.5 text-xs leading-5 text-foreground">
+						{candidate.coreViewpoint}
+					</div>
 					<div className="mt-2 text-xs leading-5 text-muted-foreground">
 						{candidate.durationMinutes} 分钟 · {candidate.audience}
 					</div>
 				</div>
-				<div className="flex shrink-0 items-start justify-end gap-1 max-[820px]:col-start-2">
+				<div className="flex max-w-full shrink-0 flex-wrap items-start justify-end gap-1 max-[820px]:col-start-2 max-[820px]:justify-start">
 					{candidate.platforms.map((platform) => (
 						<span
 							key={platform}
@@ -873,22 +848,25 @@ function CandidateCard({
 							{PLATFORM_LABELS[platform]}
 						</span>
 					))}
-					{canInteract && !isEditing ? (
-						<Button
-							size="sm"
-							variant="ghost"
-							onClick={() => {
-								setDraft({
-									title: candidate.title,
-									summary: candidate.summary,
-									coreViewpoint: candidate.coreViewpoint,
-								});
-								setIsEditing(true);
-							}}
-						>
-							编辑
-						</Button>
-					) : null}
+					<Button
+						size="sm"
+						variant={isSelected ? "default" : "outline"}
+						disabled={!canInteract}
+						onClick={onSelect}
+					>
+						{isSelected ? "已选择" : "选择这个"}
+					</Button>
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={!canInteract}
+						onClick={onAskAdjust}
+					>
+						让 Agent 调整
+					</Button>
+					<Button size="sm" variant="ghost" onClick={onShowEvidence}>
+						查看依据
+					</Button>
 				</div>
 			</div>
 		</article>
@@ -1040,7 +1018,8 @@ function StructureSection({ project }: { project: TopicProject }) {
 						<AlertDialogDescription className="leading-6">
 							系统会基于当前选题、资料和
 							{selectedStructure ? `「${selectedStructure.name}」` : "已选结构"}
-							生成脚本大纲、分段内容、素材建议和发布文案。生成后仍可在右侧继续编辑。
+							生成脚本大纲、分段内容、素材建议和发布文案。生成后可通过左侧 Agent
+							调整并产出新版本。
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
@@ -1125,25 +1104,8 @@ function StructureCard({
 
 function PackageSection({ project }: { project: TopicProject }) {
 	const activePackage = getActivePackage(project);
-	const updatePackageVersion = useTopicWorkbenchStore(
-		(state) => state.updatePackageVersion,
-	);
-	const updateScriptSegment = useTopicWorkbenchStore(
-		(state) => state.updateScriptSegment,
-	);
 	if (!activePackage) return null;
 	const activeProductionPlan = getActiveProductionPlan(project);
-	const titleInputId = `${activePackage.id}-package-title`;
-	const summaryInputId = `${activePackage.id}-package-summary`;
-	const viewpointInputId = `${activePackage.id}-package-viewpoint`;
-	const audienceInputId = `${activePackage.id}-package-audience`;
-	const rationaleInputId = `${activePackage.id}-package-rationale`;
-
-	const handlePackagePatch = (
-		patch: Parameters<typeof updatePackageVersion>[0]["patch"],
-	) => {
-		updatePackageVersion({ versionId: activePackage.id, patch });
-	};
 
 	const handleCreateProductionPlan = () => {
 		executeTopicWorkbenchTool({
@@ -1162,88 +1124,40 @@ function PackageSection({ project }: { project: TopicProject }) {
 			/>
 			<div className="mt-3 grid gap-3 [grid-template-columns:minmax(0,1fr)_minmax(17rem,0.9fr)] max-[980px]:grid-cols-1">
 				<div className="rounded-sm border border-border/75 bg-muted/[0.18] p-3">
-					<label
-						htmlFor={titleInputId}
-						className="text-xs font-semibold text-muted-foreground"
-					>
+					<div className="text-xs font-semibold text-muted-foreground">
 						标题
-					</label>
-					<input
-						id={titleInputId}
-						value={activePackage.title}
-						onChange={(event) =>
-							handlePackagePatch({ title: event.target.value })
-						}
-						className="mt-1 w-full rounded-sm border border-border/70 bg-background px-3 py-2 text-base font-semibold tracking-normal text-foreground outline-none focus:border-primary/35"
-					/>
-					<label
-						htmlFor={summaryInputId}
-						className="mt-3 block text-xs font-semibold text-muted-foreground"
-					>
+					</div>
+					<h3 className="mt-1 text-base font-semibold leading-6 tracking-normal text-foreground">
+						{activePackage.title}
+					</h3>
+					<div className="mt-3 text-xs font-semibold text-muted-foreground">
 						摘要
-					</label>
-					<textarea
-						id={summaryInputId}
-						value={activePackage.summary}
-						onChange={(event) =>
-							handlePackagePatch({ summary: event.target.value })
-						}
-						rows={3}
-						className="mt-1 w-full resize-none rounded-sm border border-border/70 bg-background px-3 py-2 text-sm leading-6 text-muted-foreground outline-none focus:border-primary/35"
-					/>
+					</div>
+					<p className="mt-1 text-sm leading-6 text-muted-foreground">
+						{activePackage.summary}
+					</p>
 					<div className="mt-3 rounded-sm border border-border/70 bg-background px-3 py-2 text-sm leading-6">
-						<label
-							htmlFor={viewpointInputId}
-							className="font-semibold text-foreground"
-						>
-							核心观点
-						</label>
-						<textarea
-							id={viewpointInputId}
-							value={activePackage.coreViewpoint}
-							onChange={(event) =>
-								handlePackagePatch({ coreViewpoint: event.target.value })
-							}
-							rows={2}
-							className="mt-1 w-full resize-none rounded-sm border border-border/60 bg-muted/[0.18] px-2 py-1.5 text-sm leading-6 text-muted-foreground outline-none focus:border-primary/35"
-						/>
+						<div className="font-semibold text-foreground">核心观点</div>
+						<p className="mt-1 text-muted-foreground">
+							{activePackage.coreViewpoint}
+						</p>
 					</div>
 					<div className="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(12rem,1fr))]">
-						<div>
-							<label
-								htmlFor={audienceInputId}
-								className="text-xs font-semibold text-muted-foreground"
-							>
+						<div className="rounded-sm border border-border/70 bg-background px-2 py-2">
+							<div className="text-xs font-semibold text-muted-foreground">
 								受众分析
-							</label>
-							<textarea
-								id={audienceInputId}
-								value={activePackage.audienceAnalysis}
-								onChange={(event) =>
-									handlePackagePatch({
-										audienceAnalysis: event.target.value,
-									})
-								}
-								rows={2}
-								className="mt-1 w-full resize-none rounded-sm border border-border/70 bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/35"
-							/>
+							</div>
+							<p className="mt-1 text-xs leading-5 text-muted-foreground">
+								{activePackage.audienceAnalysis}
+							</p>
 						</div>
-						<div>
-							<label
-								htmlFor={rationaleInputId}
-								className="text-xs font-semibold text-muted-foreground"
-							>
+						<div className="rounded-sm border border-border/70 bg-background px-2 py-2">
+							<div className="text-xs font-semibold text-muted-foreground">
 								选题缘由
-							</label>
-							<textarea
-								id={rationaleInputId}
-								value={activePackage.rationale}
-								onChange={(event) =>
-									handlePackagePatch({ rationale: event.target.value })
-								}
-								rows={2}
-								className="mt-1 w-full resize-none rounded-sm border border-border/70 bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/35"
-							/>
+							</div>
+							<p className="mt-1 text-xs leading-5 text-muted-foreground">
+								{activePackage.rationale}
+							</p>
 						</div>
 					</div>
 					<div className="mt-3">
@@ -1268,16 +1182,27 @@ function PackageSection({ project }: { project: TopicProject }) {
 								key={`${item.platform}-${item.title}`}
 								className="rounded-sm border border-border/70 bg-background px-2 py-2"
 							>
-								<div className="text-xs font-semibold text-foreground">
-									{PLATFORM_LABELS[item.platform]}
+								<div className="flex items-center justify-between gap-2">
+									<div className="text-xs font-semibold text-foreground">
+										{PLATFORM_LABELS[item.platform]}
+									</div>
+									<span className="text-[0.68rem] text-muted-foreground">
+										标题建议
+									</span>
 								</div>
-								<div className="mt-1 text-xs leading-5 text-muted-foreground">
+								<div className="mt-1 text-xs font-semibold leading-5 text-foreground">
 									{item.title}
 								</div>
+								<p className="mt-1 text-xs leading-5 text-muted-foreground">
+									{item.description}
+								</p>
 							</div>
 						))}
 					</div>
-					<ul className="mt-3 space-y-1.5 text-xs leading-5 text-muted-foreground">
+					<div className="mt-3 text-xs font-semibold text-foreground">
+						封面建议
+					</div>
+					<ul className="mt-2 space-y-1.5 text-xs leading-5 text-muted-foreground">
 						{activePackage.coverIdeas.map((idea) => (
 							<li key={idea}>{idea}</li>
 						))}
@@ -1290,24 +1215,17 @@ function PackageSection({ project }: { project: TopicProject }) {
 				</div>
 				<div className="mt-2 space-y-2">
 					{activePackage.scriptSegments.map((segment, index) => (
-						<ScriptSegmentRow
+						<ScriptSegmentViewRow
 							key={`${activePackage.id}-${index}`}
 							index={index}
 							segment={segment}
-							onChange={(patch) =>
-								updateScriptSegment({
-									versionId: activePackage.id,
-									segmentIndex: index,
-									patch,
-								})
-							}
 						/>
 					))}
 				</div>
 			</div>
 			<div className="mt-3 flex justify-end">
 				<Button size="sm" onClick={handleCreateProductionPlan}>
-					{activeProductionPlan ? "重新生成制作计划" : "生成制作计划"}
+					{activeProductionPlan ? "重新生成制作计划" : "制作视频"}
 					<ArrowRight size={14} />
 				</Button>
 			</div>
@@ -1430,66 +1348,38 @@ function ProductionPlanSection({ project }: { project: TopicProject }) {
 	);
 }
 
-function ScriptSegmentRow({
+function ScriptSegmentViewRow({
 	segment,
 	index,
-	onChange,
 }: {
-	segment: ScriptSegment;
+	segment: TopicPackageVersion["scriptSegments"][number];
 	index: number;
-	onChange: (patch: Partial<ScriptSegment>) => void;
 }) {
-	const timeRangeInputId = `script-segment-${index}-time-range`;
-	const contentInputId = `script-segment-${index}-content`;
-	const materialInputId = `script-segment-${index}-material`;
-
 	return (
 		<div className="grid gap-2 rounded-sm border border-border/70 bg-background px-3 py-2 [grid-template-columns:8rem_minmax(0,1.1fr)_minmax(0,0.9fr)] max-[940px]:grid-cols-1">
 			<div>
-				<label
-					htmlFor={timeRangeInputId}
-					className="text-[0.68rem] font-semibold text-muted-foreground"
-				>
+				<div className="text-[0.68rem] font-semibold text-muted-foreground">
 					时间段 {index + 1}
-				</label>
-				<input
-					id={timeRangeInputId}
-					value={segment.timeRange}
-					onChange={(event) => onChange({ timeRange: event.target.value })}
-					className="mt-1 w-full rounded-sm border border-border/60 bg-muted/[0.18] px-2 py-1.5 text-xs font-semibold text-primary outline-none focus:border-primary/35"
-				/>
+				</div>
+				<div className="mt-1 rounded-sm border border-primary/20 bg-primary/[0.06] px-2 py-1.5 text-xs font-semibold text-primary">
+					{segment.timeRange}
+				</div>
 			</div>
 			<div>
-				<label
-					htmlFor={contentInputId}
-					className="text-[0.68rem] font-semibold text-muted-foreground"
-				>
+				<div className="text-[0.68rem] font-semibold text-muted-foreground">
 					内容
-				</label>
-				<textarea
-					id={contentInputId}
-					value={segment.content}
-					onChange={(event) => onChange({ content: event.target.value })}
-					rows={2}
-					className="mt-1 w-full resize-none rounded-sm border border-border/60 bg-muted/[0.18] px-2 py-1.5 text-sm leading-5 text-foreground outline-none focus:border-primary/35"
-				/>
+				</div>
+				<p className="mt-1 text-sm leading-5 text-foreground">
+					{segment.content}
+				</p>
 			</div>
 			<div>
-				<label
-					htmlFor={materialInputId}
-					className="text-[0.68rem] font-semibold text-muted-foreground"
-				>
+				<div className="text-[0.68rem] font-semibold text-muted-foreground">
 					素材建议
-				</label>
-				<textarea
-					id={materialInputId}
-					value={segment.materialSuggestion}
-					onChange={(event) =>
-						onChange({ materialSuggestion: event.target.value })
-					}
-					rows={2}
-					className="mt-1 w-full resize-none rounded-sm border border-border/60 bg-muted/[0.18] px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/35"
-				/>
+				</div>
+				<p className="mt-1 text-xs leading-5 text-muted-foreground">
+					{segment.materialSuggestion}
+				</p>
 			</div>
 		</div>
 	);

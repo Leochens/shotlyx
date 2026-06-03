@@ -331,7 +331,7 @@ function createTopicCandidatesFromSuggestions({
 		platforms: platformSets[index] ?? DEFAULT_PLATFORMS,
 		durationMinutes: index === 4 ? 3 : index === 3 ? 10 : 6 + index,
 		rationale:
-			"来自当前选题对话，可继续在右侧编辑、确认，并进入同题调研与结构设计。",
+			"来自当前选题对话，可在右侧选择、确认，并通过左侧 Agent 调整后进入同题调研与结构设计。",
 		risks: ["需要继续做同题搜索和事实核验，避免只停留在概念判断。"],
 		status: "draft",
 		updatedAt: now,
