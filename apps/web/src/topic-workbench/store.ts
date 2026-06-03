@@ -7,6 +7,7 @@ import {
 	applyResearchSources,
 	applyStructureOptions,
 	confirmSelectedCandidate,
+	createProductionPlan as createProductionPlanModel,
 	createResearchSources,
 	createStructureOptions,
 	createTopicProjectFromPrompt,
@@ -16,6 +17,7 @@ import {
 	selectCandidate,
 	selectStructure,
 	updateCandidate,
+	type ProductionPlanDraft,
 	type ResearchSourceDraft,
 	type TopicCandidateDraft,
 	type VideoStructureOptionDraft,
@@ -96,7 +98,12 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 	runResearch: () => void;
 	prepareStructureOptions: () => void;
 	selectStructure: ({ structureId }: { structureId: string }) => void;
-	createPackageVersion: () => void;
+	createPackageVersion: () => TopicProject | null;
+	createProductionPlan: ({
+		draft,
+	}: {
+		draft?: ProductionPlanDraft;
+	}) => TopicProject | null;
 	setActivePackageVersion: ({ versionId }: { versionId: string }) => void;
 	updatePackageVersion: ({
 		versionId,
@@ -440,23 +447,52 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 					}),
 				),
 
-			createPackageVersion: () =>
+			createPackageVersion: () => {
+				let nextProject: TopicProject | null = null;
 				set((state) =>
 					updateActiveProject({
 						state,
-						updater: (project) => addPackageVersion({ project }),
+						updater: (project) => {
+							nextProject = addPackageVersion({ project });
+							return nextProject;
+						},
 					}),
-				),
+				);
+				return nextProject;
+			},
+
+			createProductionPlan: ({ draft }) => {
+				let nextProject: TopicProject | null = null;
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) => {
+							nextProject = createProductionPlanModel({ project, draft });
+							return nextProject;
+						},
+					}),
+				);
+				return nextProject;
+			},
 
 			setActivePackageVersion: ({ versionId }) =>
 				set((state) =>
 					updateActiveProject({
 						state,
-						updater: (project) => ({
-							...project,
-							activePackageVersionId: versionId,
-							updatedAt: Date.now(),
-						}),
+						updater: (project) => {
+							const hasVersion = project.packageVersions.some(
+								(version) => version.id === versionId,
+							);
+							if (!hasVersion) return project;
+							return {
+								...project,
+								stage: "package",
+								status: "ready-for-video",
+								activePackageVersionId: versionId,
+								activeProductionPlanId: null,
+								updatedAt: Date.now(),
+							};
+						},
 					}),
 				),
 

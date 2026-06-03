@@ -5,6 +5,7 @@ import {
 	applyResearchSources,
 	applyStructureOptions,
 	confirmSelectedCandidate,
+	createProductionPlan,
 	createTopicProjectFromPrompt,
 	mergePromptIntoProject,
 	replaceTopicCandidates,
@@ -254,7 +255,44 @@ describe("topic workbench model", () => {
 		expect(reset.structures).toHaveLength(0);
 	});
 
-	test("resetting a completed package back to ideation clears the current workflow", () => {
+	test("creates a production plan from the active topic package", () => {
+		const project = createTopicProjectFromPrompt({
+			editorProjectId: "project-1",
+			prompt: "AI Agent 内容生产",
+			now: 1_000,
+		});
+		const candidateId = project.candidates[0]?.id;
+		if (!candidateId) throw new Error("missing candidate");
+		const confirmed = confirmSelectedCandidate({
+			project: selectCandidate({ project, candidateId }),
+		});
+		const structured = advanceToStructureStage({ project: confirmed });
+		const structureId = structured.structures[0]?.id;
+		if (!structureId) throw new Error("missing structure");
+		const packaged = addPackageVersion({
+			project: selectStructure({ project: structured, structureId }),
+			now: 2_000,
+		});
+
+		const production = createProductionPlan({
+			project: packaged,
+			now: 3_000,
+		});
+
+		expect(production.stage).toBe("production");
+		expect(production.productionPlans).toHaveLength(1);
+		expect(production.activeProductionPlanId).toBe(
+			production.productionPlans[0]?.id,
+		);
+		expect(production.productionPlans[0]?.basedOnPackageVersionId).toBe(
+			packaged.activePackageVersionId,
+		);
+		expect(production.productionPlans[0]?.segments).toHaveLength(
+			packaged.packageVersions[0]?.scriptSegments.length,
+		);
+	});
+
+	test("resetting a completed package back to ideation clears the current workflow but keeps version history", () => {
 		const project = createTopicProjectFromPrompt({
 			editorProjectId: "project-1",
 			prompt: "AI Agent 内容生产",
@@ -285,7 +323,7 @@ describe("topic workbench model", () => {
 		expect(reset.selectedCandidateId).toBeNull();
 		expect(reset.researchSources).toHaveLength(0);
 		expect(reset.structures).toHaveLength(0);
-		expect(reset.packageVersions).toHaveLength(0);
+		expect(reset.packageVersions).toHaveLength(1);
 		expect(reset.activePackageVersionId).toBeNull();
 	});
 });

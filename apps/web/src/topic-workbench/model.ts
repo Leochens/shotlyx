@@ -1,5 +1,8 @@
 import type {
 	PlatformRecommendation,
+	ProductionPlan,
+	ProductionPlanAssetType,
+	ProductionPlanVideoType,
 	ResearchPlatform,
 	ResearchSource,
 	ScriptSegment,
@@ -7,6 +10,7 @@ import type {
 	TopicPackageVersion,
 	TopicPlatform,
 	TopicProject,
+	TopicStage,
 	VideoStructureOption,
 } from "./types";
 
@@ -51,6 +55,26 @@ export interface VideoStructureOptionDraft {
 		label: string;
 		description: string;
 	}>;
+}
+
+export interface ProductionPlanDraft {
+	videoType?: ProductionPlanVideoType;
+	targetPlatform?: string[];
+	estimatedDurationMinutes?: number;
+	segments?: Array<{
+		timeRange?: string;
+		goal?: string;
+		script?: string;
+		visualNeed?: string;
+		assetSuggestion?: string;
+		editSuggestion?: string;
+	}>;
+	requiredAssets?: Array<{
+		type?: ProductionPlanAssetType;
+		description?: string;
+		optional?: boolean;
+	}>;
+	nextActions?: string[];
 }
 
 function createId(prefix: string): string {
@@ -400,6 +424,8 @@ export function replaceTopicCandidates({
 		researchSources: [],
 		structures: [],
 		selectedStructureId: null,
+		activePackageVersionId: null,
+		activeProductionPlanId: null,
 		promptHistory: appendOptionalPromptHistory({
 			promptHistory: project.promptHistory,
 			prompt,
@@ -436,6 +462,8 @@ export function applyResearchSources({
 		researchSources,
 		structures: [],
 		selectedStructureId: null,
+		activePackageVersionId: null,
+		activeProductionPlanId: null,
 		updatedAt: now,
 	};
 }
@@ -465,6 +493,8 @@ export function applyStructureOptions({
 		status: "active",
 		structures: structureOptions,
 		selectedStructureId: null,
+		activePackageVersionId: null,
+		activeProductionPlanId: null,
 		updatedAt: now,
 	};
 }
@@ -478,10 +508,28 @@ export function resetTopicProjectToStage({
 	stage: TopicStage;
 	now?: number;
 }): TopicProject {
+	if (stage === "timeline") {
+		return {
+			...project,
+			stage: "timeline",
+			updatedAt: now,
+		};
+	}
+
+	if (stage === "production") {
+		return {
+			...project,
+			stage: "production",
+			activeProductionPlanId: null,
+			updatedAt: now,
+		};
+	}
+
 	if (stage === "package") {
 		return {
 			...project,
 			stage: "package",
+			activeProductionPlanId: null,
 			updatedAt: now,
 		};
 	}
@@ -493,6 +541,8 @@ export function resetTopicProjectToStage({
 			status: "active",
 			structures: [],
 			selectedStructureId: null,
+			activePackageVersionId: null,
+			activeProductionPlanId: null,
 			updatedAt: now,
 		};
 	}
@@ -505,6 +555,8 @@ export function resetTopicProjectToStage({
 			researchSources: [],
 			structures: [],
 			selectedStructureId: null,
+			activePackageVersionId: null,
+			activeProductionPlanId: null,
 			updatedAt: now,
 		};
 	}
@@ -518,8 +570,8 @@ export function resetTopicProjectToStage({
 		researchSources: [],
 		structures: [],
 		selectedStructureId: null,
-		packageVersions: [],
 		activePackageVersionId: null,
+		activeProductionPlanId: null,
 		updatedAt: now,
 	};
 }
@@ -552,6 +604,8 @@ export function createTopicProjectFromPrompt({
 		selectedStructureId: null,
 		packageVersions: [],
 		activePackageVersionId: null,
+		productionPlans: [],
+		activeProductionPlanId: null,
 	};
 }
 
@@ -594,6 +648,8 @@ export function mergePromptIntoProject({
 		researchSources: [],
 		structures: [],
 		selectedStructureId: null,
+		activePackageVersionId: null,
+		activeProductionPlanId: null,
 		promptHistory,
 		updatedAt: now,
 	};
@@ -633,6 +689,8 @@ export function mergeAssistantTopicOutputIntoProject({
 		researchSources: [],
 		structures: [],
 		selectedStructureId: null,
+		activePackageVersionId: null,
+		activeProductionPlanId: null,
 		updatedAt: now,
 	};
 }
@@ -708,6 +766,8 @@ export function confirmSelectedCandidate({
 		researchSources: [],
 		structures: [],
 		selectedStructureId: null,
+		activePackageVersionId: null,
+		activeProductionPlanId: null,
 		updatedAt: now,
 	};
 }
@@ -933,13 +993,21 @@ export function createTopicPackageVersion({
 function getActivePackageVersion(
 	project: TopicProject,
 ): TopicPackageVersion | null {
-	return (
-		project.packageVersions.find(
-			(version) => version.id === project.activePackageVersionId,
-		) ??
-		project.packageVersions.at(-1) ??
-		null
-	);
+	if (project.activePackageVersionId) {
+		return (
+			project.packageVersions.find(
+				(version) => version.id === project.activePackageVersionId,
+			) ?? null
+		);
+	}
+	if (
+		project.stage === "package" ||
+		project.stage === "production" ||
+		project.stage === "timeline"
+	) {
+		return project.packageVersions.at(-1) ?? null;
+	}
+	return null;
 }
 
 function cloneTopicPackageVersion({
@@ -1026,6 +1094,201 @@ export function addPackageVersion({
 		status: "ready-for-video",
 		packageVersions: [...project.packageVersions, version],
 		activePackageVersionId: version.id,
+		activeProductionPlanId: null,
+		updatedAt: now,
+	};
+}
+
+function inferProductionVideoType(
+	topicPackage: TopicPackageVersion,
+): ProductionPlanVideoType {
+	const text =
+		`${topicPackage.title} ${topicPackage.summary} ${topicPackage.rationale}`.toLowerCase();
+	if (/测评|review|对比|工具/.test(text)) return "review";
+	if (/教程|教学|怎么|workflow|工作流/.test(text)) return "tutorial";
+	if (/录屏|实操|演示/.test(text)) return "screen-recording";
+	if (/广告|投放|转化|营销/.test(text)) return "ad";
+	return "explainer";
+}
+
+function createDefaultRequiredAssets({
+	videoType,
+}: {
+	videoType: ProductionPlanVideoType;
+}): ProductionPlan["requiredAssets"] {
+	const baseAssets: ProductionPlan["requiredAssets"] = [
+		{
+			type: "voiceover",
+			description: "口播或 AI 配音，用于串联每个段落的核心观点。",
+			optional: false,
+		},
+		{
+			type: "subtitle",
+			description: "自动字幕和重点词强调，适配 B 站、YouTube 与短视频切片。",
+			optional: false,
+		},
+		{
+			type: "screenshot",
+			description: "同题内容、官方资料或产品界面截图，用于支撑事实和观点。",
+			optional: false,
+		},
+		{
+			type: "mg",
+			description: "用于解释抽象流程、对比关系或关键数据的简洁 MG 动画。",
+			optional: true,
+		},
+	];
+
+	if (videoType === "screen-recording" || videoType === "tutorial") {
+		return [
+			{
+				type: "screen-recording",
+				description: "产品操作录屏或流程演示，作为教程/实操段落的主视觉。",
+				optional: false,
+			},
+			...baseAssets,
+		];
+	}
+
+	if (videoType === "talking-head") {
+		return [
+			{
+				type: "user-footage",
+				description: "创作者口播画面，用作开场、过渡和结论段落。",
+				optional: false,
+			},
+			...baseAssets,
+		];
+	}
+
+	return [
+		{
+			type: "broll",
+			description: "与案例、工具、场景相关的 B-roll 或占位素材。",
+			optional: true,
+		},
+		...baseAssets,
+	];
+}
+
+function createProductionPlanFromPackage({
+	topicPackage,
+	now,
+}: {
+	topicPackage: TopicPackageVersion;
+	now: number;
+}): ProductionPlan {
+	const videoType = inferProductionVideoType(topicPackage);
+	return {
+		id: createId("production-plan"),
+		createdAt: now,
+		basedOnPackageVersionId: topicPackage.id,
+		videoType,
+		targetPlatform: topicPackage.platformRecommendations.map(
+			(recommendation) => recommendation.platform,
+		),
+		estimatedDurationMinutes: topicPackage.durationMinutes,
+		segments: topicPackage.scriptSegments.map((segment, index) => ({
+			timeRange: segment.timeRange,
+			goal:
+				index === 0
+					? "快速建立观看动机，说明这个选题为什么现在值得看。"
+					: "推进核心论证，并让观众看到可验证的案例或操作。",
+			script: segment.content,
+			visualNeed: segment.materialSuggestion,
+			assetSuggestion: segment.materialSuggestion,
+			editSuggestion:
+				index === 0
+					? "使用快节奏冷开场、标题字卡和 1-2 个高信息量画面。"
+					: "以口播为主线，穿插截图、录屏、资料引用和轻量 MG 解释。",
+		})),
+		requiredAssets: createDefaultRequiredAssets({ videoType }),
+		nextActions: [
+			"生成时间线草稿",
+			"我来口播",
+			"AI 生成配音",
+			"先用占位素材搭骨架",
+		],
+	};
+}
+
+export function createProductionPlan({
+	project,
+	now = Date.now(),
+	draft,
+}: {
+	project: TopicProject;
+	now?: number;
+	draft?: ProductionPlanDraft;
+}): TopicProject {
+	const activePackage = getActivePackageVersion(project);
+	if (!activePackage) return project;
+	const basePlan = createProductionPlanFromPackage({
+		topicPackage: activePackage,
+		now,
+	});
+	const plan: ProductionPlan = {
+		...basePlan,
+		videoType: draft?.videoType ?? basePlan.videoType,
+		targetPlatform:
+			draft?.targetPlatform && draft.targetPlatform.length > 0
+				? draft.targetPlatform
+				: basePlan.targetPlatform,
+		estimatedDurationMinutes:
+			typeof draft?.estimatedDurationMinutes === "number" &&
+			Number.isFinite(draft.estimatedDurationMinutes) &&
+			draft.estimatedDurationMinutes > 0
+				? Math.round(draft.estimatedDurationMinutes)
+				: basePlan.estimatedDurationMinutes,
+		segments:
+			draft?.segments && draft.segments.length > 0
+				? draft.segments.map((segment, index) => ({
+						timeRange:
+							segment.timeRange ??
+							basePlan.segments[index]?.timeRange ??
+							`${index}:00 - ${index + 1}:00`,
+						goal:
+							segment.goal ??
+							basePlan.segments[index]?.goal ??
+							"推进视频叙事。",
+						script:
+							segment.script ??
+							basePlan.segments[index]?.script ??
+							"补充脚本内容。",
+						visualNeed:
+							segment.visualNeed ??
+							basePlan.segments[index]?.visualNeed ??
+							"补充主视觉。",
+						assetSuggestion:
+							segment.assetSuggestion ??
+							basePlan.segments[index]?.assetSuggestion ??
+							"补充素材建议。",
+						editSuggestion:
+							segment.editSuggestion ??
+							basePlan.segments[index]?.editSuggestion ??
+							"保持节奏清晰，避免信息堆叠。",
+					}))
+				: basePlan.segments,
+		requiredAssets:
+			draft?.requiredAssets && draft.requiredAssets.length > 0
+				? draft.requiredAssets.map((asset) => ({
+						type: asset.type ?? "broll",
+						description: asset.description ?? "补充制作素材。",
+						optional: asset.optional ?? true,
+					}))
+				: basePlan.requiredAssets,
+		nextActions:
+			draft?.nextActions && draft.nextActions.length > 0
+				? draft.nextActions
+				: basePlan.nextActions,
+	};
+
+	return {
+		...project,
+		stage: "production",
+		status: "ready-for-video",
+		productionPlans: [...(project.productionPlans ?? []), plan],
+		activeProductionPlanId: plan.id,
 		updatedAt: now,
 	};
 }

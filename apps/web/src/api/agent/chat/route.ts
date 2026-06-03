@@ -154,7 +154,7 @@ function buildRequestContextText({
 	const contextLines: string[] = [];
 	if (activeWorkbench === "topic") {
 		contextLines.push(
-			"Active workbench: topic management. Act as a topic research sub-agent for creators: help turn vague ideas into candidate topics, same-topic research, video structures, script outlines, citations, and publishing copy. Prefer web_search/web_fetch for current public context. Do not plan timeline edits in this mode. If the creator profile is empty and the current conversation does not already describe the account positioning, ask the user for account positioning before deep topic generation. When you produce structured candidates, research sources, or structure templates, call the topic_workbench_* tools so the right-side workbench updates; do not leave those results only in chat prose.",
+			"Active workbench: topic management. Act as a topic research sub-agent for creators: help turn vague ideas into candidate topics, same-topic research, video structures, script outlines, citations, publishing copy, and a production plan before video handoff. Prefer web_search/web_fetch for current public context. Do not plan timeline edits in this mode. If the creator profile is empty and the current conversation does not already describe the account positioning, ask the user for account positioning before deep topic generation. When you produce structured candidates, select a candidate, write research, write structures, create a package, create a production plan, or reset a stage, call the topic_* tools so the right-side workbench updates; do not leave those results only in chat prose.",
 		);
 		if (topicCreatorProfile?.trim()) {
 			contextLines.push(`Creator profile:\n${topicCreatorProfile.trim()}`);

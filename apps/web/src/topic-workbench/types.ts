@@ -1,6 +1,12 @@
 export type WorkbenchMode = "video" | "topic";
 
-export type TopicStage = "ideation" | "research" | "structure" | "package";
+export type TopicStage =
+	| "ideation"
+	| "research"
+	| "structure"
+	| "package"
+	| "production"
+	| "timeline";
 
 export type TopicPlatform =
 	| "bilibili"
@@ -81,6 +87,51 @@ export interface TopicPackageVersion {
 	referenceSourceIds: string[];
 }
 
+export type ProductionPlanVideoType =
+	| "talking-head"
+	| "screen-recording"
+	| "tutorial"
+	| "review"
+	| "vlog"
+	| "explainer"
+	| "ad";
+
+export type ProductionPlanAssetType =
+	| "user-footage"
+	| "screen-recording"
+	| "broll"
+	| "screenshot"
+	| "voiceover"
+	| "subtitle"
+	| "mg";
+
+export interface ProductionPlanSegment {
+	timeRange: string;
+	goal: string;
+	script: string;
+	visualNeed: string;
+	assetSuggestion: string;
+	editSuggestion: string;
+}
+
+export interface ProductionPlanAsset {
+	type: ProductionPlanAssetType;
+	description: string;
+	optional: boolean;
+}
+
+export interface ProductionPlan {
+	id: string;
+	createdAt: number;
+	basedOnPackageVersionId: string;
+	videoType: ProductionPlanVideoType;
+	targetPlatform: string[];
+	estimatedDurationMinutes: number;
+	segments: ProductionPlanSegment[];
+	requiredAssets: ProductionPlanAsset[];
+	nextActions: string[];
+}
+
 export interface TopicProject {
 	id: string;
 	editorProjectId: string;
@@ -98,6 +149,8 @@ export interface TopicProject {
 	selectedStructureId: string | null;
 	packageVersions: TopicPackageVersion[];
 	activePackageVersionId: string | null;
+	productionPlans: ProductionPlan[];
+	activeProductionPlanId: string | null;
 }
 
 export interface TopicWorkbenchAgentEvent {

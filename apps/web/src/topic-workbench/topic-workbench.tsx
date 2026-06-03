@@ -6,6 +6,7 @@ import {
 	BookOpenText,
 	Check,
 	CheckCircle2,
+	Clapperboard,
 	ExternalLink,
 	FileText,
 	History,
@@ -15,6 +16,7 @@ import {
 	Radar,
 	RefreshCw,
 	Search,
+	Video,
 	type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -32,7 +34,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/utils/ui";
 import { CreatorProfileDialogTrigger } from "./creator-profile-dialog";
 import { useTopicWorkbenchStore } from "./store";
+import { executeTopicWorkbenchTool } from "./tools";
 import type {
+	ProductionPlan,
 	ResearchPlatform,
 	ScriptSegment,
 	TopicCandidate,
@@ -73,6 +77,18 @@ const STAGES: Array<{
 		description: "交付脚本与发布文案",
 		icon: FileText,
 	},
+	{
+		stage: "production",
+		label: "制作计划",
+		description: "拆解素材、配音和占位",
+		icon: Clapperboard,
+	},
+	{
+		stage: "timeline",
+		label: "时间线",
+		description: "生成可微调草稿",
+		icon: Video,
+	},
 ];
 
 const PLATFORM_LABELS: Record<TopicPlatform, string> = {
@@ -99,6 +115,32 @@ const RESEARCH_PLATFORM_CLASS_NAMES: Record<ResearchPlatform, string> = {
 		"border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-300",
 };
 
+const PRODUCTION_VIDEO_TYPE_LABELS: Record<
+	ProductionPlan["videoType"],
+	string
+> = {
+	"talking-head": "口播",
+	"screen-recording": "录屏演示",
+	tutorial: "教程",
+	review: "测评",
+	vlog: "Vlog",
+	explainer: "解释型",
+	ad: "投放广告",
+};
+
+const PRODUCTION_ASSET_TYPE_LABELS: Record<
+	ProductionPlan["requiredAssets"][number]["type"],
+	string
+> = {
+	"user-footage": "真人素材",
+	"screen-recording": "录屏",
+	broll: "B-roll",
+	screenshot: "截图",
+	voiceover: "配音",
+	subtitle: "字幕",
+	mg: "MG 动画",
+};
+
 function getStageIndex(stage: TopicStage): number {
 	return STAGES.findIndex((item) => item.stage === stage);
 }
@@ -113,11 +155,30 @@ function formatDate(timestamp: number): string {
 }
 
 function getActivePackage(project: TopicProject): TopicPackageVersion | null {
+	if (project.activePackageVersionId) {
+		return (
+			project.packageVersions.find(
+				(version) => version.id === project.activePackageVersionId,
+			) ?? null
+		);
+	}
+	if (
+		project.stage === "package" ||
+		project.stage === "production" ||
+		project.stage === "timeline"
+	) {
+		return project.packageVersions.at(-1) ?? null;
+	}
+	return null;
+}
+
+function getActiveProductionPlan(project: TopicProject): ProductionPlan | null {
+	const productionPlans = project.productionPlans ?? [];
 	return (
-		project.packageVersions.find(
-			(version) => version.id === project.activePackageVersionId,
+		productionPlans.find(
+			(plan) => plan.id === project.activeProductionPlanId,
 		) ??
-		project.packageVersions.at(-1) ??
+		productionPlans.at(-1) ??
 		null
 	);
 }
@@ -134,6 +195,26 @@ function getSelectedCandidate(project: TopicProject): TopicCandidate | null {
 	);
 }
 
+function canAccessStage({
+	project,
+	stage,
+}: {
+	project: TopicProject;
+	stage: TopicStage;
+}): boolean {
+	if (stage === "ideation") return true;
+	if (stage === "research") return project.selectedCandidateId !== null;
+	if (stage === "structure") return project.researchSources.length > 0;
+	if (stage === "package") {
+		return (
+			project.structures.length > 0 && project.selectedStructureId !== null
+		);
+	}
+	if (stage === "production") return getActivePackage(project) !== null;
+	if (stage === "timeline") return getActiveProductionPlan(project) !== null;
+	return false;
+}
+
 function buildStageForwardTask({
 	project,
 	stage,
@@ -147,15 +228,21 @@ function buildStageForwardTask({
 		: `当前选题方向：「${project.title}」。`;
 
 	if (stage === "research") {
-		return `${topicText}\n请进入调研阶段：搜索 B 站、YouTube 和网页资料，判断是否有人做同类选题、他们的灵感来源和差异化空位。完成后调用 topic_workbench_set_research_sources 写入右侧选题工作台。`;
+		return `${topicText}\n请进入调研阶段：搜索 B 站、YouTube 和网页资料，判断是否有人做同类选题、他们的灵感来源和差异化空位。完成后调用 topic_set_research 写入右侧选题工作台。`;
 	}
 	if (stage === "structure") {
-		return `${topicText}\n请进入结构设计阶段：基于当前选题和已有资料，生成 2-4 个视频结构模板。完成后调用 topic_workbench_set_structure_options 写入右侧选题工作台。`;
+		return `${topicText}\n请进入结构设计阶段：基于当前选题和已有资料，生成 2-4 个视频结构模板。完成后调用 topic_set_structures 写入右侧选题工作台。`;
 	}
 	if (stage === "package") {
-		return `${topicText}\n请进入选题包阶段：基于当前选题、调研和结构，继续完善标题、摘要、核心观点、脚本大纲、分段素材建议和发布文案。`;
+		return `${topicText}\n请进入选题包阶段：基于当前选题、调研和结构，调用 topic_create_package 生成标题、摘要、核心观点、脚本大纲、分段素材建议和发布文案。`;
 	}
-	return "请重新生成一版候选选题，并调用 topic_workbench_set_candidates 写入右侧选题工作台。";
+	if (stage === "production") {
+		return `${topicText}\n请进入制作计划阶段：基于当前选题包调用 topic_create_production_plan，拆解视频类型、时间段、素材需求、配音/口播建议和下一步制作动作。`;
+	}
+	if (stage === "timeline") {
+		return `${topicText}\n请先确认制作计划，再把制作计划交给视频 Agent 生成时间线草稿。`;
+	}
+	return "请重新生成一版候选选题，并调用 topic_set_candidates 写入右侧选题工作台。";
 }
 
 function buildStageResetTask({
@@ -166,15 +253,15 @@ function buildStageResetTask({
 	stage: TopicStage;
 }): string {
 	if (stage === "ideation") {
-		return `我已经在右侧工作台确认要回到选题阶段。请重新理解当前方向「${project.originPrompt || project.title}」，生成新一版候选选题，并调用 topic_workbench_set_candidates 写入右侧选题工作台。`;
+		return `我已经在右侧工作台确认要回到选题阶段。请重新理解当前方向「${project.originPrompt || project.title}」，生成新一版候选选题，并调用 topic_set_candidates 写入右侧选题工作台。`;
 	}
 	if (stage === "research") {
 		const selected = getSelectedCandidate(project);
-		return `我已经在右侧工作台确认要重新调研。当前选题是「${selected?.title ?? project.title}」。请重新搜索同题内容和资料来源，并调用 topic_workbench_set_research_sources 写入右侧选题工作台。`;
+		return `我已经在右侧工作台确认要重新调研。当前选题是「${selected?.title ?? project.title}」。请重新搜索同题内容和资料来源，并调用 topic_set_research 写入右侧选题工作台。`;
 	}
 	if (stage === "structure") {
 		const selected = getSelectedCandidate(project);
-		return `我已经在右侧工作台确认要重新设计结构。当前选题是「${selected?.title ?? project.title}」。请生成新的视频结构模板，并调用 topic_workbench_set_structure_options 写入右侧选题工作台。`;
+		return `我已经在右侧工作台确认要重新设计结构。当前选题是「${selected?.title ?? project.title}」。请生成新的视频结构模板，并调用 topic_set_structures 写入右侧选题工作台。`;
 	}
 	return buildStageForwardTask({ project, stage });
 }
@@ -182,9 +269,11 @@ function buildStageResetTask({
 function buildVideoProductionHandoffPrompt({
 	project,
 	topicPackage,
+	productionPlan,
 }: {
 	project: TopicProject;
 	topicPackage: TopicPackageVersion;
+	productionPlan?: ProductionPlan | null;
 }): string {
 	const segmentText = topicPackage.scriptSegments
 		.map(
@@ -201,6 +290,9 @@ function buildVideoProductionHandoffPrompt({
 	const referenceText = project.researchSources
 		.map((source) => `${source.sourceName}｜${source.title}｜${source.url}`)
 		.join("\n");
+	const productionPlanText = productionPlan
+		? `\n制作计划：\n视频类型：${productionPlan.videoType}\n目标平台：${productionPlan.targetPlatform.join("、")}\n预估时长：${productionPlan.estimatedDurationMinutes} 分钟\n素材需求：${productionPlan.requiredAssets.map((asset) => `${asset.optional ? "可选" : "必需"} ${asset.type}：${asset.description}`).join("\n")}\n制作分段：\n${productionPlan.segments.map((segment, index) => `${index + 1}. ${segment.timeRange}｜${segment.goal}｜视觉：${segment.visualNeed}｜剪辑：${segment.editSuggestion}`).join("\n")}`
+		: "";
 
 	return `请接手这个选题包，进入视频制作流程。请基于下列内容自动规划占位素材、口播/配音建议、可做 MG 动画的位置和剪辑结构，先给出制作方案，再等待我确认是否执行。
 
@@ -224,7 +316,7 @@ ${platformText}
 ${topicPackage.coverIdeas.join("\n")}
 
 参考资料：
-${referenceText || "暂无资料，请先根据选题包做占位制作规划。"}`;
+${referenceText || "暂无资料，请先根据选题包做占位制作规划。"}${productionPlanText}`;
 }
 
 export function TopicWorkbench({
@@ -264,6 +356,7 @@ export function TopicWorkbench({
 			setPendingResetStage(stage);
 			return;
 		}
+		if (!canAccessStage({ project: activeProject, stage })) return;
 		emitAgentEvent({
 			editorProjectId,
 			source: "stage-forward",
@@ -297,10 +390,14 @@ export function TopicWorkbench({
 						project={activeProject}
 						onStageClick={handleStageClick}
 					/>
-					<CandidatesSection project={activeProject} />
+					<CandidatesSection
+						project={activeProject}
+						onRequestStageReset={(stage) => setPendingResetStage(stage)}
+					/>
 					<ResearchSection project={activeProject} />
 					<StructureSection project={activeProject} />
 					<PackageSection project={activeProject} />
+					<ProductionPlanSection project={activeProject} />
 				</div>
 			</div>
 			<StageResetDialog
@@ -326,7 +423,7 @@ function StageResetDialog({
 	const label = stage ? getStageLabel(stage) : "上一步";
 	const description =
 		stage === "ideation"
-			? "确认后，当前候选、资料、结构和选题包版本都会被清空，任务会发送给左侧子 Agent 从选题阶段重新生成。"
+			? "确认后，当前候选、资料、结构、当前选题包指针和制作计划会被清空，任务会发送给左侧子 Agent 从选题阶段重新生成；历史版本仍会保留在版本管理里。"
 			: "确认后，当前阶段之后的临时结果会被清空，任务会发送给左侧子 Agent 重新处理，并通过工作台工具写回新的结果。已有选题包版本会保留，方便回看。";
 
 	return (
@@ -393,11 +490,12 @@ function VersionSummaryBar({ project }: { project: TopicProject }) {
 						过程数据会自动落库；重新生成会保留历史版本，方便回到旧方案。
 					</p>
 				</div>
-				<div className="grid min-w-72 grid-cols-4 gap-2 max-[720px]:w-full max-[720px]:min-w-0">
+				<div className="grid min-w-72 grid-cols-5 gap-2 max-[720px]:w-full max-[720px]:min-w-0 max-[720px]:grid-cols-2">
 					<Metric label="候选" value={project.candidates.length} />
 					<Metric label="资料" value={project.researchSources.length} />
 					<Metric label="结构" value={project.structures.length} />
 					<Metric label="版本" value={project.packageVersions.length} />
+					<Metric label="制作" value={(project.productionPlans ?? []).length} />
 				</div>
 			</div>
 			<div className="mt-3 flex gap-2 overflow-x-auto pb-1">
@@ -467,13 +565,18 @@ function StageProgress({
 				{STAGES.map(({ stage, label, description, icon: Icon }, index) => {
 					const isActive = project.stage === stage;
 					const isComplete = index < activeIndex;
+					const isAccessible = canAccessStage({ project, stage });
 					return (
 						<button
 							type="button"
 							key={stage}
+							disabled={!isAccessible}
+							title={
+								isAccessible ? undefined : "等待前置步骤完成后再进入这一阶段"
+							}
 							onClick={() => onStageClick(stage)}
 							className={cn(
-								"flex min-h-16 items-start gap-2 rounded-sm border px-2.5 py-2 text-left transition-colors hover:border-primary/30 hover:bg-accent",
+								"flex min-h-16 items-start gap-2 rounded-sm border px-2.5 py-2 text-left transition-colors hover:border-primary/30 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-border/65 disabled:hover:bg-background/55",
 								isActive
 									? "border-primary/30 bg-primary/[0.08]"
 									: isComplete
@@ -508,15 +611,18 @@ function StageProgress({
 	);
 }
 
-function CandidatesSection({ project }: { project: TopicProject }) {
+function CandidatesSection({
+	project,
+	onRequestStageReset,
+}: {
+	project: TopicProject;
+	onRequestStageReset: (stage: TopicStage) => void;
+}) {
 	const selectCandidate = useTopicWorkbenchStore(
 		(state) => state.selectCandidate,
 	);
 	const updateCandidate = useTopicWorkbenchStore(
 		(state) => state.updateCandidate,
-	);
-	const confirmCandidate = useTopicWorkbenchStore(
-		(state) => state.confirmCandidate,
 	);
 	const emitAgentEvent = useTopicWorkbenchStore(
 		(state) => state.emitAgentEvent,
@@ -542,12 +648,19 @@ function CandidatesSection({ project }: { project: TopicProject }) {
 
 	const handleConfirmCandidate = () => {
 		if (!selectedCandidate) return;
-		confirmCandidate();
+		executeTopicWorkbenchTool({
+			toolName: "topic_select_candidate",
+			editorProjectId: project.editorProjectId,
+			params: {
+				candidateId: selectedCandidate.id,
+				advance: true,
+			},
+		});
 		emitAgentEvent({
 			editorProjectId: project.editorProjectId,
 			source: "candidate-confirm",
 			autoRun: true,
-			content: `我已经在右侧确认选题「${selectedCandidate.title}」。请搜索 B 站、YouTube 和网页资料，判断是否有人做同类选题、他们的灵感来源和差异化空位。完成后调用 topic_workbench_set_research_sources 写入右侧选题工作台。`,
+			content: `我已经在右侧确认选题「${selectedCandidate.title}」。请搜索 B 站、YouTube 和网页资料，判断是否有人做同类选题、他们的灵感来源和差异化空位。完成后调用 topic_set_research 写入右侧选题工作台。`,
 		});
 	};
 
@@ -561,14 +674,21 @@ function CandidatesSection({ project }: { project: TopicProject }) {
 					<Button
 						size="sm"
 						variant="outline"
-						onClick={() =>
+						onClick={() => {
+							if (
+								project.candidates.length > 0 ||
+								project.stage !== "ideation"
+							) {
+								onRequestStageReset("ideation");
+								return;
+							}
 							emitAgentEvent({
 								editorProjectId: project.editorProjectId,
 								source: "stage-reset",
 								autoRun: true,
-								content: `请基于当前方向「${project.originPrompt || project.title}」重新生成一版候选选题，并调用 topic_workbench_set_candidates 写入右侧选题工作台。`,
-							})
-						}
+								content: `请基于当前方向「${project.originPrompt || project.title}」重新生成一版候选选题，并调用 topic_set_candidates 写入右侧选题工作台。`,
+							});
+						}}
 					>
 						<RefreshCw size={14} />
 						新版
@@ -576,6 +696,11 @@ function CandidatesSection({ project }: { project: TopicProject }) {
 				}
 			/>
 			<div className="mt-3 space-y-2">
+				{project.candidates.length === 0 ? (
+					<div className="rounded-sm border border-dashed border-border/75 bg-muted/[0.18] p-4 text-sm leading-6 text-muted-foreground">
+						等待左侧 Agent 生成新的候选选题后写入这里。
+					</div>
+				) : null}
 				{project.candidates.map((candidate, index) => (
 					<CandidateCard
 						key={candidate.id}
@@ -798,7 +923,7 @@ function ResearchSection({ project }: { project: TopicProject }) {
 								editorProjectId: project.editorProjectId,
 								source: "stage-forward",
 								autoRun: true,
-								content: `请重新调研当前选题「${selectedCandidate?.title ?? project.title}」。重点搜索 B 站、YouTube 和网页资料，判断同类选题、灵感来源和差异化空位，并调用 topic_workbench_set_research_sources 写入右侧工作台。`,
+								content: `请重新调研当前选题「${selectedCandidate?.title ?? project.title}」。重点搜索 B 站、YouTube 和网页资料，判断同类选题、灵感来源和差异化空位，并调用 topic_set_research 写入右侧工作台。`,
 							})
 						}
 					>
@@ -853,7 +978,7 @@ function ResearchSection({ project }: { project: TopicProject }) {
 							editorProjectId: project.editorProjectId,
 							source: "stage-forward",
 							autoRun: true,
-							content: `请基于右侧当前选题「${selectedCandidate?.title ?? project.title}」和已有调研资料，生成 2-4 个视频结构模板，并调用 topic_workbench_set_structure_options 写入右侧工作台。`,
+							content: `请基于右侧当前选题「${selectedCandidate?.title ?? project.title}」和已有调研资料，生成 2-4 个视频结构模板，并调用 topic_set_structures 写入右侧工作台。`,
 						})
 					}
 				>
@@ -869,9 +994,6 @@ function StructureSection({ project }: { project: TopicProject }) {
 	const [isPackageConfirmOpen, setPackageConfirmOpen] = useState(false);
 	const selectStructureAction = useTopicWorkbenchStore(
 		(state) => state.selectStructure,
-	);
-	const createPackageVersion = useTopicWorkbenchStore(
-		(state) => state.createPackageVersion,
 	);
 	const selectedStructure = project.structures.find(
 		(structure) => structure.id === project.selectedStructureId,
@@ -925,7 +1047,11 @@ function StructureSection({ project }: { project: TopicProject }) {
 						<AlertDialogCancel>取消</AlertDialogCancel>
 						<AlertDialogAction
 							onClick={() => {
-								createPackageVersion();
+								executeTopicWorkbenchTool({
+									toolName: "topic_create_package",
+									editorProjectId: project.editorProjectId,
+									params: {},
+								});
 								setPackageConfirmOpen(false);
 							}}
 						>
@@ -1005,13 +1131,8 @@ function PackageSection({ project }: { project: TopicProject }) {
 	const updateScriptSegment = useTopicWorkbenchStore(
 		(state) => state.updateScriptSegment,
 	);
-	const setActiveWorkbench = useTopicWorkbenchStore(
-		(state) => state.setActiveWorkbench,
-	);
-	const emitAgentEvent = useTopicWorkbenchStore(
-		(state) => state.emitAgentEvent,
-	);
 	if (!activePackage) return null;
+	const activeProductionPlan = getActiveProductionPlan(project);
 	const titleInputId = `${activePackage.id}-package-title`;
 	const summaryInputId = `${activePackage.id}-package-summary`;
 	const viewpointInputId = `${activePackage.id}-package-viewpoint`;
@@ -1024,16 +1145,11 @@ function PackageSection({ project }: { project: TopicProject }) {
 		updatePackageVersion({ versionId: activePackage.id, patch });
 	};
 
-	const handleEnterVideoProduction = () => {
-		setActiveWorkbench({ mode: "video" });
-		emitAgentEvent({
+	const handleCreateProductionPlan = () => {
+		executeTopicWorkbenchTool({
+			toolName: "topic_create_production_plan",
 			editorProjectId: project.editorProjectId,
-			source: "handoff-video",
-			autoRun: true,
-			content: buildVideoProductionHandoffPrompt({
-				project,
-				topicPackage: activePackage,
-			}),
+			params: {},
 		});
 	};
 
@@ -1190,10 +1306,125 @@ function PackageSection({ project }: { project: TopicProject }) {
 				</div>
 			</div>
 			<div className="mt-3 flex justify-end">
-				<Button size="sm" onClick={handleEnterVideoProduction}>
-					进入视频制作
+				<Button size="sm" onClick={handleCreateProductionPlan}>
+					{activeProductionPlan ? "重新生成制作计划" : "生成制作计划"}
 					<ArrowRight size={14} />
 				</Button>
+			</div>
+		</section>
+	);
+}
+
+function ProductionPlanSection({ project }: { project: TopicProject }) {
+	const activePackage = getActivePackage(project);
+	const activeProductionPlan = getActiveProductionPlan(project);
+	const setActiveWorkbench = useTopicWorkbenchStore(
+		(state) => state.setActiveWorkbench,
+	);
+	const emitAgentEvent = useTopicWorkbenchStore(
+		(state) => state.emitAgentEvent,
+	);
+	if (!activePackage || !activeProductionPlan) return null;
+
+	const handleHandoff = (action: string) => {
+		setActiveWorkbench({ mode: "video" });
+		emitAgentEvent({
+			editorProjectId: project.editorProjectId,
+			source: "handoff-video",
+			autoRun: true,
+			content: `${buildVideoProductionHandoffPrompt({
+				project,
+				topicPackage: activePackage,
+				productionPlan: activeProductionPlan,
+			})}\n\n本次优先动作：${action}`,
+		});
+	};
+
+	return (
+		<section className="rounded-sm border border-border/75 bg-background p-3">
+			<SectionHeading
+				icon={Clapperboard}
+				title="视频制作计划"
+				description="把选题包转成剪辑 Agent 可执行的素材、配音和占位计划。"
+			/>
+			<div className="mt-3 grid gap-3 [grid-template-columns:minmax(0,0.85fr)_minmax(0,1.15fr)] max-[980px]:grid-cols-1">
+				<div className="rounded-sm border border-border/75 bg-muted/[0.18] p-3">
+					<div className="flex flex-wrap items-center gap-2">
+						<span className="rounded-sm border border-primary/20 bg-primary/[0.08] px-2 py-1 text-xs font-semibold text-primary">
+							{PRODUCTION_VIDEO_TYPE_LABELS[activeProductionPlan.videoType]}
+						</span>
+						<span className="text-xs text-muted-foreground">
+							约 {activeProductionPlan.estimatedDurationMinutes} 分钟
+						</span>
+					</div>
+					<div className="mt-3 text-sm font-semibold text-foreground">
+						素材需求
+					</div>
+					<div className="mt-2 space-y-2">
+						{activeProductionPlan.requiredAssets.map((asset, index) => (
+							<div
+								key={`${asset.type}-${index}`}
+								className="rounded-sm border border-border/70 bg-background px-2 py-2"
+							>
+								<div className="flex items-center justify-between gap-2">
+									<div className="text-xs font-semibold text-foreground">
+										{PRODUCTION_ASSET_TYPE_LABELS[asset.type]}
+									</div>
+									<span className="text-[0.68rem] text-muted-foreground">
+										{asset.optional ? "可选" : "必需"}
+									</span>
+								</div>
+								<p className="mt-1 text-xs leading-5 text-muted-foreground">
+									{asset.description}
+								</p>
+							</div>
+						))}
+					</div>
+				</div>
+				<div className="rounded-sm border border-border/75 bg-muted/[0.18] p-3">
+					<div className="text-sm font-semibold text-foreground">
+						分段制作建议
+					</div>
+					<div className="mt-2 space-y-2">
+						{activeProductionPlan.segments.map((segment, index) => (
+							<div
+								key={`${activeProductionPlan.id}-${index}`}
+								className="grid gap-2 rounded-sm border border-border/70 bg-background px-3 py-2 [grid-template-columns:7.5rem_minmax(0,1fr)] max-[760px]:grid-cols-1"
+							>
+								<div className="text-xs font-semibold text-primary">
+									{segment.timeRange}
+								</div>
+								<div className="min-w-0">
+									<div className="text-sm font-semibold leading-5 text-foreground">
+										{segment.goal}
+									</div>
+									<p className="mt-1 text-xs leading-5 text-muted-foreground">
+										{segment.script}
+									</p>
+									<p className="mt-1 text-xs leading-5 text-muted-foreground">
+										素材：{segment.assetSuggestion}
+									</p>
+									<p className="mt-1 text-xs leading-5 text-muted-foreground">
+										剪辑：{segment.editSuggestion}
+									</p>
+								</div>
+							</div>
+						))}
+					</div>
+				</div>
+			</div>
+			<div className="mt-3 flex flex-wrap justify-end gap-2">
+				{activeProductionPlan.nextActions.map((action) => (
+					<Button
+						key={action}
+						size="sm"
+						variant={action === "生成时间线草稿" ? "default" : "outline"}
+						onClick={() => handleHandoff(action)}
+					>
+						{action}
+						<ArrowRight size={14} />
+					</Button>
+				))}
 			</div>
 		</section>
 	);
