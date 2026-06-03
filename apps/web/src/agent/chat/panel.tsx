@@ -164,34 +164,561 @@ const TOPIC_SUPPORT_TOOL_NAMES = new Set([
 	"vision_analyze_media",
 ]);
 
-const TOPIC_STARTERS: Array<{
+type TopicStarter = {
 	label: string;
+	group: string;
 	hint: string;
 	prompt: string;
-}> = [
+};
+
+function buildTopicStarterPrompt({
+	label,
+	opening,
+	focus,
+	askFirst,
+	materialCue,
+	toolPlan,
+	candidateDirection,
+}: {
+	label: string;
+	opening: string;
+	focus: string[];
+	askFirst: string[];
+	materialCue: string;
+	toolPlan: string;
+	candidateDirection: string[];
+}): string {
+	return `【${label}】${opening}
+
+这个类型的判断重点：
+${focus.map((item, index) => `${index + 1}. ${item}`).join("\n")}
+
+请先问我这些问题，问清楚后再执行：
+${askFirst.map((item, index) => `${index + 1}. ${item}`).join("\n")}
+
+素材和上下文判断：
+${materialCue}
+
+工具使用策略：
+${toolPlan}
+
+候选生成侧重：
+${candidateDirection.map((item, index) => `${index + 1}. ${item}`).join("\n")}
+
+执行边界：
+- 不要立刻生成候选选题，也不要立刻调用 topic_set_candidates。
+- 一次最多问 2-3 个问题，优先问会改变选题方向的问题。
+- 如果我已经提供素材、脚本、录屏稿或文字备注，先判断这些内容能回答哪些问题。
+- 信息足够后，生成 3-5 个候选选题，并调用 topic_set_candidates 写入右侧选题工作台。`;
+}
+
+const TOPIC_STARTERS: TopicStarter[] = [
 	{
-		label: "AI 专题",
-		hint: "热点 / 观点 / 案例",
-		prompt:
-			"我想做一个 AI 专题选题。请先帮我聊出 3-5 个适合自媒体视频的方向，并优先考虑 B 站和 YouTube 上是否已有同类内容。",
+		label: "口播观点",
+		group: "表达观点",
+		hint: "需要观点",
+		prompt: buildTopicStarterPrompt({
+			label: "口播观点",
+			opening: "先帮我把一个观点打磨成能开口讲、能引发讨论的视频选题。",
+			focus: [
+				"观点锋利度：一句话能不能说清楚立场。",
+				"受众共鸣：观众为什么现在需要听这段表达。",
+				"表达结构：开场钩子、反常识、个人经验和论据如何串起来。",
+			],
+			askFirst: [
+				"我最想表达或反驳的核心观点是什么？",
+				"这个观点来自经验、吐槽、反常识判断，还是行业趋势？",
+				"我希望观众看完后认同、评论、收藏还是转发？",
+			],
+			materialCue:
+				"这类内容不一定先要素材；如果没有素材，优先问观点和经历。如果有脚本或口播稿，先帮我提炼更锋利的主张。",
+			toolPlan:
+				"涉及事实、热点或行业判断时再使用 web_search / web_fetch；不要为了口播观点强行先找素材。",
+			candidateDirection: [
+				"每个候选都要有明确立场，而不是泛泛科普。",
+				"标题要适合直接作为口播开场。",
+				"给出可展开的论据、故事线或冲突点。",
+			],
+		}),
 	},
 	{
-		label: "科技专题",
-		hint: "趋势 / 产品 / 人群",
-		prompt:
-			"我想做一个科技专题视频，但方向还比较模糊。请先帮我根据最新资讯和同题内容，整理几个可执行的选题方案。",
+		label: "产品展示",
+		group: "展示产品",
+		hint: "需要素材",
+		prompt: buildTopicStarterPrompt({
+			label: "产品展示",
+			opening: "先帮我把产品卖点变成观众愿意看的展示型视频方向。",
+			focus: [
+				"产品利益点：它解决什么具体问题。",
+				"使用场景：观众在哪个瞬间会需要它。",
+				"信任证据：素材、截图、数据或用户反馈能证明什么。",
+			],
+			askFirst: [
+				"产品或服务是什么，主要卖给谁？",
+				"最想突出的 1-3 个卖点分别是什么？",
+				"我有没有图片、视频、官网、说明文档、截图或客户反馈？",
+			],
+			materialCue:
+				"这类通常需要素材或产品资料；如果我上传了素材，先理解素材。没有素材时先问卖点、受众和证明材料。",
+			toolPlan:
+				"有视频素材先用 video_semantic_index_analyze；有官网或资料链接用 web_fetch 核验卖点；需要统一表达时读取品牌套件。",
+			candidateDirection: [
+				"功能亮点型：快速展示核心能力。",
+				"场景代入型：从用户痛点切入。",
+				"前后对比型：展示使用前后的变化。",
+				"证据证明型：用数据或反馈建立信任。",
+			],
+		}),
+	},
+	{
+		label: "教程演示",
+		group: "传授知识",
+		hint: "需要步骤",
+		prompt: buildTopicStarterPrompt({
+			label: "教程演示",
+			opening: "先帮我把一个操作过程拆成清晰、可跟做的教程选题。",
+			focus: [
+				"任务结果：观众跟着做完能得到什么。",
+				"步骤断点：哪几步最容易卡住或需要重点解释。",
+				"新手误区：哪些地方要提前避坑。",
+			],
+			askFirst: [
+				"观众要完成的具体任务是什么？",
+				"目标观众是新手、进阶用户还是专业用户？",
+				"我有没有录屏、步骤文档、脚本、截图或参考链接？",
+			],
+			materialCue:
+				"这类优先需要步骤或演示素材；有录屏先看操作链路，有文字步骤先读取文本。缺素材时先问任务目标和步骤难点。",
+			toolPlan:
+				"有录屏先用 video_semantic_index_analyze；有文字资料用 media_read_text_asset 或 web_fetch；再把步骤转成适合平台的视频结构。",
+			candidateDirection: [
+				"新手入门型：降低理解门槛。",
+				"问题解决型：围绕一个具体卡点。",
+				"效率提升型：突出更快、更稳、更省事。",
+			],
+		}),
+	},
+	{
+		label: "生活记录",
+		group: "记录过程",
+		hint: "需要主题",
+		prompt: buildTopicStarterPrompt({
+			label: "生活记录",
+			opening: "先帮我从一段日常经历里找到值得被观看的主题和情绪线。",
+			focus: [
+				"情绪主线：治愈、搞笑、成长、松弛、反差还是疲惫。",
+				"时间线：素材发生的顺序和关键转折。",
+				"可共鸣细节：哪些小片段能让观众代入。",
+			],
+			askFirst: [
+				"这段经历大概发生在什么场景，想表达什么情绪？",
+				"我已有的视频、照片或文字记录有哪些？",
+				"更想做 Vlog、纪实、治愈、搞笑，还是经验分享？",
+			],
+			materialCue:
+				"这类非常依赖素材里的真实细节；如果素材不够清楚，先让我补一句背景和时间线，不要直接编剧情。",
+			toolPlan:
+				"优先用 video_semantic_index_analyze 理解上传素材里的场景和时间顺序；语义不足时再询问是否补充文字说明。",
+			candidateDirection: [
+				"每个候选都要有一个情绪关键词。",
+				"尽量保留真实生活细节，不要做成营销口吻。",
+				"给出开头 3 秒的生活化切入点。",
+			],
+		}),
 	},
 	{
 		label: "产品测评",
-		hint: "单品 / 合集 / 场景",
-		prompt:
-			"我想做一个产品测评类选题。请帮我判断适合做单品测评、合集对比、场景软引流还是行业分析，并生成候选方案。",
+		group: "展示产品",
+		hint: "需要体验",
+		prompt: buildTopicStarterPrompt({
+			label: "产品测评",
+			opening: "先帮我把真实体验整理成有判断、有证据的测评选题。",
+			focus: [
+				"测评结论：值不值得买、适合谁、不适合谁。",
+				"体验证据：优缺点来自什么场景或素材。",
+				"对比维度：单品、合集、横评或场景推荐。",
+			],
+			askFirst: [
+				"测评对象是什么，使用场景是什么？",
+				"我现在已有的体验结论或疑问是什么？",
+				"这次更想做单品测评、合集对比、横评还是场景推荐？",
+			],
+			materialCue:
+				"这类最好有体验素材、照片、参数或使用记录；没有素材时先问体验结论和评价维度，避免空泛推荐。",
+			toolPlan:
+				"有素材先用 video_semantic_index_analyze 或 media_read_text_asset；需要同类对比时再联网检索竞品和同题内容。",
+			candidateDirection: [
+				"单品深测：围绕真实体验下判断。",
+				"横向对比：用清晰维度帮助选择。",
+				"场景推荐：把产品放进具体人群和使用时刻。",
+			],
+		}),
 	},
 	{
-		label: "创作者工作流",
-		hint: "选题 / 调研 / 发布",
-		prompt:
-			"我想做一个自媒体创作者工作流相关的视频。请帮我从选题、调研、视频制作和发布复盘几个角度生成候选选题。",
+		label: "实时资讯",
+		group: "追踪热点",
+		hint: "需要事件",
+		prompt: buildTopicStarterPrompt({
+			label: "实时资讯",
+			opening: "先帮我把正在发生的事件整理成快、准、有立场的视频选题。",
+			focus: [
+				"事实时间线：发生了什么、谁说了什么、最新进展是什么。",
+				"可信来源：官网、公告、权威媒体或一手资料。",
+				"表达角度：快讯、解读、影响分析或个人观点。",
+			],
+			askFirst: [
+				"具体事件、关键词或链接是什么？",
+				"这条内容更想做快讯、深度解读、影响分析还是观点评论？",
+				"我是否已有自己的判断或想强调的立场？",
+			],
+			materialCue:
+				"这类可以没有用户素材，但必须有可信资料；如果我提供链接，先核验链接内容，再判断是否需要补充搜索。",
+			toolPlan:
+				"先使用 web_search / web_fetch 检索最新资料，优先高可信来源；再区分事实、观点和争议点，引用沉淀到资料汇总。",
+			candidateDirection: [
+				"快讯型：最快说清事实。",
+				"影响型：讲清对谁有什么影响。",
+				"观点型：明确我赞成、质疑或提醒什么。",
+			],
+		}),
+	},
+	{
+		label: "案例拆解",
+		group: "传授知识",
+		hint: "需要案例",
+		prompt: buildTopicStarterPrompt({
+			label: "案例拆解",
+			opening: "先帮我把一个案例拆成事实、原因和可复用方法。",
+			focus: [
+				"案例边界：拆哪家公司、人物、产品、账号或事件。",
+				"成败原因：哪些决策或条件导致结果。",
+				"可复用启发：观众能带走什么方法。",
+			],
+			askFirst: [
+				"想拆解的案例对象是谁，成功或失败在哪里？",
+				"我希望观众得到方法、避坑、趋势判断还是灵感？",
+				"我有没有案例资料、链接、截图或自己的观察？",
+			],
+			materialCue:
+				"这类需要事实底座；如果只给了案例名，要先找公开资料，不能直接凭印象生成结论。",
+			toolPlan:
+				"如果案例涉及公开信息，先用 web_search / web_fetch 建立事实底座；如果有本地资料，先读取后再补充检索。",
+			candidateDirection: [
+				"方法论拆解：提炼可复制动作。",
+				"失败复盘：指出关键误判。",
+				"趋势观察：把个案放到行业变化里。",
+			],
+		}),
+	},
+	{
+		label: "清单盘点",
+		group: "传授知识",
+		hint: "需要范围",
+		prompt: buildTopicStarterPrompt({
+			label: "清单盘点",
+			opening: "先帮我把一组资源整理成可收藏、可转发的清单型选题。",
+			focus: [
+				"盘点范围：工具、方法、书单、店铺、资源还是经验。",
+				"筛选标准：为什么这些值得进入清单。",
+				"使用场景：观众收藏后怎么用。",
+			],
+			askFirst: [
+				"我想盘点的对象是什么，范围有多大？",
+				"筛选标准是什么：便宜、好用、新手友好、专业、效率高，还是小众？",
+				"我是否已有清单、链接、截图或素材？",
+			],
+			materialCue:
+				"这类可以从已有清单出发，也可以从搜索补全；关键是先定筛选标准，不然会变成随机罗列。",
+			toolPlan:
+				"先确认筛选标准；需要补充资料时使用 web_search / web_fetch，输出候选前说明每个选题的差异化。",
+			candidateDirection: [
+				"收藏价值：一眼知道为什么值得保存。",
+				"人群分层：新手、进阶、专业各自不同。",
+				"差异化：避免和普通榜单重复。",
+			],
+		}),
+	},
+	{
+		label: "对比选择",
+		group: "展示产品",
+		hint: "需要对象",
+		prompt: buildTopicStarterPrompt({
+			label: "对比选择",
+			opening: "先帮我把多个选择变成观众能快速做决定的对比型选题。",
+			focus: [
+				"决策场景：观众为什么要在这些对象中选择。",
+				"评价维度：价格、效率、风险、体验、适配人群。",
+				"结论表达：不是都不错，而是谁适合谁。",
+			],
+			askFirst: [
+				"要对比的对象分别是什么？",
+				"观众最关心的决策标准是什么？",
+				"目标平台、预期时长和希望给出的结论强度是什么？",
+			],
+			materialCue:
+				"这类不一定需要视频素材，但需要对象信息和评价维度；如果对象是公开产品，要核验关键参数。",
+			toolPlan:
+				"先确定评价维度；如对象是公开产品，使用 web_search / web_fetch 核验关键参数和同题参考。",
+			candidateDirection: [
+				"选择建议型：直接告诉观众怎么选。",
+				"误区纠偏型：反驳常见选择误区。",
+				"场景分流型：按人群和预算给结论。",
+			],
+		}),
+	},
+	{
+		label: "幕后过程",
+		group: "记录过程",
+		hint: "需要素材",
+		prompt: buildTopicStarterPrompt({
+			label: "幕后过程",
+			opening: "先帮我把一个作品或项目背后的过程整理成有起伏的内容。",
+			focus: [
+				"过程节点：起点、卡点、转折、结果。",
+				"幕后价值：观众为什么会关心过程而不只是结果。",
+				"表达重心：方法、情绪、成果或反差。",
+			],
+			askFirst: [
+				"这个过程的起点、关键节点和最终结果是什么？",
+				"我有没有录屏、照片、视频、项目素材或过程记录？",
+				"更想突出方法、情绪、成果，还是过程里的反差？",
+			],
+			materialCue:
+				"这类通常需要过程素材；如果素材已经上传，先理解时间线和关键场景。素材不完整时先让我补关键节点。",
+			toolPlan:
+				"优先用 video_semantic_index_analyze 理解素材时间线和关键场景，再把过程整理成故事线或教程线。",
+			candidateDirection: [
+				"从无到有型：强调完成过程。",
+				"踩坑修正型：突出问题和解决。",
+				"成果揭晓型：用结果反推过程价值。",
+			],
+		}),
+	},
+	{
+		label: "长视频拆短",
+		group: "长内容再利用",
+		hint: "需要长素材",
+		prompt: buildTopicStarterPrompt({
+			label: "长视频拆短",
+			opening: "先帮我从长视频里拆出多个可独立发布的短视频选题。",
+			focus: [
+				"可独立性：切出来后不依赖上下文也能看懂。",
+				"传播点：高光、金句、争议点、知识点或情绪点。",
+				"平台适配：不同平台对节奏和长度的要求不同。",
+			],
+			askFirst: [
+				"长内容是什么类型：直播、访谈、课程、播客还是会议？",
+				"目标平台是什么，希望拆成几个短视频？",
+				"更想找高光、金句、争议点、知识点还是转化片段？",
+			],
+			materialCue:
+				"这类必须依赖长素材或转写稿；如果还没上传素材，先提示我上传或粘贴转写稿，不要凭空生成切片。",
+			toolPlan:
+				"必须优先用 video_semantic_index_analyze 理解素材，再基于 transcript 和 semanticSegments 生成候选；必要时用 video_semantic_index_get 取片段依据。",
+			candidateDirection: [
+				"高光切片：情绪或观点最强。",
+				"知识切片：单个知识点完整闭环。",
+				"争议切片：有讨论空间但不断章取义。",
+			],
+		}),
+	},
+	{
+		label: "直播切片",
+		group: "长内容再利用",
+		hint: "需要长素材",
+		prompt: buildTopicStarterPrompt({
+			label: "直播切片",
+			opening: "先帮我从直播里找到能单独成片、还能带动互动的切片方向。",
+			focus: [
+				"直播目标：带货、涨粉、答疑、观点传播或知识沉淀。",
+				"互动信号：弹幕问题、情绪波动、强观点和成交瞬间。",
+				"上下文保留：切片不能让观众听不懂前因后果。",
+			],
+			askFirst: [
+				"直播主题是什么，观众主要是谁？",
+				"切片目标更偏带货、涨粉、观点传播还是知识沉淀？",
+				"是否需要保留上下文、口播连贯性或商品信息？",
+			],
+			materialCue:
+				"这类必须先有直播素材或转写稿；如果我只描述主题，先提醒我补素材，否则只能做切片策略，不能做真实片段选择。",
+			toolPlan:
+				"先用 video_semantic_index_analyze 语义分析直播素材；优先找强开场、明确观点、情绪波动和可独立成片的片段。",
+			candidateDirection: [
+				"带货转化型：问题、卖点、证据、行动连贯。",
+				"涨粉观点型：一句话观点能立住。",
+				"答疑知识型：问题和答案完整闭环。",
+			],
+		}),
+	},
+	{
+		label: "访谈播客",
+		group: "长内容再利用",
+		hint: "需要文本/素材",
+		prompt: buildTopicStarterPrompt({
+			label: "访谈播客",
+			opening: "先帮我从访谈或播客里提炼人物、观点和故事型选题。",
+			focus: [
+				"人物价值：嘉宾身份、经历和稀缺视角。",
+				"观点单元：哪段话能独立成立。",
+				"故事张力：冲突、转折、失败、选择或金句。",
+			],
+			askFirst: [
+				"嘉宾是谁，访谈主题是什么？",
+				"更想突出人物故事、行业观点、金句，还是争议讨论？",
+				"我有没有转写稿、音视频素材或时间点标记？",
+			],
+			materialCue:
+				"这类最适合从转写稿或音频语义里找观点单元；如果没有素材，先问嘉宾背景和想表达的主题。",
+			toolPlan:
+				"有转写稿先读取文本；有音视频先用 video_semantic_index_analyze，再筛选可独立传播的观点单元。",
+			candidateDirection: [
+				"人物故事型：突出经历和转折。",
+				"金句观点型：一句话能被转发。",
+				"行业洞察型：让观众获得新判断。",
+			],
+		}),
+	},
+	{
+		label: "广告投放",
+		group: "展示产品",
+		hint: "需要卖点",
+		prompt: buildTopicStarterPrompt({
+			label: "广告投放",
+			opening: "先帮我把卖点变成可以投放测试的广告视频方向。",
+			focus: [
+				"转化目标：下载、咨询、购买、留资或关注。",
+				"痛点表达：开头几秒能不能击中目标用户。",
+				"证明材料：卖点是否有素材、数据、案例或用户反馈支撑。",
+			],
+			askFirst: [
+				"产品或服务是什么，目标用户是谁？",
+				"核心痛点、卖点和行动号召分别是什么？",
+				"投放平台、视频时长、证据素材或用户反馈有哪些？",
+			],
+			materialCue:
+				"这类需要卖点和证据；如果有素材，先识别可用于证明卖点的片段。没有素材时先补痛点、承诺和 CTA。",
+			toolPlan:
+				"优先读取素材和品牌套件；有产品页或资料用 web_fetch 核验；候选要区分痛点型、证明型、场景型和强 CTA 型。",
+			candidateDirection: [
+				"痛点直击型：前 3 秒先说问题。",
+				"证据证明型：素材或反馈建立信任。",
+				"场景转化型：把产品放到真实使用时刻。",
+				"强 CTA 型：明确下一步动作。",
+			],
+		}),
+	},
+	{
+		label: "复盘总结",
+		group: "记录过程",
+		hint: "需要经历",
+		prompt: buildTopicStarterPrompt({
+			label: "复盘总结",
+			opening: "先帮我把一次经历复盘成有结论、有启发的视频选题。",
+			focus: [
+				"事实链：做了什么、结果如何、关键节点是什么。",
+				"因果判断：成功或失败真正来自哪里。",
+				"可迁移经验：观众能学到什么或避开什么坑。",
+			],
+			askFirst: [
+				"复盘对象是什么，最后结果如何？",
+				"我认为成功/失败的关键原因是什么？",
+				"目标受众是谁，希望他们学到什么？",
+			],
+			materialCue:
+				"这类不一定需要视频素材，但需要真实经历和结果；如果有项目记录、截图或数据，先读取后再总结。",
+			toolPlan:
+				"先补齐事实链和结论；如果有本地资料先读取，如果涉及公开项目再联网核验背景。",
+			candidateDirection: [
+				"经验型：告诉观众我做对了什么。",
+				"避坑型：告诉观众哪里容易错。",
+				"方法型：沉淀成可执行流程。",
+				"故事型：用转折带出结论。",
+			],
+		}),
+	},
+	{
+		label: "挑战实验",
+		group: "记录过程",
+		hint: "需要规则",
+		prompt: buildTopicStarterPrompt({
+			label: "挑战实验",
+			opening: "先帮我把一个挑战或实验设计成有悬念、有结果的视频选题。",
+			focus: [
+				"挑战规则：时间、限制、成功标准。",
+				"过程张力：中途发生了什么不确定性。",
+				"结果反差：最后是否超出预期。",
+			],
+			askFirst: [
+				"挑战目标、规则和时间限制是什么？",
+				"我有没有过程素材、实验记录或结果数据？",
+				"更想突出结果反差、过程困难还是方法论？",
+			],
+			materialCue:
+				"这类最好有过程素材或记录；如果素材缺失，先问实验过程和结果，再判断能否生成可信选题。",
+			toolPlan:
+				"优先用 video_semantic_index_analyze 理解素材里的过程节点；如果缺素材，先问实验记录和结果，再生成候选。",
+			candidateDirection: [
+				"悬念型：观众想知道能不能成功。",
+				"反差型：结果和预期形成冲突。",
+				"方法型：实验后沉淀可复制经验。",
+			],
+		}),
+	},
+	{
+		label: "情景短剧",
+		group: "剧情场景",
+		hint: "需要冲突",
+		prompt: buildTopicStarterPrompt({
+			label: "情景短剧",
+			opening: "先帮我把一个场景冲突发展成可拍、可演、可反转的短剧选题。",
+			focus: [
+				"人物关系：谁和谁之间发生冲突。",
+				"戏剧钩子：开头要立刻让观众知道矛盾。",
+				"表达目的：生活洞察、品牌卖点或情绪共鸣。",
+			],
+			askFirst: [
+				"场景、人物关系和核心冲突是什么？",
+				"想传达的观点、情绪或产品卖点是什么？",
+				"目标平台、视频时长和表演风格是什么？",
+			],
+			materialCue:
+				"这类不一定先需要素材，但需要场景和冲突；如果有产品或品牌素材，先判断它应自然出现在剧情哪个位置。",
+			toolPlan:
+				"先补齐场景和冲突；需要产品资料时读取素材或品牌套件；候选要给出可拍的开场钩子、反转和结尾动作。",
+			candidateDirection: [
+				"冲突开场型：前三秒建立矛盾。",
+				"反转结尾型：结尾带来记忆点。",
+				"软植入型：产品或观点自然嵌入剧情。",
+			],
+		}),
+	},
+	{
+		label: "品牌故事",
+		group: "剧情场景",
+		hint: "需要定位",
+		prompt: buildTopicStarterPrompt({
+			label: "品牌故事",
+			opening: "先帮我把品牌、个人 IP 或产品背后的故事讲得可信、有记忆点。",
+			focus: [
+				"定位清晰度：品牌是谁，为谁解决什么问题。",
+				"记忆点：经历、价值观、独特优势或反差。",
+				"可信表达：素材、官网、过往内容和品牌套件是否一致。",
+			],
+			askFirst: [
+				"品牌、人物或产品定位是什么，核心受众是谁？",
+				"最想被记住的经历、价值观或差异化优势是什么？",
+				"我有没有品牌套件、图片、官网、过往内容或客户案例？",
+			],
+			materialCue:
+				"这类要优先结合全局品牌套件和已有素材；没有素材时先补品牌自我介绍，避免写成空泛宣言。",
+			toolPlan:
+				"优先读取品牌套件和素材；需要公开资料时使用 web_search / web_fetch 核验，再生成故事型候选。",
+			candidateDirection: [
+				"创始故事型：用经历建立信任。",
+				"价值观型：让观众理解为什么做。",
+				"差异化型：说清和别人不一样在哪里。",
+			],
+		}),
 	},
 ];
 
@@ -2068,15 +2595,13 @@ function AgentEmptyState({
 	onSourceMaterialClick: () => void;
 }) {
 	const { copy } = useAppLocale();
-	const starters =
-		workbench === "topic" ? TOPIC_STARTERS : copy.editor.chat.starters;
 	const emptyKicker =
 		workbench === "topic" ? "Topic workbench" : copy.editor.chat.emptyKicker;
 	const emptyTitle =
 		workbench === "topic" ? "今天想做点什么？" : copy.editor.chat.emptyTitle;
 	const emptyBody =
 		workbench === "topic"
-			? "先介绍账号定位，再说一个模糊方向；模板只会载入输入框，改完后再交给 Agent。"
+			? "先介绍账号定位，再选一个创作类型；胶囊只会载入输入框，改完后再交给 Agent。"
 			: copy.editor.chat.emptyBody;
 
 	return (
@@ -2127,35 +2652,104 @@ function AgentEmptyState({
 				</div>
 			)}
 
-			<div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(9rem,1fr))]">
-				{starters.map(({ label, hint, prompt }, index) => {
-					const { icon: Icon, iconClassName } =
-						STARTER_PROMPT_STYLES[index] ?? STARTER_PROMPT_STYLES[0];
-					return (
-						<button
-							key={label}
-							type="button"
-							disabled={disabled}
-							onClick={() => onPromptSelect(prompt)}
-							className="group flex min-h-[4.8rem] w-full cursor-pointer items-center gap-3 rounded-md border border-border/75 bg-muted/[0.38] px-3 py-2.5 text-left transition-colors hover:border-primary/25 hover:bg-muted/[0.55] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:border-cyan-300/30 dark:hover:bg-accent"
-						>
-							<span
-								className={`flex size-10 shrink-0 items-center justify-center rounded-md border ${iconClassName} group-hover:text-foreground`}
-							>
-								<Icon size={19} />
-							</span>
-							<span className="min-w-0 flex-1">
-								<span className="block truncate text-sm font-semibold text-foreground">
-									{label}
-								</span>
-								<span className="mt-0.5 block truncate text-xs text-muted-foreground">
-									{hint}
-								</span>
-							</span>
-						</button>
-					);
-				})}
+			{workbench === "topic" ? (
+				<TopicIntentCapsules
+					disabled={disabled}
+					onPromptSelect={onPromptSelect}
+				/>
+			) : (
+				<VideoStarterCards
+					disabled={disabled}
+					starters={copy.editor.chat.starters}
+					onPromptSelect={onPromptSelect}
+				/>
+			)}
+		</div>
+	);
+}
+
+function TopicIntentCapsules({
+	disabled,
+	onPromptSelect,
+}: {
+	disabled: boolean;
+	onPromptSelect: (prompt: string) => void;
+}) {
+	return (
+		<div className="mx-auto w-full max-w-3xl min-w-0">
+			<div className="mb-3 text-center">
+				<div className="text-xs font-semibold text-muted-foreground">
+					选择一个创作类型
+				</div>
+				<div className="mt-1 text-[0.68rem] text-muted-foreground/75">
+					气泡只会载入问询流程，你可以先改再发送
+				</div>
 			</div>
+			<div className="flex flex-wrap justify-center gap-2.5 px-1 pb-1">
+				{TOPIC_STARTERS.map((starter) => (
+					<button
+						key={starter.label}
+						type="button"
+						disabled={disabled}
+						onClick={() => onPromptSelect(starter.prompt)}
+						className="group relative inline-flex h-8 items-center gap-1.5 rounded-full border border-border/60 bg-background/85 px-3 text-left text-xs shadow-[0_6px_18px_rgba(15,23,42,0.06),inset_0_1px_0_rgba(255,255,255,0.55)] transition-[border-color,background-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-primary/35 hover:bg-primary/[0.06] hover:shadow-[0_10px_22px_rgba(8,145,178,0.10),inset_0_1px_0_rgba(255,255,255,0.7)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 dark:border-cyan-300/12 dark:bg-cyan-300/[0.045] dark:shadow-[0_10px_24px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:border-cyan-300/30 dark:hover:bg-cyan-300/[0.09]"
+						title={`${starter.label}：${starter.hint}`}
+					>
+						<span className="max-w-16 truncate text-[0.65rem] font-medium text-muted-foreground/80 group-hover:text-primary">
+							{starter.group}
+						</span>
+						<span className="size-1 rounded-full bg-primary/35" />
+						<span className="whitespace-nowrap font-semibold text-foreground">
+							{starter.label}
+						</span>
+						<span className="hidden rounded-full bg-muted/70 px-1.5 py-0.5 text-[0.62rem] text-muted-foreground md:inline">
+							{starter.hint}
+						</span>
+					</button>
+				))}
+			</div>
+		</div>
+	);
+}
+
+function VideoStarterCards({
+	disabled,
+	starters,
+	onPromptSelect,
+}: {
+	disabled: boolean;
+	starters: Array<{ label: string; hint: string; prompt: string }>;
+	onPromptSelect: (prompt: string) => void;
+}) {
+	return (
+		<div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(9rem,1fr))]">
+			{starters.map(({ label, hint, prompt }, index) => {
+				const { icon: Icon, iconClassName } =
+					STARTER_PROMPT_STYLES[index] ?? STARTER_PROMPT_STYLES[0];
+				return (
+					<button
+						key={label}
+						type="button"
+						disabled={disabled}
+						onClick={() => onPromptSelect(prompt)}
+						className="group flex min-h-[4.8rem] w-full cursor-pointer items-center gap-3 rounded-md border border-border/75 bg-muted/[0.38] px-3 py-2.5 text-left transition-colors hover:border-primary/25 hover:bg-muted/[0.55] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:border-cyan-300/30 dark:hover:bg-accent"
+					>
+						<span
+							className={`flex size-10 shrink-0 items-center justify-center rounded-md border ${iconClassName} group-hover:text-foreground`}
+						>
+							<Icon size={19} />
+						</span>
+						<span className="min-w-0 flex-1">
+							<span className="block truncate text-sm font-semibold text-foreground">
+								{label}
+							</span>
+							<span className="mt-0.5 block truncate text-xs text-muted-foreground">
+								{hint}
+							</span>
+						</span>
+					</button>
+				);
+			})}
 		</div>
 	);
 }
