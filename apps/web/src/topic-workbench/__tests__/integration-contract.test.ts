@@ -63,7 +63,9 @@ describe("topic workbench integration contract", () => {
 		expect(chatPanelSource).toContain("产品利益点");
 		expect(chatPanelSource).toContain("步骤断点");
 		expect(chatPanelSource).toContain("高光切片");
-		expect(chatPanelSource).toContain("不要立刻调用 topic_set_candidates");
+		expect(chatPanelSource).toContain("资料与能力使用方式");
+		expect(chatPanelSource).toContain("不要立刻把候选写入右侧选题工作台");
+		expect(chatPanelSource).toContain("同步写入右侧选题工作台");
 		expect(chatPanelSource).toContain("一次最多问 2-3 个问题");
 	});
 });

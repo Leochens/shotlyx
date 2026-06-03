@@ -177,7 +177,7 @@ function buildTopicStarterPrompt({
 	focus,
 	askFirst,
 	materialCue,
-	toolPlan,
+	executionPlan,
 	candidateDirection,
 }: {
 	label: string;
@@ -185,7 +185,7 @@ function buildTopicStarterPrompt({
 	focus: string[];
 	askFirst: string[];
 	materialCue: string;
-	toolPlan: string;
+	executionPlan: string;
 	candidateDirection: string[];
 }): string {
 	return `【${label}】${opening}
@@ -199,17 +199,17 @@ ${askFirst.map((item, index) => `${index + 1}. ${item}`).join("\n")}
 素材和上下文判断：
 ${materialCue}
 
-工具使用策略：
-${toolPlan}
+资料与能力使用方式：
+${executionPlan}
 
 候选生成侧重：
 ${candidateDirection.map((item, index) => `${index + 1}. ${item}`).join("\n")}
 
 执行边界：
-- 不要立刻生成候选选题，也不要立刻调用 topic_set_candidates。
+- 不要立刻生成候选选题，也不要立刻把候选写入右侧选题工作台。
 - 一次最多问 2-3 个问题，优先问会改变选题方向的问题。
 - 如果我已经提供素材、脚本、录屏稿或文字备注，先判断这些内容能回答哪些问题。
-- 信息足够后，生成 3-5 个候选选题，并调用 topic_set_candidates 写入右侧选题工作台。`;
+- 信息足够后，生成 3-5 个候选选题，并同步写入右侧选题工作台。`;
 }
 
 const TOPIC_STARTERS: TopicStarter[] = [
@@ -232,8 +232,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类内容不一定先要素材；如果没有素材，优先问观点和经历。如果有脚本或口播稿，先帮我提炼更锋利的主张。",
-			toolPlan:
-				"涉及事实、热点或行业判断时再使用 web_search / web_fetch；不要为了口播观点强行先找素材。",
+			executionPlan:
+				"涉及事实、热点或行业判断时，再去检索和核验外部资料；不要为了口播观点强行先找素材。",
 			candidateDirection: [
 				"每个候选都要有明确立场，而不是泛泛科普。",
 				"标题要适合直接作为口播开场。",
@@ -260,8 +260,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类通常需要素材或产品资料；如果我上传了素材，先理解素材。没有素材时先问卖点、受众和证明材料。",
-			toolPlan:
-				"有视频素材先用 video_semantic_index_analyze；有官网或资料链接用 web_fetch 核验卖点；需要统一表达时读取品牌套件。",
+			executionPlan:
+				"有视频素材时先理解素材内容；有官网或资料链接时核验卖点；需要统一表达时结合品牌套件。",
 			candidateDirection: [
 				"功能亮点型：快速展示核心能力。",
 				"场景代入型：从用户痛点切入。",
@@ -289,8 +289,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类优先需要步骤或演示素材；有录屏先看操作链路，有文字步骤先读取文本。缺素材时先问任务目标和步骤难点。",
-			toolPlan:
-				"有录屏先用 video_semantic_index_analyze；有文字资料用 media_read_text_asset 或 web_fetch；再把步骤转成适合平台的视频结构。",
+			executionPlan:
+				"有录屏时先理解操作链路；有文字资料或参考链接时先读取和核验；再把步骤转成适合平台的视频结构。",
 			candidateDirection: [
 				"新手入门型：降低理解门槛。",
 				"问题解决型：围绕一个具体卡点。",
@@ -317,8 +317,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类非常依赖素材里的真实细节；如果素材不够清楚，先让我补一句背景和时间线，不要直接编剧情。",
-			toolPlan:
-				"优先用 video_semantic_index_analyze 理解上传素材里的场景和时间顺序；语义不足时再询问是否补充文字说明。",
+			executionPlan:
+				"优先理解上传素材里的场景和时间顺序；如果素材语义不足，再询问是否补充文字说明或做更深的画面理解。",
 			candidateDirection: [
 				"每个候选都要有一个情绪关键词。",
 				"尽量保留真实生活细节，不要做成营销口吻。",
@@ -345,8 +345,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类最好有体验素材、照片、参数或使用记录；没有素材时先问体验结论和评价维度，避免空泛推荐。",
-			toolPlan:
-				"有素材先用 video_semantic_index_analyze 或 media_read_text_asset；需要同类对比时再联网检索竞品和同题内容。",
+			executionPlan:
+				"有素材时先理解素材或读取文字内容；需要同类对比时，再检索竞品信息和同题内容。",
 			candidateDirection: [
 				"单品深测：围绕真实体验下判断。",
 				"横向对比：用清晰维度帮助选择。",
@@ -373,8 +373,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类可以没有用户素材，但必须有可信资料；如果我提供链接，先核验链接内容，再判断是否需要补充搜索。",
-			toolPlan:
-				"先使用 web_search / web_fetch 检索最新资料，优先高可信来源；再区分事实、观点和争议点，引用沉淀到资料汇总。",
+			executionPlan:
+				"先检索和核验最新资料，优先高可信来源；再区分事实、观点和争议点，把引用沉淀到资料汇总。",
 			candidateDirection: [
 				"快讯型：最快说清事实。",
 				"影响型：讲清对谁有什么影响。",
@@ -401,8 +401,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类需要事实底座；如果只给了案例名，要先找公开资料，不能直接凭印象生成结论。",
-			toolPlan:
-				"如果案例涉及公开信息，先用 web_search / web_fetch 建立事实底座；如果有本地资料，先读取后再补充检索。",
+			executionPlan:
+				"如果案例涉及公开信息，先检索并核验事实底座；如果有本地资料，先读取后再补充外部资料。",
 			candidateDirection: [
 				"方法论拆解：提炼可复制动作。",
 				"失败复盘：指出关键误判。",
@@ -429,8 +429,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类可以从已有清单出发，也可以从搜索补全；关键是先定筛选标准，不然会变成随机罗列。",
-			toolPlan:
-				"先确认筛选标准；需要补充资料时使用 web_search / web_fetch，输出候选前说明每个选题的差异化。",
+			executionPlan:
+				"先确认筛选标准；需要补充资料时再检索和核验，输出候选前说明每个选题的差异化。",
 			candidateDirection: [
 				"收藏价值：一眼知道为什么值得保存。",
 				"人群分层：新手、进阶、专业各自不同。",
@@ -457,8 +457,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类不一定需要视频素材，但需要对象信息和评价维度；如果对象是公开产品，要核验关键参数。",
-			toolPlan:
-				"先确定评价维度；如对象是公开产品，使用 web_search / web_fetch 核验关键参数和同题参考。",
+			executionPlan:
+				"先确定评价维度；如果对象是公开产品，再核验关键参数和同题参考内容。",
 			candidateDirection: [
 				"选择建议型：直接告诉观众怎么选。",
 				"误区纠偏型：反驳常见选择误区。",
@@ -485,8 +485,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类通常需要过程素材；如果素材已经上传，先理解时间线和关键场景。素材不完整时先让我补关键节点。",
-			toolPlan:
-				"优先用 video_semantic_index_analyze 理解素材时间线和关键场景，再把过程整理成故事线或教程线。",
+			executionPlan:
+				"优先理解素材时间线和关键场景，再把过程整理成故事线或教程线。",
 			candidateDirection: [
 				"从无到有型：强调完成过程。",
 				"踩坑修正型：突出问题和解决。",
@@ -513,8 +513,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类必须依赖长素材或转写稿；如果还没上传素材，先提示我上传或粘贴转写稿，不要凭空生成切片。",
-			toolPlan:
-				"必须优先用 video_semantic_index_analyze 理解素材，再基于 transcript 和 semanticSegments 生成候选；必要时用 video_semantic_index_get 取片段依据。",
+			executionPlan:
+				"必须优先理解长素材内容，再基于转写文本和语义片段生成候选；必要时补充查看具体片段依据。",
 			candidateDirection: [
 				"高光切片：情绪或观点最强。",
 				"知识切片：单个知识点完整闭环。",
@@ -541,8 +541,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类必须先有直播素材或转写稿；如果我只描述主题，先提醒我补素材，否则只能做切片策略，不能做真实片段选择。",
-			toolPlan:
-				"先用 video_semantic_index_analyze 语义分析直播素材；优先找强开场、明确观点、情绪波动和可独立成片的片段。",
+			executionPlan:
+				"先理解直播素材的语义内容；优先找强开场、明确观点、情绪波动和可独立成片的片段。",
 			candidateDirection: [
 				"带货转化型：问题、卖点、证据、行动连贯。",
 				"涨粉观点型：一句话观点能立住。",
@@ -569,8 +569,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类最适合从转写稿或音频语义里找观点单元；如果没有素材，先问嘉宾背景和想表达的主题。",
-			toolPlan:
-				"有转写稿先读取文本；有音视频先用 video_semantic_index_analyze，再筛选可独立传播的观点单元。",
+			executionPlan:
+				"有转写稿时先读取文本；有音视频时先理解内容，再筛选可独立传播的观点单元。",
 			candidateDirection: [
 				"人物故事型：突出经历和转折。",
 				"金句观点型：一句话能被转发。",
@@ -597,8 +597,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类需要卖点和证据；如果有素材，先识别可用于证明卖点的片段。没有素材时先补痛点、承诺和 CTA。",
-			toolPlan:
-				"优先读取素材和品牌套件；有产品页或资料用 web_fetch 核验；候选要区分痛点型、证明型、场景型和强 CTA 型。",
+			executionPlan:
+				"优先读取素材和品牌套件；有产品页或资料时进行核验；候选要区分痛点型、证明型、场景型和强 CTA 型。",
 			candidateDirection: [
 				"痛点直击型：前 3 秒先说问题。",
 				"证据证明型：素材或反馈建立信任。",
@@ -626,7 +626,7 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类不一定需要视频素材，但需要真实经历和结果；如果有项目记录、截图或数据，先读取后再总结。",
-			toolPlan:
+			executionPlan:
 				"先补齐事实链和结论；如果有本地资料先读取，如果涉及公开项目再联网核验背景。",
 			candidateDirection: [
 				"经验型：告诉观众我做对了什么。",
@@ -655,8 +655,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类最好有过程素材或记录；如果素材缺失，先问实验过程和结果，再判断能否生成可信选题。",
-			toolPlan:
-				"优先用 video_semantic_index_analyze 理解素材里的过程节点；如果缺素材，先问实验记录和结果，再生成候选。",
+			executionPlan:
+				"优先理解素材里的过程节点；如果缺素材，先问实验记录和结果，再生成候选。",
 			candidateDirection: [
 				"悬念型：观众想知道能不能成功。",
 				"反差型：结果和预期形成冲突。",
@@ -683,7 +683,7 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类不一定先需要素材，但需要场景和冲突；如果有产品或品牌素材，先判断它应自然出现在剧情哪个位置。",
-			toolPlan:
+			executionPlan:
 				"先补齐场景和冲突；需要产品资料时读取素材或品牌套件；候选要给出可拍的开场钩子、反转和结尾动作。",
 			candidateDirection: [
 				"冲突开场型：前三秒建立矛盾。",
@@ -711,8 +711,8 @@ const TOPIC_STARTERS: TopicStarter[] = [
 			],
 			materialCue:
 				"这类要优先结合全局品牌套件和已有素材；没有素材时先补品牌自我介绍，避免写成空泛宣言。",
-			toolPlan:
-				"优先读取品牌套件和素材；需要公开资料时使用 web_search / web_fetch 核验，再生成故事型候选。",
+			executionPlan:
+				"优先读取品牌套件和素材；需要公开资料时再检索和核验，然后生成故事型候选。",
 			candidateDirection: [
 				"创始故事型：用经历建立信任。",
 				"价值观型：让观众理解为什么做。",
@@ -1889,7 +1889,7 @@ export function ChatPanel() {
 
 		recordReferencesAsTopicMaterials({ references: addedReferences });
 		primeTopicMaterialPrompt(
-			"请根据我提供的素材，生成 3-5 个适合自媒体视频的选题方向，并调用 topic_set_candidates 写入右侧工作台。",
+			"请根据我提供的素材，先理解素材内容和可用信息，再生成 3-5 个适合自媒体视频的选题方向，并同步写入右侧工作台。",
 		);
 	};
 
@@ -1918,8 +1918,8 @@ export function ChatPanel() {
 		recordReferencesAsTopicMaterials({ references: [reference] });
 		primeTopicMaterialPrompt(
 			materialType === "screen-recording"
-				? "请根据我提供的录屏内容，生成 3-5 个可拍的视频方向，并调用 topic_set_candidates 写入右侧工作台。"
-				: "请根据我提供的脚本内容，生成 3-5 个可拍的视频方向，并调用 topic_set_candidates 写入右侧工作台。",
+				? "请根据我提供的录屏内容，先梳理关键步骤和可讲述的场景，再生成 3-5 个可拍的视频方向，并同步写入右侧工作台。"
+				: "请根据我提供的脚本内容，先提炼主题、观点和可拍素材线索，再生成 3-5 个可拍的视频方向，并同步写入右侧工作台。",
 		);
 	};
 
