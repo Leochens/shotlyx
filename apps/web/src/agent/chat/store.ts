@@ -18,6 +18,7 @@ interface PersistedChatState {
 }
 
 const DEFAULT_CHAT_PROJECT_ID = "default-project";
+const CHAT_WORKBENCH_PROJECT_SEPARATOR = "::";
 
 function getLegacyStorage() {
 	if (typeof window === "undefined") return null;
@@ -74,6 +75,74 @@ function getProjectSessions({
 	projectId: string;
 }): ChatSession[] {
 	return sessions.filter((session) => getSessionProjectId(session) === projectId);
+}
+
+function getLegacyProjectIdForScopedProject({
+	projectId,
+}: {
+	projectId: string;
+}): string | null {
+	const separatorIndex = projectId.indexOf(CHAT_WORKBENCH_PROJECT_SEPARATOR);
+	if (separatorIndex <= 0) return null;
+	return projectId.slice(0, separatorIndex);
+}
+
+function hasConversation(session: ChatSession): boolean {
+	return session.messages.length > 0;
+}
+
+function isEmptyAutoSession(session: ChatSession): boolean {
+	return session.messages.length === 0 && session.name === "新会话";
+}
+
+function cloneLegacySessionForScopedProject({
+	session,
+	projectId,
+}: {
+	session: ChatSession;
+	projectId: string;
+}): ChatSession {
+	return {
+		...session,
+		id: `${session.id}${CHAT_WORKBENCH_PROJECT_SEPARATOR}${projectId}`,
+		projectId,
+	};
+}
+
+function restoreLegacySessionsForScopedProject({
+	sessions,
+	projectId,
+}: {
+	sessions: ChatSession[];
+	projectId: string;
+}): ChatSession[] {
+	const legacyProjectId = getLegacyProjectIdForScopedProject({ projectId });
+	if (!legacyProjectId) return sessions;
+
+	const scopedSessions = getProjectSessions({ sessions, projectId });
+	if (scopedSessions.some(hasConversation)) return sessions;
+
+	const legacySessions = getProjectSessions({
+		sessions,
+		projectId: legacyProjectId,
+	}).filter(hasConversation);
+	if (legacySessions.length === 0) return sessions;
+
+	const clonedSessions = legacySessions.map((session) =>
+		cloneLegacySessionForScopedProject({ session, projectId }),
+	);
+	const clonedIds = new Set(clonedSessions.map((session) => session.id));
+	return [
+		...sessions.filter(
+			(session) =>
+				!clonedIds.has(session.id) &&
+				!(
+					getSessionProjectId(session) === projectId &&
+					isEmptyAutoSession(session)
+				),
+		),
+		...clonedSessions,
+	];
 }
 
 const EMPTY_RUN_STATE: ChatSessionRunState = {
@@ -177,10 +246,16 @@ export const useChatStore = create<ChatState>()(
 					if (!state.isHydrated) return state;
 
 					const normalizedProjectId = projectId || DEFAULT_CHAT_PROJECT_ID;
-					const currentActive = state.sessions.find(
+					const sessions = restoreLegacySessionsForScopedProject({
+						sessions: state.sessions,
+						projectId: normalizedProjectId,
+					});
+					const didRestoreLegacySessions = sessions !== state.sessions;
+					const currentActive = sessions.find(
 						(session) => session.id === state.activeSessionId,
 					);
 					if (
+						!didRestoreLegacySessions &&
 						currentActive &&
 						getSessionProjectId(currentActive) === normalizedProjectId &&
 						state.activeProjectId === normalizedProjectId
@@ -189,7 +264,7 @@ export const useChatStore = create<ChatState>()(
 					}
 
 					const projectSessions = getProjectSessions({
-						sessions: state.sessions,
+						sessions,
 						projectId: normalizedProjectId,
 					});
 					if (projectSessions.length > 0) {
@@ -197,6 +272,7 @@ export const useChatStore = create<ChatState>()(
 							projectSessions.toSorted((a, b) => a.updatedAt - b.updatedAt).at(-1) ??
 							projectSessions[0];
 						return {
+							sessions,
 							activeProjectId: normalizedProjectId,
 							activeSessionId: nextActive.id,
 							...getRunStateForSession({
@@ -210,7 +286,7 @@ export const useChatStore = create<ChatState>()(
 						projectId: normalizedProjectId,
 					});
 					return {
-						sessions: [...state.sessions, newSession],
+						sessions: [...sessions, newSession],
 						activeProjectId: normalizedProjectId,
 						activeSessionId: newSession.id,
 						...EMPTY_RUN_STATE,

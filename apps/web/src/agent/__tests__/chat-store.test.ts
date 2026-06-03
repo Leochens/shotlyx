@@ -126,6 +126,81 @@ describe("Chat store", () => {
 		expect(useChatStore.getState().streamingMessageId).toBe("stream-first");
 	});
 
+	test("restores legacy project chat when entering a scoped workbench session", () => {
+		useChatStore.getState().setActiveProject("project-a");
+		useChatStore.getState().addMessage({
+			id: "legacy-message",
+			role: "user",
+			content: "旧项目聊天",
+			timestamp: 1,
+		});
+		const legacySessionId = useChatStore.getState().activeSessionId;
+		if (legacySessionId === null) throw new Error("legacySessionId is null");
+
+		useChatStore.getState().setActiveProject("project-a::topic");
+
+		const scopedState = useChatStore.getState();
+		expect(scopedState.getActiveSession()?.projectId).toBe("project-a::topic");
+		expect(scopedState.getActiveMessages()[0]?.content).toBe("旧项目聊天");
+		expect(
+			scopedState.sessions.some(
+				(session) =>
+					session.id === legacySessionId && session.projectId === "project-a",
+			),
+		).toBe(true);
+
+		const scopedSessionCount = scopedState.sessions.filter(
+			(session) => session.projectId === "project-a::topic",
+		).length;
+		useChatStore.getState().setActiveProject("project-a::topic");
+		expect(
+			useChatStore
+				.getState()
+				.sessions.filter((session) => session.projectId === "project-a::topic"),
+		).toHaveLength(scopedSessionCount);
+	});
+
+	test("replaces an empty scoped session with restored legacy chat", () => {
+		useChatStore.setState({
+			sessions: [
+				{
+					id: "legacy-session",
+					projectId: "project-b",
+					name: "旧会话",
+					createdAt: 1,
+					updatedAt: 2,
+					messages: [
+						{
+							id: "legacy-message",
+							role: "assistant",
+							content: "重启前的回答",
+							timestamp: 2,
+						},
+					],
+				},
+				{
+					id: "empty-scoped-session",
+					projectId: "project-b::topic",
+					name: "新会话",
+					createdAt: 3,
+					updatedAt: 3,
+					messages: [],
+				},
+			],
+			activeProjectId: "project-b::topic",
+			activeSessionId: "empty-scoped-session",
+			isHydrated: true,
+		});
+
+		useChatStore.getState().setActiveProject("project-b::topic");
+
+		const state = useChatStore.getState();
+		expect(state.getActiveMessages()[0]?.content).toBe("重启前的回答");
+		expect(
+			state.sessions.some((session) => session.id === "empty-scoped-session"),
+		).toBe(false);
+	});
+
 	test("creates a new session and switches to it", () => {
 		const state = useChatStore.getState();
 		const initialSessionId = state.activeSessionId;
