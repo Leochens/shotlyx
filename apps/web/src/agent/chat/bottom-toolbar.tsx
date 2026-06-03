@@ -56,6 +56,7 @@ interface BottomToolbarProps {
 	agents?: string[];
 	executionMode?: ExecutionMode;
 	disabled?: boolean;
+	placeholder?: string;
 	onAgentChange?: (agent: string) => void;
 	onExecutionModeChange?: (mode: ExecutionMode) => void;
 	onInputChange: (input: string) => void;
@@ -117,6 +118,7 @@ export function BottomToolbar({
 	agents = ["default", "editor", "media", "mg"],
 	executionMode = "auto",
 	disabled,
+	placeholder,
 	onAgentChange = () => {},
 	onExecutionModeChange = () => {},
 	onInputChange,
@@ -530,7 +532,7 @@ export function BottomToolbar({
 						event.preventDefault();
 						handleSubmit();
 					}}
-					placeholder={toolbarCopy.placeholder}
+					placeholder={placeholder ?? toolbarCopy.placeholder}
 					rows={2}
 					className="max-h-28 min-h-12 w-full resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
 				/>

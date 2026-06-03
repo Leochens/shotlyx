@@ -44,6 +44,8 @@ import {
 import { formatToolCallForCopy } from "./tool-result-copy";
 import { buildToolResultContext } from "./tool-context";
 import { useAppLocale } from "@/i18n/use-app-locale";
+import { WorkbenchSwitcher } from "@/topic-workbench/workbench-switcher";
+import { useTopicWorkbenchStore } from "@/topic-workbench/store";
 import {
 	isRoughCutReviewResult,
 	RoughCutReviewDialog,
@@ -128,6 +130,38 @@ const STARTER_PROMPT_STYLES: Array<{
 ];
 
 const STREAM_TEXT_FLUSH_INTERVAL_MS = 80;
+const TOPIC_RESEARCH_TOOL_NAMES = new Set(["web_search", "web_fetch"]);
+
+const TOPIC_STARTERS: Array<{
+	label: string;
+	hint: string;
+	prompt: string;
+}> = [
+	{
+		label: "AI 专题",
+		hint: "热点 / 观点 / 案例",
+		prompt:
+			"我想做一个 AI 专题选题。请先帮我聊出 3-5 个适合自媒体视频的方向，并优先考虑 B 站和 YouTube 上是否已有同类内容。",
+	},
+	{
+		label: "科技专题",
+		hint: "趋势 / 产品 / 人群",
+		prompt:
+			"我想做一个科技专题视频，但方向还比较模糊。请先帮我根据最新资讯和同题内容，整理几个可执行的选题方案。",
+	},
+	{
+		label: "产品测评",
+		hint: "单品 / 合集 / 场景",
+		prompt:
+			"我想做一个产品测评类选题。请帮我判断适合做单品测评、合集对比、场景软引流还是行业分析，并生成候选方案。",
+	},
+	{
+		label: "创作者工作流",
+		hint: "选题 / 调研 / 发布",
+		prompt:
+			"我想做一个自媒体创作者工作流相关的视频。请帮我从选题、调研、视频制作和发布复盘几个角度生成候选选题。",
+	},
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -384,6 +418,13 @@ export function ChatPanel() {
 		useState<RoughCutReviewResult | null>(null);
 	const [roughCutReviewOpen, setRoughCutReviewOpen] = useState(false);
 	const { draftReferences, clearDraftReferences } = useAgentContextStore();
+	const activeWorkbench = useTopicWorkbenchStore(
+		(state) => state.activeWorkbench,
+	);
+	const setActiveEditorProject = useTopicWorkbenchStore(
+		(state) => state.setActiveEditorProject,
+	);
+	const recordTopicPrompt = useTopicWorkbenchStore((state) => state.recordPrompt);
 
 	useEffect(() => {
 		if (startTime === null) return;
@@ -446,8 +487,15 @@ export function ChatPanel() {
 	useEffect(() => {
 		if (isHydrated && projectId) {
 			setActiveProject(projectId);
+			setActiveEditorProject({ editorProjectId: projectId });
 		}
-	}, [isHydrated, projectId, setActiveProject]);
+	}, [isHydrated, projectId, setActiveEditorProject, setActiveProject]);
+
+	useEffect(() => {
+		if (activeWorkbench === "topic" && selectedAgent !== "default") {
+			setSelectedAgent("default");
+		}
+	}, [activeWorkbench, selectedAgent, setSelectedAgent]);
 
 	useEffect(() => {
 		const abortControllers = resumedMGJobAbortControllersRef.current;
@@ -945,9 +993,15 @@ export function ChatPanel() {
 			const body: Record<string, unknown> = {
 				messages: msgsToSend,
 				mode,
-				toolSchemas: editor.mcp.getToolSchemas(),
+				toolSchemas:
+					activeWorkbench === "topic"
+						? editor.mcp
+								.getToolSchemas()
+								.filter((schema) => TOPIC_RESEARCH_TOOL_NAMES.has(schema.name))
+						: editor.mcp.getToolSchemas(),
 				context: {
 					activeBrandKit: editor.project.getActiveBrandKit(),
+					activeWorkbench,
 				},
 			};
 
@@ -1014,6 +1068,16 @@ export function ChatPanel() {
 			});
 		} catch (err) {
 			if (runAbort.signal.aborted) {
+				return;
+			}
+			if (activeWorkbench === "topic") {
+				addMessage({
+					id: `topic-offline-${Date.now()}`,
+					role: "assistant",
+					content:
+						"已先把这个方向沉淀到右侧选题工作台。联网调研和深度资料核验需要配置 Agent 模型与 Web Search 后继续补全。",
+					timestamp: Date.now(),
+				});
 				return;
 			}
 			addMessage({
@@ -1110,6 +1174,12 @@ export function ChatPanel() {
 	}) => {
 		const trimmed = prompt.trim();
 		if (!trimmed || isLoading || !editor) return;
+		if (activeWorkbench === "topic") {
+			recordTopicPrompt({
+				editorProjectId: projectId ?? "default-project",
+				prompt: trimmed,
+			});
+		}
 
 		const userMsg = {
 			id: `u-${Date.now()}`,
@@ -1429,7 +1499,8 @@ export function ChatPanel() {
 		>
 			{/* Multi-session UI is intentionally disabled for the compact Agent surface. */}
 			<div className="flex flex-1 flex-col overflow-hidden">
-				<div className="flex min-h-10 min-w-0 items-center justify-end gap-1.5 border-b border-border/70 bg-card/[0.65] px-2 py-1.5 backdrop-blur dark:bg-background/95">
+				<div className="flex min-h-10 min-w-0 items-center justify-between gap-2 border-b border-border/70 bg-card/[0.65] px-2 py-1.5 backdrop-blur dark:bg-background/95">
+					<WorkbenchSwitcher compact />
 					<div className="flex min-w-0 shrink-0 items-center gap-1">
 						{showClearConfirm ? (
 							<div className="flex min-w-0 items-center gap-1">
@@ -1492,7 +1563,8 @@ export function ChatPanel() {
 					{visibleMessages.length === 0 && !isLoading ? (
 						<AgentEmptyState
 							disabled={isLoading || !editor}
-							hasMedia={mediaAssetCount > 0}
+							hasMedia={activeWorkbench === "video" && mediaAssetCount > 0}
+							workbench={activeWorkbench}
 							onPromptSelect={handleStarterPrompt}
 						/>
 					) : null}
@@ -1565,9 +1637,18 @@ export function ChatPanel() {
 				<BottomToolbar
 					input={input}
 					selectedAgent={selectedAgent}
-					agents={["default", "editor", "media", "mg"]}
+					agents={
+						activeWorkbench === "topic"
+							? ["default"]
+							: ["default", "editor", "media", "mg"]
+					}
 					executionMode={mode}
 					disabled={isLoading}
+					placeholder={
+						activeWorkbench === "topic"
+							? "今天想做点什么？可以先说一个模糊方向"
+							: undefined
+					}
 					onAgentChange={setSelectedAgent}
 					onExecutionModeChange={setMode}
 					onInputChange={setInput}
@@ -1594,30 +1675,41 @@ export function ChatPanel() {
 function AgentEmptyState({
 	disabled,
 	hasMedia,
+	workbench,
 	onPromptSelect,
 }: {
 	disabled: boolean;
 	hasMedia: boolean;
+	workbench: "video" | "topic";
 	onPromptSelect: (prompt: string) => void;
 }) {
 	const { copy } = useAppLocale();
-	const starters = copy.editor.chat.starters;
+	const starters =
+		workbench === "topic" ? TOPIC_STARTERS : copy.editor.chat.starters;
+	const emptyKicker =
+		workbench === "topic" ? "Topic workbench" : copy.editor.chat.emptyKicker;
+	const emptyTitle =
+		workbench === "topic" ? "今天想做点什么？" : copy.editor.chat.emptyTitle;
+	const emptyBody =
+		workbench === "topic"
+			? "先说一个模糊方向，Agent 会把选题、同题调研、视频结构和最终选题包一步步聊出来。"
+			: copy.editor.chat.emptyBody;
 
 	return (
 		<div className="flex min-h-full flex-col justify-center gap-4 py-4">
 			<div className="mx-auto max-w-md text-center">
 				<div className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-primary/[0.55] dark:text-cyan-300/80">
-					{copy.editor.chat.emptyKicker}
+					{emptyKicker}
 				</div>
 				<h2 className="mt-2 text-xl font-semibold tracking-normal text-foreground">
-					{copy.editor.chat.emptyTitle}
+					{emptyTitle}
 				</h2>
 				<p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-					{copy.editor.chat.emptyBody}
+					{emptyBody}
 				</p>
 			</div>
 
-			{!hasMedia && (
+			{workbench === "video" && !hasMedia && (
 				<div className="rounded-sm border border-border/75 bg-card/[0.45] px-3 py-2 text-sm dark:border-cyan-300/20 dark:bg-cyan-300/5">
 					<div className="font-medium text-foreground dark:text-cyan-200">
 						{copy.editor.chat.emptyNoMediaTitle}
