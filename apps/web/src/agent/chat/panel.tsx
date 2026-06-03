@@ -57,6 +57,7 @@ import { useAppLocale } from "@/i18n/use-app-locale";
 import { processMediaAssets } from "@/media/processing";
 import { showMediaUploadToast } from "@/media/upload-toast";
 import { buildTopicInputMaterialsFromReferences } from "@/topic-workbench/input-materials";
+import type { TopicInputMaterial } from "@/topic-workbench/types";
 import { WorkbenchSwitcher } from "@/topic-workbench/workbench-switcher";
 import { CreatorProfileDialogTrigger } from "@/topic-workbench/creator-profile-dialog";
 import { useTopicWorkbenchStore } from "@/topic-workbench/store";
@@ -1862,6 +1863,16 @@ export function ChatPanel() {
 			null
 		);
 	});
+	const pendingTopicInputMaterials = useTopicWorkbenchStore(
+		(state) =>
+			(state.pendingInputMaterialsByEditorProject ?? {})[editorProjectId] ?? [],
+	);
+	const updateTopicInputMaterial = useTopicWorkbenchStore(
+		(state) => state.updateInputMaterial,
+	);
+	const removeTopicInputMaterial = useTopicWorkbenchStore(
+		(state) => state.removeInputMaterial,
+	);
 	const mediaAssetCount = useEditor(
 		(editor) =>
 			editor.media.getAssets().filter((asset) => !asset.ephemeral).length,
@@ -3300,6 +3311,17 @@ export function ChatPanel() {
 								onSourceMaterialClick={() => setTopicSourceMaterialOpen(true)}
 							/>
 						) : null}
+						{isFocusedTopicChat && pendingTopicInputMaterials.length > 0 ? (
+							<PendingTopicMaterialsPanel
+								materials={pendingTopicInputMaterials}
+								onUpdate={({ materialId, patch }) =>
+									updateTopicInputMaterial({ materialId, patch })
+								}
+								onRemove={({ materialId }) =>
+									removeTopicInputMaterial({ materialId })
+								}
+							/>
+						) : null}
 						{visibleMessages.map((msg) => (
 							<div
 								key={msg.id}
@@ -3531,6 +3553,92 @@ function AgentEmptyState({
 					onPromptSelect={onPromptSelect}
 				/>
 			)}
+		</div>
+	);
+}
+
+function PendingTopicMaterialsPanel({
+	materials,
+	onUpdate,
+	onRemove,
+}: {
+	materials: TopicInputMaterial[];
+	onUpdate: (args: {
+		materialId: string;
+		patch: { title?: string; summary?: string; content?: string };
+	}) => void;
+	onRemove: (args: { materialId: string }) => void;
+}) {
+	return (
+		<div className="mx-auto mb-4 w-full max-w-3xl rounded-sm border border-border/70 bg-background/88 p-3 shadow-[0_10px_28px_rgba(15,23,42,0.06)] dark:border-cyan-300/15 dark:bg-cyan-300/[0.04]">
+			<div className="flex items-center justify-between gap-2">
+				<div>
+					<div className="text-sm font-semibold text-foreground">素材输入</div>
+					<p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+						分析过程中也可以修改或移除，后续选题会使用这里的最新内容。
+					</p>
+				</div>
+				<span className="shrink-0 rounded-sm border border-border/70 px-2 py-1 text-xs text-muted-foreground">
+					{materials.length}
+				</span>
+			</div>
+			<div className="mt-3 space-y-2">
+				{materials.map((material) => (
+					<div
+						key={material.id}
+						className="rounded-sm border border-border/65 bg-muted/[0.22] p-2 dark:bg-background/45"
+					>
+						<div className="flex items-start gap-2">
+							<div className="min-w-0 flex-1 space-y-2">
+								<input
+									value={material.title}
+									onChange={(event) =>
+										onUpdate({
+											materialId: material.id,
+											patch: { title: event.target.value },
+										})
+									}
+									className="h-8 w-full rounded-sm border border-border/70 bg-background px-2 text-sm font-medium text-foreground outline-none focus:border-primary/50"
+									aria-label="素材标题"
+								/>
+								<input
+									value={material.summary ?? ""}
+									onChange={(event) =>
+										onUpdate({
+											materialId: material.id,
+											patch: { summary: event.target.value },
+										})
+									}
+									className="h-8 w-full rounded-sm border border-border/70 bg-background px-2 text-xs text-muted-foreground outline-none focus:border-primary/50"
+									aria-label="素材摘要"
+									placeholder="补充素材摘要"
+								/>
+								<textarea
+									value={material.content ?? ""}
+									onChange={(event) =>
+										onUpdate({
+											materialId: material.id,
+											patch: { content: event.target.value },
+										})
+									}
+									className="max-h-32 min-h-16 w-full resize-y rounded-sm border border-border/70 bg-background px-2 py-1.5 text-xs leading-5 text-foreground outline-none focus:border-primary/50"
+									aria-label="素材内容"
+									placeholder="补充脚本、转写、链接或素材说明"
+								/>
+							</div>
+							<button
+								type="button"
+								onClick={() => onRemove({ materialId: material.id })}
+								className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+								aria-label={`删除素材 ${material.title}`}
+								title="删除素材"
+							>
+								<Trash2 size={15} />
+							</button>
+						</div>
+					</div>
+				))}
+			</div>
 		</div>
 	);
 }

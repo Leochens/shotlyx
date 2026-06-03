@@ -46,6 +46,16 @@ describe("topic workbench integration contract", () => {
 		expect(chatPanelSource).toContain("centered={isFocusedTopicChat}");
 	});
 
+	test("shows editable pending topic materials before the workbench appears", () => {
+		expect(chatPanelSource).toContain("PendingTopicMaterialsPanel");
+		expect(chatPanelSource).toContain("pendingTopicInputMaterials");
+		expect(chatPanelSource).toContain("updateTopicInputMaterial");
+		expect(chatPanelSource).toContain("removeTopicInputMaterial");
+		expect(chatPanelSource).toContain("分析过程中也可以修改或移除");
+		expect(chatPanelSource).toContain("aria-label=\"素材标题\"");
+		expect(chatPanelSource).toContain("aria-label=\"素材内容\"");
+	});
+
 	test("keeps topic and video chat sessions scoped separately", () => {
 		expect(chatPanelSource).toContain(
 			"`${editorProjectId}::${activeWorkbench}`",

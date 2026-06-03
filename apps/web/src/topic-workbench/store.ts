@@ -271,6 +271,79 @@ function createAgentEvent({
 	};
 }
 
+function updatePendingInputMaterial({
+	state,
+	materialId,
+	patch,
+}: {
+	state: TopicWorkbenchState;
+	materialId: string;
+	patch: TopicInputMaterialPatch;
+}): Pick<TopicWorkbenchState, "pendingInputMaterialsByEditorProject"> {
+	const editorProjectId =
+		state.activeEditorProjectId || DEFAULT_EDITOR_PROJECT_ID;
+	const pendingMaterials =
+		(state.pendingInputMaterialsByEditorProject ?? {})[editorProjectId] ?? [];
+	if (!pendingMaterials.some((material) => material.id === materialId)) {
+		return {
+			pendingInputMaterialsByEditorProject:
+				state.pendingInputMaterialsByEditorProject,
+		};
+	}
+
+	return {
+		pendingInputMaterialsByEditorProject: {
+			...(state.pendingInputMaterialsByEditorProject ?? {}),
+			[editorProjectId]: pendingMaterials.map((material) =>
+				material.id === materialId
+					? {
+							...material,
+							title: patch.title
+								? patch.title.trim().slice(0, 80) || material.title
+								: material.title,
+							summary:
+								patch.summary !== undefined
+									? patch.summary.trim() || undefined
+									: material.summary,
+							content:
+								patch.content !== undefined
+									? patch.content.slice(0, 6000)
+									: material.content,
+						}
+					: material,
+			),
+		},
+	};
+}
+
+function removePendingInputMaterial({
+	state,
+	materialId,
+}: {
+	state: TopicWorkbenchState;
+	materialId: string;
+}): Pick<TopicWorkbenchState, "pendingInputMaterialsByEditorProject"> {
+	const editorProjectId =
+		state.activeEditorProjectId || DEFAULT_EDITOR_PROJECT_ID;
+	const pendingMaterials =
+		(state.pendingInputMaterialsByEditorProject ?? {})[editorProjectId] ?? [];
+	if (!pendingMaterials.some((material) => material.id === materialId)) {
+		return {
+			pendingInputMaterialsByEditorProject:
+				state.pendingInputMaterialsByEditorProject,
+		};
+	}
+
+	return {
+		pendingInputMaterialsByEditorProject: {
+			...(state.pendingInputMaterialsByEditorProject ?? {}),
+			[editorProjectId]: pendingMaterials.filter(
+				(material) => material.id !== materialId,
+			),
+		},
+	};
+}
+
 export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 	persist(
 		(set, get) => ({
@@ -575,22 +648,24 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 				),
 
 			updateInputMaterial: ({ materialId, patch }) =>
-				set((state) =>
-					updateActiveProject({
+				set((state) => ({
+					...updateActiveProject({
 						state,
 						updater: (project) =>
 							updateTopicInputMaterial({ project, materialId, patch }),
 					}),
-				),
+					...updatePendingInputMaterial({ state, materialId, patch }),
+				})),
 
 			removeInputMaterial: ({ materialId }) =>
-				set((state) =>
-					updateActiveProject({
+				set((state) => ({
+					...updateActiveProject({
 						state,
 						updater: (project) =>
 							removeTopicInputMaterial({ project, materialId }),
 					}),
-				),
+					...removePendingInputMaterial({ state, materialId }),
+				})),
 
 			toggleResearchInsightHidden: ({ insightId, hidden }) =>
 				set((state) =>

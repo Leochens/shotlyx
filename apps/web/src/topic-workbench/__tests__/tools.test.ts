@@ -15,6 +15,7 @@ function resetStore() {
 		activeTopicProjectIdByEditorProject: {},
 		creatorProfile: "",
 		topicProjects: [],
+		pendingInputMaterialsByEditorProject: {},
 		pendingAgentEvent: null,
 		isHydrated: true,
 	});
@@ -199,6 +200,47 @@ describe("topic workbench tools", () => {
 		expect(project?.inputMaterials).toHaveLength(2);
 		expect(project?.inputMaterials[0]?.title).toBe("产品演示录屏.mp4");
 		expect(project?.inputMaterials[1]?.content).toContain("长视频");
+	});
+
+	test("lets pending input materials be edited and removed before candidates exist", () => {
+		useTopicWorkbenchStore.getState().recordInputMaterials({
+			editorProjectId: EDITOR_PROJECT_ID,
+			materials: [
+				{
+					id: "pending-material",
+					title: "原始素材",
+					summary: "原始摘要",
+					content: "原始内容",
+				},
+			],
+		});
+
+		useTopicWorkbenchStore.getState().updateInputMaterial({
+			materialId: "pending-material",
+			patch: {
+				title: "修改后的素材",
+				summary: "修改后的摘要",
+				content: "修改后的内容",
+			},
+		});
+
+		const pendingMaterials =
+			useTopicWorkbenchStore.getState().pendingInputMaterialsByEditorProject[
+				EDITOR_PROJECT_ID
+			] ?? [];
+		expect(pendingMaterials[0]?.title).toBe("修改后的素材");
+		expect(pendingMaterials[0]?.summary).toBe("修改后的摘要");
+		expect(pendingMaterials[0]?.content).toBe("修改后的内容");
+
+		useTopicWorkbenchStore
+			.getState()
+			.removeInputMaterial({ materialId: "pending-material" });
+
+		expect(
+			useTopicWorkbenchStore.getState().pendingInputMaterialsByEditorProject[
+				EDITOR_PROJECT_ID
+			],
+		).toHaveLength(0);
 	});
 
 	test("creates package and production plan through tools", () => {
