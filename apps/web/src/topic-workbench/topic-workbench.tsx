@@ -4,18 +4,17 @@ import { useEffect, useState, type ReactNode } from "react";
 import {
 	ArrowRight,
 	BookOpenText,
+	Check,
 	CheckCircle2,
 	ExternalLink,
 	FileText,
 	History,
 	LayoutTemplate,
 	Lightbulb,
-	Play,
 	Plus,
 	Radar,
 	RefreshCw,
 	Search,
-	Sparkles,
 	type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,10 +28,13 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/utils/ui";
+import { CreatorProfileDialogTrigger } from "./creator-profile-dialog";
 import { useTopicWorkbenchStore } from "./store";
 import type {
 	ResearchPlatform,
+	ScriptSegment,
 	TopicCandidate,
 	TopicPackageVersion,
 	TopicPlatform,
@@ -177,7 +179,59 @@ function buildStageResetTask({
 	return buildStageForwardTask({ project, stage });
 }
 
-export function TopicWorkbench({ editorProjectId }: { editorProjectId: string }) {
+function buildVideoProductionHandoffPrompt({
+	project,
+	topicPackage,
+}: {
+	project: TopicProject;
+	topicPackage: TopicPackageVersion;
+}): string {
+	const segmentText = topicPackage.scriptSegments
+		.map(
+			(segment, index) =>
+				`${index + 1}. ${segment.timeRange}｜${segment.content}｜素材建议：${segment.materialSuggestion}`,
+		)
+		.join("\n");
+	const platformText = topicPackage.platformRecommendations
+		.map(
+			(item) =>
+				`${PLATFORM_LABELS[item.platform]}：${item.title}\n${item.description}`,
+		)
+		.join("\n\n");
+	const referenceText = project.researchSources
+		.map((source) => `${source.sourceName}｜${source.title}｜${source.url}`)
+		.join("\n");
+
+	return `请接手这个选题包，进入视频制作流程。请基于下列内容自动规划占位素材、口播/配音建议、可做 MG 动画的位置和剪辑结构，先给出制作方案，再等待我确认是否执行。
+
+标题：${topicPackage.title}
+摘要：${topicPackage.summary}
+核心观点：${topicPackage.coreViewpoint}
+受众：${topicPackage.audienceAnalysis}
+预期时长：${topicPackage.durationMinutes} 分钟
+选题缘由：${topicPackage.rationale}
+
+脚本大纲：
+${topicPackage.outline.join("\n")}
+
+时间段、内容与素材建议：
+${segmentText}
+
+发布文案：
+${platformText}
+
+封面建议：
+${topicPackage.coverIdeas.join("\n")}
+
+参考资料：
+${referenceText || "暂无资料，请先根据选题包做占位制作规划。"}`;
+}
+
+export function TopicWorkbench({
+	editorProjectId,
+}: {
+	editorProjectId: string;
+}) {
 	const activeProject = useTopicWorkbenchStore((state) =>
 		state.getActiveTopicProject(),
 	);
@@ -187,11 +241,10 @@ export function TopicWorkbench({ editorProjectId }: { editorProjectId: string })
 	const setActiveEditorProject = useTopicWorkbenchStore(
 		(state) => state.setActiveEditorProject,
 	);
-	const createTopicProject = useTopicWorkbenchStore(
-		(state) => state.createTopicProject,
-	);
 	const resetToStage = useTopicWorkbenchStore((state) => state.resetToStage);
-	const emitAgentEvent = useTopicWorkbenchStore((state) => state.emitAgentEvent);
+	const emitAgentEvent = useTopicWorkbenchStore(
+		(state) => state.emitAgentEvent,
+	);
 
 	useEffect(() => {
 		setActiveEditorProject({ editorProjectId });
@@ -199,13 +252,7 @@ export function TopicWorkbench({ editorProjectId }: { editorProjectId: string })
 
 	if (!activeProject) {
 		return (
-			<div className="size-full overflow-hidden rounded-sm border border-border/70 bg-background">
-				<TopicEmptyCanvas
-					onCreate={(prompt) =>
-						createTopicProject({ editorProjectId, prompt })
-					}
-				/>
-			</div>
+			<div className="size-full rounded-sm border border-border/70 bg-background" />
 		);
 	}
 
@@ -244,18 +291,16 @@ export function TopicWorkbench({ editorProjectId }: { editorProjectId: string })
 		<div className="flex size-full min-h-0 min-w-0 flex-col overflow-hidden rounded-sm border border-border/70 bg-background">
 			<TopicWorkbenchHeader project={activeProject} />
 			<div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
-				<div className="grid min-h-full grid-cols-[minmax(0,1fr)_18rem] gap-3 p-3 max-[1180px]:grid-cols-1">
-					<div className="min-w-0 space-y-3">
-						<StageProgress
-							project={activeProject}
-							onStageClick={handleStageClick}
-						/>
-						<CandidatesSection project={activeProject} />
-						<ResearchSection project={activeProject} />
-						<StructureSection project={activeProject} />
-						<PackageSection project={activeProject} />
-					</div>
-					<VersionRail project={activeProject} />
+				<div className="min-h-full min-w-0 space-y-3 p-3">
+					<VersionSummaryBar project={activeProject} />
+					<StageProgress
+						project={activeProject}
+						onStageClick={handleStageClick}
+					/>
+					<CandidatesSection project={activeProject} />
+					<ResearchSection project={activeProject} />
+					<StructureSection project={activeProject} />
+					<PackageSection project={activeProject} />
 				</div>
 			</div>
 			<StageResetDialog
@@ -265,43 +310,6 @@ export function TopicWorkbench({ editorProjectId }: { editorProjectId: string })
 				}}
 				onConfirm={handleConfirmStageReset}
 			/>
-		</div>
-	);
-}
-
-function TopicEmptyCanvas({ onCreate }: { onCreate: (prompt: string) => void }) {
-	const starters = [
-		"AI 视频生成工具最近有什么值得聊的",
-		"自媒体创作者如何用 Agent 做内容生产",
-		"帮我找一个科技专题，适合做 B 站 8 分钟视频",
-		"我想做一个 Shotlyx 产品更新相关的选题",
-	];
-
-	return (
-		<div className="flex min-h-full flex-col items-center justify-center gap-5 bg-[radial-gradient(circle_at_20%_18%,rgba(14,165,233,0.09),transparent_28rem),linear-gradient(180deg,rgba(16,185,129,0.04),transparent_18rem)] p-8 text-center">
-			<div className="flex size-14 items-center justify-center rounded-sm border border-cyan-500/20 bg-cyan-500/[0.08] text-cyan-600 dark:text-cyan-300">
-				<Sparkles size={25} />
-			</div>
-			<div className="max-w-xl">
-				<h2 className="text-2xl font-semibold tracking-normal text-foreground">
-					让创作变得非常简单
-				</h2>
-				<p className="mt-2 text-sm leading-6 text-muted-foreground">
-					从一个模糊想法开始，Agent 会把选题、同题调研、结构设计、脚本和发布文案逐步沉淀成一个可制作的视频方案。
-				</p>
-			</div>
-			<div className="grid w-full max-w-3xl gap-2 [grid-template-columns:repeat(auto-fit,minmax(13rem,1fr))]">
-				{starters.map((starter) => (
-					<button
-						key={starter}
-						type="button"
-						onClick={() => onCreate(starter)}
-						className="min-h-20 rounded-sm border border-border/80 bg-background/78 px-3 py-3 text-left text-sm font-medium text-foreground shadow-sm transition-colors hover:border-primary/30 hover:bg-accent"
-					>
-						{starter}
-					</button>
-				))}
-			</div>
 		</div>
 	);
 }
@@ -322,13 +330,15 @@ function StageResetDialog({
 				<AlertDialogHeader>
 					<AlertDialogTitle>确定回到{label}阶段？</AlertDialogTitle>
 					<AlertDialogDescription className="leading-6">
-						确认后，当前阶段之后的临时结果会被清空，任务会发送给左侧子
-						Agent 重新处理，并通过工作台工具写回新的结果。已有选题包版本会保留，方便回看。
+						确认后，当前阶段之后的临时结果会被清空，任务会发送给左侧子 Agent
+						重新处理，并通过工作台工具写回新的结果。已有选题包版本会保留，方便回看。
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
 					<AlertDialogCancel>取消</AlertDialogCancel>
-					<AlertDialogAction onClick={onConfirm}>确认重新处理</AlertDialogAction>
+					<AlertDialogAction onClick={onConfirm}>
+						确认重新处理
+					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>
 		</AlertDialog>
@@ -336,10 +346,6 @@ function StageResetDialog({
 }
 
 function TopicWorkbenchHeader({ project }: { project: TopicProject }) {
-	const setActiveWorkbench = useTopicWorkbenchStore(
-		(state) => state.setActiveWorkbench,
-	);
-
 	return (
 		<header className="flex min-h-14 items-center justify-between gap-3 border-b border-border/70 bg-card/[0.58] px-4 py-2 backdrop-blur dark:bg-background/95">
 			<div className="min-w-0">
@@ -355,15 +361,87 @@ function TopicWorkbenchHeader({ project }: { project: TopicProject }) {
 					{project.title} · 更新于 {formatDate(project.updatedAt)}
 				</p>
 			</div>
-			<Button
-				size="sm"
-				variant="outline"
-				onClick={() => setActiveWorkbench({ mode: "video" })}
-			>
-				<Play size={14} />
-				进入视频制作
-			</Button>
+			<CreatorProfileDialogTrigger />
 		</header>
+	);
+}
+
+function VersionSummaryBar({ project }: { project: TopicProject }) {
+	const setActivePackageVersion = useTopicWorkbenchStore(
+		(state) => state.setActivePackageVersion,
+	);
+	const createPackageVersion = useTopicWorkbenchStore(
+		(state) => state.createPackageVersion,
+	);
+	const activePackage = getActivePackage(project);
+
+	return (
+		<section className="rounded-sm border border-border/75 bg-card/[0.38] p-3 dark:bg-cyan-300/[0.03]">
+			<div className="flex flex-wrap items-start justify-between gap-3">
+				<div className="min-w-0">
+					<div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+						<History size={15} />
+						版本管理
+					</div>
+					<p className="mt-1 text-xs leading-5 text-muted-foreground">
+						过程数据会自动落库；重新生成会保留历史版本，方便回到旧方案。
+					</p>
+				</div>
+				<div className="grid min-w-72 grid-cols-4 gap-2 max-[720px]:w-full max-[720px]:min-w-0">
+					<Metric label="候选" value={project.candidates.length} />
+					<Metric label="资料" value={project.researchSources.length} />
+					<Metric label="结构" value={project.structures.length} />
+					<Metric label="版本" value={project.packageVersions.length} />
+				</div>
+			</div>
+			<div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+				{project.packageVersions.length === 0 ? (
+					<div className="min-w-72 rounded-sm border border-dashed border-border/75 bg-background/55 px-3 py-2 text-xs leading-5 text-muted-foreground">
+						选题包生成后会出现在这里。
+					</div>
+				) : (
+					project.packageVersions
+						.toSorted((a, b) => b.createdAt - a.createdAt)
+						.map((version) => (
+							<button
+								key={version.id}
+								type="button"
+								onClick={() =>
+									setActivePackageVersion({ versionId: version.id })
+								}
+								className={cn(
+									"min-w-56 rounded-sm border px-3 py-2 text-left transition-colors",
+									version.id === activePackage?.id
+										? "border-primary/35 bg-primary/[0.07]"
+										: "border-border/75 bg-background/60 hover:bg-accent",
+								)}
+							>
+								<div className="flex items-center justify-between gap-2">
+									<div className="text-sm font-semibold text-foreground">
+										{version.versionName}
+									</div>
+									<div className="text-xs text-muted-foreground">
+										{formatDate(version.createdAt)}
+									</div>
+								</div>
+								<div className="mt-1 line-clamp-1 text-xs leading-4 text-muted-foreground">
+									{version.title}
+								</div>
+							</button>
+						))
+				)}
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={!activePackage}
+					onClick={createPackageVersion}
+					className="min-h-14 shrink-0 self-stretch"
+				>
+					<Plus size={14} />
+					新版本
+				</Button>
+			</div>
+		</section>
 	);
 }
 
@@ -433,7 +511,9 @@ function CandidatesSection({ project }: { project: TopicProject }) {
 	const confirmCandidate = useTopicWorkbenchStore(
 		(state) => state.confirmCandidate,
 	);
-	const emitAgentEvent = useTopicWorkbenchStore((state) => state.emitAgentEvent);
+	const emitAgentEvent = useTopicWorkbenchStore(
+		(state) => state.emitAgentEvent,
+	);
 	const hasSelection = project.selectedCandidateId !== null;
 	const canInteract = project.stage === "ideation";
 	const selectedCandidate = getSelectedCandidate(project);
@@ -441,12 +521,6 @@ function CandidatesSection({ project }: { project: TopicProject }) {
 	const handleSelectCandidate = (candidate: TopicCandidate) => {
 		if (!canInteract) return;
 		selectCandidate({ candidateId: candidate.id });
-		emitAgentEvent({
-			editorProjectId: project.editorProjectId,
-			source: "candidate-select",
-			autoRun: false,
-			content: `我在右侧选中了候选选题「${candidate.title}」。请把这个选择作为后续调研、结构设计和脚本生成的上下文。`,
-		});
 	};
 
 	const handleSaveCandidate = ({
@@ -457,12 +531,6 @@ function CandidatesSection({ project }: { project: TopicProject }) {
 		patch: Partial<Pick<TopicCandidate, "title" | "summary" | "coreViewpoint">>;
 	}) => {
 		updateCandidate({ candidateId: candidate.id, patch });
-		emitAgentEvent({
-			editorProjectId: project.editorProjectId,
-			source: "candidate-edit",
-			autoRun: false,
-			content: `我在右侧编辑了候选选题。标题：${patch.title ?? candidate.title}。摘要：${patch.summary ?? candidate.summary}。核心观点：${patch.coreViewpoint ?? candidate.coreViewpoint}。请后续以这版内容为准。`,
-		});
 	};
 
 	const handleConfirmCandidate = () => {
@@ -500,7 +568,7 @@ function CandidatesSection({ project }: { project: TopicProject }) {
 					</Button>
 				}
 			/>
-			<div className="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]">
+			<div className="mt-3 space-y-2">
 				{project.candidates.map((candidate, index) => (
 					<CandidateCard
 						key={candidate.id}
@@ -519,7 +587,7 @@ function CandidatesSection({ project }: { project: TopicProject }) {
 					disabled={!hasSelection || !canInteract}
 					onClick={handleConfirmCandidate}
 				>
-					确认选题
+					确认选题并进入资料汇总
 					<ArrowRight size={14} />
 				</Button>
 			</div>
@@ -565,60 +633,115 @@ function CandidateCard({
 					: "border-border/75 bg-muted/[0.22] hover:border-primary/25",
 			)}
 		>
-			<div className="flex items-start justify-between gap-2">
-				<button
-					type="button"
-					disabled={!canInteract}
-					onClick={onSelect}
-					className="flex min-w-0 items-center gap-2 text-left disabled:cursor-default"
-				>
-					<span className="flex size-7 shrink-0 items-center justify-center rounded-sm bg-background text-xs font-semibold text-muted-foreground">
+			<div className="grid gap-3 [grid-template-columns:auto_minmax(0,1fr)_auto] max-[820px]:grid-cols-[auto_minmax(0,1fr)]">
+				<div className="flex items-start gap-2">
+					<Checkbox
+						checked={isSelected}
+						disabled={!canInteract}
+						onCheckedChange={(checked) => {
+							if (checked === true) onSelect();
+						}}
+						className="mt-1"
+						aria-label={`选择候选选题 ${candidate.title}`}
+					/>
+					<span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-sm bg-background text-xs font-semibold text-muted-foreground">
 						{index + 1}
 					</span>
-					<span className="text-xs font-medium text-muted-foreground">
-						{isSelected ? "已选中" : canInteract ? "点击选择" : "候选方案"}
-					</span>
-				</button>
-				<div className="flex shrink-0 gap-1">
+				</div>
+				<div className="min-w-0">
+					<div className="flex flex-wrap items-center gap-2">
+						<span className="text-xs font-medium text-muted-foreground">
+							{isSelected ? "已选中" : "候选方案"}
+						</span>
+						<div className="flex shrink-0 flex-wrap gap-1 min-[821px]:hidden">
+							{candidate.platforms.map((platform) => (
+								<span
+									key={platform}
+									className="rounded-sm border border-border/70 bg-background px-1.5 py-0.5 text-[0.68rem] text-muted-foreground"
+								>
+									{PLATFORM_LABELS[platform]}
+								</span>
+							))}
+						</div>
+					</div>
+					{isEditing ? (
+						<div className="mt-2 space-y-2">
+							<input
+								value={draft.title}
+								onChange={(event) =>
+									setDraft((value) => ({ ...value, title: event.target.value }))
+								}
+								className="w-full rounded-sm border border-border/70 bg-background px-2 py-1.5 text-sm font-semibold leading-5 text-foreground outline-none focus:border-primary/35"
+							/>
+							<textarea
+								value={draft.summary}
+								onChange={(event) =>
+									setDraft((value) => ({
+										...value,
+										summary: event.target.value,
+									}))
+								}
+								rows={2}
+								className="w-full resize-none rounded-sm border border-border/70 bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/35"
+							/>
+							<textarea
+								value={draft.coreViewpoint}
+								onChange={(event) =>
+									setDraft((value) => ({
+										...value,
+										coreViewpoint: event.target.value,
+									}))
+								}
+								rows={2}
+								className="w-full resize-none rounded-sm border border-border/70 bg-background px-2 py-1.5 text-xs leading-5 text-foreground outline-none focus:border-primary/35"
+							/>
+							<div className="flex justify-end gap-2">
+								<Button
+									size="sm"
+									variant="ghost"
+									onClick={() => {
+										setDraft({
+											title: candidate.title,
+											summary: candidate.summary,
+											coreViewpoint: candidate.coreViewpoint,
+										});
+										setIsEditing(false);
+									}}
+								>
+									取消
+								</Button>
+								<Button size="sm" onClick={handleSave}>
+									保存
+								</Button>
+							</div>
+						</div>
+					) : (
+						<>
+							<h3 className="mt-2 text-sm font-semibold leading-5 text-foreground">
+								{candidate.title}
+							</h3>
+							<p className="mt-1 text-xs leading-5 text-muted-foreground">
+								{candidate.summary}
+							</p>
+							<div className="mt-2 rounded-sm border border-border/65 bg-background/55 px-2 py-1.5 text-xs leading-5 text-foreground">
+								{candidate.coreViewpoint}
+							</div>
+						</>
+					)}
+					<div className="mt-2 text-xs leading-5 text-muted-foreground">
+						{candidate.durationMinutes} 分钟 · {candidate.audience}
+					</div>
+				</div>
+				<div className="flex shrink-0 items-start justify-end gap-1 max-[820px]:col-start-2">
 					{candidate.platforms.map((platform) => (
 						<span
 							key={platform}
-							className="rounded-sm border border-border/70 bg-background px-1.5 py-0.5 text-[0.68rem] text-muted-foreground"
+							className="hidden rounded-sm border border-border/70 bg-background px-1.5 py-0.5 text-[0.68rem] text-muted-foreground min-[821px]:inline-flex"
 						>
 							{PLATFORM_LABELS[platform]}
 						</span>
 					))}
-				</div>
-			</div>
-			{isEditing ? (
-				<div className="mt-3 space-y-2">
-					<input
-						value={draft.title}
-						onChange={(event) =>
-							setDraft((value) => ({ ...value, title: event.target.value }))
-						}
-						className="w-full rounded-sm border border-border/70 bg-background px-2 py-1.5 text-sm font-semibold leading-5 text-foreground outline-none focus:border-primary/35"
-					/>
-					<textarea
-						value={draft.summary}
-						onChange={(event) =>
-							setDraft((value) => ({ ...value, summary: event.target.value }))
-						}
-						rows={2}
-						className="w-full resize-none rounded-sm border border-border/70 bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/35"
-					/>
-					<textarea
-						value={draft.coreViewpoint}
-						onChange={(event) =>
-							setDraft((value) => ({
-								...value,
-								coreViewpoint: event.target.value,
-							}))
-						}
-						rows={2}
-						className="w-full resize-none rounded-sm border border-border/70 bg-background px-2 py-1.5 text-xs leading-5 text-foreground outline-none focus:border-primary/35"
-					/>
-					<div className="flex justify-end gap-2">
+					{canInteract && !isEditing ? (
 						<Button
 							size="sm"
 							variant="ghost"
@@ -628,51 +751,26 @@ function CandidateCard({
 									summary: candidate.summary,
 									coreViewpoint: candidate.coreViewpoint,
 								});
-								setIsEditing(false);
+								setIsEditing(true);
 							}}
 						>
-							取消
+							编辑
 						</Button>
-						<Button size="sm" onClick={handleSave}>
-							保存
-						</Button>
-					</div>
+					) : null}
 				</div>
-			) : (
-				<>
-					<h3 className="mt-3 text-sm font-semibold leading-5 text-foreground">
-						{candidate.title}
-					</h3>
-					<p className="mt-2 text-xs leading-5 text-muted-foreground">
-						{candidate.summary}
-					</p>
-					<div className="mt-2 rounded-sm border border-border/65 bg-background/55 px-2 py-1.5 text-xs leading-5 text-foreground">
-						{candidate.coreViewpoint}
-					</div>
-				</>
-			)}
-			<div className="mt-2 text-xs leading-5 text-muted-foreground">
-				{candidate.durationMinutes} 分钟 · {candidate.audience}
 			</div>
-			{canInteract && !isEditing ? (
-				<div className="mt-3 flex justify-end">
-					<Button
-						size="sm"
-						variant="ghost"
-						onClick={() => setIsEditing(true)}
-					>
-						编辑
-					</Button>
-				</div>
-			) : null}
 		</article>
 	);
 }
 
 function ResearchSection({ project }: { project: TopicProject }) {
-	const emitAgentEvent = useTopicWorkbenchStore((state) => state.emitAgentEvent);
+	const emitAgentEvent = useTopicWorkbenchStore(
+		(state) => state.emitAgentEvent,
+	);
 	const hasSelection = project.selectedCandidateId !== null;
-	const canShow = project.stage !== "ideation" || project.researchSources.length > 0;
+	const hasResearchSources = project.researchSources.length > 0;
+	const canShow =
+		project.stage !== "ideation" || project.researchSources.length > 0;
 	const selectedCandidate = getSelectedCandidate(project);
 
 	if (!canShow) return null;
@@ -687,7 +785,7 @@ function ResearchSection({ project }: { project: TopicProject }) {
 					<Button
 						size="sm"
 						variant="outline"
-						disabled={!hasSelection}
+						disabled={!hasSelection || !hasResearchSources}
 						onClick={() =>
 							emitAgentEvent({
 								editorProjectId: project.editorProjectId,
@@ -698,11 +796,16 @@ function ResearchSection({ project }: { project: TopicProject }) {
 						}
 					>
 						<Search size={14} />
-						刷新调研
+						重新调研
 					</Button>
 				}
 			/>
 			<div className="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(13rem,1fr))]">
+				{project.researchSources.length === 0 ? (
+					<div className="col-span-full rounded-sm border border-dashed border-border/75 bg-muted/[0.18] p-4 text-sm leading-6 text-muted-foreground">
+						等待 Agent 检索 B 站、YouTube 和网页资料后写入这里。
+					</div>
+				) : null}
 				{project.researchSources.map((source) => (
 					<a
 						key={source.id}
@@ -737,7 +840,7 @@ function ResearchSection({ project }: { project: TopicProject }) {
 			<div className="mt-3 flex justify-end">
 				<Button
 					size="sm"
-					disabled={project.researchSources.length === 0}
+					disabled={!hasResearchSources}
 					onClick={() =>
 						emitAgentEvent({
 							editorProjectId: project.editorProjectId,
@@ -756,13 +859,16 @@ function ResearchSection({ project }: { project: TopicProject }) {
 }
 
 function StructureSection({ project }: { project: TopicProject }) {
+	const [isPackageConfirmOpen, setPackageConfirmOpen] = useState(false);
 	const selectStructureAction = useTopicWorkbenchStore(
 		(state) => state.selectStructure,
 	);
 	const createPackageVersion = useTopicWorkbenchStore(
 		(state) => state.createPackageVersion,
 	);
-	const emitAgentEvent = useTopicWorkbenchStore((state) => state.emitAgentEvent);
+	const selectedStructure = project.structures.find(
+		(structure) => structure.id === project.selectedStructureId,
+	);
 
 	if (project.stage === "ideation" || project.stage === "research") return null;
 
@@ -781,12 +887,6 @@ function StructureSection({ project }: { project: TopicProject }) {
 						isSelected={structure.id === project.selectedStructureId}
 						onSelect={() => {
 							selectStructureAction({ structureId: structure.id });
-							emitAgentEvent({
-								editorProjectId: project.editorProjectId,
-								source: "stage-forward",
-								autoRun: false,
-								content: `我在右侧选择了视频结构模板「${structure.name}」。适用场景：${structure.bestFor}。请把这个结构作为后续脚本和选题包生成的上下文。`,
-							});
 						}}
 					/>
 				))}
@@ -795,12 +895,38 @@ function StructureSection({ project }: { project: TopicProject }) {
 				<Button
 					size="sm"
 					disabled={!project.selectedStructureId}
-					onClick={createPackageVersion}
+					onClick={() => setPackageConfirmOpen(true)}
 				>
 					生成选题包
 					<ArrowRight size={14} />
 				</Button>
 			</div>
+			<AlertDialog
+				open={isPackageConfirmOpen}
+				onOpenChange={setPackageConfirmOpen}
+			>
+				<AlertDialogContent className="rounded-sm">
+					<AlertDialogHeader>
+						<AlertDialogTitle>确认生成选题包？</AlertDialogTitle>
+						<AlertDialogDescription className="leading-6">
+							系统会基于当前选题、资料和
+							{selectedStructure ? `「${selectedStructure.name}」` : "已选结构"}
+							生成脚本大纲、分段内容、素材建议和发布文案。生成后仍可在右侧继续编辑。
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>取消</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={() => {
+								createPackageVersion();
+								setPackageConfirmOpen(false);
+							}}
+						>
+							确认生成
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</section>
 	);
 }
@@ -866,7 +992,43 @@ function StructureCard({
 
 function PackageSection({ project }: { project: TopicProject }) {
 	const activePackage = getActivePackage(project);
+	const updatePackageVersion = useTopicWorkbenchStore(
+		(state) => state.updatePackageVersion,
+	);
+	const updateScriptSegment = useTopicWorkbenchStore(
+		(state) => state.updateScriptSegment,
+	);
+	const setActiveWorkbench = useTopicWorkbenchStore(
+		(state) => state.setActiveWorkbench,
+	);
+	const emitAgentEvent = useTopicWorkbenchStore(
+		(state) => state.emitAgentEvent,
+	);
 	if (!activePackage) return null;
+	const titleInputId = `${activePackage.id}-package-title`;
+	const summaryInputId = `${activePackage.id}-package-summary`;
+	const viewpointInputId = `${activePackage.id}-package-viewpoint`;
+	const audienceInputId = `${activePackage.id}-package-audience`;
+	const rationaleInputId = `${activePackage.id}-package-rationale`;
+
+	const handlePackagePatch = (
+		patch: Parameters<typeof updatePackageVersion>[0]["patch"],
+	) => {
+		updatePackageVersion({ versionId: activePackage.id, patch });
+	};
+
+	const handleEnterVideoProduction = () => {
+		setActiveWorkbench({ mode: "video" });
+		emitAgentEvent({
+			editorProjectId: project.editorProjectId,
+			source: "handoff-video",
+			autoRun: true,
+			content: buildVideoProductionHandoffPrompt({
+				project,
+				topicPackage: activePackage,
+			}),
+		});
+	};
 
 	return (
 		<section className="rounded-sm border border-border/75 bg-background p-3">
@@ -877,20 +1039,94 @@ function PackageSection({ project }: { project: TopicProject }) {
 			/>
 			<div className="mt-3 grid gap-3 [grid-template-columns:minmax(0,1fr)_minmax(17rem,0.9fr)] max-[980px]:grid-cols-1">
 				<div className="rounded-sm border border-border/75 bg-muted/[0.18] p-3">
-					<h3 className="text-base font-semibold tracking-normal text-foreground">
-						{activePackage.title}
-					</h3>
-					<p className="mt-2 text-sm leading-6 text-muted-foreground">
-						{activePackage.summary}
-					</p>
+					<label
+						htmlFor={titleInputId}
+						className="text-xs font-semibold text-muted-foreground"
+					>
+						标题
+					</label>
+					<input
+						id={titleInputId}
+						value={activePackage.title}
+						onChange={(event) =>
+							handlePackagePatch({ title: event.target.value })
+						}
+						className="mt-1 w-full rounded-sm border border-border/70 bg-background px-3 py-2 text-base font-semibold tracking-normal text-foreground outline-none focus:border-primary/35"
+					/>
+					<label
+						htmlFor={summaryInputId}
+						className="mt-3 block text-xs font-semibold text-muted-foreground"
+					>
+						摘要
+					</label>
+					<textarea
+						id={summaryInputId}
+						value={activePackage.summary}
+						onChange={(event) =>
+							handlePackagePatch({ summary: event.target.value })
+						}
+						rows={3}
+						className="mt-1 w-full resize-none rounded-sm border border-border/70 bg-background px-3 py-2 text-sm leading-6 text-muted-foreground outline-none focus:border-primary/35"
+					/>
 					<div className="mt-3 rounded-sm border border-border/70 bg-background px-3 py-2 text-sm leading-6">
-						<div className="font-semibold text-foreground">核心观点</div>
-						<div className="text-muted-foreground">
-							{activePackage.coreViewpoint}
+						<label
+							htmlFor={viewpointInputId}
+							className="font-semibold text-foreground"
+						>
+							核心观点
+						</label>
+						<textarea
+							id={viewpointInputId}
+							value={activePackage.coreViewpoint}
+							onChange={(event) =>
+								handlePackagePatch({ coreViewpoint: event.target.value })
+							}
+							rows={2}
+							className="mt-1 w-full resize-none rounded-sm border border-border/60 bg-muted/[0.18] px-2 py-1.5 text-sm leading-6 text-muted-foreground outline-none focus:border-primary/35"
+						/>
+					</div>
+					<div className="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(12rem,1fr))]">
+						<div>
+							<label
+								htmlFor={audienceInputId}
+								className="text-xs font-semibold text-muted-foreground"
+							>
+								受众分析
+							</label>
+							<textarea
+								id={audienceInputId}
+								value={activePackage.audienceAnalysis}
+								onChange={(event) =>
+									handlePackagePatch({
+										audienceAnalysis: event.target.value,
+									})
+								}
+								rows={2}
+								className="mt-1 w-full resize-none rounded-sm border border-border/70 bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/35"
+							/>
+						</div>
+						<div>
+							<label
+								htmlFor={rationaleInputId}
+								className="text-xs font-semibold text-muted-foreground"
+							>
+								选题缘由
+							</label>
+							<textarea
+								id={rationaleInputId}
+								value={activePackage.rationale}
+								onChange={(event) =>
+									handlePackagePatch({ rationale: event.target.value })
+								}
+								rows={2}
+								className="mt-1 w-full resize-none rounded-sm border border-border/70 bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/35"
+							/>
 						</div>
 					</div>
 					<div className="mt-3">
-						<div className="text-sm font-semibold text-foreground">脚本结构</div>
+						<div className="text-sm font-semibold text-foreground">
+							脚本结构
+						</div>
 						<ul className="mt-2 space-y-1.5 text-sm leading-6 text-muted-foreground">
 							{activePackage.outline.map((item) => (
 								<li key={item}>{item}</li>
@@ -899,7 +1135,8 @@ function PackageSection({ project }: { project: TopicProject }) {
 					</div>
 				</div>
 				<div className="rounded-sm border border-border/75 bg-muted/[0.18] p-3">
-					<div className="text-sm font-semibold text-foreground">
+					<div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+						<Check size={14} className="text-primary" />
 						发布文案与封面
 					</div>
 					<div className="mt-2 space-y-2">
@@ -928,104 +1165,95 @@ function PackageSection({ project }: { project: TopicProject }) {
 				<div className="text-sm font-semibold text-foreground">
 					时间段内容与素材建议
 				</div>
-				<div className="mt-2 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]">
-					{activePackage.scriptSegments.map((segment) => (
-						<div
-							key={`${segment.timeRange}-${segment.content}`}
-							className="rounded-sm border border-border/70 bg-background px-3 py-2"
-						>
-							<div className="text-xs font-semibold text-primary">
-								{segment.timeRange}
-							</div>
-							<div className="mt-1 text-sm leading-5 text-foreground">
-								{segment.content}
-							</div>
-							<div className="mt-2 text-xs leading-5 text-muted-foreground">
-								{segment.materialSuggestion}
-							</div>
-						</div>
+				<div className="mt-2 space-y-2">
+					{activePackage.scriptSegments.map((segment, index) => (
+						<ScriptSegmentRow
+							key={`${activePackage.id}-${index}`}
+							index={index}
+							segment={segment}
+							onChange={(patch) =>
+								updateScriptSegment({
+									versionId: activePackage.id,
+									segmentIndex: index,
+									patch,
+								})
+							}
+						/>
 					))}
 				</div>
+			</div>
+			<div className="mt-3 flex justify-end">
+				<Button size="sm" onClick={handleEnterVideoProduction}>
+					进入视频制作
+					<ArrowRight size={14} />
+				</Button>
 			</div>
 		</section>
 	);
 }
 
-function VersionRail({ project }: { project: TopicProject }) {
-	const setActivePackageVersion = useTopicWorkbenchStore(
-		(state) => state.setActivePackageVersion,
-	);
-	const createPackageVersion = useTopicWorkbenchStore(
-		(state) => state.createPackageVersion,
-	);
-	const activePackage = getActivePackage(project);
+function ScriptSegmentRow({
+	segment,
+	index,
+	onChange,
+}: {
+	segment: ScriptSegment;
+	index: number;
+	onChange: (patch: Partial<ScriptSegment>) => void;
+}) {
+	const timeRangeInputId = `script-segment-${index}-time-range`;
+	const contentInputId = `script-segment-${index}-content`;
+	const materialInputId = `script-segment-${index}-material`;
 
 	return (
-		<aside className="min-w-0 rounded-sm border border-border/75 bg-card/[0.38] p-3 dark:bg-cyan-300/[0.03]">
-			<div className="flex items-center justify-between gap-2">
-				<div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-					<History size={15} />
-					版本管理
-				</div>
-				<Button
-					size="icon"
-					variant="ghost"
-					disabled={!activePackage}
-					onClick={createPackageVersion}
-					title="基于当前方案生成新版本"
-					aria-label="生成新版本"
+		<div className="grid gap-2 rounded-sm border border-border/70 bg-background px-3 py-2 [grid-template-columns:8rem_minmax(0,1.1fr)_minmax(0,0.9fr)] max-[940px]:grid-cols-1">
+			<div>
+				<label
+					htmlFor={timeRangeInputId}
+					className="text-[0.68rem] font-semibold text-muted-foreground"
 				>
-					<Plus size={15} />
-				</Button>
+					时间段 {index + 1}
+				</label>
+				<input
+					id={timeRangeInputId}
+					value={segment.timeRange}
+					onChange={(event) => onChange({ timeRange: event.target.value })}
+					className="mt-1 w-full rounded-sm border border-border/60 bg-muted/[0.18] px-2 py-1.5 text-xs font-semibold text-primary outline-none focus:border-primary/35"
+				/>
 			</div>
-			<div className="mt-3 space-y-2">
-				{project.packageVersions.length === 0 ? (
-					<div className="rounded-sm border border-dashed border-border/75 bg-background/55 p-3 text-xs leading-5 text-muted-foreground">
-						选题包生成后，每次重新生成都会作为新版本保存，方便回到旧方案。
-					</div>
-				) : (
-					project.packageVersions
-						.toSorted((a, b) => b.createdAt - a.createdAt)
-						.map((version) => (
-							<button
-								key={version.id}
-								type="button"
-								onClick={() =>
-									setActivePackageVersion({ versionId: version.id })
-								}
-								className={cn(
-									"w-full rounded-sm border px-3 py-2 text-left transition-colors",
-									version.id === activePackage?.id
-										? "border-primary/35 bg-primary/[0.07]"
-										: "border-border/75 bg-background/60 hover:bg-accent",
-								)}
-							>
-								<div className="text-sm font-semibold text-foreground">
-									{version.versionName}
-								</div>
-								<div className="mt-1 text-xs text-muted-foreground">
-									{formatDate(version.createdAt)}
-								</div>
-								<div className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">
-									{version.title}
-								</div>
-							</button>
-						))
-				)}
+			<div>
+				<label
+					htmlFor={contentInputId}
+					className="text-[0.68rem] font-semibold text-muted-foreground"
+				>
+					内容
+				</label>
+				<textarea
+					id={contentInputId}
+					value={segment.content}
+					onChange={(event) => onChange({ content: event.target.value })}
+					rows={2}
+					className="mt-1 w-full resize-none rounded-sm border border-border/60 bg-muted/[0.18] px-2 py-1.5 text-sm leading-5 text-foreground outline-none focus:border-primary/35"
+				/>
 			</div>
-			<div className="mt-4 rounded-sm border border-border/75 bg-background/55 p-3">
-				<div className="text-xs font-semibold text-foreground">过程数据</div>
-				<div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-					<Metric label="候选" value={project.candidates.length} />
-					<Metric label="资料" value={project.researchSources.length} />
-					<Metric label="结构" value={project.structures.length} />
-					<Metric label="版本" value={project.packageVersions.length} />
-				</div>
+			<div>
+				<label
+					htmlFor={materialInputId}
+					className="text-[0.68rem] font-semibold text-muted-foreground"
+				>
+					素材建议
+				</label>
+				<textarea
+					id={materialInputId}
+					value={segment.materialSuggestion}
+					onChange={(event) =>
+						onChange({ materialSuggestion: event.target.value })
+					}
+					rows={2}
+					className="mt-1 w-full resize-none rounded-sm border border-border/60 bg-muted/[0.18] px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/35"
+				/>
 			</div>
-			<div className="mt-3 text-xs leading-5 text-muted-foreground">
-				平台 API 备注：YouTube 可接官方 Data API；B 站第一版保留搜索适配器，优先以合规公开入口和用户授权能力为准。
-			</div>
-		</aside>
+		</div>
 	);
 }
 
@@ -1033,7 +1261,9 @@ function Metric({ label, value }: { label: string; value: number }) {
 	return (
 		<div className="rounded-sm border border-border/65 bg-muted/[0.24] px-2 py-2">
 			<div className="text-[0.68rem] text-muted-foreground">{label}</div>
-			<div className="mt-1 text-base font-semibold text-foreground">{value}</div>
+			<div className="mt-1 text-base font-semibold text-foreground">
+				{value}
+			</div>
 		</div>
 	);
 }

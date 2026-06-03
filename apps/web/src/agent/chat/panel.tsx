@@ -45,6 +45,7 @@ import { formatToolCallForCopy } from "./tool-result-copy";
 import { buildToolResultContext } from "./tool-context";
 import { useAppLocale } from "@/i18n/use-app-locale";
 import { WorkbenchSwitcher } from "@/topic-workbench/workbench-switcher";
+import { CreatorProfileDialogTrigger } from "@/topic-workbench/creator-profile-dialog";
 import { useTopicWorkbenchStore } from "@/topic-workbench/store";
 import {
 	executeTopicWorkbenchTool,
@@ -429,10 +430,12 @@ export function ChatPanel() {
 	const pendingTopicAgentEvent = useTopicWorkbenchStore(
 		(state) => state.pendingAgentEvent,
 	);
+	const creatorProfile = useTopicWorkbenchStore(
+		(state) => state.creatorProfile,
+	);
 	const setActiveEditorProject = useTopicWorkbenchStore(
 		(state) => state.setActiveEditorProject,
 	);
-	const recordTopicPrompt = useTopicWorkbenchStore((state) => state.recordPrompt);
 	const consumeTopicAgentEvent = useTopicWorkbenchStore(
 		(state) => state.consumeAgentEvent,
 	);
@@ -440,7 +443,6 @@ export function ChatPanel() {
 		(args: {
 			prompt: string;
 			references?: AgentContextReference[];
-			syncTopicPrompt?: boolean;
 		}) => Promise<void>
 	>(async () => {});
 
@@ -1034,6 +1036,8 @@ export function ChatPanel() {
 				context: {
 					activeBrandKit: editor.project.getActiveBrandKit(),
 					activeWorkbench,
+					topicCreatorProfile:
+						activeWorkbench === "topic" ? creatorProfile : undefined,
 				},
 			};
 
@@ -1107,7 +1111,7 @@ export function ChatPanel() {
 					id: `topic-offline-${Date.now()}`,
 					role: "assistant",
 					content:
-						"已先把这个方向沉淀到右侧选题工作台。联网调研和深度资料核验需要配置 Agent 模型与 Web Search 后继续补全。",
+						"这次 Agent 没能完成选题生成。请检查模型和联网工具配置后重试，右侧工作台会在 Agent 产出候选选题后出现。",
 					timestamp: Date.now(),
 				});
 				return;
@@ -1200,20 +1204,12 @@ export function ChatPanel() {
 	const submitPrompt = async ({
 		prompt,
 		references = draftReferences,
-		syncTopicPrompt = true,
 	}: {
 		prompt: string;
 		references?: AgentContextReference[];
-		syncTopicPrompt?: boolean;
 	}) => {
 		const trimmed = prompt.trim();
 		if (!trimmed || isLoading || !editor) return;
-		if (activeWorkbench === "topic" && syncTopicPrompt) {
-			recordTopicPrompt({
-				editorProjectId: projectId ?? "default-project",
-				prompt: trimmed,
-			});
-		}
 
 		const userMsg = {
 			id: `u-${Date.now()}`,
@@ -1238,21 +1234,19 @@ export function ChatPanel() {
 	});
 
 	useEffect(() => {
-		if (
-			!pendingTopicAgentEvent ||
-			activeWorkbench !== "topic" ||
-			isLoading ||
-			!editor
-		) {
+		if (!pendingTopicAgentEvent || isLoading || !editor) {
 			return;
 		}
+		const canRunEvent =
+			activeWorkbench === "topic" ||
+			pendingTopicAgentEvent.source === "handoff-video";
+		if (!canRunEvent) return;
 
 		consumeTopicAgentEvent({ eventId: pendingTopicAgentEvent.id });
 		if (pendingTopicAgentEvent.autoRun) {
 			void submitPromptRef.current({
 				prompt: pendingTopicAgentEvent.content,
 				references: [],
-				syncTopicPrompt: false,
 			});
 			return;
 		}
@@ -1277,7 +1271,7 @@ export function ChatPanel() {
 	};
 
 	const handleStarterPrompt = (prompt: string) => {
-		void submitPrompt({ prompt, references: draftReferences });
+		setInput(prompt);
 	};
 
 	const handleClarificationAnswer = async (answer: string) => {
@@ -1765,7 +1759,7 @@ function AgentEmptyState({
 		workbench === "topic" ? "今天想做点什么？" : copy.editor.chat.emptyTitle;
 	const emptyBody =
 		workbench === "topic"
-			? "先说一个模糊方向，Agent 会把选题、同题调研、视频结构和最终选题包一步步聊出来。"
+			? "先介绍账号定位，再说一个模糊方向；模板只会载入输入框，改完后再交给 Agent。"
 			: copy.editor.chat.emptyBody;
 
 	return (
@@ -1780,6 +1774,11 @@ function AgentEmptyState({
 				<p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
 					{emptyBody}
 				</p>
+				{workbench === "topic" ? (
+					<div className="mt-3 flex justify-center">
+						<CreatorProfileDialogTrigger label="全局用户画像" />
+					</div>
+				) : null}
 			</div>
 
 			{workbench === "video" && !hasMedia && (

@@ -110,6 +110,7 @@ export interface TopicWorkbenchAgentEvent {
 		| "candidate-select"
 		| "candidate-edit"
 		| "candidate-confirm"
+		| "handoff-video"
 		| "stage-forward"
 		| "stage-reset";
 }

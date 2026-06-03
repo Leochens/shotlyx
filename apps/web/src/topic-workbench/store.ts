@@ -21,7 +21,9 @@ import {
 	type VideoStructureOptionDraft,
 } from "./model";
 import type {
+	ScriptSegment,
 	TopicCandidate,
+	TopicPackageVersion,
 	TopicStage,
 	TopicWorkbenchAgentEvent,
 	TopicProject,
@@ -32,6 +34,7 @@ interface PersistedTopicWorkbenchState {
 	activeWorkbench: WorkbenchMode;
 	activeEditorProjectId: string;
 	activeTopicProjectIdByEditorProject: Record<string, string>;
+	creatorProfile: string;
 	topicProjects: TopicProject[];
 }
 
@@ -40,7 +43,12 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 	pendingAgentEvent: TopicWorkbenchAgentEvent | null;
 	setIsHydrated: ({ isHydrated }: { isHydrated: boolean }) => void;
 	setActiveWorkbench: ({ mode }: { mode: WorkbenchMode }) => void;
-	setActiveEditorProject: ({ editorProjectId }: { editorProjectId: string }) => void;
+	setActiveEditorProject: ({
+		editorProjectId,
+	}: {
+		editorProjectId: string;
+	}) => void;
+	setCreatorProfile: ({ profile }: { profile: string }) => void;
 	getActiveTopicProject: () => TopicProject | null;
 	recordPrompt: ({
 		editorProjectId,
@@ -90,6 +98,27 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 	selectStructure: ({ structureId }: { structureId: string }) => void;
 	createPackageVersion: () => void;
 	setActivePackageVersion: ({ versionId }: { versionId: string }) => void;
+	updatePackageVersion: ({
+		versionId,
+		patch,
+	}: {
+		versionId?: string;
+		patch: Partial<
+			Pick<
+				TopicPackageVersion,
+				"title" | "summary" | "coreViewpoint" | "audienceAnalysis" | "rationale"
+			>
+		>;
+	}) => void;
+	updateScriptSegment: ({
+		versionId,
+		segmentIndex,
+		patch,
+	}: {
+		versionId?: string;
+		segmentIndex: number;
+		patch: Partial<ScriptSegment>;
+	}) => void;
 	emitAgentEvent: ({
 		editorProjectId,
 		content,
@@ -139,7 +168,10 @@ function createAgentEvent({
 	content,
 	autoRun,
 	source,
-}: Omit<TopicWorkbenchAgentEvent, "id" | "createdAt">): TopicWorkbenchAgentEvent {
+}: Omit<
+	TopicWorkbenchAgentEvent,
+	"id" | "createdAt"
+>): TopicWorkbenchAgentEvent {
 	return {
 		id: `topic-event-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
 		editorProjectId,
@@ -156,6 +188,7 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 			activeWorkbench: "video",
 			activeEditorProjectId: DEFAULT_EDITOR_PROJECT_ID,
 			activeTopicProjectIdByEditorProject: {},
+			creatorProfile: "",
 			topicProjects: [],
 			isHydrated: typeof window === "undefined",
 			pendingAgentEvent: null,
@@ -166,14 +199,19 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 				set({
 					activeEditorProjectId: editorProjectId || DEFAULT_EDITOR_PROJECT_ID,
 				}),
+			setCreatorProfile: ({ profile }) =>
+				set({ creatorProfile: profile.trim() }),
 
 			getActiveTopicProject: () => {
 				const state = get();
 				const projectId =
-					state.activeTopicProjectIdByEditorProject[state.activeEditorProjectId];
+					state.activeTopicProjectIdByEditorProject[
+						state.activeEditorProjectId
+					];
 				if (!projectId) return null;
 				return (
-					state.topicProjects.find((project) => project.id === projectId) ?? null
+					state.topicProjects.find((project) => project.id === projectId) ??
+					null
 				);
 			},
 
@@ -217,7 +255,10 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 			},
 
 			createTopicProject: ({ editorProjectId, prompt }) => {
-				const project = createTopicProjectFromPrompt({ editorProjectId, prompt });
+				const project = createTopicProjectFromPrompt({
+					editorProjectId,
+					prompt,
+				});
 				set((state) => ({
 					activeWorkbench: "topic",
 					activeEditorProjectId: editorProjectId || DEFAULT_EDITOR_PROJECT_ID,
@@ -419,6 +460,60 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 					}),
 				),
 
+			updatePackageVersion: ({ versionId, patch }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) => {
+							const targetVersionId =
+								versionId ??
+								project.activePackageVersionId ??
+								project.packageVersions.at(-1)?.id;
+							if (!targetVersionId) return project;
+							return {
+								...project,
+								packageVersions: project.packageVersions.map((version) =>
+									version.id === targetVersionId
+										? { ...version, ...patch }
+										: version,
+								),
+								updatedAt: Date.now(),
+							};
+						},
+					}),
+				),
+
+			updateScriptSegment: ({ versionId, segmentIndex, patch }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) => {
+							const targetVersionId =
+								versionId ??
+								project.activePackageVersionId ??
+								project.packageVersions.at(-1)?.id;
+							if (!targetVersionId || segmentIndex < 0) return project;
+							return {
+								...project,
+								packageVersions: project.packageVersions.map((version) =>
+									version.id === targetVersionId
+										? {
+												...version,
+												scriptSegments: version.scriptSegments.map(
+													(segment, index) =>
+														index === segmentIndex
+															? { ...segment, ...patch }
+															: segment,
+												),
+											}
+										: version,
+								),
+								updatedAt: Date.now(),
+							};
+						},
+					}),
+				),
+
 			emitAgentEvent: ({ editorProjectId, content, autoRun, source }) =>
 				set({
 					pendingAgentEvent: createAgentEvent({
@@ -448,6 +543,7 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 				activeEditorProjectId: state.activeEditorProjectId,
 				activeTopicProjectIdByEditorProject:
 					state.activeTopicProjectIdByEditorProject,
+				creatorProfile: state.creatorProfile,
 				topicProjects: state.topicProjects,
 			}),
 		},
