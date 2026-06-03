@@ -29,4 +29,11 @@ describe("topic workbench UI contract", () => {
 		expect(topicWorkbenchSource).toContain("查看依据");
 		expect(topicWorkbenchSource).toContain('toolName: "topic_reset_to_stage"');
 	});
+
+	test("auto-scrolls the right-side workbench to the active stage section", () => {
+		expect(topicWorkbenchSource).toContain("stageSectionRefs");
+		expect(topicWorkbenchSource).toContain("scrollIntoView");
+		expect(topicWorkbenchSource).toContain("researchInsights");
+		expect(topicWorkbenchSource).toContain("知识脉络");
+	});
 });

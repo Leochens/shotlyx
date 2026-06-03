@@ -18,6 +18,7 @@ import {
 	selectStructure,
 	updateCandidate,
 	type ProductionPlanDraft,
+	type ResearchInsightDraft,
 	type ResearchSourceDraft,
 	type TopicCandidateDraft,
 	type VideoStructureOptionDraft,
@@ -77,8 +78,10 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 	}) => TopicProject | null;
 	applyResearchSources: ({
 		sources,
+		insights,
 	}: {
 		sources: ResearchSourceDraft[];
+		insights?: ResearchInsightDraft[];
 	}) => TopicProject | null;
 	applyStructureOptions: ({
 		structures,
@@ -330,13 +333,17 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 				return nextProject;
 			},
 
-			applyResearchSources: ({ sources }) => {
+			applyResearchSources: ({ sources, insights }) => {
 				let nextProject: TopicProject | null = null;
 				set((state) =>
 					updateActiveProject({
 						state,
 						updater: (project) => {
-							nextProject = applyResearchSources({ project, sources });
+							nextProject = applyResearchSources({
+								project,
+								sources,
+								insights,
+							});
 							return nextProject;
 						},
 					}),

@@ -3,6 +3,7 @@ import type {
 	ProductionPlan,
 	ProductionPlanAssetType,
 	ProductionPlanVideoType,
+	ResearchInsight,
 	ResearchPlatform,
 	ResearchSource,
 	ScriptSegment,
@@ -45,6 +46,14 @@ export interface ResearchSourceDraft {
 	angle?: string;
 	whyRelevant?: string;
 	confidence?: ResearchSource["confidence"];
+}
+
+export interface ResearchInsightDraft {
+	title?: string;
+	content: string;
+	sourceIndexes?: number[];
+	sourceUrls?: string[];
+	sourceTitles?: string[];
 }
 
 export interface VideoStructureOptionDraft {
@@ -422,6 +431,7 @@ export function replaceTopicCandidates({
 		}),
 		selectedCandidateId: null,
 		researchSources: [],
+		researchInsights: [],
 		structures: [],
 		selectedStructureId: null,
 		activePackageVersionId: null,
@@ -434,13 +444,88 @@ export function replaceTopicCandidates({
 	};
 }
 
+function resolveInsightSourceIds({
+	draft,
+	sources,
+}: {
+	draft: ResearchInsightDraft;
+	sources: ResearchSource[];
+}): string[] {
+	const sourceIds = new Set<string>();
+	const addSource = (source?: ResearchSource) => {
+		if (source) sourceIds.add(source.id);
+	};
+
+	for (const rawIndex of draft.sourceIndexes ?? []) {
+		if (!Number.isFinite(rawIndex)) continue;
+		const index = Math.trunc(rawIndex);
+		addSource(sources[index > 0 ? index - 1 : index]);
+	}
+
+	for (const url of draft.sourceUrls ?? []) {
+		const normalizedUrl = url.trim();
+		if (!normalizedUrl) continue;
+		addSource(sources.find((source) => source.url === normalizedUrl));
+	}
+
+	for (const title of draft.sourceTitles ?? []) {
+		const normalizedTitle = title.trim();
+		if (!normalizedTitle) continue;
+		addSource(
+			sources.find(
+				(source) =>
+					source.title === normalizedTitle ||
+					source.title.includes(normalizedTitle),
+			),
+		);
+	}
+
+	return [...sourceIds];
+}
+
+function createResearchInsightsFromDrafts({
+	insights,
+	sources,
+}: {
+	insights?: ResearchInsightDraft[];
+	sources: ResearchSource[];
+}): ResearchInsight[] {
+	const parsedInsights = (insights ?? []).slice(0, 10).flatMap((insight) => {
+		const content = insight.content?.trim();
+		if (!content) return [];
+		return [
+			{
+				id: createId("insight"),
+				title:
+					insight.title?.trim() ||
+					`知识点 ${Math.min((insights ?? []).indexOf(insight) + 1, 10)}`,
+				content,
+				sourceIds: resolveInsightSourceIds({ draft: insight, sources }),
+			},
+		];
+	});
+	if (parsedInsights.length > 0) return parsedInsights;
+
+	return sources.slice(0, 8).map((source) => ({
+		id: createId("insight"),
+		title: source.angle || source.title,
+		content:
+			source.whyRelevant ||
+			source.angle ||
+			"这条资料可作为当前选题调研和事实核查的参考。",
+		sourceIds: [source.id],
+	}));
+}
+
 export function applyResearchSources({
 	project,
 	sources,
+	insights,
 	now = Date.now(),
 }: {
 	project: TopicProject;
 	sources: ResearchSourceDraft[];
+	insights?: ResearchInsightDraft[];
 	now?: number;
 }): TopicProject {
 	const researchSources = sources.slice(0, 12).map((source) => ({
@@ -454,12 +539,17 @@ export function applyResearchSources({
 			source.whyRelevant ?? "用于判断同题内容、灵感来源和差异化切口。",
 		confidence: source.confidence ?? "medium",
 	}));
+	const researchInsights = createResearchInsightsFromDrafts({
+		insights,
+		sources: researchSources,
+	});
 
 	return {
 		...project,
 		stage: "research",
 		status: "active",
 		researchSources,
+		researchInsights,
 		structures: [],
 		selectedStructureId: null,
 		activePackageVersionId: null,
@@ -553,6 +643,7 @@ export function resetTopicProjectToStage({
 			stage: "research",
 			status: "active",
 			researchSources: [],
+			researchInsights: [],
 			structures: [],
 			selectedStructureId: null,
 			activePackageVersionId: null,
@@ -568,6 +659,7 @@ export function resetTopicProjectToStage({
 		candidates: [],
 		selectedCandidateId: null,
 		researchSources: [],
+		researchInsights: [],
 		structures: [],
 		selectedStructureId: null,
 		activePackageVersionId: null,
@@ -600,6 +692,7 @@ export function createTopicProjectFromPrompt({
 		candidates,
 		selectedCandidateId: null,
 		researchSources: [],
+		researchInsights: [],
 		structures: [],
 		selectedStructureId: null,
 		packageVersions: [],
@@ -646,6 +739,7 @@ export function mergePromptIntoProject({
 		}),
 		selectedCandidateId: null,
 		researchSources: [],
+		researchInsights: [],
 		structures: [],
 		selectedStructureId: null,
 		activePackageVersionId: null,
@@ -687,6 +781,7 @@ export function mergeAssistantTopicOutputIntoProject({
 					}),
 		selectedCandidateId: null,
 		researchSources: [],
+		researchInsights: [],
 		structures: [],
 		selectedStructureId: null,
 		activePackageVersionId: null,
@@ -764,6 +859,7 @@ export function confirmSelectedCandidate({
 			updatedAt: candidate.id === selected.id ? now : candidate.updatedAt,
 		})),
 		researchSources: [],
+		researchInsights: [],
 		structures: [],
 		selectedStructureId: null,
 		activePackageVersionId: null,

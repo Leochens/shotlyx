@@ -43,6 +43,13 @@ export interface ResearchSource {
 	confidence: "high" | "medium" | "low";
 }
 
+export interface ResearchInsight {
+	id: string;
+	title: string;
+	content: string;
+	sourceIds: string[];
+}
+
 export interface VideoStructureStep {
 	label: string;
 	description: string;
@@ -145,6 +152,7 @@ export interface TopicProject {
 	candidates: TopicCandidate[];
 	selectedCandidateId: string | null;
 	researchSources: ResearchSource[];
+	researchInsights: ResearchInsight[];
 	structures: VideoStructureOption[];
 	selectedStructureId: string | null;
 	packageVersions: TopicPackageVersion[];

@@ -50,6 +50,8 @@ import {
 } from "./mg-template-picker";
 import type { ExecutionMode } from "./types";
 
+export type RunningSubmitMode = "queue" | "guide";
+
 interface BottomToolbarProps {
 	input: string;
 	selectedAgent: string;
@@ -57,8 +59,10 @@ interface BottomToolbarProps {
 	executionMode?: ExecutionMode;
 	disabled?: boolean;
 	placeholder?: string;
+	runningSubmitMode?: RunningSubmitMode;
 	onAgentChange?: (agent: string) => void;
 	onExecutionModeChange?: (mode: ExecutionMode) => void;
+	onRunningSubmitModeChange?: (mode: RunningSubmitMode) => void;
 	onInputChange: (input: string) => void;
 	onSubmit: () => void;
 	onMediaSubmit?: (prompt: string) => void;
@@ -119,8 +123,10 @@ export function BottomToolbar({
 	executionMode = "auto",
 	disabled,
 	placeholder,
+	runningSubmitMode = "queue",
 	onAgentChange = () => {},
 	onExecutionModeChange = () => {},
+	onRunningSubmitModeChange = () => {},
 	onInputChange,
 	onSubmit,
 	onMediaSubmit,
@@ -182,7 +188,7 @@ export function BottomToolbar({
 	);
 
 	const handleSubmit = () => {
-		if (!input.trim() || disabled) return;
+		if (!input.trim()) return;
 		onSubmit();
 	};
 
@@ -545,6 +551,35 @@ export function BottomToolbar({
 					className="scrollbar-thin max-h-16 overflow-y-auto px-1 pb-1"
 				/>
 
+				{disabled ? (
+					<div
+						data-testid="running-submit-mode-controls"
+						className="mb-1 flex items-center justify-between gap-2 rounded-sm border border-border/70 bg-muted/[0.18] px-2 py-1.5"
+					>
+						<span className="text-xs text-muted-foreground">
+							Agent 运行中，补充输入将按所选方式处理
+						</span>
+						<div className="flex shrink-0 items-center gap-1">
+							{(["queue", "guide"] as const).map((mode) => (
+								<button
+									key={mode}
+									type="button"
+									onClick={() => onRunningSubmitModeChange(mode)}
+									className={cn(
+										"h-7 rounded-sm px-2 text-xs font-medium transition-colors",
+										runningSubmitMode === mode
+											? "bg-primary text-primary-foreground"
+											: "text-muted-foreground hover:bg-accent hover:text-foreground",
+									)}
+									aria-pressed={runningSubmitMode === mode}
+								>
+									{mode === "queue" ? "排队" : "引导"}
+								</button>
+							))}
+						</div>
+					</div>
+				) : null}
+
 				<div className="flex items-center gap-1 pt-1">
 					<Popover open={referenceOpen} onOpenChange={setReferenceOpen}>
 						<PopoverTrigger asChild>
@@ -592,16 +627,36 @@ export function BottomToolbar({
 					</Button>
 
 					{disabled ? (
-						<Button
-							type="button"
-							data-testid="chat-stop-button"
-							onClick={onStop}
-							className="size-10 rounded-sm bg-destructive p-0 text-destructive-foreground hover:bg-destructive/90"
-							aria-label={toolbarCopy.stop}
-							title={toolbarCopy.stopTitle}
-						>
-							<Square size={15} fill="currentColor" />
-						</Button>
+						<>
+							<Button
+								type="button"
+								data-testid="chat-stop-button"
+								onClick={onStop}
+								className="size-10 rounded-sm bg-destructive p-0 text-destructive-foreground hover:bg-destructive/90"
+								aria-label={toolbarCopy.stop}
+								title={toolbarCopy.stopTitle}
+							>
+								<Square size={15} fill="currentColor" />
+							</Button>
+							<Button
+								type="submit"
+								data-testid="chat-send-button"
+								disabled={!input.trim()}
+								className="size-10 rounded-sm bg-primary p-0 text-primary-foreground hover:bg-primary/90"
+								aria-label={
+									runningSubmitMode === "guide"
+										? "引导当前 Agent"
+										: "排队追加问题"
+								}
+								title={
+									runningSubmitMode === "guide"
+										? "中断当前回答并优先发送这条引导"
+										: "当前 Agent 结束后自动发送"
+								}
+							>
+								<Send size={18} />
+							</Button>
+						</>
 					) : (
 						<Button
 							type="submit"

@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import {
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	type ReactNode,
+	type Ref,
+} from "react";
 import {
 	ArrowRight,
 	BookOpenText,
@@ -36,6 +43,7 @@ import { useTopicWorkbenchStore } from "./store";
 import { executeTopicWorkbenchTool } from "./tools";
 import type {
 	ProductionPlan,
+	ResearchInsight,
 	ResearchPlatform,
 	TopicCandidate,
 	TopicPackageVersion,
@@ -181,6 +189,20 @@ function getActiveProductionPlan(project: TopicProject): ProductionPlan | null {
 	);
 }
 
+function getResearchInsights(project: TopicProject): ResearchInsight[] {
+	const insights = project.researchInsights ?? [];
+	if (insights.length > 0) return insights;
+	return project.researchSources.map((source) => ({
+		id: `derived-${source.id}`,
+		title: source.angle || source.title,
+		content:
+			source.whyRelevant ||
+			source.angle ||
+			"这条资料可作为当前选题调研和事实核查的参考。",
+		sourceIds: [source.id],
+	}));
+}
+
 function getStageLabel(stage: TopicStage): string {
 	return STAGES.find((item) => item.stage === stage)?.label ?? "选题";
 }
@@ -226,7 +248,7 @@ function buildStageForwardTask({
 		: `当前选题方向：「${project.title}」。`;
 
 	if (stage === "research") {
-		return `${topicText}\n请进入调研阶段：搜索 B 站、YouTube 和网页资料，判断是否有人做同类选题、他们的灵感来源和差异化空位。完成后调用 topic_set_research 写入右侧选题工作台。`;
+		return `${topicText}\n请进入调研阶段：搜索 B 站、YouTube 和网页资料，判断是否有人做同类选题、他们的灵感来源和差异化空位。请同时总结 3-6 段可直接参考的知识点，每段绑定引用来源。完成后调用 topic_set_research，用 sources 写来源链接，用 insights 写知识脉络段落。`;
 	}
 	if (stage === "structure") {
 		return `${topicText}\n请进入结构设计阶段：基于当前选题和已有资料，生成 2-4 个视频结构模板。完成后调用 topic_set_structures 写入右侧选题工作台。`;
@@ -255,7 +277,7 @@ function buildStageResetTask({
 	}
 	if (stage === "research") {
 		const selected = getSelectedCandidate(project);
-		return `我已经在右侧工作台确认要重新调研。当前选题是「${selected?.title ?? project.title}」。请重新搜索同题内容和资料来源，并调用 topic_set_research 写入右侧选题工作台。`;
+		return `我已经在右侧工作台确认要重新调研。当前选题是「${selected?.title ?? project.title}」。请重新搜索同题内容和资料来源，输出 3-6 段知识脉络并绑定引用来源，然后调用 topic_set_research 写入 sources 和 insights。`;
 	}
 	if (stage === "structure") {
 		const selected = getSelectedCandidate(project);
@@ -288,6 +310,9 @@ function buildVideoProductionHandoffPrompt({
 	const referenceText = project.researchSources
 		.map((source) => `${source.sourceName}｜${source.title}｜${source.url}`)
 		.join("\n");
+	const insightText = getResearchInsights(project)
+		.map((insight, index) => `${index + 1}. ${insight.title}：${insight.content}`)
+		.join("\n");
 	const productionPlanText = productionPlan
 		? `\n制作计划：\n视频类型：${productionPlan.videoType}\n目标平台：${productionPlan.targetPlatform.join("、")}\n预估时长：${productionPlan.estimatedDurationMinutes} 分钟\n素材需求：${productionPlan.requiredAssets.map((asset) => `${asset.optional ? "可选" : "必需"} ${asset.type}：${asset.description}`).join("\n")}\n制作分段：\n${productionPlan.segments.map((segment, index) => `${index + 1}. ${segment.timeRange}｜${segment.goal}｜视觉：${segment.visualNeed}｜剪辑：${segment.editSuggestion}`).join("\n")}`
 		: "";
@@ -314,7 +339,10 @@ ${platformText}
 ${topicPackage.coverIdeas.join("\n")}
 
 参考资料：
-${referenceText || "暂无资料，请先根据选题包做占位制作规划。"}${productionPlanText}`;
+${referenceText || "暂无资料，请先根据选题包做占位制作规划。"}
+
+调研知识脉络：
+${insightText || "暂无知识脉络，请先根据选题包做占位制作规划。"}${productionPlanText}`;
 }
 
 export function TopicWorkbench({
@@ -328,6 +356,23 @@ export function TopicWorkbench({
 	const [pendingResetStage, setPendingResetStage] = useState<TopicStage | null>(
 		null,
 	);
+	const ideationSectionRef = useRef<HTMLElement | null>(null);
+	const researchSectionRef = useRef<HTMLElement | null>(null);
+	const structureSectionRef = useRef<HTMLElement | null>(null);
+	const packageSectionRef = useRef<HTMLElement | null>(null);
+	const productionSectionRef = useRef<HTMLElement | null>(null);
+	const timelineSectionRef = useRef<HTMLElement | null>(null);
+	const stageSectionRefs = useMemo(
+		() => ({
+			ideation: ideationSectionRef,
+			research: researchSectionRef,
+			structure: structureSectionRef,
+			package: packageSectionRef,
+			production: productionSectionRef,
+			timeline: timelineSectionRef,
+		}),
+		[],
+	);
 	const setActiveEditorProject = useTopicWorkbenchStore(
 		(state) => state.setActiveEditorProject,
 	);
@@ -338,6 +383,18 @@ export function TopicWorkbench({
 	useEffect(() => {
 		setActiveEditorProject({ editorProjectId });
 	}, [editorProjectId, setActiveEditorProject]);
+
+	useEffect(() => {
+		if (!activeProject) return;
+		const stage =
+			activeProject.stage === "timeline" ? "production" : activeProject.stage;
+		const section = stageSectionRefs[stage].current;
+		if (!section) return;
+		const frameId = requestAnimationFrame(() => {
+			section.scrollIntoView({ behavior: "smooth", block: "start" });
+		});
+		return () => cancelAnimationFrame(frameId);
+	}, [activeProject, stageSectionRefs]);
 
 	if (!activeProject) {
 		return (
@@ -394,11 +451,24 @@ export function TopicWorkbench({
 					<CandidatesSection
 						project={activeProject}
 						onRequestStageReset={(stage) => setPendingResetStage(stage)}
+						sectionRef={ideationSectionRef}
 					/>
-					<ResearchSection project={activeProject} />
-					<StructureSection project={activeProject} />
-					<PackageSection project={activeProject} />
-					<ProductionPlanSection project={activeProject} />
+					<ResearchSection
+						project={activeProject}
+						sectionRef={researchSectionRef}
+					/>
+					<StructureSection
+						project={activeProject}
+						sectionRef={structureSectionRef}
+					/>
+					<PackageSection
+						project={activeProject}
+						sectionRef={packageSectionRef}
+					/>
+					<ProductionPlanSection
+						project={activeProject}
+						sectionRef={productionSectionRef}
+					/>
 				</div>
 			</div>
 			<StageResetDialog
@@ -615,9 +685,11 @@ function StageProgress({
 function CandidatesSection({
 	project,
 	onRequestStageReset,
+	sectionRef,
 }: {
 	project: TopicProject;
 	onRequestStageReset: (stage: TopicStage) => void;
+	sectionRef?: Ref<HTMLElement>;
 }) {
 	const emitAgentEvent = useTopicWorkbenchStore(
 		(state) => state.emitAgentEvent,
@@ -654,7 +726,7 @@ function CandidatesSection({
 			editorProjectId: project.editorProjectId,
 			source: "candidate-confirm",
 			autoRun: true,
-			content: `我已经在右侧确认选题「${selectedCandidate.title}」。请搜索 B 站、YouTube 和网页资料，判断是否有人做同类选题、他们的灵感来源和差异化空位。完成后调用 topic_set_research 写入右侧选题工作台。`,
+			content: `我已经在右侧确认选题「${selectedCandidate.title}」。请搜索 B 站、YouTube 和网页资料，判断是否有人做同类选题、他们的灵感来源和差异化空位。请总结 3-6 段可直接参考的知识脉络，每段绑定引用来源。完成后调用 topic_set_research，用 sources 写来源链接，用 insights 写知识点段落。`,
 		});
 	};
 
@@ -662,14 +734,17 @@ function CandidatesSection({
 		if (!canInteract) return;
 		emitAgentEvent({
 			editorProjectId: project.editorProjectId,
-			source: "candidate-adjust",
+			source: "candidate-edit",
 			autoRun: false,
 			content: `请基于候选选题「${candidate.title}」做一版调整。当前摘要：${candidate.summary}。当前核心观点：${candidate.coreViewpoint}。请先和我确认调整方向，完成后调用 topic_set_candidates 刷新右侧候选方案。`,
 		});
 	};
 
 	return (
-		<section className="rounded-sm border border-border/75 bg-background p-3">
+		<section
+			ref={sectionRef}
+			className="rounded-sm border border-border/75 bg-background p-3"
+		>
 			<SectionHeading
 				icon={Lightbulb}
 				title="候选选题"
@@ -873,12 +948,22 @@ function CandidateCard({
 	);
 }
 
-function ResearchSection({ project }: { project: TopicProject }) {
+function ResearchSection({
+	project,
+	sectionRef,
+}: {
+	project: TopicProject;
+	sectionRef?: Ref<HTMLElement>;
+}) {
 	const emitAgentEvent = useTopicWorkbenchStore(
 		(state) => state.emitAgentEvent,
 	);
 	const hasSelection = project.selectedCandidateId !== null;
 	const hasResearchSources = project.researchSources.length > 0;
+	const researchInsights = getResearchInsights(project);
+	const sourceById = new Map(
+		project.researchSources.map((source) => [source.id, source]),
+	);
 	const canShow =
 		project.stage !== "ideation" || project.researchSources.length > 0;
 	const selectedCandidate = getSelectedCandidate(project);
@@ -886,7 +971,10 @@ function ResearchSection({ project }: { project: TopicProject }) {
 	if (!canShow) return null;
 
 	return (
-		<section className="rounded-sm border border-border/75 bg-background p-3">
+		<section
+			ref={sectionRef}
+			className="rounded-sm border border-border/75 bg-background p-3"
+		>
 			<SectionHeading
 				icon={Radar}
 				title="同题雷达与资料汇总"
@@ -901,7 +989,7 @@ function ResearchSection({ project }: { project: TopicProject }) {
 								editorProjectId: project.editorProjectId,
 								source: "stage-forward",
 								autoRun: true,
-								content: `请重新调研当前选题「${selectedCandidate?.title ?? project.title}」。重点搜索 B 站、YouTube 和网页资料，判断同类选题、灵感来源和差异化空位，并调用 topic_set_research 写入右侧工作台。`,
+								content: `请重新调研当前选题「${selectedCandidate?.title ?? project.title}」。重点搜索 B 站、YouTube 和网页资料，判断同类选题、灵感来源和差异化空位。请输出 3-6 段知识脉络并绑定引用来源，然后调用 topic_set_research 写入 sources 和 insights。`,
 							})
 						}
 					>
@@ -910,42 +998,112 @@ function ResearchSection({ project }: { project: TopicProject }) {
 					</Button>
 				}
 			/>
-			<div className="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(13rem,1fr))]">
+			<div className="mt-3 space-y-3">
 				{project.researchSources.length === 0 ? (
-					<div className="col-span-full rounded-sm border border-dashed border-border/75 bg-muted/[0.18] p-4 text-sm leading-6 text-muted-foreground">
+					<div className="rounded-sm border border-dashed border-border/75 bg-muted/[0.18] p-4 text-sm leading-6 text-muted-foreground">
 						等待 Agent 检索 B 站、YouTube 和网页资料后写入这里。
 					</div>
 				) : null}
-				{project.researchSources.map((source) => (
-					<a
-						key={source.id}
-						href={source.url}
-						target="_blank"
-						rel="noreferrer"
-						className="rounded-sm border border-border/75 bg-muted/[0.22] p-3 transition-colors hover:border-primary/30 hover:bg-accent"
-					>
-						<div className="flex items-center justify-between gap-2">
-							<span
-								className={cn(
-									"rounded-sm border px-1.5 py-0.5 text-[0.68rem] font-semibold",
-									RESEARCH_PLATFORM_CLASS_NAMES[source.platform],
-								)}
-							>
-								{RESEARCH_PLATFORM_LABELS[source.platform]}
-							</span>
-							<ExternalLink size={13} className="text-muted-foreground" />
+				{researchInsights.length > 0 ? (
+					<div className="rounded-sm border border-border/75 bg-muted/[0.18] p-3">
+						<div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+							<BookOpenText size={15} />
+							知识脉络
 						</div>
-						<div className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-foreground">
-							{source.title}
+						<div className="mt-3 space-y-3">
+							{researchInsights.map((insight, index) => {
+								const citedSources = insight.sourceIds
+									.map((sourceId) => sourceById.get(sourceId))
+									.filter((source): source is NonNullable<typeof source> =>
+										Boolean(source),
+									);
+								return (
+									<article
+										key={insight.id}
+										className="rounded-sm border border-border/70 bg-background px-3 py-3"
+									>
+										<div className="flex items-start gap-2">
+											<span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-sm bg-muted text-[0.68rem] font-semibold text-muted-foreground">
+												{index + 1}
+											</span>
+											<div className="min-w-0">
+												<h3 className="text-sm font-semibold leading-5 text-foreground">
+													{insight.title}
+												</h3>
+												<p className="mt-1 whitespace-pre-line text-sm leading-6 text-muted-foreground">
+													{insight.content}
+												</p>
+												{citedSources.length > 0 ? (
+													<div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+														<span className="font-medium text-foreground">
+															引用
+														</span>
+														{citedSources.map((source) => (
+															<a
+																key={source.id}
+																href={source.url}
+																target="_blank"
+																rel="noreferrer"
+																className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border/70 bg-muted/[0.2] px-2 py-1 text-muted-foreground transition-colors hover:border-primary/35 hover:text-foreground"
+															>
+																<span className="truncate">
+																	{source.sourceName || source.title}
+																</span>
+																<ExternalLink size={12} />
+															</a>
+														))}
+													</div>
+												) : null}
+											</div>
+										</div>
+									</article>
+								);
+							})}
 						</div>
-						<p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">
-							{source.angle}
-						</p>
-						<p className="mt-2 text-xs leading-5 text-muted-foreground">
-							{source.whyRelevant}
-						</p>
-					</a>
-				))}
+					</div>
+				) : null}
+				{project.researchSources.length > 0 ? (
+					<div className="rounded-sm border border-border/75 bg-muted/[0.14] p-3">
+						<div className="text-sm font-semibold text-foreground">
+							引用资料
+						</div>
+						<div className="mt-2 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(13rem,1fr))]">
+							{project.researchSources.map((source) => (
+								<a
+									key={source.id}
+									href={source.url}
+									target="_blank"
+									rel="noreferrer"
+									className="rounded-sm border border-border/75 bg-background p-3 transition-colors hover:border-primary/30 hover:bg-accent"
+								>
+									<div className="flex items-center justify-between gap-2">
+										<span
+											className={cn(
+												"rounded-sm border px-1.5 py-0.5 text-[0.68rem] font-semibold",
+												RESEARCH_PLATFORM_CLASS_NAMES[source.platform],
+											)}
+										>
+											{RESEARCH_PLATFORM_LABELS[source.platform]}
+										</span>
+										<ExternalLink
+											size={13}
+											className="text-muted-foreground"
+										/>
+									</div>
+									<div className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-foreground">
+										{source.title}
+									</div>
+									<p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">
+										{source.angle}
+									</p>
+									<p className="mt-2 text-xs leading-5 text-muted-foreground">
+										{source.whyRelevant}
+									</p>
+								</a>
+							))}
+						</div>
+					</div>
+				) : null}
 			</div>
 			<div className="mt-3 flex justify-end">
 				<Button
@@ -968,7 +1126,13 @@ function ResearchSection({ project }: { project: TopicProject }) {
 	);
 }
 
-function StructureSection({ project }: { project: TopicProject }) {
+function StructureSection({
+	project,
+	sectionRef,
+}: {
+	project: TopicProject;
+	sectionRef?: Ref<HTMLElement>;
+}) {
 	const [isPackageConfirmOpen, setPackageConfirmOpen] = useState(false);
 	const selectStructureAction = useTopicWorkbenchStore(
 		(state) => state.selectStructure,
@@ -980,7 +1144,10 @@ function StructureSection({ project }: { project: TopicProject }) {
 	if (project.stage === "ideation" || project.stage === "research") return null;
 
 	return (
-		<section className="rounded-sm border border-border/75 bg-background p-3">
+		<section
+			ref={sectionRef}
+			className="rounded-sm border border-border/75 bg-background p-3"
+		>
 			<SectionHeading
 				icon={LayoutTemplate}
 				title="视频结构模板"
@@ -1102,7 +1269,13 @@ function StructureCard({
 	);
 }
 
-function PackageSection({ project }: { project: TopicProject }) {
+function PackageSection({
+	project,
+	sectionRef,
+}: {
+	project: TopicProject;
+	sectionRef?: Ref<HTMLElement>;
+}) {
 	const activePackage = getActivePackage(project);
 	if (!activePackage) return null;
 	const activeProductionPlan = getActiveProductionPlan(project);
@@ -1116,7 +1289,10 @@ function PackageSection({ project }: { project: TopicProject }) {
 	};
 
 	return (
-		<section className="rounded-sm border border-border/75 bg-background p-3">
+		<section
+			ref={sectionRef}
+			className="rounded-sm border border-border/75 bg-background p-3"
+		>
 			<SectionHeading
 				icon={BookOpenText}
 				title="完整选题包"
@@ -1233,7 +1409,13 @@ function PackageSection({ project }: { project: TopicProject }) {
 	);
 }
 
-function ProductionPlanSection({ project }: { project: TopicProject }) {
+function ProductionPlanSection({
+	project,
+	sectionRef,
+}: {
+	project: TopicProject;
+	sectionRef?: Ref<HTMLElement>;
+}) {
 	const activePackage = getActivePackage(project);
 	const activeProductionPlan = getActiveProductionPlan(project);
 	const setActiveWorkbench = useTopicWorkbenchStore(
@@ -1259,7 +1441,10 @@ function ProductionPlanSection({ project }: { project: TopicProject }) {
 	};
 
 	return (
-		<section className="rounded-sm border border-border/75 bg-background p-3">
+		<section
+			ref={sectionRef}
+			className="rounded-sm border border-border/75 bg-background p-3"
+		>
 			<SectionHeading
 				icon={Clapperboard}
 				title="视频制作计划"

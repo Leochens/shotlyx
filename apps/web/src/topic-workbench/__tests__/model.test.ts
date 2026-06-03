@@ -255,6 +255,53 @@ describe("topic workbench model", () => {
 		expect(reset.structures).toHaveLength(0);
 	});
 
+	test("stores research insight paragraphs with cited sources", () => {
+		const project = createTopicProjectFromPrompt({
+			editorProjectId: "project-1",
+			prompt: "AI Agent 内容生产",
+			now: 1_000,
+		});
+
+		const researched = applyResearchSources({
+			project,
+			sources: [
+				{
+					platform: "youtube",
+					title: "YouTube 同题参考",
+					url: "https://www.youtube.com/results?search_query=ai-agent",
+					angle: "同题内容集中在工具演示。",
+					whyRelevant: "帮助判断差异化切口。",
+				},
+				{
+					platform: "official",
+					title: "产品官方文档",
+					url: "https://example.com/docs",
+					angle: "确认官方功能边界。",
+					whyRelevant: "避免脚本里夸大能力。",
+				},
+			],
+			insights: [
+				{
+					title: "同题内容的缺口",
+					content:
+						"现有内容大多停留在工具演示，缺少把 Agent 放进创作者真实工作流后的复盘。",
+					sourceIndexes: [1, 2],
+				},
+			],
+			now: 2_000,
+		});
+
+		expect(researched.researchInsights).toHaveLength(1);
+		expect(researched.researchInsights[0]?.title).toBe("同题内容的缺口");
+		expect(researched.researchInsights[0]?.content).toContain(
+			"创作者真实工作流",
+		);
+		expect(researched.researchInsights[0]?.sourceIds).toEqual([
+			researched.researchSources[0]?.id,
+			researched.researchSources[1]?.id,
+		]);
+	});
+
 	test("creates a production plan from the active topic package", () => {
 		const project = createTopicProjectFromPrompt({
 			editorProjectId: "project-1",

@@ -155,6 +155,47 @@ describe("topic workbench tools", () => {
 		);
 	});
 
+	test("writes research insights alongside source links", () => {
+		writeCandidates();
+		executeTopicWorkbenchTool({
+			toolName: "topic_select_candidate",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: { candidateIndex: 1 },
+		});
+
+		const result = executeTopicWorkbenchTool({
+			toolName: "topic_set_research",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: {
+				sources: [
+					{
+						platform: "web",
+						title: "AI Agent 创作者案例",
+						url: "https://example.com/agent-creator",
+						angle: "案例强调从选题到发布的流程。",
+						whyRelevant: "可用于解释为什么不是单点工具。",
+					},
+				],
+				insights: [
+					{
+						title: "流程价值比工具清单更重要",
+						content:
+							"资料显示创作者真正缺的是可持续复用的选题、调研和脚本流程，而不是更多孤立工具。",
+						sourceIndexes: [1],
+					},
+				],
+			},
+		});
+		const project = useTopicWorkbenchStore.getState().getActiveTopicProject();
+
+		expect(result.status).toBe("success");
+		expect(result.data).toEqual(expect.objectContaining({ insightCount: 1 }));
+		expect(project?.researchInsights).toHaveLength(1);
+		expect(project?.researchInsights[0]?.sourceIds).toEqual([
+			project?.researchSources[0]?.id,
+		]);
+	});
+
 	test("switches isolated package versions and reset clears only the active workflow", () => {
 		moveToPackage();
 		const store = useTopicWorkbenchStore.getState();

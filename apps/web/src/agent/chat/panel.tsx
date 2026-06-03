@@ -5,7 +5,7 @@ import { useChatStore } from "./store";
 import { MessageItem } from "./message-item";
 import type { ToolActionResult, ToolCallActionRequest } from "./tool-call-card";
 import { appendToolProgressEvent } from "./progress-history";
-import { BottomToolbar } from "./bottom-toolbar";
+import { BottomToolbar, type RunningSubmitMode } from "./bottom-toolbar";
 import { useEditor } from "@/editor/use-editor";
 import { parseSSEStream } from "./sse-parser";
 import type { SSEEvent } from "./sse-parser";
@@ -402,9 +402,19 @@ function parseTokenUsageEventData(
 	};
 }
 
+type QueuedPrompt = {
+	id: string;
+	content: string;
+	mode: RunningSubmitMode;
+	sessionId: string | null;
+};
+
 export function ChatPanel() {
 	const { copy, locale } = useAppLocale();
 	const [input, setInput] = useState("");
+	const [runningSubmitMode, setRunningSubmitMode] =
+		useState<RunningSubmitMode>("queue");
+	const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
 	const [showClearConfirm, setShowClearConfirm] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set());
@@ -418,6 +428,7 @@ export function ChatPanel() {
 	const resumedMGJobAbortControllersRef = useRef<Map<string, AbortController>>(
 		new Map(),
 	);
+	const isSendingQueuedPromptRef = useRef(false);
 	const [startTime, setStartTime] = useState<number | null>(null);
 	const [elapsedMs, setElapsedMs] = useState(0);
 	const [roughCutReview, setRoughCutReview] =
@@ -488,6 +499,9 @@ export function ChatPanel() {
 			editor.media.getAssets().filter((asset) => !asset.ephemeral).length,
 	);
 	const messages = getActiveMessages();
+	const queuedPromptsForSession = queuedPrompts.filter(
+		(prompt) => prompt.sessionId === activeSessionId,
+	);
 	const visibleMessages = useMemo(
 		() => messages.filter((msg) => !msg.hidden),
 		[messages],
@@ -1234,6 +1248,37 @@ export function ChatPanel() {
 	});
 
 	useEffect(() => {
+		const nextPrompt = queuedPrompts.find(
+			(prompt) => prompt.sessionId === activeSessionId,
+		);
+		if (
+			isLoading ||
+			!editor ||
+			!nextPrompt ||
+			isSendingQueuedPromptRef.current ||
+			nextPrompt.sessionId !== activeSessionId
+		) {
+			return;
+		}
+		const timeoutId = window.setTimeout(() => {
+			isSendingQueuedPromptRef.current = true;
+			setQueuedPrompts((items) =>
+				items.filter((item) => item.id !== nextPrompt.id),
+			);
+			const prompt =
+				nextPrompt.mode === "guide"
+					? `[引导当前任务]\n${nextPrompt.content}`
+					: nextPrompt.content;
+			void submitPromptRef
+				.current({ prompt, references: [] })
+				.finally(() => {
+					isSendingQueuedPromptRef.current = false;
+				});
+		}, 0);
+		return () => window.clearTimeout(timeoutId);
+	}, [activeSessionId, editor, isLoading, queuedPrompts]);
+
+	useEffect(() => {
 		if (!pendingTopicAgentEvent || isLoading || !editor) {
 			return;
 		}
@@ -1267,7 +1312,39 @@ export function ChatPanel() {
 	]);
 
 	const handleSubmit = async () => {
+		const trimmed = input.trim();
+		if (!trimmed) return;
+		if (isLoading) {
+			setInput("");
+			setQueuedPrompts((items) => {
+				const queuedPrompt: QueuedPrompt = {
+					id: `queued-${items.length}-${trimmed.slice(0, 24)}`,
+					content: trimmed,
+					mode: runningSubmitMode,
+					sessionId: activeSessionId,
+				};
+				return runningSubmitMode === "guide"
+					? [queuedPrompt, ...items]
+					: [...items, queuedPrompt];
+			});
+			if (runningSubmitMode === "guide") handleStop();
+			return;
+		}
 		await submitPrompt({ prompt: input, references: draftReferences });
+	};
+
+	const handleGuideQueuedPrompt = (promptId: string) => {
+		let shouldStop = false;
+		setQueuedPrompts((items) => {
+			const target = items.find((item) => item.id === promptId);
+			if (!target) return items;
+			shouldStop = isLoading;
+			return [
+				{ ...target, mode: "guide" },
+				...items.filter((item) => item.id !== promptId),
+			];
+		});
+		if (shouldStop) handleStop();
 	};
 
 	const handleStarterPrompt = (prompt: string) => {
@@ -1701,6 +1778,37 @@ export function ChatPanel() {
 						</div>
 					</div>
 				)}
+				{queuedPromptsForSession.length > 0 ? (
+					<div className="border-t border-border/70 bg-muted/[0.18] px-3 py-2">
+						<div className="flex items-center justify-between gap-2">
+							<div className="text-xs font-medium text-muted-foreground">
+								排队中 {queuedPromptsForSession.length}
+							</div>
+						</div>
+						<div className="mt-1.5 space-y-1">
+							{queuedPromptsForSession.map((prompt) => (
+								<div
+									key={prompt.id}
+									className="flex items-center gap-2 rounded-sm border border-border/70 bg-background/70 px-2 py-1.5"
+								>
+									<div className="min-w-0 flex-1 truncate text-xs text-foreground">
+										{prompt.content}
+									</div>
+									<span className="shrink-0 rounded-sm border border-border/70 px-1.5 py-0.5 text-[0.68rem] text-muted-foreground">
+										{prompt.mode === "guide" ? "引导" : "排队"}
+									</span>
+									<button
+										type="button"
+										onClick={() => handleGuideQueuedPrompt(prompt.id)}
+										className="shrink-0 rounded-sm px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10"
+									>
+										引导
+									</button>
+								</div>
+							))}
+						</div>
+					</div>
+				) : null}
 				<BottomToolbar
 					input={input}
 					selectedAgent={selectedAgent}
@@ -1711,6 +1819,7 @@ export function ChatPanel() {
 					}
 					executionMode={mode}
 					disabled={isLoading}
+					runningSubmitMode={runningSubmitMode}
 					placeholder={
 						activeWorkbench === "topic"
 							? "今天想做点什么？可以先说一个模糊方向"
@@ -1718,6 +1827,7 @@ export function ChatPanel() {
 					}
 					onAgentChange={setSelectedAgent}
 					onExecutionModeChange={setMode}
+					onRunningSubmitModeChange={setRunningSubmitMode}
 					onInputChange={setInput}
 					onSubmit={handleSubmit}
 					onMediaSubmit={(prompt) => {

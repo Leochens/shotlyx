@@ -3,6 +3,7 @@ import type { ToolResult } from "@/agent/mcp/types";
 import { useTopicWorkbenchStore } from "./store";
 import type {
 	ProductionPlanDraft,
+	ResearchInsightDraft,
 	ResearchSourceDraft,
 	TopicCandidateDraft,
 	VideoStructureOptionDraft,
@@ -113,7 +114,7 @@ export function getTopicWorkbenchToolSchemas(): FunctionSchema[] {
 		{
 			name: "topic_set_research",
 			description:
-				"Write same-topic research sources, inspiration references, and fact-check materials into the topic workbench.",
+				"Write same-topic research sources plus synthesized knowledge paragraphs with citations into the topic workbench.",
 			parameters: {
 				type: "object",
 				required: ["sources"],
@@ -121,6 +122,11 @@ export function getTopicWorkbenchToolSchemas(): FunctionSchema[] {
 					sources: arrayParam({
 						description:
 							"Array of sources with platform, title, url, sourceName, angle, whyRelevant, and confidence.",
+					}),
+					insights: arrayParam({
+						description:
+							"Optional array of knowledge paragraphs. Each item should include title, content, and citation bindings via sourceIndexes, sourceUrls, or sourceTitles.",
+						optional: true,
 					}),
 				},
 			},
@@ -290,6 +296,13 @@ function readNumber(value: unknown): number | undefined {
 	return value;
 }
 
+function readNumberArray(value: unknown): number[] {
+	if (!Array.isArray(value)) return [];
+	return value.filter(
+		(item): item is number => typeof item === "number" && Number.isFinite(item),
+	);
+}
+
 function readBoolean(value: unknown): boolean | undefined {
 	return typeof value === "boolean" ? value : undefined;
 }
@@ -336,6 +349,24 @@ function parseResearchSourceDrafts(value: unknown): ResearchSourceDraft[] {
 					item.confidence === "low"
 						? item.confidence
 						: undefined,
+			},
+		];
+	});
+}
+
+function parseResearchInsightDrafts(value: unknown): ResearchInsightDraft[] {
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((item) => {
+		if (!isRecord(item)) return [];
+		const content = readString(item.content);
+		if (!content) return [];
+		return [
+			{
+				title: readString(item.title),
+				content,
+				sourceIndexes: readNumberArray(item.sourceIndexes),
+				sourceUrls: readStringArray(item.sourceUrls),
+				sourceTitles: readStringArray(item.sourceTitles),
 			},
 		];
 	});
@@ -508,11 +539,13 @@ export function executeTopicWorkbenchTool({
 		if (sources.length === 0) {
 			return paramError("至少需要一个包含 title 和 url 的资料来源。");
 		}
-		const project = store.applyResearchSources({ sources });
+		const insights = parseResearchInsightDrafts(params.insights);
+		const project = store.applyResearchSources({ sources, insights });
 		return success({
-			message: "调研资料已写入右侧选题工作台。",
+			message: "调研资料和知识脉络已写入右侧选题工作台。",
 			stage: project?.stage,
 			sourceCount: project?.researchSources.length ?? sources.length,
+			insightCount: project?.researchInsights.length ?? insights.length,
 		});
 	}
 
