@@ -516,28 +516,45 @@ export class ProjectManager {
 				};
 			});
 
-			await Promise.all(
-				duplicationPlans.map(({ newProject }) =>
-					storageService.saveProject({ project: newProject }),
-				),
-			);
+			try {
+				await Promise.all(
+					duplicationPlans.map(({ newProject }) =>
+						storageService.saveProject({ project: newProject }),
+					),
+				);
 
-			await Promise.all(
-				duplicationPlans.map(async ({ sourceProjectId, newProjectId }) => {
-					const sourceMediaAssets = await storageService.loadAllMediaAssets({
-						projectId: sourceProjectId,
-					});
+				await Promise.all(
+					duplicationPlans.map(async ({ sourceProjectId, newProjectId }) => {
+						const sourceMediaAssets = await storageService.loadAllMediaAssets({
+							projectId: sourceProjectId,
+						});
 
-					await Promise.all(
-						sourceMediaAssets.map((mediaAsset) =>
-							storageService.saveMediaAsset({
-								projectId: newProjectId,
-								mediaAsset,
-							}),
-						),
-					);
-				}),
-			);
+						await Promise.all(
+							sourceMediaAssets.map((mediaAsset) =>
+								storageService.saveMediaAsset({
+									projectId: newProjectId,
+									mediaAsset,
+								}),
+							),
+						);
+					}),
+				);
+			} catch (error) {
+				await Promise.all(
+					duplicationPlans.map(({ newProjectId }) =>
+						Promise.all([
+							storageService.deleteProjectMedia({ projectId: newProjectId }),
+							storageService.deleteProject({ id: newProjectId }),
+						]).catch((cleanupError) => {
+							console.warn(
+								"Failed to clean up duplicated project after copy failure:",
+								cleanupError,
+							);
+						}),
+					),
+				);
+				throw error;
+			}
 
 			for (const { newProject } of duplicationPlans) {
 				this.updateMetadata(newProject);
