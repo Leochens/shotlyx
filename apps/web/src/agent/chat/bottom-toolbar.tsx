@@ -7,6 +7,7 @@ import {
 	Clapperboard,
 	ChevronDown,
 	ClipboardList,
+	FileText,
 	Gamepad2,
 	Image as ImageIcon,
 	ImagePlus,
@@ -68,6 +69,8 @@ interface BottomToolbarProps {
 	onRunningSubmitModeChange?: (mode: RunningSubmitMode) => void;
 	onInputChange: (input: string) => void;
 	onSubmit: () => void;
+	primaryActionLabel?: string;
+	allowEmptySubmit?: boolean;
 	onMediaSubmit?: (prompt: string) => void;
 	onMGSubmit?: (prompt: string) => void;
 	onStop?: () => void;
@@ -150,6 +153,8 @@ export function BottomToolbar({
 	onRunningSubmitModeChange = () => {},
 	onInputChange,
 	onSubmit,
+	primaryActionLabel,
+	allowEmptySubmit = false,
 	onMediaSubmit,
 	onMGSubmit,
 	onStop,
@@ -202,6 +207,7 @@ export function BottomToolbar({
 		topicSourceMaterialOpen ?? internalSourceMaterialOpen;
 	const setSourceMaterialOpen =
 		onTopicSourceMaterialOpenChange ?? setInternalSourceMaterialOpen;
+	const canSubmit = allowEmptySubmit || input.trim().length > 0;
 	const modeControls = (
 		<ChatModeControls
 			selectedAgent={selectedAgent}
@@ -230,7 +236,7 @@ export function BottomToolbar({
 	);
 
 	const handleSubmit = () => {
-		if (!input.trim()) return;
+		if (!canSubmit) return;
 		onSubmit();
 	};
 
@@ -587,238 +593,252 @@ export function BottomToolbar({
 			<div className={cn(centered && "mx-auto w-full max-w-4xl")}>
 				{modeControls}
 				<div className={CHAT_INPUT_SURFACE_CLASS_NAME}>
-				<textarea
-					value={input}
-					data-testid="chat-input"
-					onChange={(event) => {
-						const next = event.target.value;
-						onInputChange(next);
-						if (next.endsWith("@")) setReferenceOpen(true);
-					}}
-					onKeyDown={(event) => {
-						if (event.key !== "Enter" || event.shiftKey) return;
-						event.preventDefault();
-						handleSubmit();
-					}}
-					placeholder={placeholder ?? toolbarCopy.placeholder}
-					rows={shouldExpandTopicPrompt ? 10 : 2}
-					className={cn(
-						"w-full resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground",
-						shouldExpandTopicPrompt ? "max-h-80 min-h-56" : "max-h-28 min-h-12",
-					)}
-				/>
-
-				<ReferenceChipList
-					references={draftReferences}
-					primaryReferenceId={primaryReferenceId}
-					onRemove={removeReference}
-					onPrimaryChange={setPrimaryReference}
-					className="scrollbar-thin max-h-16 overflow-y-auto px-1 pb-1"
-				/>
-
-				{disabled ? (
-					<div
-						data-testid="running-submit-mode-controls"
-						className="mb-1 flex items-center justify-between gap-2 rounded-sm border border-border/70 bg-muted/[0.18] px-2 py-1.5"
-					>
-						<span className="text-xs text-muted-foreground">
-							Agent 运行中，补充输入将按所选方式处理
-						</span>
-						<div className="flex shrink-0 items-center gap-1">
-							{(["queue", "guide"] as const).map((mode) => (
-								<button
-									key={mode}
-									type="button"
-									onClick={() => onRunningSubmitModeChange(mode)}
-									className={cn(
-										"h-7 rounded-sm px-2 text-xs font-medium transition-colors",
-										runningSubmitMode === mode
-											? "bg-primary text-primary-foreground"
-											: "text-muted-foreground hover:bg-accent hover:text-foreground",
-									)}
-									aria-pressed={runningSubmitMode === mode}
-								>
-									{mode === "queue" ? "排队" : "引导"}
-								</button>
-							))}
-						</div>
-					</div>
-				) : null}
-
-				<div className="flex items-center gap-1 pt-1">
-					{isTopicWorkbench ? (
-						<>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon"
-								onClick={onTopicMaterialUploadClick}
-								disabled={disabled}
-								className="size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-								aria-label="上传素材"
-								title="上传素材"
-							>
-								<Upload size={17} />
-							</Button>
-							<Popover
-								open={isSourceMaterialOpen}
-								onOpenChange={setSourceMaterialOpen}
-							>
-								<PopoverTrigger asChild>
-									<Button
-										type="button"
-										variant="ghost"
-										size="icon"
-										disabled={disabled}
-										className="size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-										aria-label="粘贴脚本或录屏稿"
-										title="粘贴脚本或录屏稿"
-									>
-										<ClipboardList size={17} />
-									</Button>
-								</PopoverTrigger>
-								<PopoverContent
-									align="start"
-									side="top"
-									className="w-[min(28rem,calc(100vw-2rem))] rounded-sm p-3"
-								>
-									<div className="flex items-center gap-1">
-										{SOURCE_MATERIAL_TYPE_OPTIONS.map((option) => (
-											<button
-												key={option.value}
-												type="button"
-												onClick={() => setSourceMaterialType(option.value)}
-												className={cn(
-													"rounded-sm px-2 py-1 text-xs font-medium transition-colors",
-													sourceMaterialType === option.value
-														? "bg-primary text-primary-foreground"
-														: "text-muted-foreground hover:bg-accent hover:text-foreground",
-												)}
-											>
-												{option.label}
-											</button>
-										))}
-									</div>
-									<input
-										value={sourceMaterialTitle}
-										onChange={(event) =>
-											setSourceMaterialTitle(event.target.value)
-										}
-										placeholder="标题，可选"
-										className="mt-2 h-9 w-full rounded-sm border border-border bg-background px-2 text-sm outline-none focus:border-primary/40"
-									/>
-									<textarea
-										value={sourceMaterialContent}
-										onChange={(event) =>
-											setSourceMaterialContent(event.target.value)
-										}
-										placeholder="粘贴脚本、口播稿、录屏转写或素材说明"
-										rows={7}
-										className="mt-2 max-h-64 min-h-32 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/40"
-									/>
-									<div className="mt-2 flex justify-end">
-										<Button
-											type="button"
-											size="sm"
-											disabled={!sourceMaterialContent.trim()}
-											onClick={handleAddSourceMaterial}
-										>
-											加入上下文
-										</Button>
-									</div>
-								</PopoverContent>
-							</Popover>
-						</>
-					) : null}
-					<Popover open={referenceOpen} onOpenChange={setReferenceOpen}>
-						<PopoverTrigger asChild>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon"
-								className="ml-auto size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-								aria-label={toolbarCopy.addReference}
-								title={toolbarCopy.addReferenceTitle}
-							>
-								<Plus size={20} />
-							</Button>
-						</PopoverTrigger>
-						<ReferencePopoverContent
-							mediaAssets={mediaAssets}
-							timelineElements={timelineElements}
-							timelineTracks={timelineTracks}
-							toolbarCopy={toolbarCopy}
-							onAddMedia={addMedia}
-							onAddTimelineElement={addTimelineElement}
-							onAddTrack={addTrack}
-						/>
-					</Popover>
-
-					<BrandKitMenu />
-
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon"
-						onClick={togglePointSelect}
+					<textarea
+						value={input}
+						data-testid="chat-input"
+						onChange={(event) => {
+							const next = event.target.value;
+							onInputChange(next);
+							if (next.endsWith("@")) setReferenceOpen(true);
+						}}
+						onKeyDown={(event) => {
+							if (event.key !== "Enter" || event.shiftKey) return;
+							event.preventDefault();
+							handleSubmit();
+						}}
+						placeholder={placeholder ?? toolbarCopy.placeholder}
+						rows={shouldExpandTopicPrompt ? 10 : 2}
 						className={cn(
-							"size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
-							pointSelectEnabled && "bg-primary/15 text-primary",
+							"w-full resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground",
+							shouldExpandTopicPrompt
+								? "max-h-80 min-h-56"
+								: "max-h-28 min-h-12",
 						)}
-						aria-label={toolbarCopy.pointSelect}
-						title={
-							pointSelectEnabled
-								? toolbarCopy.closePointSelect
-								: toolbarCopy.openPointSelect
-						}
-					>
-						<MousePointer2 size={18} />
-					</Button>
+					/>
+
+					<ReferenceChipList
+						references={draftReferences}
+						primaryReferenceId={primaryReferenceId}
+						onRemove={removeReference}
+						onPrimaryChange={setPrimaryReference}
+						className="scrollbar-thin max-h-16 overflow-y-auto px-1 pb-1"
+					/>
 
 					{disabled ? (
-						<>
-							<Button
-								type="button"
-								data-testid="chat-stop-button"
-								onClick={onStop}
-								className="size-10 rounded-sm bg-destructive p-0 text-destructive-foreground hover:bg-destructive/90"
-								aria-label={toolbarCopy.stop}
-								title={toolbarCopy.stopTitle}
-							>
-								<Square size={15} fill="currentColor" />
-							</Button>
+						<div
+							data-testid="running-submit-mode-controls"
+							className="mb-1 flex items-center justify-between gap-2 rounded-sm border border-border/70 bg-muted/[0.18] px-2 py-1.5"
+						>
+							<span className="text-xs text-muted-foreground">
+								Agent 运行中，补充输入将按所选方式处理
+							</span>
+							<div className="flex shrink-0 items-center gap-1">
+								{(["queue", "guide"] as const).map((mode) => (
+									<button
+										key={mode}
+										type="button"
+										onClick={() => onRunningSubmitModeChange(mode)}
+										className={cn(
+											"h-7 rounded-sm px-2 text-xs font-medium transition-colors",
+											runningSubmitMode === mode
+												? "bg-primary text-primary-foreground"
+												: "text-muted-foreground hover:bg-accent hover:text-foreground",
+										)}
+										aria-pressed={runningSubmitMode === mode}
+									>
+										{mode === "queue" ? "排队" : "引导"}
+									</button>
+								))}
+							</div>
+						</div>
+					) : null}
+
+					<div className="flex items-center gap-1 pt-1">
+						{isTopicWorkbench ? (
+							<>
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									onClick={onTopicMaterialUploadClick}
+									disabled={disabled}
+									className="size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+									aria-label="上传素材"
+									title="上传素材"
+								>
+									<Upload size={17} />
+								</Button>
+								<Popover
+									open={isSourceMaterialOpen}
+									onOpenChange={setSourceMaterialOpen}
+								>
+									<PopoverTrigger asChild>
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon"
+											disabled={disabled}
+											className="size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+											aria-label="粘贴脚本或录屏稿"
+											title="粘贴脚本或录屏稿"
+										>
+											<ClipboardList size={17} />
+										</Button>
+									</PopoverTrigger>
+									<PopoverContent
+										align="start"
+										side="top"
+										className="w-[min(28rem,calc(100vw-2rem))] rounded-sm p-3"
+									>
+										<div className="flex items-center gap-1">
+											{SOURCE_MATERIAL_TYPE_OPTIONS.map((option) => (
+												<button
+													key={option.value}
+													type="button"
+													onClick={() => setSourceMaterialType(option.value)}
+													className={cn(
+														"rounded-sm px-2 py-1 text-xs font-medium transition-colors",
+														sourceMaterialType === option.value
+															? "bg-primary text-primary-foreground"
+															: "text-muted-foreground hover:bg-accent hover:text-foreground",
+													)}
+												>
+													{option.label}
+												</button>
+											))}
+										</div>
+										<input
+											value={sourceMaterialTitle}
+											onChange={(event) =>
+												setSourceMaterialTitle(event.target.value)
+											}
+											placeholder="标题，可选"
+											className="mt-2 h-9 w-full rounded-sm border border-border bg-background px-2 text-sm outline-none focus:border-primary/40"
+										/>
+										<textarea
+											value={sourceMaterialContent}
+											onChange={(event) =>
+												setSourceMaterialContent(event.target.value)
+											}
+											placeholder="粘贴脚本、口播稿、录屏转写或素材说明"
+											rows={7}
+											className="mt-2 max-h-64 min-h-32 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/40"
+										/>
+										<div className="mt-2 flex justify-end">
+											<Button
+												type="button"
+												size="sm"
+												disabled={!sourceMaterialContent.trim()}
+												onClick={handleAddSourceMaterial}
+											>
+												加入上下文
+											</Button>
+										</div>
+									</PopoverContent>
+								</Popover>
+							</>
+						) : null}
+						<Popover open={referenceOpen} onOpenChange={setReferenceOpen}>
+							<PopoverTrigger asChild>
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									className="ml-auto size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+									aria-label={toolbarCopy.addReference}
+									title={toolbarCopy.addReferenceTitle}
+								>
+									<Plus size={20} />
+								</Button>
+							</PopoverTrigger>
+							<ReferencePopoverContent
+								mediaAssets={mediaAssets}
+								timelineElements={timelineElements}
+								timelineTracks={timelineTracks}
+								toolbarCopy={toolbarCopy}
+								onAddMedia={addMedia}
+								onAddTimelineElement={addTimelineElement}
+								onAddTrack={addTrack}
+							/>
+						</Popover>
+
+						<BrandKitMenu />
+
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							onClick={togglePointSelect}
+							className={cn(
+								"size-9 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
+								pointSelectEnabled && "bg-primary/15 text-primary",
+							)}
+							aria-label={toolbarCopy.pointSelect}
+							title={
+								pointSelectEnabled
+									? toolbarCopy.closePointSelect
+									: toolbarCopy.openPointSelect
+							}
+						>
+							<MousePointer2 size={18} />
+						</Button>
+
+						{disabled ? (
+							<>
+								<Button
+									type="button"
+									data-testid="chat-stop-button"
+									onClick={onStop}
+									className="size-10 rounded-sm bg-destructive p-0 text-destructive-foreground hover:bg-destructive/90"
+									aria-label={toolbarCopy.stop}
+									title={toolbarCopy.stopTitle}
+								>
+									<Square size={15} fill="currentColor" />
+								</Button>
+								<Button
+									type="submit"
+									data-testid="chat-send-button"
+									disabled={!input.trim()}
+									className="size-10 rounded-sm bg-primary p-0 text-primary-foreground hover:bg-primary/90"
+									aria-label={
+										runningSubmitMode === "guide"
+											? "引导当前 Agent"
+											: "排队追加问题"
+									}
+									title={
+										runningSubmitMode === "guide"
+											? "中断当前回答并优先发送这条引导"
+											: "当前 Agent 结束后自动发送"
+									}
+								>
+									<Send size={18} />
+								</Button>
+							</>
+						) : (
 							<Button
 								type="submit"
 								data-testid="chat-send-button"
-								disabled={!input.trim()}
-								className="size-10 rounded-sm bg-primary p-0 text-primary-foreground hover:bg-primary/90"
-								aria-label={
-									runningSubmitMode === "guide"
-										? "引导当前 Agent"
-										: "排队追加问题"
-								}
-								title={
-									runningSubmitMode === "guide"
-										? "中断当前回答并优先发送这条引导"
-										: "当前 Agent 结束后自动发送"
-								}
+								disabled={!canSubmit}
+								className={cn(
+									"rounded-sm bg-primary text-primary-foreground hover:bg-primary/90",
+									primaryActionLabel
+										? "h-10 shrink-0 px-3 text-sm font-semibold"
+										: "size-10 p-0",
+								)}
+								aria-label={toolbarCopy.send}
 							>
-								<Send size={18} />
+								{primaryActionLabel ? (
+									<>
+										<FileText size={15} />
+										<span>{primaryActionLabel}</span>
+									</>
+								) : (
+									<Send size={18} />
+								)}
 							</Button>
-						</>
-					) : (
-						<Button
-							type="submit"
-							data-testid="chat-send-button"
-							disabled={!input.trim()}
-							className="size-10 rounded-sm bg-primary p-0 text-primary-foreground hover:bg-primary/90"
-							aria-label={toolbarCopy.send}
-						>
-							<Send size={18} />
-						</Button>
-					)}
+						)}
+					</div>
 				</div>
-			</div>
 			</div>
 		</form>
 	);

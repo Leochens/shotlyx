@@ -128,4 +128,21 @@ describe("BottomToolbar", () => {
 		expect(html).toContain('rows="10"');
 		expect(html).toContain("min-h-56");
 	});
+
+	test("shows a draft-first action in focused topic mode", () => {
+		const html = renderToStaticMarkup(
+			<BottomToolbar
+				input=""
+				selectedAgent="default"
+				workbench="topic"
+				primaryActionLabel="我先自己打打草稿"
+				allowEmptySubmit
+				onInputChange={() => {}}
+				onSubmit={() => {}}
+			/>,
+		);
+
+		expect(html).toContain("我先自己打打草稿");
+		expect(html).not.toContain('disabled=""');
+	});
 });

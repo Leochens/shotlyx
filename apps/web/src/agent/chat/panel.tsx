@@ -57,6 +57,7 @@ import { useAppLocale } from "@/i18n/use-app-locale";
 import { processMediaAssets } from "@/media/processing";
 import { showMediaUploadToast } from "@/media/upload-toast";
 import { buildTopicInputMaterialsFromReferences } from "@/topic-workbench/input-materials";
+import { getTopicProjectMode } from "@/topic-workbench/model";
 import type { TopicInputMaterial } from "@/topic-workbench/types";
 import { WorkbenchSwitcher } from "@/topic-workbench/workbench-switcher";
 import { CreatorProfileDialogTrigger } from "@/topic-workbench/creator-profile-dialog";
@@ -1800,6 +1801,9 @@ export function ChatPanel() {
 	const recordTopicInputMaterials = useTopicWorkbenchStore(
 		(state) => state.recordInputMaterials,
 	);
+	const startBrainstormDraft = useTopicWorkbenchStore(
+		(state) => state.startBrainstormDraft,
+	);
 	const setActiveEditorProject = useTopicWorkbenchStore(
 		(state) => state.setActiveEditorProject,
 	);
@@ -1893,6 +1897,23 @@ export function ChatPanel() {
 	);
 	const isFocusedTopicChat =
 		activeWorkbench === "topic" && activeTopicProject === null;
+	const isTopicBrainstorming =
+		activeWorkbench === "topic" &&
+		activeTopicProject !== null &&
+		getTopicProjectMode(activeTopicProject) === "brainstorm";
+	const topicBrainstormDraft = useMemo(() => {
+		if (!isTopicBrainstorming || !activeTopicProject) return undefined;
+		const noteMaterials = (activeTopicProject.inputMaterials ?? []).filter(
+			(material) => material.kind === "note",
+		);
+		const lines = noteMaterials.flatMap((material, index) => {
+			const content = material.content?.trim();
+			const summary = material.summary?.trim();
+			if (!content && !summary) return [];
+			return `${index + 1}. ${material.title}\n${content || summary}`;
+		});
+		return lines.length > 0 ? lines.join("\n\n") : undefined;
+	}, [activeTopicProject, isTopicBrainstorming]);
 	const toRequestMessage = (
 		message: Pick<ChatMessage, "role" | "content" | "toolCalls"> & {
 			references?: AgentContextReference[];
@@ -2052,13 +2073,16 @@ export function ChatPanel() {
 		const ensureAssistantMessage = (): string => {
 			if (!currentAssistantMsgIdRef.current) {
 				const mid = `assistant-${getClientNow()}`;
-				addMessage({
-					id: mid,
-					role: "assistant",
-					content: accumulated.text,
-					thought: accumulated.thought,
-					timestamp: getClientNow(),
-				}, chatSessionId);
+				addMessage(
+					{
+						id: mid,
+						role: "assistant",
+						content: accumulated.text,
+						thought: accumulated.thought,
+						timestamp: getClientNow(),
+					},
+					chatSessionId,
+				);
 				currentAssistantMsgIdRef.current = mid;
 				setStreamingMessageId(mid, chatSessionId);
 			}
@@ -2154,12 +2178,15 @@ export function ChatPanel() {
 					}
 				} catch (error) {
 					if (runSignal.aborted || abortSignal?.aborted) return;
-					addMessage({
-						id: `tool-result-post-error-${getClientNow()}`,
-						role: "assistant",
-						content: `工具 ${tool} 已执行，但结果回传失败：${getErrorMessage(error)}`,
-						timestamp: getClientNow(),
-					}, chatSessionId);
+					addMessage(
+						{
+							id: `tool-result-post-error-${getClientNow()}`,
+							role: "assistant",
+							content: `工具 ${tool} 已执行，但结果回传失败：${getErrorMessage(error)}`,
+							timestamp: getClientNow(),
+						},
+						chatSessionId,
+					);
 				}
 			};
 
@@ -2203,16 +2230,22 @@ export function ChatPanel() {
 					};
 				});
 				if (!didRecordProgress) return;
-				updateMessageToolCalls({
-					id: mid,
-					toolCalls: currentToolCalls,
-				}, chatSessionId);
+				updateMessageToolCalls(
+					{
+						id: mid,
+						toolCalls: currentToolCalls,
+					},
+					chatSessionId,
+				);
 			};
 
-			updateMessageToolCalls({
-				id: mid,
-				toolCalls: [...existingToolCalls, pendingRecord],
-			}, chatSessionId);
+			updateMessageToolCalls(
+				{
+					id: mid,
+					toolCalls: [...existingToolCalls, pendingRecord],
+				},
+				chatSessionId,
+			);
 
 			void (async () => {
 				let toolResult: ToolResult;
@@ -2282,10 +2315,13 @@ export function ChatPanel() {
 					}
 					return tc;
 				});
-				updateMessageToolCalls({
-					id: mid,
-					toolCalls: currentToolCalls,
-				}, chatSessionId);
+				updateMessageToolCalls(
+					{
+						id: mid,
+						toolCalls: currentToolCalls,
+					},
+					chatSessionId,
+				);
 
 				await postToolResult({
 					modelToolResult,
@@ -2306,10 +2342,7 @@ export function ChatPanel() {
 			const usage = parseTokenUsageEventData(data);
 			if (!usage || usage.totalTokens <= 0) return;
 			const mid = ensureAssistantMessage();
-			updateMessageTokenUsage(
-				{ id: mid, tokenUsage: usage },
-				chatSessionId,
-			);
+			updateMessageTokenUsage({ id: mid, tokenUsage: usage }, chatSessionId);
 			return;
 		}
 
@@ -2335,10 +2368,13 @@ export function ChatPanel() {
 			if (planData.reasoning) {
 				accumulated.thought = planData.reasoning;
 				const mid = ensureAssistantMessage();
-				updateMessageThought({
-					id: mid,
-					thought: planData.reasoning,
-				}, chatSessionId);
+				updateMessageThought(
+					{
+						id: mid,
+						thought: planData.reasoning,
+					},
+					chatSessionId,
+				);
 			}
 			if (planData.displayContent) {
 				accumulated.text = planData.displayContent;
@@ -2351,10 +2387,13 @@ export function ChatPanel() {
 			}
 			if (planData.actions !== undefined) {
 				const mid = ensureAssistantMessage();
-				updateMessageActions({
-					id: mid,
-					actions: planData.actions,
-				}, chatSessionId);
+				updateMessageActions(
+					{
+						id: mid,
+						actions: planData.actions,
+					},
+					chatSessionId,
+				);
 			}
 		}
 		if (sseEvent.event === "message-actions") {
@@ -2386,13 +2425,16 @@ export function ChatPanel() {
 				getStringField({ value: data, key: "category" }) ?? "unknown";
 			const isRetryable = category === "network" || category === "rate_limit";
 
-			addMessage({
-				id: `error-${getClientNow()}`,
-				role: "assistant",
-				content: "",
-				error: { message, category, isRetryable },
-				timestamp: getClientNow(),
-			}, chatSessionId);
+			addMessage(
+				{
+					id: `error-${getClientNow()}`,
+					role: "assistant",
+					content: "",
+					error: { message, category, isRetryable },
+					timestamp: getClientNow(),
+				},
+				chatSessionId,
+			);
 
 			setLoading(false, chatSessionId);
 			setStreamingMessageId(null, chatSessionId);
@@ -2440,10 +2482,13 @@ export function ChatPanel() {
 				pendingContentUpdateRef.timer = null;
 			}
 			if (pendingContentUpdateRef.id === null) return;
-			updateMessageContent({
-				id: pendingContentUpdateRef.id,
-				content: pendingContentUpdateRef.content,
-			}, chatSessionId);
+			updateMessageContent(
+				{
+					id: pendingContentUpdateRef.id,
+					content: pendingContentUpdateRef.content,
+				},
+				chatSessionId,
+			);
 			pendingContentUpdateRef.id = null;
 		};
 		const queueMessageContentUpdate = ({
@@ -2471,19 +2516,30 @@ export function ChatPanel() {
 		};
 
 		try {
+			const getBrainstormToolSchemas = () =>
+				editor.mcp
+					.getToolSchemas()
+					.filter((schema) => TOPIC_SUPPORT_TOOL_NAMES.has(schema.name));
+			const topicContext = isTopicBrainstorming
+				? {
+						topicInteractionMode: "brainstorm",
+						topicBrainstormDraft,
+					}
+				: {
+						topicInteractionMode: "workflow",
+						topicBrainstormDraft: undefined,
+					};
 			const body: Record<string, unknown> = {
 				messages: msgsToSend,
 				mode,
 				toolSchemas:
 					activeWorkbench === "topic"
-						? [
-								...getTopicWorkbenchToolSchemas(),
-								...editor.mcp
-									.getToolSchemas()
-									.filter((schema) =>
-										TOPIC_SUPPORT_TOOL_NAMES.has(schema.name),
-									),
-							]
+						? isTopicBrainstorming
+							? getBrainstormToolSchemas()
+							: [
+									...getTopicWorkbenchToolSchemas(),
+									...getBrainstormToolSchemas(),
+								]
 						: [
 								...editor.mcp.getToolSchemas(),
 								...getTopicPackageResourceToolSchemas(),
@@ -2491,6 +2547,7 @@ export function ChatPanel() {
 				context: {
 					activeBrandKit: editor.project.getActiveBrandKit(),
 					activeWorkbench,
+					...topicContext,
 					topicCreatorProfile:
 						activeWorkbench === "topic" ? creatorProfile : undefined,
 				},
@@ -2547,12 +2604,15 @@ export function ChatPanel() {
 					},
 					onError: (error) => {
 						flushMessageContentUpdate();
-						addMessage({
-							id: `err-${getClientNow()}`,
-							role: "assistant",
-							content: `SSE 流错误: ${error.message}`,
-							timestamp: getClientNow(),
-						}, chatSessionId);
+						addMessage(
+							{
+								id: `err-${getClientNow()}`,
+								role: "assistant",
+								content: `SSE 流错误: ${error.message}`,
+								timestamp: getClientNow(),
+							},
+							chatSessionId,
+						);
 						reject(error);
 					},
 				});
@@ -2563,21 +2623,27 @@ export function ChatPanel() {
 				return;
 			}
 			if (activeWorkbench === "topic") {
-				addMessage({
-					id: `topic-offline-${getClientNow()}`,
-					role: "assistant",
-					content:
-						"这次 Agent 没能完成选题生成。请检查模型和联网工具配置后重试，右侧工作台会在 Agent 产出候选选题后出现。",
-					timestamp: getClientNow(),
-				}, chatSessionId);
+				addMessage(
+					{
+						id: `topic-offline-${getClientNow()}`,
+						role: "assistant",
+						content:
+							"这次 Agent 没能完成选题生成。请检查模型和联网工具配置后重试，右侧工作台会在 Agent 产出候选选题后出现。",
+						timestamp: getClientNow(),
+					},
+					chatSessionId,
+				);
 				return;
 			}
-			addMessage({
-				id: `err-${getClientNow()}`,
-				role: "assistant",
-				content: `调用失败: ${err instanceof Error ? err.message : String(err)}`,
-				timestamp: getClientNow(),
-			}, chatSessionId);
+			addMessage(
+				{
+					id: `err-${getClientNow()}`,
+					role: "assistant",
+					content: `调用失败: ${err instanceof Error ? err.message : String(err)}`,
+					timestamp: getClientNow(),
+				},
+				chatSessionId,
+			);
 		} finally {
 			flushMessageContentUpdate();
 			setStreamingMessageId(null, chatSessionId);
@@ -2616,48 +2682,54 @@ export function ChatPanel() {
 			) {
 				continue;
 			}
-			updateMessageToolCalls({
-				id: message.id,
-				toolCalls: message.toolCalls.map((toolCall) =>
-					isRunningShotlyxMGToolCall(toolCall)
-						? {
-								...toolCall,
-								progress: [
-									...(toolCall.progress ?? []),
-									{
-										stage: "cancelled",
-										label: "MG 子智能体已停止",
-										status: "error",
-										timestamp: getClientNow(),
-									},
-								],
-								result: {
-									status: "error",
-									data: toolCall.result?.data,
-									error: "已停止",
-								},
-							}
-						: toolCall.result
-							? toolCall
-							: {
+			updateMessageToolCalls(
+				{
+					id: message.id,
+					toolCalls: message.toolCalls.map((toolCall) =>
+						isRunningShotlyxMGToolCall(toolCall)
+							? {
 									...toolCall,
+									progress: [
+										...(toolCall.progress ?? []),
+										{
+											stage: "cancelled",
+											label: "MG 子智能体已停止",
+											status: "error",
+											timestamp: getClientNow(),
+										},
+									],
 									result: {
 										status: "error",
+										data: toolCall.result?.data,
 										error: "已停止",
 									},
-								},
-				),
-			}, chatSessionId ?? undefined);
+								}
+							: toolCall.result
+								? toolCall
+								: {
+										...toolCall,
+										result: {
+											status: "error",
+											error: "已停止",
+										},
+									},
+					),
+				},
+				chatSessionId ?? undefined,
+			);
 		}
 		setStreamingMessageId(null, chatSessionId);
 		setLoading(false, chatSessionId);
 		setStartTime(null);
-		addMessage({
-			id: `stop-${getClientNow()}`,
-			role: "assistant",
-			content: "已停止当前 Agent 流程。你可以直接输入新的需求重新开始。",
-			timestamp: getClientNow(),
-		}, chatSessionId ?? undefined);
+		addMessage(
+			{
+				id: `stop-${getClientNow()}`,
+				role: "assistant",
+				content: "已停止当前 Agent 流程。你可以直接输入新的需求重新开始。",
+				timestamp: getClientNow(),
+			},
+			chatSessionId ?? undefined,
+		);
 	};
 
 	const recordReferencesAsTopicMaterials = ({
@@ -2775,6 +2847,16 @@ export function ChatPanel() {
 		);
 	};
 
+	const handleStartTopicDraft = () => {
+		recordReferencesAsTopicMaterials({ references: draftReferences });
+		startBrainstormDraft({
+			editorProjectId,
+			draft: input,
+		});
+		setInput("");
+		clearDraftReferences();
+	};
+
 	const submitPrompt = async ({
 		prompt,
 		references = draftReferences,
@@ -2863,12 +2945,15 @@ export function ChatPanel() {
 			return;
 		}
 
-		addMessage({
-			id: `topic-workbench-event-${getClientNow()}`,
-			role: "user",
-			content: `[选题工作台]\n${pendingTopicAgentEvent.content}`,
-			timestamp: getClientNow(),
-		}, activeSessionId ?? undefined);
+		addMessage(
+			{
+				id: `topic-workbench-event-${getClientNow()}`,
+				role: "user",
+				content: `[选题工作台]\n${pendingTopicAgentEvent.content}`,
+				timestamp: getClientNow(),
+			},
+			activeSessionId ?? undefined,
+		);
 	}, [
 		activeWorkbench,
 		activeChatSession?.projectId,
@@ -2882,6 +2967,10 @@ export function ChatPanel() {
 	]);
 
 	const handleSubmit = async () => {
+		if (isFocusedTopicChat) {
+			handleStartTopicDraft();
+			return;
+		}
 		const trimmed = input.trim();
 		if (!trimmed) return;
 		if (isLoading) {
@@ -3028,20 +3117,26 @@ export function ChatPanel() {
 
 		if (actionId === "modify") {
 			if (!pendingPlan) {
-				addMessage({
-					id: `modify-${getClientNow()}`,
-					role: "assistant",
-					content: "当前没有待确认的计划。请告诉我你想怎么修改？",
-					timestamp: getClientNow(),
-				}, chatSessionId);
+				addMessage(
+					{
+						id: `modify-${getClientNow()}`,
+						role: "assistant",
+						content: "当前没有待确认的计划。请告诉我你想怎么修改？",
+						timestamp: getClientNow(),
+					},
+					chatSessionId,
+				);
 				return;
 			}
-			addMessage({
-				id: `modify-${getClientNow()}`,
-				role: "assistant",
-				content: `当前计划：\n${pendingPlan.steps.map((s, i) => `${i + 1}. ${s.description}`).join("\n")}\n\n告诉我你想怎么修改`,
-				timestamp: getClientNow(),
-			}, chatSessionId);
+			addMessage(
+				{
+					id: `modify-${getClientNow()}`,
+					role: "assistant",
+					content: `当前计划：\n${pendingPlan.steps.map((s, i) => `${i + 1}. ${s.description}`).join("\n")}\n\n告诉我你想怎么修改`,
+					timestamp: getClientNow(),
+				},
+				chatSessionId,
+			);
 			setPendingPlan(null, chatSessionId);
 		}
 	};
@@ -3307,6 +3402,7 @@ export function ChatPanel() {
 								disabled={isLoading || !editor}
 								hasMedia={activeWorkbench === "video" && mediaAssetCount > 0}
 								workbench={activeWorkbench}
+								isTopicBrainstorming={isTopicBrainstorming}
 								onPromptSelect={handleStarterPrompt}
 								onMaterialUploadClick={() =>
 									topicMaterialFileInputRef.current?.click()
@@ -3435,15 +3531,21 @@ export function ChatPanel() {
 					disabled={isLoading}
 					runningSubmitMode={runningSubmitMode}
 					placeholder={
-						activeWorkbench === "topic"
-							? "今天想做点什么？可以先说一个模糊方向"
-							: undefined
+						isTopicBrainstorming
+							? "继续提问、查资料，或者让 AI 帮你扩展右侧草稿"
+							: activeWorkbench === "topic"
+								? "今天想做点什么？可以先说一个模糊方向"
+								: undefined
 					}
 					onAgentChange={setSelectedAgent}
 					onExecutionModeChange={setMode}
 					onRunningSubmitModeChange={setRunningSubmitMode}
 					onInputChange={setInput}
 					onSubmit={handleSubmit}
+					primaryActionLabel={
+						isFocusedTopicChat ? "我先自己打打草稿" : undefined
+					}
+					allowEmptySubmit={isFocusedTopicChat}
 					workbench={activeWorkbench}
 					topicSourceMaterialOpen={topicSourceMaterialOpen}
 					onTopicSourceMaterialOpenChange={setTopicSourceMaterialOpen}
@@ -3475,6 +3577,7 @@ function AgentEmptyState({
 	disabled,
 	hasMedia,
 	workbench,
+	isTopicBrainstorming,
 	onPromptSelect,
 	onMaterialUploadClick,
 	onSourceMaterialClick,
@@ -3482,18 +3585,29 @@ function AgentEmptyState({
 	disabled: boolean;
 	hasMedia: boolean;
 	workbench: "video" | "topic";
+	isTopicBrainstorming: boolean;
 	onPromptSelect: (prompt: string) => void;
 	onMaterialUploadClick: () => void;
 	onSourceMaterialClick: () => void;
 }) {
 	const { copy } = useAppLocale();
 	const emptyKicker =
-		workbench === "topic" ? "Topic workbench" : copy.editor.chat.emptyKicker;
+		workbench === "topic"
+			? isTopicBrainstorming
+				? "Brainstorm"
+				: "Topic workbench"
+			: copy.editor.chat.emptyKicker;
 	const emptyTitle =
-		workbench === "topic" ? "今天想做点什么？" : copy.editor.chat.emptyTitle;
+		workbench === "topic"
+			? isTopicBrainstorming
+				? "头脑风暴模式"
+				: "今天想做点什么？"
+			: copy.editor.chat.emptyTitle;
 	const emptyBody =
 		workbench === "topic"
-			? "先介绍账号定位，再选一个创作类型；胶囊只会载入输入框，改完后再交给 Agent。"
+			? isTopicBrainstorming
+				? "可以像普通聊天一样继续提问、查资料、扩展想法；右侧草稿不会自动进入选题流程。"
+				: "先介绍账号定位，再选一个创作类型；胶囊只会载入输入框，改完后再交给 Agent。"
 			: copy.editor.chat.emptyBody;
 
 	return (
@@ -3545,10 +3659,12 @@ function AgentEmptyState({
 			)}
 
 			{workbench === "topic" ? (
-				<TopicIntentCapsules
-					disabled={disabled}
-					onPromptSelect={onPromptSelect}
-				/>
+				isTopicBrainstorming ? null : (
+					<TopicIntentCapsules
+						disabled={disabled}
+						onPromptSelect={onPromptSelect}
+					/>
+				)
 			) : (
 				<VideoStarterCards
 					disabled={disabled}
@@ -3696,7 +3812,7 @@ function VideoStarterCards({
 	onPromptSelect,
 }: {
 	disabled: boolean;
-	starters: Array<{ label: string; hint: string; prompt: string }>;
+	starters: ReadonlyArray<{ label: string; hint: string; prompt: string }>;
 	onPromptSelect: (prompt: string) => void;
 }) {
 	return (

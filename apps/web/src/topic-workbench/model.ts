@@ -13,6 +13,7 @@ import type {
 	TopicPackageVersion,
 	TopicPlatform,
 	TopicProject,
+	TopicProjectMode,
 	TopicStage,
 	VideoStructureOption,
 } from "./types";
@@ -24,6 +25,7 @@ const REVISION_INTENT_PATTERN =
 	/(重新|再来|换成|换一个|改成|调整|新选题|另一个|第二版|新版|重做|不对|不是这个)/;
 const TOPIC_CONTEXT_PATTERN = /(选题|方向|候选|方案|标题|主题)/;
 const MAX_INPUT_MATERIAL_CONTENT_LENGTH = 12_000;
+const BRAINSTORM_DRAFT_MATERIAL_ID = "material-brainstorm-draft";
 
 export interface TopicCandidateDraft {
 	title: string;
@@ -152,6 +154,10 @@ function createId(prefix: string): string {
 		return `${prefix}-${crypto.randomUUID()}`;
 	}
 	return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function getTopicProjectMode(project: TopicProject): TopicProjectMode {
+	return project.mode === "brainstorm" ? "brainstorm" : "workflow";
 }
 
 function clampPrompt(prompt: string): string {
@@ -595,6 +601,7 @@ export function replaceTopicCandidates({
 	});
 	return {
 		...project,
+		mode: "workflow",
 		title: clampPrompt(fallbackPrompt),
 		originPrompt: fallbackPrompt,
 		stage: "ideation",
@@ -873,6 +880,7 @@ export function createTopicProjectFromPrompt({
 	return {
 		id: createId("topic-project"),
 		editorProjectId,
+		mode: "workflow",
 		title: clampPrompt(prompt),
 		originPrompt: prompt.trim(),
 		stage: "ideation",
@@ -882,6 +890,58 @@ export function createTopicProjectFromPrompt({
 		promptHistory: [prompt.trim()].filter(Boolean),
 		inputMaterials: normalizedInputMaterials,
 		candidates,
+		selectedCandidateId: null,
+		researchSources: [],
+		researchInsights: [],
+		structures: [],
+		selectedStructureId: null,
+		packageVersions: [],
+		activePackageVersionId: null,
+		productionPlans: [],
+		activeProductionPlanId: null,
+	};
+}
+
+export function createTopicProjectFromDraft({
+	editorProjectId,
+	draft,
+	inputMaterials,
+	now = Date.now(),
+}: {
+	editorProjectId: string;
+	draft: string;
+	inputMaterials?: TopicInputMaterialDraft[];
+	now?: number;
+}): TopicProject {
+	const trimmed = draft.trim();
+	const normalizedInputMaterials = mergeTopicInputMaterials({
+		incoming: [
+			...(inputMaterials ?? []),
+			{
+				id: BRAINSTORM_DRAFT_MATERIAL_ID,
+				kind: "note",
+				title: "我的草稿",
+				summary: "选题前的自由草稿。",
+				content: trimmed || undefined,
+				createdAt: now,
+			},
+		],
+		now,
+	});
+
+	return {
+		id: createId("topic-project"),
+		editorProjectId,
+		mode: "brainstorm",
+		title: clampPrompt(trimmed || "自由草稿"),
+		originPrompt: trimmed,
+		stage: "ideation",
+		status: "draft",
+		createdAt: now,
+		updatedAt: now,
+		promptHistory: [],
+		inputMaterials: normalizedInputMaterials,
+		candidates: [],
 		selectedCandidateId: null,
 		researchSources: [],
 		researchInsights: [],
@@ -921,6 +981,7 @@ export function mergePromptIntoProject({
 	const revisionPrompt = buildRevisionPrompt({ project, prompt: trimmed });
 	return {
 		...project,
+		mode: "workflow",
 		title: clampPrompt(revisionPrompt),
 		originPrompt: revisionPrompt,
 		stage: "ideation",
@@ -962,6 +1023,7 @@ export function mergeAssistantTopicOutputIntoProject({
 
 	return {
 		...project,
+		mode: "workflow",
 		title: clampPrompt(suggestions[0]?.title ?? project.title),
 		stage: "ideation",
 		status: "active",

@@ -6,7 +6,9 @@ import {
 	applyStructureOptions,
 	confirmSelectedCandidate,
 	createProductionPlan,
+	createTopicProjectFromDraft,
 	createTopicProjectFromPrompt,
+	getTopicProjectMode,
 	mergePromptIntoProject,
 	replaceTopicCandidates,
 	resetTopicProjectToStage,
@@ -15,6 +17,28 @@ import {
 } from "@/topic-workbench/model";
 
 describe("topic workbench model", () => {
+	test("starts a brainstorm draft without generating topic candidates", () => {
+		const project = createTopicProjectFromDraft({
+			editorProjectId: "project-1",
+			draft:
+				"我还没想清楚，只是觉得 AI 能看懂视频以后，剪辑流程会变得很不一样。",
+			now: 1_000,
+		});
+
+		expect(getTopicProjectMode(project)).toBe("brainstorm");
+		expect(project.stage).toBe("ideation");
+		expect(project.status).toBe("draft");
+		expect(project.candidates).toHaveLength(0);
+		expect(project.promptHistory).toHaveLength(0);
+		expect(project.inputMaterials).toHaveLength(1);
+		expect(project.inputMaterials[0]).toMatchObject({
+			kind: "note",
+			title: "我的草稿",
+			content:
+				"我还没想清楚，只是觉得 AI 能看懂视频以后，剪辑流程会变得很不一样。",
+		});
+	});
+
 	test("keeps user-provided materials with the topic project", () => {
 		const project = createTopicProjectFromPrompt({
 			editorProjectId: "project-1",

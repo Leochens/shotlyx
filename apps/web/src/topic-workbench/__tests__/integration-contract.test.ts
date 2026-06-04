@@ -22,9 +22,7 @@ const projectManagerSource = readFileSync(
 );
 
 const previewSource = readFileSync(
-	fileURLToPath(
-		new URL("../../preview/components/index.tsx", import.meta.url),
-	),
+	fileURLToPath(new URL("../../preview/components/index.tsx", import.meta.url)),
 	"utf8",
 );
 
@@ -39,11 +37,21 @@ describe("topic workbench integration contract", () => {
 	});
 
 	test("clears one-shot draft references immediately after sending", () => {
+		const submitPromptIndex = chatPanelSource.indexOf(
+			"const submitPrompt = async",
+		);
 		const addMessageIndex = chatPanelSource.indexOf(
 			"addMessage(userMsg, chatSessionId);",
+			submitPromptIndex,
 		);
-		const clearIndex = chatPanelSource.indexOf("clearDraftReferences();");
-		const runIndex = chatPanelSource.indexOf("await runSSEAgent({");
+		const clearIndex = chatPanelSource.indexOf(
+			"clearDraftReferences();",
+			addMessageIndex,
+		);
+		const runIndex = chatPanelSource.indexOf(
+			"await runSSEAgent({",
+			addMessageIndex,
+		);
 
 		expect(addMessageIndex).toBeGreaterThanOrEqual(0);
 		expect(clearIndex).toBeGreaterThan(addMessageIndex);
@@ -67,8 +75,18 @@ describe("topic workbench integration contract", () => {
 		expect(chatPanelSource).toContain("updateTopicInputMaterial");
 		expect(chatPanelSource).toContain("removeTopicInputMaterial");
 		expect(chatPanelSource).toContain("分析过程中也可以修改或移除");
-		expect(chatPanelSource).toContain("aria-label=\"素材标题\"");
-		expect(chatPanelSource).toContain("aria-label=\"素材内容\"");
+		expect(chatPanelSource).toContain('aria-label="素材标题"');
+		expect(chatPanelSource).toContain('aria-label="素材内容"');
+	});
+
+	test("starts topic mode with a draft-first brainstorm surface", () => {
+		expect(chatPanelSource).toContain("startBrainstormDraft");
+		expect(chatPanelSource).toContain("isTopicBrainstorming");
+		expect(chatPanelSource).toContain("handleStartTopicDraft");
+		expect(chatPanelSource).toContain("我先自己打打草稿");
+		expect(chatPanelSource).toContain('topicInteractionMode: "brainstorm"');
+		expect(chatPanelSource).toContain("getBrainstormToolSchemas");
+		expect(editorPageSource).toContain("activeTopicProject");
 	});
 
 	test("skips automatic thumbnail rendering when the editor is degraded", () => {

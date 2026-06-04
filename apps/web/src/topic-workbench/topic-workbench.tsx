@@ -35,6 +35,7 @@ import {
 	type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ReactMarkdownWrapper } from "@/components/ui/react-markdown-wrapper";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -47,6 +48,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/utils/ui";
 import { CreatorProfileDialogTrigger } from "./creator-profile-dialog";
+import { getTopicProjectMode } from "./model";
 import { useTopicWorkbenchStore } from "./store";
 import { executeTopicWorkbenchTool } from "./tools";
 import type {
@@ -458,6 +460,9 @@ export function TopicWorkbench({
 		);
 	}
 
+	const isBrainstormProject =
+		getTopicProjectMode(activeProject) === "brainstorm";
+
 	const handleStageClick = (stage: TopicStage) => {
 		if (stage === activeProject.stage) return;
 		const targetIndex = getStageIndex(stage);
@@ -498,49 +503,53 @@ export function TopicWorkbench({
 		<div className="flex size-full min-h-0 min-w-0 flex-col overflow-hidden rounded-sm border border-border/70 bg-background">
 			<TopicWorkbenchHeader project={activeProject} />
 			<div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
-				<div className="min-h-full min-w-0 space-y-3 p-3">
-					<VersionSummaryBar project={activeProject} />
-					<InputMaterialsSection
-						project={activeProject}
-						isCollapsed={collapsedSections.inputMaterials}
-						onToggleCollapse={() => toggleSection("inputMaterials")}
-					/>
-					<StageProgress
-						project={activeProject}
-						onStageClick={handleStageClick}
-					/>
-					<CandidatesSection
-						project={activeProject}
-						onRequestStageReset={(stage) => setPendingResetStage(stage)}
-						sectionRef={ideationSectionRef}
-						isCollapsed={collapsedSections.ideation}
-						onToggleCollapse={() => toggleSection("ideation")}
-					/>
-					<ResearchSection
-						project={activeProject}
-						sectionRef={researchSectionRef}
-						isCollapsed={collapsedSections.research}
-						onToggleCollapse={() => toggleSection("research")}
-					/>
-					<StructureSection
-						project={activeProject}
-						sectionRef={structureSectionRef}
-						isCollapsed={collapsedSections.structure}
-						onToggleCollapse={() => toggleSection("structure")}
-					/>
-					<PackageSection
-						project={activeProject}
-						sectionRef={packageSectionRef}
-						isCollapsed={collapsedSections.package}
-						onToggleCollapse={() => toggleSection("package")}
-					/>
-					<ProductionPlanSection
-						project={activeProject}
-						sectionRef={productionSectionRef}
-						isCollapsed={collapsedSections.production}
-						onToggleCollapse={() => toggleSection("production")}
-					/>
-				</div>
+				{isBrainstormProject ? (
+					<BrainstormDraftWorkspace project={activeProject} />
+				) : (
+					<div className="min-h-full min-w-0 space-y-3 p-3">
+						<VersionSummaryBar project={activeProject} />
+						<InputMaterialsSection
+							project={activeProject}
+							isCollapsed={collapsedSections.inputMaterials}
+							onToggleCollapse={() => toggleSection("inputMaterials")}
+						/>
+						<StageProgress
+							project={activeProject}
+							onStageClick={handleStageClick}
+						/>
+						<CandidatesSection
+							project={activeProject}
+							onRequestStageReset={(stage) => setPendingResetStage(stage)}
+							sectionRef={ideationSectionRef}
+							isCollapsed={collapsedSections.ideation}
+							onToggleCollapse={() => toggleSection("ideation")}
+						/>
+						<ResearchSection
+							project={activeProject}
+							sectionRef={researchSectionRef}
+							isCollapsed={collapsedSections.research}
+							onToggleCollapse={() => toggleSection("research")}
+						/>
+						<StructureSection
+							project={activeProject}
+							sectionRef={structureSectionRef}
+							isCollapsed={collapsedSections.structure}
+							onToggleCollapse={() => toggleSection("structure")}
+						/>
+						<PackageSection
+							project={activeProject}
+							sectionRef={packageSectionRef}
+							isCollapsed={collapsedSections.package}
+							onToggleCollapse={() => toggleSection("package")}
+						/>
+						<ProductionPlanSection
+							project={activeProject}
+							sectionRef={productionSectionRef}
+							isCollapsed={collapsedSections.production}
+							onToggleCollapse={() => toggleSection("production")}
+						/>
+					</div>
+				)}
 			</div>
 			<StageResetDialog
 				stage={pendingResetStage}
@@ -589,6 +598,7 @@ function StageResetDialog({
 }
 
 function TopicWorkbenchHeader({ project }: { project: TopicProject }) {
+	const isBrainstormProject = getTopicProjectMode(project) === "brainstorm";
 	return (
 		<header className="flex min-h-14 items-center justify-between gap-3 border-b border-border/70 bg-card/[0.58] px-4 py-2 backdrop-blur dark:bg-background/95">
 			<div className="min-w-0">
@@ -597,7 +607,11 @@ function TopicWorkbenchHeader({ project }: { project: TopicProject }) {
 						选题工作台
 					</h1>
 					<span className="rounded-sm border border-emerald-500/20 bg-emerald-500/[0.08] px-1.5 py-0.5 text-[0.68rem] font-medium text-emerald-700 dark:text-emerald-300">
-						{project.status === "ready-for-video" ? "可进入制作" : "MVP"}
+						{isBrainstormProject
+							? "草稿"
+							: project.status === "ready-for-video"
+								? "可进入制作"
+								: "MVP"}
 					</span>
 				</div>
 				<p className="truncate text-xs text-muted-foreground">
@@ -606,6 +620,180 @@ function TopicWorkbenchHeader({ project }: { project: TopicProject }) {
 			</div>
 			<CreatorProfileDialogTrigger />
 		</header>
+	);
+}
+
+function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
+	const updateInputMaterial = useTopicWorkbenchStore(
+		(state) => state.updateInputMaterial,
+	);
+	const removeInputMaterial = useTopicWorkbenchStore(
+		(state) => state.removeInputMaterial,
+	);
+	const promoteBrainstormToWorkflow = useTopicWorkbenchStore(
+		(state) => state.promoteBrainstormToWorkflow,
+	);
+	const emitAgentEvent = useTopicWorkbenchStore(
+		(state) => state.emitAgentEvent,
+	);
+	const materials = project.inputMaterials ?? [];
+	const materialContext = buildInputMaterialContext(project);
+
+	const handleCreateCandidates = () => {
+		promoteBrainstormToWorkflow();
+		emitAgentEvent({
+			editorProjectId: project.editorProjectId,
+			source: "stage-forward",
+			autoRun: true,
+			content: `请把右侧「我的草稿」和已有素材整理成 3-5 个候选选题。先提炼草稿里出现的主题、疑问、情绪和可验证线索，再调用 topic_set_candidates 写入右侧选题工作台。候选出来后请停下来等我选择，不要继续调研。${materialContext}`,
+		});
+	};
+
+	return (
+		<div className="min-h-full min-w-0 space-y-3 p-3">
+			<section className="rounded-sm border border-border/75 bg-card/[0.38] p-3 dark:bg-cyan-300/[0.03]">
+				<div className="flex flex-wrap items-start justify-between gap-3">
+					<div className="min-w-0">
+						<div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+							<BookOpenText size={15} />
+							我的草稿
+						</div>
+						<p className="mt-1 text-xs leading-5 text-muted-foreground">
+							草稿会自动保存；左侧可以继续头脑风暴、提问或查资料。
+						</p>
+					</div>
+					<Button
+						size="sm"
+						onClick={handleCreateCandidates}
+						disabled={materials.length === 0}
+						title="把右侧草稿整理成正式候选选题"
+					>
+						<Lightbulb size={14} />
+						整理成候选选题
+					</Button>
+				</div>
+			</section>
+			<div className="space-y-3">
+				{materials.map((material) => (
+					<BrainstormDraftCard
+						key={material.id}
+						material={material}
+						onSave={(patch) =>
+							updateInputMaterial({ materialId: material.id, patch })
+						}
+						onRemove={() => removeInputMaterial({ materialId: material.id })}
+					/>
+				))}
+			</div>
+		</div>
+	);
+}
+
+function BrainstormDraftCard({
+	material,
+	onSave,
+	onRemove,
+}: {
+	material: TopicProject["inputMaterials"][number];
+	onSave: (patch: {
+		title?: string;
+		summary?: string;
+		content?: string;
+	}) => void;
+	onRemove: () => void;
+}) {
+	const [isEditing, setEditing] = useState(false);
+	const [title, setTitle] = useState(material.title);
+	const [content, setContent] = useState(material.content ?? "");
+	const displayContent = material.content?.trim() || material.summary?.trim();
+
+	return (
+		<article className="rounded-sm border border-border/75 bg-background p-3">
+			<div className="flex items-start justify-between gap-2">
+				<div className="min-w-0 flex-1">
+					{isEditing ? (
+						<input
+							value={title}
+							onChange={(event) => setTitle(event.target.value)}
+							className="h-9 w-full rounded-sm border border-border bg-background px-2 text-sm font-semibold outline-none focus:border-primary/40"
+							aria-label="草稿标题"
+						/>
+					) : (
+						<div className="text-sm font-semibold leading-5 text-foreground">
+							{material.title}
+						</div>
+					)}
+					<div className="mt-1 text-xs text-muted-foreground">
+						{INPUT_MATERIAL_KIND_LABELS[material.kind]}
+					</div>
+				</div>
+				<span className="shrink-0 rounded-sm border border-border/70 bg-muted/[0.25] px-1.5 py-0.5 text-[0.68rem] text-muted-foreground">
+					{formatDate(material.createdAt)}
+				</span>
+			</div>
+
+			{isEditing ? (
+				<div className="mt-3 space-y-2">
+					<textarea
+						value={content}
+						onChange={(event) => setContent(event.target.value)}
+						placeholder="随手写下还没成型的想法、问题、链接、标题碎片或表达冲动"
+						rows={12}
+						className="min-h-72 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 outline-none placeholder:text-muted-foreground focus:border-primary/40"
+					/>
+					<div className="flex justify-end gap-2">
+						<Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+							取消
+						</Button>
+						<Button
+							size="sm"
+							onClick={() => {
+								onSave({ title, content });
+								setEditing(false);
+							}}
+						>
+							保存
+						</Button>
+					</div>
+				</div>
+			) : (
+				<>
+					<div className="mt-3 min-h-72 rounded-sm border border-border/65 bg-muted/[0.16] px-3 py-2 text-sm leading-6 text-foreground">
+						{displayContent ? (
+							<ReactMarkdownWrapper>{displayContent}</ReactMarkdownWrapper>
+						) : (
+							<span className="text-muted-foreground">
+								空白草稿。点击编辑开始记录。
+							</span>
+						)}
+					</div>
+					<div className="mt-3 flex justify-end gap-1">
+						<Button
+							size="sm"
+							variant="ghost"
+							onClick={() => {
+								setTitle(material.title);
+								setContent(material.content ?? "");
+								setEditing(true);
+							}}
+							title="编辑草稿"
+						>
+							<Pencil size={13} />
+							编辑
+						</Button>
+						<Button
+							size="sm"
+							variant="ghost"
+							onClick={onRemove}
+							title="删除草稿"
+						>
+							<Trash2 size={13} />
+							删除
+						</Button>
+					</div>
+				</>
+			)}
+		</article>
 	);
 }
 
@@ -837,7 +1025,7 @@ function VersionSummaryBar({ project }: { project: TopicProject }) {
 					size="sm"
 					variant="outline"
 					disabled={!canCreateVersion}
-					onClick={createPackageVersion}
+					onClick={() => createPackageVersion()}
 					className="min-h-14 shrink-0 self-stretch"
 					title="基于当前激活选题包复制一个独立新版本"
 				>

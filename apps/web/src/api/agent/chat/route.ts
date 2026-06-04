@@ -82,6 +82,8 @@ const requestSchema = z.object({
 		.object({
 			activeBrandKit: z.unknown().optional(),
 			activeWorkbench: z.enum(["video", "topic"]).optional(),
+			topicInteractionMode: z.enum(["brainstorm", "workflow"]).optional(),
+			topicBrainstormDraft: z.string().optional(),
 			topicCreatorProfile: z.string().optional(),
 		})
 		.optional(),
@@ -145,17 +147,32 @@ function isProjectBrandKit(value: unknown): value is ProjectBrandKit {
 function buildRequestContextText({
 	activeBrandKit,
 	activeWorkbench,
+	topicInteractionMode,
+	topicBrainstormDraft,
 	topicCreatorProfile,
 }: {
 	activeBrandKit?: unknown;
 	activeWorkbench?: "video" | "topic";
+	topicInteractionMode?: "brainstorm" | "workflow";
+	topicBrainstormDraft?: string;
 	topicCreatorProfile?: string;
 }): string | null {
 	const contextLines: string[] = [];
 	if (activeWorkbench === "topic") {
-		contextLines.push(
-			"Active workbench: topic management. Act as a topic research sub-agent for creators: help turn vague ideas into candidate topics, same-topic research, video structures, script outlines, citations, publishing copy, and a production plan before video handoff. Prefer web_search/web_fetch for current public context. Do not plan timeline edits in this mode. If the creator profile is empty and the current conversation does not already describe the account positioning, ask the user for account positioning before deep topic generation. When you produce structured candidates, select a candidate, write research, write structures, create a package, create a production plan, or reset a stage, call the topic_* tools so the right-side workbench updates; do not leave those results only in chat prose.",
-		);
+		if (topicInteractionMode === "brainstorm") {
+			contextLines.push(
+				"Active workbench: topic brainstorming. Act as a normal brainstorming and research chat companion. The user is drafting before formal topic generation, so answer questions, ask exploratory questions, expand ideas, and use web_search/web_fetch for public context when useful. Do not generate candidate topics, call topic workflow tools, or advance research/structure/package stages unless the user explicitly asks to organize the draft into candidate topics.",
+			);
+			if (topicBrainstormDraft?.trim()) {
+				contextLines.push(
+					`Current right-side draft:\n${topicBrainstormDraft.trim()}`,
+				);
+			}
+		} else {
+			contextLines.push(
+				"Active workbench: topic management. Act as a topic research sub-agent for creators: help turn vague ideas into candidate topics, same-topic research, video structures, script outlines, citations, publishing copy, and a production plan before video handoff. Prefer web_search/web_fetch for current public context. Do not plan timeline edits in this mode. If the creator profile is empty and the current conversation does not already describe the account positioning, ask the user for account positioning before deep topic generation. When you produce structured candidates, select a candidate, write research, write structures, create a package, create a production plan, or reset a stage, call the topic_* tools so the right-side workbench updates; do not leave those results only in chat prose.",
+			);
+		}
 		if (topicCreatorProfile?.trim()) {
 			contextLines.push(`Creator profile:\n${topicCreatorProfile.trim()}`);
 		} else {
@@ -554,6 +571,8 @@ export async function POST(request: ApiRequest) {
 		const contextText = buildRequestContextText({
 			activeBrandKit: context?.activeBrandKit,
 			activeWorkbench: context?.activeWorkbench,
+			topicInteractionMode: context?.topicInteractionMode,
+			topicBrainstormDraft: context?.topicBrainstormDraft,
 			topicCreatorProfile: context?.topicCreatorProfile,
 		});
 		if (!contextText) return messages;
@@ -1062,6 +1081,8 @@ export async function POST(request: ApiRequest) {
 				const contextText = buildRequestContextText({
 					activeBrandKit: context?.activeBrandKit,
 					activeWorkbench: context?.activeWorkbench,
+					topicInteractionMode: context?.topicInteractionMode,
+					topicBrainstormDraft: context?.topicBrainstormDraft,
 					topicCreatorProfile: context?.topicCreatorProfile,
 				});
 				if (contextText) {

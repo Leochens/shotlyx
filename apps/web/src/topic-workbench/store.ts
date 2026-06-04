@@ -11,7 +11,9 @@ import {
 	createProductionPlan as createProductionPlanModel,
 	createResearchSources,
 	createStructureOptions,
+	createTopicProjectFromDraft,
 	createTopicProjectFromPrompt,
+	getTopicProjectMode,
 	mergePromptIntoProject,
 	mergeTopicInputMaterials,
 	removeTopicInputMaterial,
@@ -92,6 +94,14 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 		editorProjectId: string;
 		prompt: string;
 	}) => void;
+	startBrainstormDraft: ({
+		editorProjectId,
+		draft,
+	}: {
+		editorProjectId: string;
+		draft: string;
+	}) => void;
+	promoteBrainstormToWorkflow: () => void;
 	replaceCandidates: ({
 		editorProjectId,
 		prompt,
@@ -510,6 +520,98 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 						[normalizedEditorProjectId]: [],
 					},
 				}));
+			},
+
+			startBrainstormDraft: ({ editorProjectId, draft }) => {
+				const normalizedEditorProjectId =
+					editorProjectId || DEFAULT_EDITOR_PROJECT_ID;
+				set((state) => {
+					const pendingMaterials =
+						(state.pendingInputMaterialsByEditorProject ?? {})[
+							normalizedEditorProjectId
+						] ?? [];
+					const activeId =
+						state.activeTopicProjectIdByEditorProject[
+							normalizedEditorProjectId
+						];
+					const activeProject =
+						state.topicProjects.find((project) => project.id === activeId) ??
+						null;
+
+					if (
+						activeProject &&
+						getTopicProjectMode(activeProject) === "brainstorm"
+					) {
+						const nextInputMaterials = mergeTopicInputMaterials({
+							existing: activeProject.inputMaterials ?? [],
+							incoming: [
+								...pendingMaterials,
+								{
+									id: "material-brainstorm-draft",
+									kind: "note",
+									title: "我的草稿",
+									summary: "选题前的自由草稿。",
+									content: draft.trim() || undefined,
+								},
+							],
+						});
+						return {
+							activeWorkbench: "topic",
+							activeEditorProjectId: normalizedEditorProjectId,
+							topicProjects: state.topicProjects.map((project) =>
+								project.id === activeProject.id
+									? {
+											...project,
+											title: draft.trim() || project.title,
+											originPrompt: draft.trim(),
+											inputMaterials: nextInputMaterials,
+											updatedAt: Date.now(),
+										}
+									: project,
+							),
+							pendingInputMaterialsByEditorProject: {
+								...(state.pendingInputMaterialsByEditorProject ?? {}),
+								[normalizedEditorProjectId]: [],
+							},
+						};
+					}
+
+					const project = createTopicProjectFromDraft({
+						editorProjectId: normalizedEditorProjectId,
+						draft,
+						inputMaterials: pendingMaterials,
+					});
+					return {
+						activeWorkbench: "topic",
+						activeEditorProjectId: normalizedEditorProjectId,
+						topicProjects: [...state.topicProjects, project],
+						activeTopicProjectIdByEditorProject: {
+							...state.activeTopicProjectIdByEditorProject,
+							[normalizedEditorProjectId]: project.id,
+						},
+						pendingInputMaterialsByEditorProject: {
+							...(state.pendingInputMaterialsByEditorProject ?? {}),
+							[normalizedEditorProjectId]: [],
+						},
+					};
+				});
+			},
+
+			promoteBrainstormToWorkflow: () => {
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							getTopicProjectMode(project) === "brainstorm"
+								? {
+										...project,
+										mode: "workflow",
+										status: "active",
+										updatedAt: Date.now(),
+									}
+								: project,
+					}),
+				);
 			},
 
 			replaceCandidates: ({

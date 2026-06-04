@@ -1,5 +1,7 @@
 export type WorkbenchMode = "video" | "topic";
 
+export type TopicProjectMode = "brainstorm" | "workflow";
+
 export type TopicStage =
 	| "ideation"
 	| "research"
@@ -163,6 +165,7 @@ export interface ProductionPlan {
 export interface TopicProject {
 	id: string;
 	editorProjectId: string;
+	mode?: TopicProjectMode;
 	title: string;
 	originPrompt: string;
 	stage: TopicStage;
