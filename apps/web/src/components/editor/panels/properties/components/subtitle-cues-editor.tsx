@@ -17,7 +17,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Section, SectionContent } from "@/components/section";
 import { useEditor } from "@/editor/use-editor";
 import type { SubtitleElement } from "@/timeline";
-import { applySubtitleCueTextEdits } from "./subtitle-cues-edit";
+import {
+	applySubtitleCueTextEdits,
+	syncLinkedSubtitleAssetFromCues,
+} from "./subtitle-cues-edit";
 
 function getCueTexts({ element }: { element: SubtitleElement }): string[] {
 	return element.cues.map((cue) => cue.text);
@@ -63,19 +66,27 @@ export function SubtitleCuesEditor({
 	};
 
 	const save = () => {
+		const nextCues = applySubtitleCueTextEdits({
+			cues: element.cues,
+			texts: draftTexts,
+		});
 		editor.timeline.updateElements({
 			updates: [
 				{
 					trackId,
 					elementId: element.id,
 					patch: {
-						cues: applySubtitleCueTextEdits({
-							cues: element.cues,
-							texts: draftTexts,
-						}),
+						cues: nextCues,
 					},
 				},
 			],
+		});
+		void syncLinkedSubtitleAssetFromCues({
+			editor,
+			element,
+			cues: nextCues,
+		}).catch((error) => {
+			console.warn("Failed to sync linked subtitle asset:", error);
 		});
 		setOpen(false);
 	};

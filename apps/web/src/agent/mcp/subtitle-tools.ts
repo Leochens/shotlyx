@@ -387,9 +387,7 @@ function findSubtitleElements({
 
 function isSubtitleElement(value: unknown): value is SubtitleElement {
 	return (
-		isRecord(value) &&
-		value.type === "subtitle" &&
-		Array.isArray(value.cues)
+		isRecord(value) && value.type === "subtitle" && Array.isArray(value.cues)
 	);
 }
 
@@ -546,9 +544,10 @@ function formatTranscriptTimestamp({ seconds }: { seconds: number }): string {
 	return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(
 		2,
 		"0",
-	)}:${String(wholeSeconds).padStart(2, "0")}.${String(
-		milliseconds,
-	).padStart(3, "0")}`;
+	)}:${String(wholeSeconds).padStart(2, "0")}.${String(milliseconds).padStart(
+		3,
+		"0",
+	)}`;
 }
 
 function getSubtitleElementTimelineOffsetSeconds({
@@ -826,10 +825,7 @@ export function buildSubtitleTools({
 							element: cueSource.element,
 						})
 					: [];
-				const savedTextAsset = optionalBooleanParam(
-					params,
-					"saveAsTextAsset",
-				)
+				const savedTextAsset = optionalBooleanParam(params, "saveAsTextAsset")
 					? await saveTranscriptTextAsset({
 							editor,
 							source: cueSource,
@@ -921,6 +917,17 @@ export function buildSubtitleTools({
 					description: "Karaoke highlight color, e.g. #93c5fd.",
 					optional: true,
 				},
+				subtitleAssetId: {
+					type: "string",
+					description:
+						"Optional linked subtitle media asset ID. Unified subtitle layers store this so cue edits can sync back to the asset.",
+					optional: true,
+				},
+				subtitleAssetName: {
+					type: "string",
+					description: "Optional linked subtitle media asset display name.",
+					optional: true,
+				},
 			},
 			mutating: true,
 			handler: (params) => {
@@ -997,6 +1004,11 @@ export function buildSubtitleTools({
 				const highlightColor =
 					optionalStringParam(params, "highlightColor") ??
 					DEFAULT_SUBTITLE_KARAOKE_HIGHLIGHT_COLOR;
+				const subtitleAssetId = optionalStringParam(params, "subtitleAssetId");
+				const subtitleAssetName = optionalStringParam(
+					params,
+					"subtitleAssetName",
+				);
 				const styleParams = buildSubtitleStyleParams({
 					style,
 					placement,
@@ -1036,6 +1048,14 @@ export function buildSubtitleTools({
 								"subtitle.maxCharsPerLine": maxCharsPerLine,
 								"subtitle.lineBreakMode": lineBreakMode,
 								"subtitle.highlightColor": highlightColor,
+								...(subtitleAssetId
+									? {
+											"subtitle.assetId": subtitleAssetId,
+											...(subtitleAssetName
+												? { "subtitle.assetName": subtitleAssetName }
+												: {}),
+										}
+									: {}),
 							},
 							cues: layerCues,
 							revealMode,
@@ -1055,6 +1075,12 @@ export function buildSubtitleTools({
 						style,
 						placement,
 						revealMode,
+						...(subtitleAssetId
+							? {
+									subtitleAssetId,
+									...(subtitleAssetName ? { subtitleAssetName } : {}),
+								}
+							: {}),
 					};
 				}
 
@@ -1130,7 +1156,10 @@ export function buildSubtitleTools({
 			mutating: true,
 			// eslint-disable-next-line shotlyx/prefer-object-params -- MCP tool handlers receive positional params/context.
 			handler: async (params, context) => {
-				const targetLanguage = requireStringParam(params, "targetLanguage").trim();
+				const targetLanguage = requireStringParam(
+					params,
+					"targetLanguage",
+				).trim();
 				if (!targetLanguage) {
 					throw new Error("参数格式错误：targetLanguage 不能为空");
 				}
@@ -1168,9 +1197,7 @@ export function buildSubtitleTools({
 					signal: context?.signal,
 				});
 				if (!response.ok) {
-					throw new Error(
-						await parseSubtitleTranslationApiError({ response }),
-					);
+					throw new Error(await parseSubtitleTranslationApiError({ response }));
 				}
 
 				const translationResult = parseSubtitleTranslationResult({
@@ -1180,7 +1207,9 @@ export function buildSubtitleTools({
 					translationResult.translations.map((item) => [item.index, item.text]),
 				);
 				if (translatedByIndex.size === 0) {
-					throw new Error("provider_error: subtitle translation returned no cues");
+					throw new Error(
+						"provider_error: subtitle translation returned no cues",
+					);
 				}
 
 				const provider = translationResult.provider ?? "agent-llm";

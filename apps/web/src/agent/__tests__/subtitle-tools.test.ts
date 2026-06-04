@@ -6,7 +6,9 @@ import type { MediaTime } from "@/wasm";
 import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
 function mockMediaTimeFromSeconds({ seconds }: { seconds: number }): MediaTime {
-	return Math.round(seconds * MEDIA_TIME_TICKS_PER_SECOND) as unknown as MediaTime;
+	return Math.round(
+		seconds * MEDIA_TIME_TICKS_PER_SECOND,
+	) as unknown as MediaTime;
 }
 
 function createMockEditor({
@@ -191,6 +193,49 @@ describe("subtitle tools", () => {
 						duration: 3,
 					},
 				],
+			},
+		});
+	});
+
+	test("subtitles_import links a unified subtitle layer to a subtitle asset", () => {
+		const insertElement = mock(() => ({
+			elementId: "subtitle-1",
+			trackId: "track-sub",
+		}));
+		const editor = createMockEditor({ insertElement });
+		const tools = buildSubtitleTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find((item) => item.name === "subtitles_import");
+
+		const result = tool?.handler({
+			format: "cues",
+			insertMode: "layer",
+			subtitleAssetId: "asset-subtitles",
+			subtitleAssetName: "transcript-volcengine.srt",
+			cues: [
+				{
+					text: "素材字幕",
+					startTimeSeconds: 0,
+					durationSeconds: 2,
+				},
+			],
+		});
+
+		expect(result).toMatchObject({
+			imported: true,
+			insertMode: "layer",
+			subtitleAssetId: "asset-subtitles",
+			subtitleAssetName: "transcript-volcengine.srt",
+		});
+		expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
+			element: {
+				type: "subtitle",
+				params: {
+					"subtitle.assetId": "asset-subtitles",
+					"subtitle.assetName": "transcript-volcengine.srt",
+				},
 			},
 		});
 	});
@@ -482,11 +527,11 @@ describe("subtitle tools", () => {
 			cueCount: 2,
 		});
 		expect(insertElement.mock.calls.length).toBe(2);
-			expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
-				element: {
-					type: "text",
-					startTime: 0,
-					duration: Math.round(2 * MEDIA_TIME_TICKS_PER_SECOND),
+		expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
+			element: {
+				type: "text",
+				startTime: 0,
+				duration: Math.round(2 * MEDIA_TIME_TICKS_PER_SECOND),
 				params: {
 					content: "花生其实不是坚果",
 					"subtitle.role": "cue",
@@ -663,11 +708,15 @@ describe("subtitle tools", () => {
 		>;
 		const updateCall = updateCalls.at(-1)?.[0];
 		if (!updateCall) {
-			throw new Error("Expected subtitles_translate to update the subtitle layer");
+			throw new Error(
+				"Expected subtitles_translate to update the subtitle layer",
+			);
 		}
 		const update = updateCall.updates[0];
 		if (!update) {
-			throw new Error("Expected subtitles_translate to patch one subtitle layer");
+			throw new Error(
+				"Expected subtitles_translate to patch one subtitle layer",
+			);
 		}
 		expect(update).toMatchObject({
 			trackId: "track-sub",

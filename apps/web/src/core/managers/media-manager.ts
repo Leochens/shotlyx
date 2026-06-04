@@ -73,11 +73,12 @@ export class MediaManager {
 						assetId: uniqueIds[0],
 					})
 				: new BatchCommand(
-						uniqueIds.map((id) =>
-							new RemoveMediaAssetCommand({
-								projectId,
-								assetId: id,
-							}),
+						uniqueIds.map(
+							(id) =>
+								new RemoveMediaAssetCommand({
+									projectId,
+									assetId: id,
+								}),
 						),
 					);
 
@@ -157,16 +158,26 @@ export class MediaManager {
 	}: {
 		projectId: string;
 		id: string;
-		updates: Partial<Pick<MediaAsset, "name">>;
+		updates: Partial<Pick<MediaAsset, "name" | "file" | "url">>;
 	}): Promise<MediaAsset | null> {
 		const previousAsset = this.assets.find((asset) => asset.id === id);
 		if (!previousAsset) return null;
 
 		const nextName = updates.name?.trim();
+		const fileChanged = updates.file !== undefined;
+		const nextUrl =
+			updates.url ??
+			(fileChanged &&
+			previousAsset.url &&
+			typeof URL !== "undefined" &&
+			"createObjectURL" in URL
+				? URL.createObjectURL(updates.file)
+				: previousAsset.url);
 		const nextAsset: MediaAsset = {
 			...previousAsset,
 			...updates,
 			name: nextName || previousAsset.name,
+			url: nextUrl,
 		};
 
 		this.assets = this.assets.map((asset) =>
@@ -176,9 +187,15 @@ export class MediaManager {
 
 		try {
 			await storageService.saveMediaAsset({ projectId, mediaAsset: nextAsset });
+			if (fileChanged && previousAsset.url && previousAsset.url !== nextUrl) {
+				URL.revokeObjectURL(previousAsset.url);
+			}
 			return nextAsset;
 		} catch (error) {
 			console.error("Failed to update media asset:", error);
+			if (fileChanged && nextUrl && nextUrl !== previousAsset.url) {
+				URL.revokeObjectURL(nextUrl);
+			}
 			this.assets = this.assets.map((asset) =>
 				asset.id === id ? previousAsset : asset,
 			);

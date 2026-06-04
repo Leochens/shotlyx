@@ -1,5 +1,8 @@
-import { describe, expect, test } from "bun:test";
-import { applySubtitleCueTextEdits } from "../subtitle-cues-edit";
+import { describe, expect, mock, test } from "bun:test";
+import {
+	applySubtitleCueTextEdits,
+	syncLinkedSubtitleAssetFromCues,
+} from "../subtitle-cues-edit";
 
 describe("applySubtitleCueTextEdits", () => {
 	test("updates cue text and clears stale tokens only for edited cues", () => {
@@ -33,5 +36,86 @@ describe("applySubtitleCueTextEdits", () => {
 		});
 		expect(nextCues[0]?.tokens).toBeUndefined();
 		expect(nextCues[1]?.tokens).toEqual(cues[1]?.tokens);
+	});
+
+	test("syncs linked subtitle asset file from edited layer cues", async () => {
+		let updateCall: {
+			projectId: string;
+			id: string;
+			updates: { file: File };
+		} | null = null;
+		const updateMediaAsset = mock(
+			async (call: NonNullable<typeof updateCall>) => {
+				updateCall = call;
+				return {
+					id: "subtitle-asset",
+					name: "captions.srt",
+				};
+			},
+		);
+		const editor = {
+			project: {
+				getActive: () => ({
+					metadata: { id: "project-1" },
+				}),
+			},
+			media: {
+				getAssets: () => [
+					{
+						id: "subtitle-asset",
+						name: "captions.srt",
+						type: "subtitle",
+						file: new File(["old"], "captions.srt", {
+							type: "application/x-subrip",
+						}),
+					},
+				],
+				updateMediaAsset,
+			},
+		};
+
+		await syncLinkedSubtitleAssetFromCues({
+			editor,
+			element: {
+				params: {
+					"subtitle.assetId": "subtitle-asset",
+					"subtitle.assetName": "captions.srt",
+				},
+			},
+			cues: [
+				{
+					text: "新字幕一",
+					startTime: 0,
+					duration: 1.25,
+				},
+				{
+					text: "新字幕二",
+					startTime: 1.25,
+					duration: 2,
+				},
+			],
+		});
+
+		expect(updateMediaAsset).toHaveBeenCalledTimes(1);
+		if (!updateCall) {
+			throw new Error("Expected linked subtitle asset to be updated");
+		}
+		expect(updateCall).toMatchObject({
+			projectId: "project-1",
+			id: "subtitle-asset",
+		});
+		expect(updateCall.updates.file.name).toBe("captions.srt");
+		expect(await updateCall.updates.file.text()).toBe(
+			[
+				"1",
+				"00:00:00,000 --> 00:00:01,250",
+				"新字幕一",
+				"",
+				"2",
+				"00:00:01,250 --> 00:00:03,250",
+				"新字幕二",
+				"",
+			].join("\n"),
+		);
 	});
 });

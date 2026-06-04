@@ -291,44 +291,6 @@ function sanitizeFilePart({ value }: { value: string }): string {
 		.slice(0, 48);
 }
 
-function resolveAbsoluteTokenStartTime({
-	cue,
-	token,
-}: {
-	cue: TranscriptionCue;
-	token: SubtitleToken;
-}): number {
-	const tokenLooksRelative =
-		token.startTime < cue.startTimeSeconds &&
-		token.startTime <= cue.durationSeconds + 0.001;
-	return tokenLooksRelative
-		? cue.startTimeSeconds + token.startTime
-		: token.startTime;
-}
-
-function buildTokenTimedSubtitleCues({
-	transcription,
-}: {
-	transcription: TranscribeAudioResult;
-}): Array<{ text: string; startTime: number; duration: number }> {
-	return transcription.cues
-		.flatMap((cue) =>
-			(cue.tokens ?? []).map((token) => ({
-				text: token.text,
-				startTime: resolveAbsoluteTokenStartTime({ cue, token }),
-				duration: token.duration,
-			})),
-		)
-		.filter(
-			(cue) =>
-				cue.text.trim().length > 0 &&
-				Number.isFinite(cue.startTime) &&
-				Number.isFinite(cue.duration) &&
-				cue.duration > 0,
-		)
-		.sort((a, b) => a.startTime - b.startTime);
-}
-
 function buildTranscriptionSubtitleFile({
 	transcription,
 }: {
@@ -338,19 +300,13 @@ function buildTranscriptionSubtitleFile({
 	const model = transcription.model
 		? `-${sanitizeFilePart({ value: transcription.model })}`
 		: "";
-	const tokenTimedCues = buildTokenTimedSubtitleCues({ transcription });
-	const hasTokenTimedCues = tokenTimedCues.length > 0;
-	const fileName = `transcript-${provider}${model}${
-		hasTokenTimedCues ? ".tokens" : ""
-	}.srt`;
+	const fileName = `transcript-${provider}${model}.srt`;
 	const content = `${formatSrt({
-		cues: hasTokenTimedCues
-			? tokenTimedCues
-			: transcription.cues.map((cue) => ({
-					text: cue.text,
-					startTime: cue.startTimeSeconds,
-					duration: cue.durationSeconds,
-				})),
+		cues: transcription.cues.map((cue) => ({
+			text: cue.text,
+			startTime: cue.startTimeSeconds,
+			duration: cue.durationSeconds,
+		})),
 	})}\n`;
 	return new File([content], fileName, {
 		type: "application/x-subrip;charset=utf-8",
@@ -650,7 +606,7 @@ export function createTranscriptionToolDeps({
 				subtitleAssetId?: string;
 				subtitleAssetName?: string;
 			} = {};
-			if (input.saveAsset) {
+			if (input.saveAsset !== false) {
 				input.onProgress?.({
 					stage: "subtitle-asset",
 					label: "正在保存字幕文件到资源库",
@@ -692,6 +648,14 @@ export function createTranscriptionToolDeps({
 					cues: transcription.cues,
 					style: input.style ?? DEFAULT_SUBTITLE_STYLE,
 					placement: input.placement ?? DEFAULT_SUBTITLE_PLACEMENT,
+					...(subtitleAsset.subtitleAssetId
+						? {
+								subtitleAssetId: subtitleAsset.subtitleAssetId,
+								...(subtitleAsset.subtitleAssetName
+									? { subtitleAssetName: subtitleAsset.subtitleAssetName }
+									: {}),
+							}
+						: {}),
 					...(input.trackId ? { trackId: input.trackId } : {}),
 					...(input.revealMode ? { revealMode: input.revealMode } : {}),
 					...(input.lineBreakMode
@@ -805,7 +769,7 @@ export function buildTranscriptionTools({
 				saveAsset: {
 					type: "boolean",
 					description:
-						"是否额外保存一份 SRT 字幕文件到资源库。默认 false，避免重复生成字幕素材。",
+						"是否保存一份可同步的 SRT 字幕素材到资源库。默认 true；只有用户明确不想保存素材时才传 false。",
 					optional: true,
 				},
 			},
@@ -846,7 +810,7 @@ export function buildTranscriptionTools({
 						params,
 						key: "highlightColor",
 					}),
-					saveAsset: optionalBooleanParam(params, "saveAsset") ?? false,
+					saveAsset: optionalBooleanParam(params, "saveAsset") ?? true,
 					abortSignal: context?.signal,
 					onProgress: context?.onProgress,
 				});
