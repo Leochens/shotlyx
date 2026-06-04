@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useEditor } from "@/editor/use-editor";
 import { useElementSelection } from "@/timeline/hooks/element/use-element-selection";
 import {
@@ -8,6 +8,26 @@ import {
 	TooltipContent,
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
+import { BatchCommand } from "@/commands";
+import { AddMediaAssetCommand } from "@/commands/media";
+import { InsertElementCommand } from "@/commands/timeline";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+	DialogTrigger,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import {
 	SplitButton,
 	SplitButtonLeft,
@@ -15,6 +35,16 @@ import {
 	SplitButtonSeparator,
 } from "@/components/ui/split-button";
 import { Slider } from "@/components/ui/slider";
+import {
+	AUDIO_RECORDING_COUNTDOWN_OPTIONS,
+	buildAudioRecordingConstraints,
+	createAudioRecordingFile,
+	formatRecordingDuration,
+	getSupportedAudioRecordingMimeType,
+	parseAudioRecordingCountdownSeconds,
+	type AudioRecordingCountdownSeconds,
+} from "@/media/audio-recording";
+import { processMediaAssets } from "@/media/processing";
 import { TIMELINE_ZOOM_BUTTON_FACTOR } from "./interaction";
 import { TIMELINE_ZOOM_MAX } from "@/timeline/scale";
 import { sliderToZoom, zoomToSlider } from "@/timeline/zoom-utils";
@@ -28,6 +58,7 @@ import {
 import { hasMediaId } from "@/timeline";
 import { cn } from "@/utils/ui";
 import { useTimelineStore, type TimelineMode } from "@/timeline/timeline-store";
+import { buildElementFromMedia } from "@/timeline/element-utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
 	Bookmark02Icon,
@@ -46,6 +77,9 @@ import {
 	Chart03Icon,
 	Unlink02Icon,
 	AudioWave01Icon,
+	Mic02Icon,
+	RecordIcon,
+	RefreshIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { OcRippleIcon } from "@/components/icons";
@@ -53,6 +87,9 @@ import { GraphEditorPopover } from "./graph-editor/popover";
 import { PopoverTrigger } from "@/components/ui/popover";
 import { useGraphEditorController } from "./graph-editor/use-controller";
 import { SilenceCutDialog } from "@/silence/components/silence-cut-dialog";
+import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
+import { mediaTimeFromSeconds } from "@/wasm";
+import { toast } from "sonner";
 
 export function TimelineToolbar({
 	zoomLevel,
@@ -224,6 +261,8 @@ function ToolbarLeftSection({ mode }: { mode: TimelineMode }) {
 					}}
 				/>
 
+				<AudioRecordingToolbarButton />
+
 				<ToolbarButton
 					icon={<HugeiconsIcon icon={Copy01Icon} />}
 					tooltip="Duplicate element"
@@ -298,6 +337,494 @@ function ToolbarLeftSection({ mode }: { mode: TimelineMode }) {
 				/>
 			</TooltipProvider>
 		</div>
+	);
+}
+
+type AudioRecordingStatus =
+	| "idle"
+	| "requesting"
+	| "countdown"
+	| "recording"
+	| "saving";
+
+const DEFAULT_AUDIO_INPUT_DEVICE_ID = "__default_microphone__";
+
+function isAudioRecordingBusy(status: AudioRecordingStatus): boolean {
+	return (
+		status === "requesting" ||
+		status === "countdown" ||
+		status === "recording" ||
+		status === "saving"
+	);
+}
+
+function getAudioInputLabel({
+	device,
+	index,
+}: {
+	device: MediaDeviceInfo;
+	index: number;
+}): string {
+	return device.label || `Microphone ${index + 1}`;
+}
+
+async function readMicrophonePermissionState(): Promise<
+	PermissionState | "unknown"
+> {
+	if (!navigator.permissions?.query) return "unknown";
+	try {
+		const status = await navigator.permissions.query({
+			name: "microphone" as PermissionName,
+		});
+		return status.state;
+	} catch {
+		return "unknown";
+	}
+}
+
+function AudioRecordingToolbarButton({ hidden }: { hidden?: boolean }) {
+	const editor = useEditor();
+	const [open, setOpen] = useState(false);
+	const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+	const [selectedDeviceId, setSelectedDeviceId] = useState(
+		DEFAULT_AUDIO_INPUT_DEVICE_ID,
+	);
+	const [countdownSeconds, setCountdownSeconds] =
+		useState<AudioRecordingCountdownSeconds>(3);
+	const [status, setStatus] = useState<AudioRecordingStatus>("idle");
+	const [permissionState, setPermissionState] = useState<
+		PermissionState | "unknown"
+	>("unknown");
+	const [countdownRemaining, setCountdownRemaining] = useState(0);
+	const [elapsedSeconds, setElapsedSeconds] = useState(0);
+	const recorderRef = useRef<MediaRecorder | null>(null);
+	const streamRef = useRef<MediaStream | null>(null);
+	const chunksRef = useRef<Blob[]>([]);
+	const shouldSaveRef = useRef(false);
+	const elapsedTimerRef = useRef<number | null>(null);
+	const countdownTimerRef = useRef<number | null>(null);
+	const countdownResolveRef = useRef<((completed: boolean) => void) | null>(
+		null,
+	);
+	const requestIdRef = useRef(0);
+	const openRef = useRef(open);
+
+	useEffect(() => {
+		openRef.current = open;
+	}, [open]);
+
+	const clearElapsedTimer = useCallback(() => {
+		if (elapsedTimerRef.current === null) return;
+		window.clearInterval(elapsedTimerRef.current);
+		elapsedTimerRef.current = null;
+	}, []);
+
+	const stopStream = useCallback(() => {
+		streamRef.current?.getTracks().forEach((track) => track.stop());
+		streamRef.current = null;
+	}, []);
+
+	const clearRecordingSession = useCallback(() => {
+		clearElapsedTimer();
+		stopStream();
+		recorderRef.current = null;
+		chunksRef.current = [];
+		shouldSaveRef.current = false;
+	}, [clearElapsedTimer, stopStream]);
+
+	const refreshDevices = useCallback(async () => {
+		if (!navigator.mediaDevices?.enumerateDevices) {
+			setDevices([]);
+			return;
+		}
+		const mediaDevices = await navigator.mediaDevices.enumerateDevices();
+		const audioInputs = mediaDevices.filter(
+			(device) => device.kind === "audioinput",
+		);
+		setDevices(audioInputs);
+		setSelectedDeviceId((current) =>
+			current === DEFAULT_AUDIO_INPUT_DEVICE_ID ||
+			audioInputs.some((device) => device.deviceId === current)
+				? current
+				: DEFAULT_AUDIO_INPUT_DEVICE_ID,
+		);
+	}, []);
+
+	const cancelCountdown = useCallback(() => {
+		if (countdownTimerRef.current !== null) {
+			window.clearInterval(countdownTimerRef.current);
+			countdownTimerRef.current = null;
+		}
+		countdownResolveRef.current?.(false);
+		countdownResolveRef.current = null;
+		setCountdownRemaining(0);
+	}, []);
+
+	const runCountdown = useCallback((seconds: number) => {
+		if (seconds <= 0) return Promise.resolve(true);
+		setStatus("countdown");
+		setCountdownRemaining(seconds);
+		return new Promise<boolean>((resolve) => {
+			let remaining = seconds;
+			countdownResolveRef.current = resolve;
+			countdownTimerRef.current = window.setInterval(() => {
+				remaining -= 1;
+				if (remaining <= 0) {
+					if (countdownTimerRef.current !== null) {
+						window.clearInterval(countdownTimerRef.current);
+						countdownTimerRef.current = null;
+					}
+					countdownResolveRef.current = null;
+					setCountdownRemaining(0);
+					resolve(true);
+					return;
+				}
+				setCountdownRemaining(remaining);
+			}, 1_000);
+		});
+	}, []);
+
+	const insertRecording = useCallback(
+		async ({
+			blob,
+			fallbackSeconds,
+		}: {
+			blob: Blob;
+			fallbackSeconds: number;
+		}) => {
+			const activeProject = editor.project.getActiveOrNull();
+			if (!activeProject) {
+				throw new Error("No active project");
+			}
+			const file = createAudioRecordingFile({ blob });
+			const processedAssets = await processMediaAssets({ files: [file] });
+			const asset = processedAssets[0];
+			if (!asset) {
+				throw new Error("Could not process recorded audio");
+			}
+			const addMediaCommand = new AddMediaAssetCommand({
+				projectId: activeProject.metadata.id,
+				asset,
+			});
+			const assetId = addMediaCommand.getAssetId();
+			const duration =
+				asset.duration && Number.isFinite(asset.duration)
+					? mediaTimeFromSeconds({ seconds: asset.duration })
+					: fallbackSeconds > 0
+						? mediaTimeFromSeconds({ seconds: fallbackSeconds })
+						: DEFAULT_NEW_ELEMENT_DURATION;
+			const element = buildElementFromMedia({
+				mediaId: assetId,
+				mediaType: "audio",
+				name: asset.name,
+				duration,
+				startTime: editor.playback.getCurrentTime(),
+			});
+			const insertCommand = new InsertElementCommand({
+				element,
+				placement: { mode: "auto", trackType: "audio" },
+			});
+			editor.command.execute({
+				command: new BatchCommand([addMediaCommand, insertCommand]),
+			});
+		},
+		[editor],
+	);
+
+	const handleRecorderStop = useCallback(
+		async ({ mimeType, elapsed }: { mimeType: string; elapsed: number }) => {
+			const chunks = chunksRef.current;
+			const shouldSave = shouldSaveRef.current;
+			clearRecordingSession();
+			if (!shouldSave) {
+				setStatus("idle");
+				return;
+			}
+			if (chunks.length === 0) {
+				setStatus("idle");
+				toast.error("No audio was captured");
+				return;
+			}
+
+			setStatus("saving");
+			try {
+				const blob = new Blob(chunks, {
+					type: mimeType || chunks[0]?.type || "audio/webm",
+				});
+				await insertRecording({ blob, fallbackSeconds: elapsed });
+				toast.success("Audio recording added to timeline");
+				setOpen(false);
+			} catch (error) {
+				toast.error(
+					error instanceof Error ? error.message : "Could not save recording",
+				);
+			} finally {
+				setStatus("idle");
+			}
+		},
+		[clearRecordingSession, insertRecording],
+	);
+
+	const cancelRecording = useCallback(() => {
+		requestIdRef.current += 1;
+		cancelCountdown();
+		const recorder = recorderRef.current;
+		shouldSaveRef.current = false;
+		if (recorder && recorder.state !== "inactive") {
+			recorder.stop();
+		} else {
+			clearRecordingSession();
+		}
+		setStatus("idle");
+	}, [cancelCountdown, clearRecordingSession]);
+
+	useEffect(() => {
+		return () => {
+			cancelRecording();
+		};
+	}, [cancelRecording]);
+
+	const startRecording = useCallback(async () => {
+		if (!navigator.mediaDevices?.getUserMedia) {
+			toast.error("Microphone recording is not available");
+			return;
+		}
+		if (typeof MediaRecorder === "undefined") {
+			toast.error("Audio recording is not available in this browser");
+			return;
+		}
+		const requestId = requestIdRef.current + 1;
+		requestIdRef.current = requestId;
+		setStatus("requesting");
+		setElapsedSeconds(0);
+		setCountdownRemaining(0);
+		try {
+			const deviceId =
+				selectedDeviceId === DEFAULT_AUDIO_INPUT_DEVICE_ID
+					? undefined
+					: selectedDeviceId;
+			const stream = await navigator.mediaDevices.getUserMedia(
+				buildAudioRecordingConstraints({ deviceId }),
+			);
+			if (requestIdRef.current !== requestId || !openRef.current) {
+				stream.getTracks().forEach((track) => track.stop());
+				setStatus("idle");
+				return;
+			}
+
+			streamRef.current = stream;
+			void refreshDevices().catch(() => undefined);
+			setPermissionState("granted");
+			const didFinishCountdown = await runCountdown(countdownSeconds);
+			if (!didFinishCountdown) {
+				stream.getTracks().forEach((track) => track.stop());
+				setStatus("idle");
+				return;
+			}
+
+			const mimeType = getSupportedAudioRecordingMimeType();
+			const recorder = new MediaRecorder(
+				stream,
+				mimeType ? { mimeType } : undefined,
+			);
+			const startedAt = performance.now();
+			recorderRef.current = recorder;
+			chunksRef.current = [];
+			shouldSaveRef.current = true;
+			recorder.ondataavailable = (event) => {
+				if (event.data.size > 0) {
+					chunksRef.current.push(event.data);
+				}
+			};
+			recorder.onstop = () => {
+				const elapsed = Math.max(0, (performance.now() - startedAt) / 1000);
+				void handleRecorderStop({
+					mimeType: recorder.mimeType || mimeType,
+					elapsed,
+				});
+			};
+			recorder.start();
+			setStatus("recording");
+			elapsedTimerRef.current = window.setInterval(() => {
+				setElapsedSeconds((performance.now() - startedAt) / 1000);
+			}, 250);
+		} catch (error) {
+			clearRecordingSession();
+			setStatus("idle");
+			setPermissionState(await readMicrophonePermissionState());
+			toast.error(
+				error instanceof Error ? error.message : "Microphone permission denied",
+			);
+		}
+	}, [
+		clearRecordingSession,
+		countdownSeconds,
+		handleRecorderStop,
+		refreshDevices,
+		runCountdown,
+		selectedDeviceId,
+	]);
+
+	const stopRecording = useCallback(() => {
+		const recorder = recorderRef.current;
+		if (!recorder || recorder.state === "inactive") return;
+		shouldSaveRef.current = true;
+		clearElapsedTimer();
+		recorder.stop();
+		setStatus("saving");
+	}, [clearElapsedTimer]);
+
+	const handleOpenChange = (nextOpen: boolean) => {
+		if (nextOpen) {
+			void refreshDevices().catch(() => undefined);
+			void readMicrophonePermissionState().then(setPermissionState);
+		}
+		if (!nextOpen && isAudioRecordingBusy(status)) {
+			cancelRecording();
+		}
+		setOpen(nextOpen);
+	};
+
+	if (hidden) return null;
+
+	const selectedDeviceValue = selectedDeviceId || DEFAULT_AUDIO_INPUT_DEVICE_ID;
+	const isRecording = status === "recording";
+	const isBusy = isAudioRecordingBusy(status);
+	const statusLabel =
+		status === "requesting"
+			? "Requesting microphone"
+			: status === "countdown"
+				? `${countdownRemaining}`
+				: status === "recording"
+					? `Recording ${formatRecordingDuration(elapsedSeconds)}`
+					: status === "saving"
+						? "Saving audio"
+						: permissionState === "denied"
+							? "Permission denied"
+							: "Ready";
+
+	return (
+		<Dialog open={open} onOpenChange={handleOpenChange}>
+			<ToolbarButton
+				icon={<HugeiconsIcon icon={isRecording ? RecordIcon : Mic02Icon} />}
+				isActive={isBusy}
+				tooltip={isRecording ? "Recording audio" : "Record audio"}
+				buttonWrapper={(button) => (
+					<DialogTrigger asChild>{button}</DialogTrigger>
+				)}
+			/>
+			<DialogContent className="max-w-md rounded-sm">
+				<DialogHeader>
+					<DialogTitle>Record audio</DialogTitle>
+					<DialogDescription>Microphone recording</DialogDescription>
+				</DialogHeader>
+
+				<div className="grid gap-4">
+					<div className="grid gap-2">
+						<Label htmlFor="timeline-audio-recording-device">Microphone</Label>
+						<div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+							<Select
+								value={selectedDeviceValue}
+								onValueChange={setSelectedDeviceId}
+								disabled={isBusy}
+							>
+								<SelectTrigger
+									id="timeline-audio-recording-device"
+									className="w-full"
+								>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value={DEFAULT_AUDIO_INPUT_DEVICE_ID}>
+										System default
+									</SelectItem>
+									{devices.map((device, index) => (
+										<SelectItem
+											key={device.deviceId || `mic-${index}`}
+											value={device.deviceId}
+										>
+											{getAudioInputLabel({ device, index })}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<Button
+								variant="outline"
+								size="icon"
+								disabled={isBusy}
+								onClick={() => void refreshDevices()}
+								title="Refresh microphones"
+							>
+								<HugeiconsIcon icon={RefreshIcon} />
+							</Button>
+						</div>
+					</div>
+
+					<div className="grid gap-2">
+						<Label htmlFor="timeline-audio-recording-countdown">
+							Countdown
+						</Label>
+						<Select
+							value={String(countdownSeconds)}
+							onValueChange={(value) =>
+								setCountdownSeconds(parseAudioRecordingCountdownSeconds(value))
+							}
+							disabled={isBusy}
+						>
+							<SelectTrigger id="timeline-audio-recording-countdown">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{AUDIO_RECORDING_COUNTDOWN_OPTIONS.map((seconds) => (
+									<SelectItem key={seconds} value={String(seconds)}>
+										{seconds === 0 ? "No countdown" : `${seconds} seconds`}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+
+					<div className="rounded-sm border border-border/75 bg-muted/20 px-3 py-2">
+						<div className="text-xs font-medium text-muted-foreground">
+							Status
+						</div>
+						<div className="mt-1 text-sm font-semibold text-foreground">
+							{statusLabel}
+						</div>
+					</div>
+				</div>
+
+				<DialogFooter>
+					<Button
+						variant="outline"
+						disabled={status === "saving"}
+						onClick={() => {
+							if (isBusy) {
+								cancelRecording();
+								return;
+							}
+							setOpen(false);
+						}}
+					>
+						Cancel
+					</Button>
+					<Button
+						variant={isRecording ? "destructive" : "default"}
+						disabled={
+							status === "requesting" ||
+							status === "countdown" ||
+							status === "saving"
+						}
+						onClick={() =>
+							isRecording ? stopRecording() : void startRecording()
+						}
+					>
+						<HugeiconsIcon icon={isRecording ? RecordIcon : Mic02Icon} />
+						{isRecording ? "Stop" : "Start recording"}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
 	);
 }
 
@@ -437,6 +964,7 @@ function ToolbarButton({
 		<Button
 			variant={isActive ? "secondary" : "text"}
 			size="icon"
+			aria-label={tooltip}
 			disabled={disabled}
 			onClick={onClick ? (event) => onClick({ event }) : undefined}
 			className={cn(
