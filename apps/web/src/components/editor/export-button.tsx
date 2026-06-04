@@ -22,6 +22,12 @@ import {
 	downloadBuffer,
 } from "@/export";
 import {
+	isDesktopExportAvailable,
+	selectDesktopExportTarget,
+	writeDesktopExportFile,
+} from "@/export/desktop";
+import type { DesktopExportTarget } from "@/export/desktop";
+import {
 	formatExportRemainingTime,
 	formatExportSubProgressLabel,
 	getExportSubProgressPercent,
@@ -143,9 +149,34 @@ function ExportDialog({
 	const [shouldIncludeAudio, setShouldIncludeAudio] = useState<boolean>(
 		DEFAULT_EXPORT_OPTIONS.includeAudio ?? true,
 	);
+	const [desktopExportError, setDesktopExportError] = useState<string | null>(
+		null,
+	);
 
 	const handleExport = async () => {
 		if (!activeProject) return;
+		setDesktopExportError(null);
+
+		const mimeType = getExportMimeType({ format });
+		const filename = `${activeProject.metadata.name}${getExportFileExtension({
+			format,
+		})}`;
+		const shouldUseDesktopExport = isDesktopExportAvailable();
+		let desktopTarget: DesktopExportTarget | null = null;
+		if (shouldUseDesktopExport) {
+			try {
+				desktopTarget = await selectDesktopExportTarget({
+					format,
+					suggestedName: filename,
+				});
+			} catch (error) {
+				setDesktopExportError(
+					error instanceof Error ? error.message : dialogCopy.unknownError,
+				);
+				return;
+			}
+		}
+		if (shouldUseDesktopExport && !desktopTarget) return;
 
 		const result = await editor.project.export({
 			options: {
@@ -162,14 +193,28 @@ function ExportDialog({
 		}
 
 		if (result.success && result.buffer) {
-			downloadBuffer({
-				buffer: result.buffer,
-				filename: `${activeProject.metadata.name}${getExportFileExtension({ format })}`,
-				mimeType: getExportMimeType({ format }),
-			});
+			try {
+				if (desktopTarget) {
+					await writeDesktopExportFile({
+						buffer: result.buffer,
+						mimeType,
+						targetId: desktopTarget.id,
+					});
+				} else {
+					downloadBuffer({
+						buffer: result.buffer,
+						filename,
+						mimeType,
+					});
+				}
 
-			editor.project.clearExportState();
-			onOpenChange(false);
+				editor.project.clearExportState();
+				onOpenChange(false);
+			} catch (error) {
+				setDesktopExportError(
+					error instanceof Error ? error.message : dialogCopy.unknownError,
+				);
+			}
 		}
 	};
 
@@ -219,9 +264,13 @@ function ExportDialog({
 				if (isExporting) event.preventDefault();
 			}}
 		>
-			{exportResult && !exportResult.success ? (
+			{desktopExportError || (exportResult && !exportResult.success) ? (
 				<ExportError
-					error={exportResult.error || dialogCopy.unknownError}
+					error={
+						desktopExportError ||
+						exportResult?.error ||
+						dialogCopy.unknownError
+					}
 					onRetry={handleExport}
 				/>
 			) : (

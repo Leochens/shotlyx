@@ -21,6 +21,8 @@ import * as authRoute from "@/api/auth/[...all]/route";
 import * as desktopAgentsRoute from "@/api/desktop/agents/route";
 import * as desktopConfigRoute from "@/api/desktop/config/route";
 import * as desktopConfigRevealRoute from "@/api/desktop/config/reveal/route";
+import * as desktopExportFileRoute from "@/api/desktop/export/file/route";
+import * as desktopExportSelectRoute from "@/api/desktop/export/select/route";
 import * as desktopMediaLibraryRoute from "@/api/desktop/media-library/route";
 import * as desktopMediaLibraryFilesRoute from "@/api/desktop/media-library/files/route";
 import * as desktopMediaLibraryOpenRoute from "@/api/desktop/media-library/open/route";
@@ -74,6 +76,8 @@ const staticRoutes = new Map<string, RouteModule>([
 	["/api/desktop/agents", desktopAgentsRoute],
 	["/api/desktop/config", desktopConfigRoute],
 	["/api/desktop/config/reveal", desktopConfigRevealRoute],
+	["/api/desktop/export/file", desktopExportFileRoute],
+	["/api/desktop/export/select", desktopExportSelectRoute],
 	["/api/desktop/media-library", desktopMediaLibraryRoute],
 	["/api/desktop/media-library/files", desktopMediaLibraryFilesRoute],
 	["/api/desktop/media-library/open", desktopMediaLibraryOpenRoute],
