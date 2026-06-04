@@ -26,6 +26,11 @@ const previewSource = readFileSync(
 	"utf8",
 );
 
+const topicWorkbenchSource = readFileSync(
+	fileURLToPath(new URL("../topic-workbench.tsx", import.meta.url)),
+	"utf8",
+);
+
 describe("topic workbench integration contract", () => {
 	test("lets topic agents understand uploaded media before generating topics", () => {
 		expect(chatPanelSource).toContain("TOPIC_SUPPORT_TOOL_NAMES");
@@ -87,6 +92,17 @@ describe("topic workbench integration contract", () => {
 		expect(chatPanelSource).toContain('topicInteractionMode: "brainstorm"');
 		expect(chatPanelSource).toContain("getBrainstormToolSchemas");
 		expect(editorPageSource).toContain("activeTopicProject");
+	});
+
+	test("shows a live Markdown preview while editing a brainstorm draft", () => {
+		expect(topicWorkbenchSource).toContain('data-testid="draft-live-preview"');
+		expect(topicWorkbenchSource).toContain(
+			"<ReactMarkdownWrapper rich mediaAssets={mediaAssets}>",
+		);
+		expect(topicWorkbenchSource).toContain('{content || " "}');
+		expect(topicWorkbenchSource).toContain(
+			"md:grid-cols-[minmax(0,1fr)_minmax(18rem,0.9fr)]",
+		);
 	});
 
 	test("skips automatic thumbnail rendering when the editor is degraded", () => {

@@ -830,6 +830,16 @@ function BrainstormDraftCard({
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const displayContent = material.content?.trim() || material.summary?.trim();
 
+	const handleTitleChange = (nextTitle: string) => {
+		setTitle(nextTitle);
+		onSave({ title: nextTitle, content });
+	};
+
+	const handleContentChange = (nextContent: string) => {
+		setContent(nextContent);
+		onSave({ title, content: nextContent });
+	};
+
 	const insertUploadedFiles = async ({
 		files,
 		selectionStart,
@@ -873,7 +883,7 @@ function BrainstormDraftCard({
 					{isEditing ? (
 						<input
 							value={title}
-							onChange={(event) => setTitle(event.target.value)}
+							onChange={(event) => handleTitleChange(event.target.value)}
 							className="h-9 w-full rounded-sm border border-border bg-background px-2 text-sm font-semibold outline-none focus:border-primary/40"
 							aria-label="草稿标题"
 						/>
@@ -909,51 +919,71 @@ function BrainstormDraftCard({
 							});
 						}}
 					/>
-					<textarea
-						ref={textareaRef}
-						value={content}
-						onChange={(event) => setContent(event.target.value)}
-						onPaste={(event) => {
-							const files = extractDraftUploadFiles({
-								dataTransfer: event.clipboardData,
-							});
-							if (files.length === 0) return;
-							event.preventDefault();
-							void insertUploadedFiles({
-								files,
-								selectionStart: event.currentTarget.selectionStart,
-								selectionEnd: event.currentTarget.selectionEnd,
-							});
-						}}
-						onDragOver={(event) => {
-							const files = extractDraftUploadFiles({
-								dataTransfer: event.dataTransfer,
-							});
-							if (files.length === 0) return;
-							event.preventDefault();
-							setDragOver(true);
-						}}
-						onDragLeave={() => setDragOver(false)}
-						onDrop={(event) => {
-							const files = extractDraftUploadFiles({
-								dataTransfer: event.dataTransfer,
-							});
-							if (files.length === 0) return;
-							event.preventDefault();
-							setDragOver(false);
-							void insertUploadedFiles({
-								files,
-								selectionStart: event.currentTarget.selectionStart,
-								selectionEnd: event.currentTarget.selectionEnd,
-							});
-						}}
-						placeholder="随手写下还没成型的想法、问题、链接、标题碎片或表达冲动"
-						rows={12}
-						className={cn(
-							"min-h-72 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 outline-none placeholder:text-muted-foreground focus:border-primary/40",
-							isDragOver && "border-primary/50 bg-primary/[0.03]",
-						)}
-					/>
+					<div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(18rem,0.9fr)]">
+						<div className="min-w-0">
+							<div className="mb-1 text-[0.68rem] font-medium text-muted-foreground">
+								编辑
+							</div>
+							<textarea
+								ref={textareaRef}
+								value={content}
+								onChange={(event) => handleContentChange(event.target.value)}
+								onPaste={(event) => {
+									const files = extractDraftUploadFiles({
+										dataTransfer: event.clipboardData,
+									});
+									if (files.length === 0) return;
+									event.preventDefault();
+									void insertUploadedFiles({
+										files,
+										selectionStart: event.currentTarget.selectionStart,
+										selectionEnd: event.currentTarget.selectionEnd,
+									});
+								}}
+								onDragOver={(event) => {
+									const files = extractDraftUploadFiles({
+										dataTransfer: event.dataTransfer,
+									});
+									if (files.length === 0) return;
+									event.preventDefault();
+									setDragOver(true);
+								}}
+								onDragLeave={() => setDragOver(false)}
+								onDrop={(event) => {
+									const files = extractDraftUploadFiles({
+										dataTransfer: event.dataTransfer,
+									});
+									if (files.length === 0) return;
+									event.preventDefault();
+									setDragOver(false);
+									void insertUploadedFiles({
+										files,
+										selectionStart: event.currentTarget.selectionStart,
+										selectionEnd: event.currentTarget.selectionEnd,
+									});
+								}}
+								placeholder="随手写下还没成型的想法、问题、链接、标题碎片或表达冲动"
+								rows={12}
+								className={cn(
+									"min-h-72 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 outline-none placeholder:text-muted-foreground focus:border-primary/40",
+									isDragOver && "border-primary/50 bg-primary/[0.03]",
+								)}
+							/>
+						</div>
+						<div className="min-w-0">
+							<div className="mb-1 text-[0.68rem] font-medium text-muted-foreground">
+								预览
+							</div>
+							<div
+								data-testid="draft-live-preview"
+								className="min-h-72 overflow-y-auto rounded-sm border border-border/65 bg-muted/[0.16] px-3 py-2 text-sm leading-6 text-foreground"
+							>
+								<ReactMarkdownWrapper rich mediaAssets={mediaAssets}>
+									{content || " "}
+								</ReactMarkdownWrapper>
+							</div>
+						</div>
+					</div>
 					<div className="flex justify-end gap-2">
 						<Button
 							size="icon"
@@ -969,9 +999,6 @@ function BrainstormDraftCard({
 								<Upload size={14} />
 							)}
 						</Button>
-						<Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
-							取消
-						</Button>
 						<Button
 							size="sm"
 							onClick={() => {
@@ -979,7 +1006,7 @@ function BrainstormDraftCard({
 								setEditing(false);
 							}}
 						>
-							保存
+							完成
 						</Button>
 					</div>
 				</div>
