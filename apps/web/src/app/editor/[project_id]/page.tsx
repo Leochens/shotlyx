@@ -20,7 +20,7 @@ import { MigrationDialog } from "@/project/components/migration-dialog";
 import { usePanelStore } from "@/editor/panel-store";
 import { usePasteMedia } from "@/media/use-paste-media";
 import { MobileGate } from "@/components/editor/mobile-gate";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useEditor } from "@/editor/use-editor";
 import { ChangelogNotification } from "@/changelog/components/changelog-notification";
 import { ChatPanel } from "@/agent/chat/panel";
