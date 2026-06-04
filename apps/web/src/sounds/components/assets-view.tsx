@@ -47,11 +47,24 @@ import {
 import { useEditor } from "@/editor/use-editor";
 import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
 import { processMediaAssets } from "@/media/processing";
+import { showMediaUploadToast } from "@/media/upload-toast";
+import { useFileUpload } from "@/media/use-file-upload";
 import type { MediaAsset } from "@/media/types";
 import { useSoundSearch } from "@/sounds/use-sound-search";
 import { useSoundsStore } from "@/sounds/sounds-store";
-import type { SavedSound, SoundEffect } from "@/sounds/types";
+import type {
+	SavedSound,
+	SoundEffect,
+	UploadedSoundAsset,
+} from "@/sounds/types";
 import { createAudioPreviewPlayer } from "@/sounds/audio-preview-player";
+import { useUploadedSoundLibraryStore } from "@/sounds/uploaded-sound-library-store";
+import {
+	UPLOADED_SOUND_UPLOAD_ACCEPT,
+	filterUploadedSoundAssets,
+	insertUploadedSoundAsset,
+	isUploadedSoundFile,
+} from "@/sounds/uploaded-sounds";
 import { getVoiceCloneUploadFormat } from "@/sounds/voice-clone-upload";
 import type { VoiceProfile } from "@/agent/tools/voiceover/types";
 import { buildElementFromMedia } from "@/timeline/element-utils";
@@ -77,6 +90,7 @@ import {
 	Send,
 	Sparkles,
 	Square,
+	Trash2,
 	Upload,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -1601,6 +1615,13 @@ function SoundEffectsView() {
 		setTotalCount,
 	} = useSoundsStore();
 	const {
+		addProcessedAssets,
+		isLoaded: isUploadedSoundsLoaded,
+		isLoading: isUploadedSoundsLoading,
+		items: uploadedSounds,
+		loadItems: loadUploadedSounds,
+	} = useUploadedSoundLibraryStore();
+	const {
 		results: searchResults,
 		isLoading: isSearching,
 		loadMore,
@@ -1611,10 +1632,12 @@ function SoundEffectsView() {
 		commercialOnly: showCommercialOnly,
 	});
 
-	const [playingId, setPlayingId] = useState<number | null>(null);
+	const [playingKey, setPlayingKey] = useState<string | null>(null);
 	const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(
 		null,
 	);
+	const [isProcessingUpload, setIsProcessingUpload] = useState(false);
+	const [uploadProgress, setUploadProgress] = useState(0);
 
 	const { scrollAreaRef, handleScroll } = useInfiniteScroll({
 		onLoadMore: loadMore,
@@ -1625,6 +1648,10 @@ function SoundEffectsView() {
 	useEffect(() => {
 		loadSavedSounds();
 	}, [loadSavedSounds]);
+
+	useEffect(() => {
+		void loadUploadedSounds();
+	}, [loadUploadedSounds]);
 
 	useEffect(() => {
 		if (hasLoaded) {
@@ -1710,11 +1737,61 @@ function SoundEffectsView() {
 	};
 
 	const displayedSounds = searchQuery ? searchResults : topSoundEffects;
+	const displayedUploadedSounds = filterUploadedSoundAssets({
+		items: uploadedSounds,
+		query: searchQuery,
+	});
+	const isUploadedSectionLoading =
+		isUploadedSoundsLoading || !isUploadedSoundsLoaded;
+
+	const processUploadedSoundFiles = async ({ files }: { files: File[] }) => {
+		if (!files.length) return;
+
+		const acceptedFiles = files.filter((file) => isUploadedSoundFile({ file }));
+		if (!acceptedFiles.length) {
+			toast.error("Upload an audio file");
+			return;
+		}
+
+		setIsProcessingUpload(true);
+		setUploadProgress(0);
+		try {
+			await showMediaUploadToast({
+				filesCount: acceptedFiles.length,
+				promise: async () => {
+					const processedAssets = await processMediaAssets({
+						files: acceptedFiles,
+						onProgress: ({ progress }) => setUploadProgress(progress),
+					});
+					const savedSounds = await addProcessedAssets({
+						assets: processedAssets,
+					});
+					return {
+						uploadedCount: savedSounds.length,
+						assetNames: savedSounds.map((sound) => sound.name),
+					};
+				},
+			});
+		} catch (error) {
+			console.error("Failed to upload sound effects:", error);
+		} finally {
+			setIsProcessingUpload(false);
+			setUploadProgress(0);
+		}
+	};
+
+	const { isDragOver, dragProps, openFilePicker, fileInputProps } =
+		useFileUpload({
+			accept: UPLOADED_SOUND_UPLOAD_ACCEPT,
+			multiple: true,
+			onFilesSelected: (files) => void processUploadedSoundFiles({ files }),
+		});
 
 	const playSound = ({ sound }: { sound: SoundEffect }) => {
-		if (playingId === sound.id) {
+		const key = `sound:${sound.id}`;
+		if (playingKey === key) {
 			audioElement?.pause();
-			setPlayingId(null);
+			setPlayingKey(null);
 			return;
 		}
 
@@ -1723,23 +1800,52 @@ function SoundEffectsView() {
 		if (sound.previewUrl) {
 			const audio = new Audio(sound.previewUrl);
 			audio.addEventListener("ended", () => {
-				setPlayingId(null);
+				setPlayingKey(null);
 			});
 			audio.addEventListener("error", () => {
-				setPlayingId(null);
+				setPlayingKey(null);
 			});
 			audio.play().catch((error) => {
 				console.error("Failed to play sound preview:", error);
-				setPlayingId(null);
+				setPlayingKey(null);
 			});
 
 			setAudioElement(audio);
-			setPlayingId(sound.id);
+			setPlayingKey(key);
+		}
+	};
+
+	const playUploadedSound = ({ sound }: { sound: UploadedSoundAsset }) => {
+		const key = `uploaded:${sound.id}`;
+		if (playingKey === key) {
+			audioElement?.pause();
+			setPlayingKey(null);
+			return;
+		}
+
+		audioElement?.pause();
+
+		if (sound.url) {
+			const audio = new Audio(sound.url);
+			audio.addEventListener("ended", () => {
+				setPlayingKey(null);
+			});
+			audio.addEventListener("error", () => {
+				setPlayingKey(null);
+			});
+			audio.play().catch((error) => {
+				console.error("Failed to play uploaded sound preview:", error);
+				setPlayingKey(null);
+			});
+
+			setAudioElement(audio);
+			setPlayingKey(key);
 		}
 	};
 
 	return (
 		<div className="mt-1 flex h-full flex-col gap-5">
+			<input {...fileInputProps} />
 			<div className="flex items-center gap-3">
 				<Input
 					placeholder="Search sound effects"
@@ -1785,6 +1891,24 @@ function SoundEffectsView() {
 					onScrollCapture={handleScrollWithPosition}
 				>
 					<div className="flex flex-col gap-4">
+						<UploadedSoundUploadPanel
+							isDragOver={isDragOver}
+							isProcessing={isProcessingUpload}
+							progress={uploadProgress}
+							onUpload={openFilePicker}
+							dragProps={dragProps}
+						/>
+						{isUploadedSectionLoading ? (
+							<div className="text-muted-foreground text-sm">
+								Loading uploaded sounds...
+							</div>
+						) : displayedUploadedSounds.length > 0 ? (
+							<UploadedSoundSection
+								items={displayedUploadedSounds}
+								playingKey={playingKey}
+								onPlay={playUploadedSound}
+							/>
+						) : null}
 						{isLoading && !searchQuery && (
 							<div className="text-muted-foreground text-sm">
 								Loading sounds...
@@ -1797,15 +1921,18 @@ function SoundEffectsView() {
 							<AudioItem
 								key={sound.id}
 								sound={sound}
-								isPlaying={playingId === sound.id}
+								isPlaying={playingKey === `sound:${sound.id}`}
 								onPlay={playSound}
 							/>
 						))}
-						{!isLoading && !isSearching && displayedSounds.length === 0 && (
-							<div className="text-muted-foreground text-sm">
-								{searchQuery ? "No sounds found" : "No sounds available"}
-							</div>
-						)}
+						{!isLoading &&
+							!isSearching &&
+							displayedSounds.length === 0 &&
+							displayedUploadedSounds.length === 0 && (
+								<div className="text-muted-foreground text-sm">
+									{searchQuery ? "No sounds found" : "No sounds available"}
+								</div>
+							)}
 						{isLoadingMore && (
 							<div className="text-muted-foreground py-4 text-center text-sm">
 								Loading more sounds...
@@ -1813,6 +1940,180 @@ function SoundEffectsView() {
 						)}
 					</div>
 				</ScrollArea>
+			</div>
+		</div>
+	);
+}
+
+function UploadedSoundUploadPanel({
+	isDragOver,
+	isProcessing,
+	progress,
+	onUpload,
+	dragProps,
+}: {
+	isDragOver: boolean;
+	isProcessing: boolean;
+	progress: number;
+	onUpload: () => void;
+	dragProps: ReturnType<typeof useFileUpload>["dragProps"];
+}) {
+	return (
+		<div
+			className={cn(
+				"border-border bg-muted/20 flex min-h-16 items-center justify-between gap-3 rounded-md border border-dashed p-3",
+				isDragOver && "border-primary bg-primary/10",
+			)}
+			{...dragProps}
+		>
+			<div className="flex min-w-0 items-center gap-2">
+				<div className="bg-background flex size-9 shrink-0 items-center justify-center rounded-md">
+					<Upload className="text-muted-foreground size-4" />
+				</div>
+				<div className="min-w-0">
+					<p className="truncate text-sm font-medium">
+						{isProcessing ? `Uploading ${progress}%` : "Upload FX"}
+					</p>
+					<p className="text-muted-foreground truncate text-xs">
+						Audio files are saved globally
+					</p>
+				</div>
+			</div>
+			<Button
+				type="button"
+				size="sm"
+				variant="secondary"
+				onClick={onUpload}
+				disabled={isProcessing}
+				className="shrink-0 gap-1.5"
+			>
+				{isProcessing ? (
+					<Loader2 className="size-4 animate-spin" />
+				) : (
+					<Upload className="size-4" />
+				)}
+				Upload
+			</Button>
+		</div>
+	);
+}
+
+function UploadedSoundSection({
+	items,
+	playingKey,
+	onPlay,
+}: {
+	items: UploadedSoundAsset[];
+	playingKey: string | null;
+	onPlay: ({ sound }: { sound: UploadedSoundAsset }) => void;
+}) {
+	return (
+		<div className="flex flex-col gap-3">
+			<div className="flex items-center justify-between">
+				<p className="text-xs text-muted-foreground">Uploaded FX</p>
+				<span className="text-xs text-muted-foreground">{items.length}</span>
+			</div>
+			<div className="flex flex-col gap-3">
+				{items.map((sound) => (
+					<UploadedSoundItem
+						key={sound.id}
+						sound={sound}
+						isPlaying={playingKey === `uploaded:${sound.id}`}
+						onPlay={onPlay}
+					/>
+				))}
+			</div>
+		</div>
+	);
+}
+
+function UploadedSoundItem({
+	sound,
+	isPlaying,
+	onPlay,
+}: {
+	sound: UploadedSoundAsset;
+	isPlaying: boolean;
+	onPlay: ({ sound }: { sound: UploadedSoundAsset }) => void;
+}) {
+	const editor = useEditor();
+	const { removeItem } = useUploadedSoundLibraryStore();
+	const [isAdding, setIsAdding] = useState(false);
+
+	const handleAddToTimeline = async ({
+		stopPropagation,
+	}: React.MouseEvent<HTMLButtonElement>) => {
+		stopPropagation();
+		setIsAdding(true);
+		try {
+			await insertUploadedSoundAsset({
+				editor,
+				item: sound,
+				startTime: editor.playback.getCurrentTime(),
+			});
+		} catch (error) {
+			console.error("Failed to add uploaded sound to timeline:", error);
+			toast.error("Failed to add sound to timeline");
+		} finally {
+			setIsAdding(false);
+		}
+	};
+
+	const handleRemove = async ({
+		stopPropagation,
+	}: React.MouseEvent<HTMLButtonElement>) => {
+		stopPropagation();
+		await removeItem({ id: sound.id });
+	};
+
+	return (
+		<div className="group flex items-center gap-3 opacity-100 hover:opacity-75">
+			<button
+				type="button"
+				className="flex min-w-0 flex-1 items-center gap-3 text-left"
+				onClick={() => onPlay({ sound })}
+			>
+				<div className="bg-accent relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md">
+					<div className="from-primary/20 absolute inset-0 bg-gradient-to-br to-transparent" />
+					{isPlaying ? (
+						<HugeiconsIcon icon={PauseIcon} className="size-5" />
+					) : (
+						<HugeiconsIcon icon={PlayIcon} className="size-5" />
+					)}
+				</div>
+
+				<div className="min-w-0 flex-1 overflow-hidden">
+					<p className="truncate text-sm font-medium">{sound.name}</p>
+					<span className="text-muted-foreground block truncate text-xs">
+						User upload
+					</span>
+				</div>
+			</button>
+
+			<div className="flex items-center gap-3 pr-2">
+				<Button
+					variant="text"
+					size="icon"
+					className="text-muted-foreground hover:text-foreground w-auto !opacity-100"
+					onClick={handleAddToTimeline}
+					disabled={isAdding}
+					title="Add to timeline"
+				>
+					{isAdding ? (
+						<Loader2 className="size-4 animate-spin" />
+					) : (
+						<HugeiconsIcon icon={PlusSignIcon} />
+					)}
+				</Button>
+				<Button
+					variant="text"
+					size="icon"
+					className="text-muted-foreground hover:text-destructive w-auto !opacity-100"
+					onClick={handleRemove}
+					title="Remove uploaded sound"
+				>
+					<Trash2 className="size-4" />
+				</Button>
 			</div>
 		</div>
 	);

@@ -19,7 +19,13 @@ import type {
 	SerializedProject,
 	SerializedScene,
 } from "./types";
-import type { SavedSoundsData, SavedSound, SoundEffect } from "@/sounds/types";
+import type {
+	SavedSoundsData,
+	SavedSound,
+	SoundEffect,
+	UploadedSoundAsset,
+	UploadedSoundAssetData,
+} from "@/sounds/types";
 import {
 	migrations,
 	runStorageMigrations,
@@ -108,6 +114,8 @@ function normalizeTracks({ raw }: { raw: unknown }): SceneTracks {
 class StorageService {
 	private projectsAdapter: IndexedDBAdapter<SerializedProject>;
 	private savedSoundsAdapter: IndexedDBAdapter<SavedSoundsData>;
+	private uploadedSoundMetadataAdapter: IndexedDBAdapter<UploadedSoundAssetData>;
+	private uploadedSoundFilesAdapter: OPFSAdapter;
 	private animatedStickerMetadataAdapter: IndexedDBAdapter<AnimatedStickerAssetData>;
 	private animatedStickerFilesAdapter: OPFSAdapter;
 	private config: StorageConfig;
@@ -118,6 +126,7 @@ class StorageService {
 			projectsDb: "video-editor-projects",
 			mediaDb: "video-editor-media",
 			savedSoundsDb: "video-editor-saved-sounds",
+			uploadedSoundsDb: "video-editor-uploaded-sounds",
 			animatedStickersDb: "video-editor-animated-stickers",
 			version: 1,
 		};
@@ -133,6 +142,14 @@ class StorageService {
 			storeName: "saved-sounds",
 			version: this.config.version,
 		});
+
+		this.uploadedSoundMetadataAdapter =
+			new IndexedDBAdapter<UploadedSoundAssetData>({
+				dbName: this.config.uploadedSoundsDb,
+				storeName: "uploaded-sounds",
+				version: this.config.version,
+			});
+		this.uploadedSoundFilesAdapter = new OPFSAdapter("uploaded-sound-files");
 
 		this.animatedStickerMetadataAdapter =
 			new IndexedDBAdapter<AnimatedStickerAssetData>({
@@ -702,6 +719,109 @@ class StorageService {
 			console.error("Failed to clear saved sounds:", error);
 			throw error;
 		}
+	}
+
+	async saveUploadedSoundAsset({
+		asset,
+	}: {
+		asset: UploadedSoundAsset;
+	}): Promise<void> {
+		const metadata: UploadedSoundAssetData = {
+			id: asset.id,
+			name: asset.name,
+			size: asset.file.size,
+			lastModified: asset.file.lastModified,
+			duration: asset.duration,
+			mimeType: asset.mimeType ?? asset.file.type,
+			createdAt: asset.createdAt,
+			updatedAt: asset.updatedAt,
+		};
+
+		try {
+			await this.uploadedSoundFilesAdapter.set({
+				key: asset.id,
+				value: asset.file,
+			});
+			await this.uploadedSoundMetadataAdapter.set({
+				key: asset.id,
+				value: metadata,
+			});
+		} catch (error) {
+			try {
+				await this.uploadedSoundFilesAdapter.remove(asset.id);
+			} catch {
+				// Keep the original storage error.
+			}
+			if (this.isQuotaExceededError({ error })) {
+				throw new StorageQuotaExceededError({
+					requiredBytes: asset.file.size,
+				});
+			}
+			throw error;
+		}
+	}
+
+	async loadUploadedSoundAsset({
+		id,
+	}: {
+		id: string;
+	}): Promise<UploadedSoundAsset | null> {
+		const [file, metadata] = await Promise.all([
+			this.uploadedSoundFilesAdapter.get(id),
+			this.uploadedSoundMetadataAdapter.get(id),
+		]);
+		if (!file || !metadata) return null;
+
+		return {
+			id: metadata.id,
+			name: metadata.name,
+			file,
+			url: URL.createObjectURL(file),
+			duration: metadata.duration,
+			mimeType: metadata.mimeType,
+			createdAt: metadata.createdAt,
+			updatedAt: metadata.updatedAt,
+		};
+	}
+
+	async loadUploadedSoundAssets(): Promise<UploadedSoundAsset[]> {
+		const ids = await this.uploadedSoundMetadataAdapter.list();
+		const items: UploadedSoundAsset[] = [];
+		for (const id of ids) {
+			const item = await this.loadUploadedSoundAsset({ id });
+			if (item) items.push(item);
+		}
+		return items.sort(
+			(a, b) =>
+				new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+		);
+	}
+
+	async updateUploadedSoundAsset({
+		id,
+		updates,
+	}: {
+		id: string;
+		updates: Partial<Pick<UploadedSoundAsset, "name">>;
+	}): Promise<UploadedSoundAsset | null> {
+		const current = await this.loadUploadedSoundAsset({ id });
+		if (!current) return null;
+
+		const nextName = updates.name?.trim();
+		const updated: UploadedSoundAsset = {
+			...current,
+			name: nextName || current.name,
+			updatedAt: new Date().toISOString(),
+		};
+		await this.saveUploadedSoundAsset({ asset: updated });
+		return updated;
+	}
+
+	async deleteUploadedSoundAsset({ id }: { id: string }): Promise<void> {
+		await Promise.all([
+			this.uploadedSoundMetadataAdapter.remove(id),
+			this.uploadedSoundFilesAdapter.remove(id),
+		]);
 	}
 
 	async saveAnimatedStickerAsset({

@@ -65,7 +65,6 @@ function normalizeStickerCategory({
 }): StickerCategory {
 	if (category === "flags") return "flags";
 	if (category === "shapes") return "shapes";
-	if (category === "flower-text") return "flower-text";
 	if (category === "animated-stickers") return "animated-stickers";
 	return "all";
 }

@@ -2,7 +2,6 @@ import { stickersRegistry } from "../registry";
 import type { StickerProvider } from "@/stickers/types";
 import { animatedStickersProvider } from "./animated-stickers";
 import { flagsProvider } from "./flags";
-import { flowerTextProvider } from "./flower-text";
 import { logosProvider } from "./logos";
 import { shapesProvider } from "./shapes";
 
@@ -10,7 +9,6 @@ const defaultProviders: StickerProvider[] = [
 	logosProvider,
 	flagsProvider,
 	shapesProvider,
-	flowerTextProvider,
 	animatedStickersProvider,
 ];
 

@@ -37,3 +37,22 @@ export interface SavedSoundsData {
 	sounds: SavedSound[];
 	lastModified: string;
 }
+
+export interface UploadedSoundAssetData {
+	id: string;
+	name: string;
+	size: number;
+	lastModified: number;
+	duration?: number;
+	mimeType?: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface UploadedSoundAsset extends Omit<
+	UploadedSoundAssetData,
+	"size" | "lastModified"
+> {
+	file: File;
+	url?: string;
+}

@@ -99,6 +99,7 @@ export interface StorageConfig {
 	projectsDb: string;
 	mediaDb: string;
 	savedSoundsDb: string;
+	uploadedSoundsDb: string;
 	animatedStickersDb: string;
 	version: number;
 }
