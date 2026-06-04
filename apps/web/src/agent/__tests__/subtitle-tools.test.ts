@@ -751,4 +751,124 @@ describe("subtitle tools", () => {
 			},
 		});
 	});
+
+	test("subtitles_plan_effects creates an executable plan from timed subtitle cues", async () => {
+		const subtitleElement = {
+			id: "subtitle-1",
+			type: "subtitle",
+			startTime: 10 * MEDIA_TIME_TICKS_PER_SECOND,
+			trimStart: 0,
+			params: { "subtitle.groupId": "group-1" },
+			cues: [
+				{ text: "今天讲三个关键步骤", startTime: 0, duration: 2 },
+				{ text: "第一步先看这个位置", startTime: 2, duration: 2 },
+				{ text: "最后给大家一个结论", startTime: 4, duration: 2 },
+			],
+		};
+		const subtitleTrack = {
+			id: "track-sub",
+			type: "text",
+			elements: [subtitleElement],
+		};
+		const editor = createMockEditor({
+			getTrackById: mock(({ trackId }: { trackId: string }) =>
+				trackId === "track-sub" ? subtitleTrack : null,
+			),
+			sceneTracks: {
+				main: { id: "main", type: "video", elements: [] },
+				overlay: [subtitleTrack],
+				audio: [],
+			},
+		});
+		const tools = buildSubtitleTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find((item) => item.name === "subtitles_plan_effects");
+
+		const result = await tool?.handler({ maxEffects: 2 });
+
+		expect(result).toMatchObject({
+			source: "timeline",
+			trackId: "track-sub",
+			elementId: "subtitle-1",
+			cueCount: 3,
+		});
+		const plannedEffects = (result as { plannedEffects: unknown[] })
+			.plannedEffects;
+		expect(plannedEffects).toHaveLength(2);
+		expect(plannedEffects[0]).toMatchObject({
+			cueIndex: 0,
+			startTimeSeconds: 10,
+			tool: "timeline_insert_visual_effect",
+			params: {
+				startTimeSeconds: 10,
+			},
+		});
+		expect(plannedEffects[1]).toMatchObject({
+			cueIndex: 1,
+			startTimeSeconds: 12,
+			tool: "timeline_insert_visual_effect",
+			params: {
+				kind: "arrow",
+				startTimeSeconds: 12,
+			},
+		});
+		expect((result as { nextSteps: string[] }).nextSteps).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("timeline_insert_visual_effect"),
+				expect.stringContaining("animated_sticker_insert"),
+			]),
+		);
+	});
+
+	test("subtitles_plan_effects can use a subtitle asset as the timing source", async () => {
+		const subtitleAsset = {
+			id: "subtitle-asset",
+			name: "script.srt",
+			type: "subtitle",
+			file: new File(
+				[
+					[
+						"1",
+						"00:00:00,000 --> 00:00:01,800",
+						"核心观点先抛出来",
+						"",
+						"2",
+						"00:00:01,800 --> 00:00:03,200",
+						"最后总结一下",
+					].join("\n"),
+				],
+				"script.srt",
+				{ type: "application/x-subrip" },
+			),
+		};
+		const editor = createMockEditor({ mediaAssets: [subtitleAsset] });
+		const tools = buildSubtitleTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find((item) => item.name === "subtitles_plan_effects");
+
+		const result = await tool?.handler({
+			source: "asset",
+			assetId: "subtitle-asset",
+			maxEffects: 1,
+		});
+
+		expect(result).toMatchObject({
+			source: "asset",
+			assetId: "subtitle-asset",
+			assetName: "script.srt",
+			cueCount: 2,
+			plannedEffects: [
+				{
+					cueIndex: 0,
+					text: "核心观点先抛出来",
+					startTimeSeconds: 0,
+					tool: "timeline_insert_visual_effect",
+				},
+			],
+		});
+	});
 });

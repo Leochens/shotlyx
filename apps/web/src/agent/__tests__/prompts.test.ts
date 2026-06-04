@@ -41,6 +41,9 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain("Use subtitles_import");
 		expect(prompt).toContain("Use subtitles_extract_transcript");
 		expect(prompt).toContain("clean transcript text plus timing anchors");
+		expect(prompt).toContain("Use subtitles_plan_effects");
+		expect(prompt).toContain("automatic visual effects");
+		expect(prompt).toContain("execute the returned plan");
 		expect(prompt).toContain('Pass revealMode "karaoke"');
 		expect(prompt).toContain("Use subtitles_translate");
 		expect(prompt).toContain("Do not use karaoke or token reveal modes");

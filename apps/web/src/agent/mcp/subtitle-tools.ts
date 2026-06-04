@@ -53,6 +53,28 @@ type TranscriptSource = (typeof TRANSCRIPT_SOURCES)[number];
 const TRANSCRIPT_MODES = ["plain", "anchored", "timed"] as const;
 type TranscriptMode = (typeof TRANSCRIPT_MODES)[number];
 
+const DEFAULT_EFFECT_PLAN_COUNT = 6;
+const MAX_EFFECT_PLAN_COUNT = 12;
+
+type SubtitleEffectKind =
+	| "highlight_box"
+	| "highlight_circle"
+	| "arrow"
+	| "sticker_pop";
+
+interface SubtitleEffectPlan {
+	cueIndex: number;
+	text: string;
+	startTimeSeconds: number;
+	endTimeSeconds: number;
+	durationSeconds: number;
+	effectKind: SubtitleEffectKind;
+	intensity: "subtle" | "medium" | "strong";
+	reason: string;
+	tool: "timeline_insert_visual_effect" | "animated_sticker_insert";
+	params: Record<string, unknown>;
+}
+
 const DEFAULT_SUBTITLE_MAX_CHARS_PER_LINE = 30;
 const DEFAULT_SUBTITLE_FONT_SIZE = 4;
 const DEFAULT_SUBTITLE_BACKGROUND_COLOR = "#00000099";
@@ -608,6 +630,245 @@ function buildTimedTranscriptText({
 		.join("\n");
 }
 
+function containsAnyPattern({
+	text,
+	patterns,
+}: {
+	text: string;
+	patterns: RegExp[];
+}): boolean {
+	return patterns.some((pattern) => pattern.test(text));
+}
+
+function scoreEffectAnchor({
+	anchor,
+	totalCueCount,
+}: {
+	anchor: TranscriptCueAnchor;
+	totalCueCount: number;
+}): number {
+	const text = anchor.text.toLowerCase();
+	let score = 0;
+
+	if (anchor.index === 0) score += 2;
+	if (anchor.index === totalCueCount - 1) score += 1;
+	if (anchor.text.length >= 8) score += 1;
+	if (anchor.durationSeconds >= 1.2 && anchor.durationSeconds <= 6) score += 1;
+	if (
+		containsAnyPattern({
+			text,
+			patterns: [
+				/关键|重点|核心|注意|观点|结论|总结|亮点|重点|看点/,
+				/key|important|core|takeaway|highlight|summary|conclusion/,
+			],
+		})
+	) {
+		score += 4;
+	}
+	if (
+		containsAnyPattern({
+			text,
+			patterns: [
+				/第一|第二|第三|步骤|方法|流程|先|然后|最后/,
+				/step|first|second|third|method|process|finally/,
+			],
+		})
+	) {
+		score += 3;
+	}
+	if (
+		containsAnyPattern({
+			text,
+			patterns: [
+				/这里|这个位置|位置|屏幕|按钮|点击|指向|看这里|看到/,
+				/here|position|screen|button|click|point|look/,
+			],
+		})
+	) {
+		score += 5;
+	}
+	if (
+		containsAnyPattern({
+			text,
+			patterns: [
+				/惊喜|恭喜|开心|太好了|震撼|爆点|高能|彩蛋/,
+				/surprise|congrats|great|wow|amazing|boom/,
+			],
+		})
+	) {
+		score += 2;
+	}
+
+	return score;
+}
+
+function clampEffectDuration({ duration }: { duration: number }): number {
+	return Math.max(0.8, Math.min(3.2, Number(duration.toFixed(2))));
+}
+
+function resolveEffectPlanCount({
+	params,
+}: {
+	params: Record<string, unknown>;
+}): number {
+	const requested = optionalNumberParam(params, "maxEffects");
+	if (requested === undefined) return DEFAULT_EFFECT_PLAN_COUNT;
+	return Math.max(1, Math.min(MAX_EFFECT_PLAN_COUNT, Math.floor(requested)));
+}
+
+function classifyEffectAnchor({ anchor }: { anchor: TranscriptCueAnchor }): {
+	effectKind: SubtitleEffectKind;
+	intensity: SubtitleEffectPlan["intensity"];
+	reason: string;
+	tool: SubtitleEffectPlan["tool"];
+	params: Record<string, unknown>;
+} {
+	const text = anchor.text.toLowerCase();
+	const startTimeSeconds =
+		anchor.timelineStartTimeSeconds ?? anchor.startTimeSeconds;
+	const durationSeconds = clampEffectDuration({
+		duration: anchor.durationSeconds,
+	});
+
+	if (
+		containsAnyPattern({
+			text,
+			patterns: [
+				/这里|这个位置|位置|屏幕|按钮|点击|指向|看这里|看到/,
+				/here|position|screen|button|click|point|look/,
+			],
+		})
+	) {
+		return {
+			effectKind: "arrow",
+			intensity: "medium",
+			reason: "字幕指向具体位置，适合用箭头做视觉引导。",
+			tool: "timeline_insert_visual_effect",
+			params: {
+				kind: "arrow",
+				startTimeSeconds,
+				durationSeconds,
+				color: "#facc15",
+			},
+		};
+	}
+
+	if (
+		containsAnyPattern({
+			text,
+			patterns: [
+				/惊喜|恭喜|开心|太好了|震撼|爆点|高能|彩蛋/,
+				/surprise|congrats|great|wow|amazing|boom/,
+			],
+		})
+	) {
+		return {
+			effectKind: "sticker_pop",
+			intensity: "strong",
+			reason: "字幕是情绪或爆点表达，适合短促贴纸动效。",
+			tool: "animated_sticker_insert",
+			params: {
+				query: "sparkle",
+				startTimeSeconds,
+				durationSeconds: Math.min(durationSeconds, 1.6),
+				positionX: 0.28,
+				positionY: -0.22,
+				scale: 0.7,
+			},
+		};
+	}
+
+	if (
+		containsAnyPattern({
+			text,
+			patterns: [
+				/关键|重点|核心|注意|观点|结论|总结|亮点|看点/,
+				/key|important|core|takeaway|highlight|summary|conclusion/,
+			],
+		})
+	) {
+		return {
+			effectKind: "highlight_circle",
+			intensity: "medium",
+			reason: "字幕包含重点或结论，适合用圈选强调。",
+			tool: "timeline_insert_visual_effect",
+			params: {
+				kind: "circle",
+				startTimeSeconds,
+				durationSeconds,
+				color: "#facc15",
+				fill: "#facc1526",
+			},
+		};
+	}
+
+	return {
+		effectKind: "highlight_box",
+		intensity: "subtle",
+		reason: "字幕是可包装的信息节点，适合轻量框选强调。",
+		tool: "timeline_insert_visual_effect",
+		params: {
+			kind: "box",
+			startTimeSeconds,
+			durationSeconds,
+			color: "#facc15",
+			fill: "#facc151f",
+		},
+	};
+}
+
+function buildSubtitleEffectPlan({
+	anchors,
+	maxEffects,
+}: {
+	anchors: TranscriptCueAnchor[];
+	maxEffects: number;
+}): SubtitleEffectPlan[] {
+	return anchors
+		.map((anchor) => ({
+			anchor,
+			score: scoreEffectAnchor({
+				anchor,
+				totalCueCount: anchors.length,
+			}),
+		}))
+		.filter((item) => item.score > 0)
+		.sort((left, right) => {
+			if (right.score !== left.score) return right.score - left.score;
+			return left.anchor.index - right.anchor.index;
+		})
+		.slice(0, maxEffects)
+		.sort((left, right) => {
+			const leftStart =
+				left.anchor.timelineStartTimeSeconds ?? left.anchor.startTimeSeconds;
+			const rightStart =
+				right.anchor.timelineStartTimeSeconds ?? right.anchor.startTimeSeconds;
+			return leftStart - rightStart;
+		})
+		.map(({ anchor }) => {
+			const startTimeSeconds =
+				anchor.timelineStartTimeSeconds ?? anchor.startTimeSeconds;
+			const endTimeSeconds =
+				anchor.timelineEndTimeSeconds ?? anchor.endTimeSeconds;
+			const durationSeconds = clampEffectDuration({
+				duration: anchor.durationSeconds,
+			});
+			const effect = classifyEffectAnchor({ anchor });
+			return {
+				cueIndex: anchor.index,
+				text: anchor.text,
+				startTimeSeconds,
+				endTimeSeconds,
+				durationSeconds,
+				effectKind: effect.effectKind,
+				intensity: effect.intensity,
+				reason: effect.reason,
+				tool: effect.tool,
+				params: effect.params,
+			};
+		});
+}
+
 function resolveTranscriptMode({
 	params,
 }: {
@@ -850,6 +1111,83 @@ export function buildSubtitleTools({
 						? { timedText: buildTimedTranscriptText({ anchors }) }
 						: {}),
 					...savedTextAsset,
+				};
+			},
+		},
+		{
+			name: "subtitles_plan_effects",
+			description:
+				"Plan automatic visual effects from a timed subtitle asset or timeline subtitle layer. Use this before adding automatic visual effects, emphasis stickers, arrows, circles, highlight boxes, or subtitle-timed packaging so the model can execute effects at exact subtitle times.",
+			parameters: {
+				source: {
+					type: "string",
+					description:
+						"Planning source: timeline for an existing subtitle layer, or asset for a subtitle media asset. Defaults to asset when assetId is provided, otherwise timeline.",
+					optional: true,
+				},
+				assetId: {
+					type: "string",
+					description: "Subtitle media asset ID when source is asset.",
+					optional: true,
+				},
+				subtitleTrackId: {
+					type: "string",
+					description:
+						"Optional subtitle track ID when source is timeline. Omit to use the first subtitle layer.",
+					optional: true,
+				},
+				subtitleElementId: {
+					type: "string",
+					description:
+						"Optional subtitle element ID when source is timeline. Omit to use the first subtitle layer.",
+					optional: true,
+				},
+				maxEffects: {
+					type: "number",
+					description:
+						"Maximum effect suggestions to return. Defaults to 6 and is capped at 12.",
+					optional: true,
+				},
+			},
+			handler: async (params) => {
+				const source = resolveTranscriptSource({ params });
+				const cueSource =
+					source === "asset"
+						? await resolveTranscriptCueSourceFromAsset({
+								editor,
+								assetId: requireStringParam(params, "assetId"),
+							})
+						: resolveTranscriptCueSourceFromTimeline({ editor, params });
+				if (!cueSource.hasTiming) {
+					throw new Error(
+						"字幕素材没有时间戳：请使用 SRT/VTT 字幕素材或时间线字幕层来规划特效。",
+					);
+				}
+				const anchors = buildTranscriptAnchors({
+					cues: cueSource.cues,
+					element: cueSource.element,
+				});
+				const plannedEffects = buildSubtitleEffectPlan({
+					anchors,
+					maxEffects: resolveEffectPlanCount({ params }),
+				});
+
+				return {
+					source: cueSource.source,
+					hasTiming: cueSource.hasTiming,
+					cueCount: cueSource.cues.length,
+					...(cueSource.assetId
+						? { assetId: cueSource.assetId, assetName: cueSource.assetName }
+						: {}),
+					...(cueSource.trackId
+						? { trackId: cueSource.trackId, elementId: cueSource.elementId }
+						: {}),
+					plannedEffects,
+					nextSteps: [
+						"Review plannedEffects, then call each item's tool with its params. Prefer timeline_insert_visual_effect for arrows, boxes, circles, and mosaic callouts.",
+						"Use animated_sticker_insert only for short emotional beats; keep stickers subtle and avoid covering subtitles or important faces/UI.",
+						"Skip weak suggestions instead of filling every cue. Do not duplicate effects on the same subtitle line.",
+					],
 				};
 			},
 		},
