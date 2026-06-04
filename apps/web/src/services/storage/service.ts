@@ -3,6 +3,7 @@ import { getProjectDurationFromScenes } from "@/timeline/scenes";
 import type { MediaAsset } from "@/media/types";
 import { IndexedDBAdapter } from "./indexeddb-adapter";
 import { OPFSAdapter } from "./opfs-adapter";
+import { DesktopMediaFilesAdapter } from "./desktop-media-files-adapter";
 import {
 	type StorageCapacityCheckResult,
 	StorageQuotaExceededError,
@@ -163,9 +164,19 @@ class StorageService {
 			version: this.config.version,
 		});
 
-		const mediaAssetsAdapter = new OPFSAdapter(`media-files-${projectId}`);
+		const mediaAssetsAdapter = this.usesDesktopMediaLibrary()
+			? new DesktopMediaFilesAdapter({ projectId })
+			: new OPFSAdapter(`media-files-${projectId}`);
 
 		return { mediaMetadataAdapter, mediaAssetsAdapter };
+	}
+
+	private getLegacyProjectMediaFilesAdapter({
+		projectId,
+	}: {
+		projectId: string;
+	}) {
+		return new OPFSAdapter(`media-files-${projectId}`);
 	}
 
 	async canStoreFile({
@@ -173,6 +184,14 @@ class StorageService {
 	}: {
 		size: number;
 	}): Promise<StorageCapacityCheckResult> {
+		if (this.usesDesktopMediaLibrary()) {
+			return {
+				canStore: true,
+				reason: "estimate-unavailable",
+				availableBytes: null,
+			};
+		}
+
 		const quotaStatus = await readStorageQuotaStatus();
 		return evaluateStorageCapacity({
 			requiredBytes: size,
@@ -429,10 +448,23 @@ class StorageService {
 		const { mediaMetadataAdapter, mediaAssetsAdapter } =
 			this.getProjectMediaAdapters({ projectId });
 
-		const [file, metadata] = await Promise.all([
-			mediaAssetsAdapter.get(id),
-			mediaMetadataAdapter.get(id),
-		]);
+		const metadata = await mediaMetadataAdapter.get(id);
+		let file = await mediaAssetsAdapter.get(id);
+		if (!file && metadata && this.usesDesktopMediaLibrary()) {
+			const legacyAdapter = this.getLegacyProjectMediaFilesAdapter({ projectId });
+			const legacyFile = await legacyAdapter.get(id).catch(() => null);
+			if (legacyFile) {
+				file = legacyFile;
+				mediaAssetsAdapter
+					.set({ key: id, value: legacyFile })
+					.catch((error) => {
+						console.warn(
+							"Failed to copy legacy OPFS media into desktop media library:",
+							error,
+						);
+					});
+			}
+		}
 
 		if (!file || !metadata) return null;
 
@@ -504,6 +536,11 @@ class StorageService {
 
 		await Promise.all([
 			mediaAssetsAdapter.remove(id),
+			this.usesDesktopMediaLibrary()
+				? this.getLegacyProjectMediaFilesAdapter({ projectId })
+						.remove(id)
+						.catch(() => {})
+				: Promise.resolve(),
 			mediaMetadataAdapter.remove(id),
 		]);
 	}
@@ -519,7 +556,27 @@ class StorageService {
 		await Promise.all([
 			mediaMetadataAdapter.clear(),
 			mediaAssetsAdapter.clear(),
+			this.usesDesktopMediaLibrary()
+				? this.getLegacyProjectMediaFilesAdapter({ projectId })
+						.clear()
+						.catch(() => {})
+				: Promise.resolve(),
 		]);
+	}
+
+	async copyMediaAssetsToCurrentBackend({
+		assets,
+		projectId,
+	}: {
+		assets: MediaAsset[];
+		projectId: string;
+	}): Promise<void> {
+		const { mediaAssetsAdapter } = this.getProjectMediaAdapters({ projectId });
+		await Promise.all(
+			assets.map((asset) =>
+				mediaAssetsAdapter.set({ key: asset.id, value: asset.file }),
+			),
+		);
 	}
 
 	async clearAllData(): Promise<void> {
@@ -769,7 +826,14 @@ class StorageService {
 	}
 
 	isFullySupported(): boolean {
-		return this.isIndexedDBSupported() && this.isOPFSSupported();
+		return (
+			this.isIndexedDBSupported() &&
+			(this.usesDesktopMediaLibrary() || this.isOPFSSupported())
+		);
+	}
+
+	usesDesktopMediaLibrary(): boolean {
+		return process.env.VITE_SHOTLYX_DESKTOP === "1";
 	}
 }
 

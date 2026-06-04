@@ -9,7 +9,13 @@ import { ThemeToggle } from "../theme-toggle";
 import { LanguageSelector } from "../language-selector";
 import { toast } from "sonner";
 import { useEditor } from "@/editor/use-editor";
-import { Bot, KeyRound, Settings, SlidersHorizontal } from "lucide-react";
+import {
+	Bot,
+	HardDrive,
+	KeyRound,
+	Settings,
+	SlidersHorizontal,
+} from "lucide-react";
 import {
 	CommandIcon,
 	Logout05Icon,
@@ -22,6 +28,7 @@ import { cn } from "@/utils/ui";
 import { useAppLocale } from "@/i18n/use-app-locale";
 import { ShotlyxLogo } from "@/components/brand-logo";
 import { AgentRuntimeBadge } from "@/agent/chat/runtime-status";
+import { StorageSettingsPanel } from "./storage-settings-panel";
 import {
 	Dialog,
 	DialogBody,
@@ -80,7 +87,7 @@ export function EditorHeader() {
 }
 
 function EditorSettingsMenu() {
-	type SettingsSection = "agent" | "advanced-api" | "other";
+	type SettingsSection = "agent" | "advanced-api" | "storage" | "other";
 	const [activeSection, setActiveSection] = useState<SettingsSection | null>(
 		null,
 	);
@@ -98,6 +105,11 @@ function EditorSettingsMenu() {
 			section: "advanced-api",
 			label: "高级 API 配置",
 			icon: KeyRound,
+		},
+		{
+			section: "storage",
+			label: "存储位置",
+			icon: HardDrive,
 		},
 		{
 			section: "other",
@@ -170,12 +182,16 @@ function EditorSettingsMenu() {
 									</button>
 								))}
 							</nav>
-							<iframe
-								key={selectedItem.section}
-								title={selectedItem.label}
-								src={`/settings/api?embedded=1&section=${selectedItem.section}`}
-								className="h-full min-h-0 w-full border-0 bg-background"
-							/>
+							{selectedItem.section === "storage" ? (
+								<StorageSettingsPanel />
+							) : (
+								<iframe
+									key={selectedItem.section}
+									title={selectedItem.label}
+									src={`/settings/api?embedded=1&section=${selectedItem.section}`}
+									className="h-full min-h-0 w-full border-0 bg-background"
+								/>
+							)}
 						</div>
 					</DialogBody>
 				</DialogContent>

@@ -21,6 +21,10 @@ import * as authRoute from "@/api/auth/[...all]/route";
 import * as desktopAgentsRoute from "@/api/desktop/agents/route";
 import * as desktopConfigRoute from "@/api/desktop/config/route";
 import * as desktopConfigRevealRoute from "@/api/desktop/config/reveal/route";
+import * as desktopMediaLibraryRoute from "@/api/desktop/media-library/route";
+import * as desktopMediaLibraryFilesRoute from "@/api/desktop/media-library/files/route";
+import * as desktopMediaLibraryOpenRoute from "@/api/desktop/media-library/open/route";
+import * as desktopMediaLibrarySelectRoute from "@/api/desktop/media-library/select/route";
 import * as desktopMediaAnalyzeRoute from "@/api/desktop/media/analyze/route";
 import * as desktopMediaKeyframeRoute from "@/api/desktop/media/keyframe/route";
 import * as desktopMediaTranscriptRoute from "@/api/desktop/media/transcript/route";
@@ -70,6 +74,10 @@ const staticRoutes = new Map<string, RouteModule>([
 	["/api/desktop/agents", desktopAgentsRoute],
 	["/api/desktop/config", desktopConfigRoute],
 	["/api/desktop/config/reveal", desktopConfigRevealRoute],
+	["/api/desktop/media-library", desktopMediaLibraryRoute],
+	["/api/desktop/media-library/files", desktopMediaLibraryFilesRoute],
+	["/api/desktop/media-library/open", desktopMediaLibraryOpenRoute],
+	["/api/desktop/media-library/select", desktopMediaLibrarySelectRoute],
 	["/api/desktop/media/analyze", desktopMediaAnalyzeRoute],
 	["/api/desktop/media/keyframe", desktopMediaKeyframeRoute],
 	["/api/desktop/media/transcript", desktopMediaTranscriptRoute],

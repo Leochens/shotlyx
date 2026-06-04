@@ -6,6 +6,7 @@ const platformDir = path.resolve(sourceDir, "platform");
 const desktopApiExternals = [
 	"@remotion/bundler",
 	"@remotion/renderer",
+	"electron",
 	"esbuild",
 ];
 
