@@ -36,6 +36,11 @@ const topicWorkbenchSource = readFileSync(
 	"utf8",
 );
 
+const brainstormDraftCardSource = topicWorkbenchSource.slice(
+	topicWorkbenchSource.indexOf("function BrainstormDraftCard"),
+	topicWorkbenchSource.indexOf("function DraftTiptapToolbar"),
+);
+
 describe("topic workbench integration contract", () => {
 	test("lets topic agents understand uploaded media before generating topics", () => {
 		expect(chatPanelSource).toContain("TOPIC_SUPPORT_TOOL_NAMES");
@@ -106,6 +111,18 @@ describe("topic workbench integration contract", () => {
 		expect(topicWorkbenchSource).toContain("draftMarkdownToTiptapHtml");
 		expect(topicWorkbenchSource).toContain("getDraftTiptapMarkdown");
 		expect(topicWorkbenchSource).toContain("insertUploadedAssetsIntoTiptap");
+	});
+
+	test("keeps brainstorm drafts editable by default without an edit-mode gate", () => {
+		expect(brainstormDraftCardSource).toContain('aria-label="草稿标题"');
+		expect(brainstormDraftCardSource).toContain(
+			'data-testid="draft-tiptap-editor"',
+		);
+		expect(brainstormDraftCardSource).toContain("<DraftTiptapToolbar");
+		expect(brainstormDraftCardSource).not.toContain("isEditing");
+		expect(brainstormDraftCardSource).not.toContain("setEditing");
+		expect(brainstormDraftCardSource).not.toContain('title="编辑草稿"');
+		expect(brainstormDraftCardSource).not.toContain("点击编辑开始记录");
 	});
 
 	test("skips automatic thumbnail rendering when the editor is degraded", () => {

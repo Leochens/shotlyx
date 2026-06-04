@@ -46,7 +46,6 @@ import {
 	type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ReactMarkdownWrapper } from "@/components/ui/react-markdown-wrapper";
 import { useEditor } from "@/editor/use-editor";
 import { processMediaAssets } from "@/media/processing";
 import { showMediaUploadToast } from "@/media/upload-toast";
@@ -832,14 +831,11 @@ function BrainstormDraftCard({
 	}) => void;
 	onRemove: () => void;
 }) {
-	const [isEditing, setEditing] = useState(false);
 	const [isUploading, setUploading] = useState(false);
 	const [isDragOver, setDragOver] = useState(false);
-	const [title, setTitle] = useState(material.title);
 	const titleRef = useRef(material.title);
 	const contentRef = useRef(material.content ?? "");
 	const fileInputRef = useRef<HTMLInputElement>(null);
-	const displayContent = material.content?.trim() || material.summary?.trim();
 	const tiptapExtensions = useMemo(
 		() => createDraftTiptapExtensions({ mediaAssets }),
 		[mediaAssets],
@@ -863,18 +859,17 @@ function BrainstormDraftCard({
 	);
 
 	useEffect(() => {
-		if (isEditing) return;
 		const nextContent = material.content ?? "";
 		titleRef.current = material.title;
+		if (nextContent === contentRef.current) return;
 		contentRef.current = nextContent;
 		draftEditor?.commands.setContent(draftMarkdownToTiptapHtml(nextContent), {
 			emitUpdate: false,
 		});
-	}, [draftEditor, isEditing, material.content, material.title]);
+	}, [draftEditor, material.content, material.title]);
 
 	const handleTitleChange = (nextTitle: string) => {
 		titleRef.current = nextTitle;
-		setTitle(nextTitle);
 		onSave({ title: nextTitle, content: contentRef.current });
 	};
 
@@ -906,18 +901,12 @@ function BrainstormDraftCard({
 		<article className="rounded-sm border border-border/75 bg-background p-3">
 			<div className="flex items-start justify-between gap-2">
 				<div className="min-w-0 flex-1">
-					{isEditing ? (
-						<input
-							value={title}
-							onChange={(event) => handleTitleChange(event.target.value)}
-							className="h-9 w-full rounded-sm border border-border bg-background px-2 text-sm font-semibold outline-none focus:border-primary/40"
-							aria-label="草稿标题"
-						/>
-					) : (
-						<div className="text-sm font-semibold leading-5 text-foreground">
-							{material.title}
-						</div>
-					)}
+					<input
+						value={material.title}
+						onChange={(event) => handleTitleChange(event.target.value)}
+						className="h-9 w-full rounded-sm border border-border bg-background px-2 text-sm font-semibold outline-none focus:border-primary/40"
+						aria-label="草稿标题"
+					/>
 					<div className="mt-1 text-xs text-muted-foreground">
 						{INPUT_MATERIAL_KIND_LABELS[material.kind]}
 					</div>
@@ -927,135 +916,82 @@ function BrainstormDraftCard({
 				</span>
 			</div>
 
-			{isEditing ? (
-				<div className="mt-3 space-y-2">
-					<input
-						ref={fileInputRef}
-						type="file"
-						accept="image/*,video/*"
-						multiple
-						className="hidden"
-						onChange={(event) => {
-							const files = Array.from(event.currentTarget.files ?? []);
-							event.currentTarget.value = "";
+			<div className="mt-3 space-y-2">
+				<input
+					ref={fileInputRef}
+					type="file"
+					accept="image/*,video/*"
+					multiple
+					className="hidden"
+					onChange={(event) => {
+						const files = Array.from(event.currentTarget.files ?? []);
+						event.currentTarget.value = "";
+						void insertUploadedFiles({ files });
+					}}
+				/>
+				<div className="space-y-2">
+					<DraftTiptapToolbar
+						editor={draftEditor}
+						isUploading={isUploading}
+						onUploadClick={() => fileInputRef.current?.click()}
+					/>
+					<div
+						data-testid="draft-tiptap-editor"
+						onPaste={(event) => {
+							const files = extractDraftUploadFiles({
+								dataTransfer: event.clipboardData,
+							});
+							if (files.length === 0) return;
+							event.preventDefault();
 							void insertUploadedFiles({ files });
 						}}
-					/>
-					<div className="space-y-2">
-						<DraftTiptapToolbar
-							editor={draftEditor}
-							isUploading={isUploading}
-							onUploadClick={() => fileInputRef.current?.click()}
-						/>
-						<div
-							data-testid="draft-tiptap-editor"
-							onPaste={(event) => {
-								const files = extractDraftUploadFiles({
-									dataTransfer: event.clipboardData,
-								});
-								if (files.length === 0) return;
-								event.preventDefault();
-								void insertUploadedFiles({ files });
-							}}
-							onDragOver={(event) => {
-								const files = extractDraftUploadFiles({
-									dataTransfer: event.dataTransfer,
-								});
-								if (files.length === 0) return;
-								event.preventDefault();
-								setDragOver(true);
-							}}
-							onDragLeave={() => setDragOver(false)}
-							onDrop={(event) => {
-								const files = extractDraftUploadFiles({
-									dataTransfer: event.dataTransfer,
-								});
-								if (files.length === 0) return;
-								event.preventDefault();
-								setDragOver(false);
-								void insertUploadedFiles({ files });
-							}}
-							className={cn(
-								"min-h-72 rounded-sm border border-border bg-background text-sm leading-6 text-foreground outline-none transition-colors focus-within:border-primary/40",
-								"[&_.ProseMirror]:min-h-72 [&_.ProseMirror]:whitespace-pre-wrap [&_.ProseMirror]:px-3 [&_.ProseMirror]:py-2 [&_.ProseMirror]:outline-none",
-								"[&_.ProseMirror_h1]:mb-2 [&_.ProseMirror_h1]:text-xl [&_.ProseMirror_h1]:font-semibold",
-								"[&_.ProseMirror_h2]:mb-2 [&_.ProseMirror_h2]:text-lg [&_.ProseMirror_h2]:font-semibold",
-								"[&_.ProseMirror_h3]:mb-2 [&_.ProseMirror_h3]:text-base [&_.ProseMirror_h3]:font-semibold",
-								"[&_.ProseMirror_blockquote]:my-2 [&_.ProseMirror_blockquote]:border-l-2 [&_.ProseMirror_blockquote]:border-primary/35 [&_.ProseMirror_blockquote]:pl-3 [&_.ProseMirror_blockquote]:text-muted-foreground",
-								"[&_.ProseMirror_ul]:my-2 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:pl-5",
-								"[&_.ProseMirror_ol]:my-2 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:pl-5",
-								"[&_.ProseMirror_p]:my-1",
-								"[&_.ProseMirror_.is-editor-empty:first-child::before]:pointer-events-none [&_.ProseMirror_.is-editor-empty:first-child::before]:float-left [&_.ProseMirror_.is-editor-empty:first-child::before]:h-0 [&_.ProseMirror_.is-editor-empty:first-child::before]:text-muted-foreground [&_.ProseMirror_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]",
-								isDragOver && "border-primary/50 bg-primary/[0.03]",
-							)}
-						>
-							<EditorContent editor={draftEditor} />
-						</div>
-					</div>
-					<div className="flex justify-end gap-2">
-						<Button
-							size="sm"
-							onClick={() => {
-								const nextContent = draftEditor
-									? getDraftTiptapMarkdown(draftEditor)
-									: contentRef.current;
-								contentRef.current = nextContent;
-								onSave({ title: titleRef.current, content: nextContent });
-								setEditing(false);
-							}}
-						>
-							完成
-						</Button>
+						onDragOver={(event) => {
+							const files = extractDraftUploadFiles({
+								dataTransfer: event.dataTransfer,
+							});
+							if (files.length === 0) return;
+							event.preventDefault();
+							setDragOver(true);
+						}}
+						onDragLeave={() => setDragOver(false)}
+						onDrop={(event) => {
+							const files = extractDraftUploadFiles({
+								dataTransfer: event.dataTransfer,
+							});
+							if (files.length === 0) return;
+							event.preventDefault();
+							setDragOver(false);
+							void insertUploadedFiles({ files });
+						}}
+						className={cn(
+							"min-h-72 rounded-sm border border-border bg-background text-sm leading-6 text-foreground outline-none transition-colors focus-within:border-primary/40",
+							"[&_.ProseMirror]:min-h-72 [&_.ProseMirror]:whitespace-pre-wrap [&_.ProseMirror]:px-3 [&_.ProseMirror]:py-2 [&_.ProseMirror]:outline-none",
+							"[&_.ProseMirror_h1]:mb-2 [&_.ProseMirror_h1]:text-xl [&_.ProseMirror_h1]:font-semibold",
+							"[&_.ProseMirror_h2]:mb-2 [&_.ProseMirror_h2]:text-lg [&_.ProseMirror_h2]:font-semibold",
+							"[&_.ProseMirror_h3]:mb-2 [&_.ProseMirror_h3]:text-base [&_.ProseMirror_h3]:font-semibold",
+							"[&_.ProseMirror_blockquote]:my-2 [&_.ProseMirror_blockquote]:border-l-2 [&_.ProseMirror_blockquote]:border-primary/35 [&_.ProseMirror_blockquote]:pl-3 [&_.ProseMirror_blockquote]:text-muted-foreground",
+							"[&_.ProseMirror_ul]:my-2 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:pl-5",
+							"[&_.ProseMirror_ol]:my-2 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:pl-5",
+							"[&_.ProseMirror_p]:my-1",
+							"[&_.ProseMirror_.is-editor-empty:first-child::before]:pointer-events-none [&_.ProseMirror_.is-editor-empty:first-child::before]:float-left [&_.ProseMirror_.is-editor-empty:first-child::before]:h-0 [&_.ProseMirror_.is-editor-empty:first-child::before]:text-muted-foreground [&_.ProseMirror_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]",
+							isDragOver && "border-primary/50 bg-primary/[0.03]",
+						)}
+					>
+						<EditorContent editor={draftEditor} />
 					</div>
 				</div>
-			) : (
-				<>
-					<div className="mt-3 min-h-72 rounded-sm border border-border/65 bg-muted/[0.16] px-3 py-2 text-sm leading-6 text-foreground">
-						{displayContent ? (
-							<ReactMarkdownWrapper rich mediaAssets={mediaAssets}>
-								{displayContent}
-							</ReactMarkdownWrapper>
-						) : (
-							<span className="text-muted-foreground">
-								空白草稿。点击编辑开始记录。
-							</span>
-						)}
-					</div>
-					<div className="mt-3 flex justify-end gap-1">
-						<Button
-							size="sm"
-							variant="ghost"
-							onClick={() => {
-								const nextContent = material.content ?? "";
-								titleRef.current = material.title;
-								contentRef.current = nextContent;
-								setTitle(material.title);
-								draftEditor?.commands.setContent(
-									draftMarkdownToTiptapHtml(nextContent),
-									{ emitUpdate: false },
-								);
-								setEditing(true);
-								requestAnimationFrame(() => {
-									draftEditor?.commands.focus();
-								});
-							}}
-							title="编辑草稿"
-						>
-							<Pencil size={13} />
-							编辑
-						</Button>
-						<Button
-							size="sm"
-							variant="ghost"
-							onClick={onRemove}
-							title="删除草稿"
-						>
-							<Trash2 size={13} />
-							删除
-						</Button>
-					</div>
-				</>
-			)}
+				<div className="flex justify-end gap-1">
+					<Button
+						size="sm"
+						variant="ghost"
+						onClick={onRemove}
+						title="删除草稿"
+					>
+						<Trash2 size={13} />
+						删除
+					</Button>
+				</div>
+			</div>
 		</article>
 	);
 }
