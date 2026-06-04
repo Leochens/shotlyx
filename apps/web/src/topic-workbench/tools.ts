@@ -182,7 +182,7 @@ export function getTopicWriteToolSchemas(): FunctionSchema[] {
 		{
 			name: "topic_create_package",
 			description:
-				"Create a versioned topic package from the selected candidate, research, and selected structure. Use this when the user confirms the package generation step. If you provide scriptSegments, each content field must be verbatim spoken script or voiceover copy, not a summary or outline.",
+				"Create a versioned topic package from the selected candidate, research, and selected structure. Use this when the user confirms the package generation step. If you provide scriptSegments, each content field must be final verbatim spoken script or voiceover copy that the user can read aloud directly. Do not put hooks, section titles, outlines, visual plans, or summaries in content.",
 			parameters: {
 				type: "object",
 				required: [],
@@ -218,7 +218,7 @@ export function getTopicWriteToolSchemas(): FunctionSchema[] {
 					}),
 					scriptSegments: arrayParam({
 						description:
-							"Optional segment drafts. Each item can include timeRange, content, and materialSuggestion. content must be word-for-word spoken script/voiceover copy, not a content overview.",
+							"Optional segment drafts. Each item can include timeRange, content, and materialSuggestion. content must be word-for-word spoken script/voiceover copy with complete sentences; put visual plans and asset notes in materialSuggestion, not content.",
 						optional: true,
 					}),
 					platformRecommendations: arrayParam({
@@ -531,6 +531,61 @@ function parsePackageScriptSegmentDrafts(
 	});
 }
 
+const OUTLINE_LIKE_SCRIPT_SEGMENT_PATTERN =
+	/(?:^|[\s\n])(?:开场|结尾|总结|效果展示|复刻展示|产品展示|流程|教程|引入|转场|对比|拆解|案例|段落|hook|cta)\s*[:：]/i;
+
+function countScriptCharacters(content: string): number {
+	return content.replace(/\s/g, "").length;
+}
+
+function parseTimecodeSeconds(value: string): number | null {
+	const parts = value
+		.trim()
+		.split(":")
+		.map((part) => Number(part));
+	if (parts.length < 2 || parts.length > 3) return null;
+	if (parts.some((part) => !Number.isFinite(part) || part < 0)) return null;
+	if (parts.length === 2) return parts[0] * 60 + parts[1];
+	return parts[0] * 3600 + parts[1] * 60 + parts[2];
+}
+
+function parseTimeRangeDurationSeconds(timeRange?: string): number | null {
+	if (!timeRange) return null;
+	const [startText, endText] = timeRange.split(/\s*(?:-|–|—|至|到)\s*/);
+	if (!startText || !endText) return null;
+	const start = parseTimecodeSeconds(startText);
+	const end = parseTimecodeSeconds(endText);
+	if (start === null || end === null || end <= start) return null;
+	return end - start;
+}
+
+function getMinimumVerbatimScriptCharacters(timeRange?: string): number {
+	const durationSeconds = parseTimeRangeDurationSeconds(timeRange);
+	if (durationSeconds === null) return 80;
+	if (durationSeconds <= 20) return 35;
+	if (durationSeconds <= 45) return 60;
+	if (durationSeconds <= 90) return 90;
+	if (durationSeconds <= 150) return 120;
+	return 160;
+}
+
+function findOutlineLikeScriptSegmentIssue(
+	scriptSegments?: TopicPackageDraft["scriptSegments"],
+): string | null {
+	for (const [index, segment] of (scriptSegments ?? []).entries()) {
+		const content = segment.content?.trim() ?? "";
+		if (!content) continue;
+		if (OUTLINE_LIKE_SCRIPT_SEGMENT_PATTERN.test(content)) {
+			return `第 ${index + 1} 段 scriptSegments.content 看起来仍是内容概述或段落标题，请改成用户可直接口播/配音的逐字稿。`;
+		}
+		const minCharacters = getMinimumVerbatimScriptCharacters(segment.timeRange);
+		if (countScriptCharacters(content) < minCharacters) {
+			return `第 ${index + 1} 段 scriptSegments.content 对当前时间段来说太短，不像可直接口播/配音的逐字稿。`;
+		}
+	}
+	return null;
+}
+
 function parsePackagePlatformRecommendationDrafts(
 	value: unknown,
 ): NonNullable<TopicPackageDraft["platformRecommendations"]> {
@@ -829,6 +884,14 @@ export function executeTopicWorkbenchTool({
 	if (normalizedToolName === "topic_create_package") {
 		const before = store.getActiveTopicProject();
 		const draft = parseTopicPackageDraft(params);
+		const scriptSegmentIssue = findOutlineLikeScriptSegmentIssue(
+			draft?.scriptSegments,
+		);
+		if (scriptSegmentIssue) {
+			return paramError(
+				`${scriptSegmentIssue} 请重新调用 topic_create_package：scriptSegments.content 必须写成完整逐字稿；段落目标、画面说明和素材建议请放到 outline 或 materialSuggestion。`,
+			);
+		}
 		const project = store.createPackageVersion({ draft });
 		const activePackageId = project?.activePackageVersionId ?? null;
 		if (!project || !activePackageId || before === project) {

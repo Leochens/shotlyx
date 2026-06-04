@@ -322,7 +322,7 @@ function buildStageForwardTask({
 		return `${topicText}${materialContext}\n请进入结构设计阶段：基于当前选题、已有资料和用户提供素材，生成 2-4 个视频结构模板。完成后调用 topic_set_structures 写入右侧选题工作台。`;
 	}
 	if (stage === "package") {
-		return `${topicText}${materialContext}\n请进入选题包阶段：基于当前选题、调研、结构和用户提供素材，调用 topic_create_package 生成标题、摘要、核心观点、脚本大纲、分段逐字稿、分段素材建议和发布文案。注意 scriptSegments.content 必须是可直接口播或配音的逐字稿，不要写成内容概述。`;
+		return `${topicText}${materialContext}\n请进入选题包阶段：基于当前选题、调研、结构和用户提供素材，调用 topic_create_package 生成标题、摘要、核心观点、脚本大纲、分段逐字稿、分段素材建议和发布文案。注意 scriptSegments.content 必须是用户可直接照读的逐字稿，要写完整台词和句子；不要写“开场 hook：”“效果展示：”“流程拆解：”这类内容概述、段落标题或画面计划，画面和素材说明放到 materialSuggestion。`;
 	}
 	if (stage === "production") {
 		return `${topicText}${materialContext}\n请进入制作计划阶段：基于当前选题包和用户提供素材调用 topic_create_production_plan，拆解视频类型、时间段、素材需求、配音/口播建议和下一步制作动作。`;

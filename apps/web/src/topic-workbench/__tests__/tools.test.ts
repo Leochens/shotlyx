@@ -181,6 +181,49 @@ describe("topic workbench tools", () => {
 		expect(segment?.materialSuggestion).toBe("使用工作台录屏和标题字卡开场。");
 	});
 
+	test("rejects outline-like package script segments before storing them", () => {
+		writeCandidates();
+		executeTopicWorkbenchTool({
+			toolName: "topic_select_candidate",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: { candidateIndex: 1 },
+		});
+		executeTopicWorkbenchTool({
+			toolName: "topic_set_structures",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: {
+				structures: [
+					{
+						name: "产品测评结构",
+						bestFor: "把测评选题拆成完整口播视频。",
+						flow: [{ label: "开场", description: "先建立观看动机。" }],
+					},
+				],
+			},
+		});
+
+		const result = executeTopicWorkbenchTool({
+			toolName: "topic_create_package",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: {
+				scriptSegments: [
+					{
+						timeRange: "0:00 - 2:00",
+						content:
+							"开场 hook：M3 发布，1M 上下文 + 多模态，审美和工程化能力大幅提升。",
+						materialSuggestion: "使用高冲击标题画面、录屏或问题式口播开场。",
+					},
+				],
+			},
+		});
+
+		const project = useTopicWorkbenchStore.getState().getActiveTopicProject();
+
+		expect(result.status).toBe("error");
+		expect(result.error).toContain("逐字稿");
+		expect(project?.packageVersions).toHaveLength(0);
+	});
+
 	test("rejects invalid structured candidate payloads before mutating state", () => {
 		const result = executeTopicWorkbenchTool({
 			toolName: "topic_set_candidates",
