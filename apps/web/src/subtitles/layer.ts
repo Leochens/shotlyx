@@ -444,6 +444,24 @@ interface SubtitleLineSegment {
 	endIndex: number;
 }
 
+type WordSegmenterResult = {
+	segment: string;
+	isWordLike?: boolean;
+};
+
+type WordSegmenter = {
+	segment(input: string): Iterable<WordSegmenterResult>;
+};
+
+type WrappedTextUnitKind = "space" | "word" | "punctuation";
+
+interface WrappedTextUnit {
+	text: string;
+	kind: WrappedTextUnitKind;
+}
+
+let cachedWordSegmenter: WordSegmenter | null | undefined;
+
 function applySubtitleLineLayout({
 	cue,
 	text,
@@ -566,38 +584,147 @@ function wrapSingleLine({
 	maxCharsPerLine: number;
 }): string[] {
 	if (!text || text.length <= maxCharsPerLine) return text ? [text] : [];
-	if (!hasCjk({ value: text }) && /\s/.test(text)) {
-		return wrapWords({ text, maxCharsPerLine });
-	}
-	const chars = Array.from(text);
+
+	const units = tokenizeLineForWrapping({ text });
 	const lines: string[] = [];
-	for (let index = 0; index < chars.length; index += maxCharsPerLine) {
-		lines.push(chars.slice(index, index + maxCharsPerLine).join(""));
+	let currentLine = "";
+	let pendingSpace = "";
+
+	for (const unit of units) {
+		if (unit.kind === "space") {
+			if (currentLine.length > 0) {
+				pendingSpace = " ";
+			}
+			continue;
+		}
+
+		const nextLine = currentLine
+			? `${currentLine}${pendingSpace}${unit.text}`
+			: unit.text;
+		const shouldAttachToCurrent =
+			currentLine.length > 0 && unit.kind === "punctuation";
+
+		if (
+			currentLine.length === 0 ||
+			countWrapChars({ value: nextLine }) <= maxCharsPerLine ||
+			shouldAttachToCurrent
+		) {
+			currentLine = nextLine;
+			pendingSpace = "";
+			continue;
+		}
+
+		lines.push(currentLine.trimEnd());
+		currentLine = unit.text.trimStart();
+		pendingSpace = "";
 	}
+
+	if (currentLine.trim().length > 0) {
+		lines.push(currentLine.trimEnd());
+	}
+
 	return lines;
 }
 
-function wrapWords({
-	text,
-	maxCharsPerLine,
+function getWordSegmenter(): WordSegmenter | null {
+	if (cachedWordSegmenter !== undefined) {
+		return cachedWordSegmenter;
+	}
+	const Segmenter = Intl.Segmenter;
+	if (!Segmenter) {
+		cachedWordSegmenter = null;
+		return cachedWordSegmenter;
+	}
+	try {
+		cachedWordSegmenter = new Segmenter(["zh", "en"], {
+			granularity: "word",
+		});
+	} catch {
+		cachedWordSegmenter = null;
+	}
+	return cachedWordSegmenter;
+}
+
+function tokenizeLineForWrapping({ text }: { text: string }): WrappedTextUnit[] {
+	const segmenter = getWordSegmenter();
+	if (!segmenter) {
+		return tokenizeLineFallback({ text });
+	}
+
+	const units = Array.from(segmenter.segment(text)).flatMap((segment) =>
+		wrappedTextUnitFromSegment({ segment }),
+	);
+	return mergeAdjacentSingleCjkUnits({ units });
+}
+
+function wrappedTextUnitFromSegment({
+	segment,
 }: {
-	text: string;
-	maxCharsPerLine: number;
-}): string[] {
-	const words = text.split(/\s+/);
-	const lines: string[] = [];
-	let currentLine = "";
-	for (const word of words) {
-		const nextLine = currentLine ? `${currentLine} ${word}` : word;
-		if (nextLine.length <= maxCharsPerLine) {
-			currentLine = nextLine;
+	segment: WordSegmenterResult;
+}): WrappedTextUnit[] {
+	if (segment.segment.length === 0) return [];
+	if (/^\s+$/u.test(segment.segment)) {
+		return [{ text: segment.segment, kind: "space" }];
+	}
+	return [
+		{
+			text: segment.segment,
+			kind: segment.isWordLike ? "word" : "punctuation",
+		},
+	];
+}
+
+function tokenizeLineFallback({ text }: { text: string }): WrappedTextUnit[] {
+	const matches =
+		text.match(
+			/\s+|[A-Za-z0-9]+(?:[._'’-][A-Za-z0-9]+)*|[\u3400-\u9fff]|./gu,
+		) ?? [];
+	return matches.map((value) => {
+		if (/^\s+$/u.test(value)) {
+			return { text: value, kind: "space" };
+		}
+		if (/^[A-Za-z0-9]+(?:[._'’-][A-Za-z0-9]+)*$/u.test(value)) {
+			return { text: value, kind: "word" };
+		}
+		if (/^[\u3400-\u9fff]$/u.test(value)) {
+			return { text: value, kind: "word" };
+		}
+		return { text: value, kind: "punctuation" };
+	});
+}
+
+function mergeAdjacentSingleCjkUnits({
+	units,
+}: {
+	units: WrappedTextUnit[];
+}): WrappedTextUnit[] {
+	const merged: WrappedTextUnit[] = [];
+	for (let index = 0; index < units.length; index++) {
+		const unit = units[index];
+		const nextUnit = units[index + 1];
+		if (
+			unit &&
+			nextUnit &&
+			unit.kind === "word" &&
+			nextUnit.kind === "word" &&
+			isSingleCjkWord({ value: unit.text }) &&
+			isSingleCjkWord({ value: nextUnit.text })
+		) {
+			merged.push({ text: `${unit.text}${nextUnit.text}`, kind: "word" });
+			index += 1;
 			continue;
 		}
-		if (currentLine) lines.push(currentLine);
-		currentLine = word;
+		if (unit) merged.push(unit);
 	}
-	if (currentLine) lines.push(currentLine);
-	return lines;
+	return merged;
+}
+
+function isSingleCjkWord({ value }: { value: string }): boolean {
+	return /^[\u3400-\u9fff]$/u.test(value);
+}
+
+function countWrapChars({ value }: { value: string }): number {
+	return Array.from(value).length;
 }
 
 function resolveActiveSegmentIndex({

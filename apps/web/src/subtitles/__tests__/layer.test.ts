@@ -230,7 +230,7 @@ describe("subtitle layer timing", () => {
 				element,
 				timelineTime: ticks(1),
 			})?.text,
-		).toBe("我吃了\n一个苹\n果");
+		).toBe("我吃了\n一个\n苹果");
 	});
 
 	test("page line break mode shows only the active wrapped line", () => {
@@ -261,13 +261,76 @@ describe("subtitle layer timing", () => {
 				element,
 				timelineTime: ticks(2.5),
 			})?.text,
-		).toBe("一个苹");
+		).toBe("一个");
 		expect(
 			resolveSubtitleTextAtTime({
 				element,
 				timelineTime: ticks(4.5),
 			})?.text,
-		).toBe("果");
+		).toBe("苹果");
+	});
+
+	test("page line break mode keeps CJK words intact when choosing a single line", () => {
+		const element = makeElement({
+			params: {
+				...makeElement().params,
+				"subtitle.maxCharsPerLine": 4,
+				"subtitle.lineBreakMode": "page",
+			},
+			revealMode: "line",
+			cues: [
+				{
+					text: "我吃了一个苹果",
+					startTime: 0,
+					duration: 6,
+				},
+			],
+		});
+
+		expect(
+			resolveSubtitleTextAtTime({
+				element,
+				timelineTime: ticks(1),
+			})?.text,
+		).toBe("我吃了");
+		expect(
+			resolveSubtitleTextAtTime({
+				element,
+				timelineTime: ticks(4.5),
+			})?.text,
+		).toBe("一个苹果");
+	});
+
+	test("token page mode keeps the active English token intact in mixed captions", () => {
+		const element = makeElement({
+			params: {
+				...makeElement().params,
+				"subtitle.maxCharsPerLine": 10,
+				"subtitle.lineBreakMode": "page",
+			},
+			revealMode: "token",
+			cues: [
+				{
+					text: "字幕 Supercalifragilistic 测试",
+					startTime: 0,
+					duration: 6,
+					tokens: [
+						{ text: "字", startTime: 0, duration: 0.2 },
+						{ text: "幕", startTime: 0.4, duration: 0.2 },
+						{ text: "Supercalifragilistic", startTime: 2, duration: 0.5 },
+						{ text: "测", startTime: 4, duration: 0.2 },
+						{ text: "试", startTime: 4.4, duration: 0.2 },
+					],
+				},
+			],
+		});
+
+		expect(
+			resolveSubtitleTextAtTime({
+				element,
+				timelineTime: ticks(2.1),
+			})?.text,
+		).toBe("Supercalifragilistic");
 	});
 
 	test("karaoke mode keeps the full line visible while exposing highlighted prefix", () => {

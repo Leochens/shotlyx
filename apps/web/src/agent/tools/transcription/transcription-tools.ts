@@ -27,6 +27,7 @@ const DEFAULT_SUBTITLE_PLACEMENT = "bottom";
 const DEFAULT_SUBTITLE_LINE_BREAK_MODE = "page";
 const DEFAULT_CLOUD_ASR_PROGRESS_INTERVAL_MS = 5_000;
 const CLOUD_ASR_PROGRESS_CAP = 95;
+const GENERATED_SUBTITLE_PUNCTUATION_RE = /[\p{P}\p{S}]+/gu;
 
 export interface BuildTranscriptionToolsOptions {
 	deps?: Partial<TranscriptionToolDeps>;
@@ -216,6 +217,63 @@ function parseTranscriptionResult({
 		provider,
 		model: typeof value.model === "string" ? value.model : undefined,
 		metadata: isRecord(value.metadata) ? value.metadata : undefined,
+	};
+}
+
+function stripGeneratedSubtitlePunctuation({ text }: { text: string }): string {
+	return text
+		.replace(GENERATED_SUBTITLE_PUNCTUATION_RE, "")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+function sanitizeGeneratedSubtitleTokens({
+	tokens,
+}: {
+	tokens?: SubtitleToken[];
+}): SubtitleToken[] | undefined {
+	if (!tokens) return undefined;
+	const sanitized = tokens.flatMap((token) => {
+		const text = stripGeneratedSubtitlePunctuation({ text: token.text });
+		return text.length > 0 ? [{ ...token, text }] : [];
+	});
+	return sanitized.length > 0 ? sanitized : undefined;
+}
+
+function sanitizeGeneratedTranscriptionCue({
+	cue,
+}: {
+	cue: TranscriptionCue;
+}): TranscriptionCue | null {
+	const text = stripGeneratedSubtitlePunctuation({ text: cue.text });
+	const tokens = sanitizeGeneratedSubtitleTokens({ tokens: cue.tokens });
+	const fallbackText = tokens?.map((token) => token.text).join("") ?? "";
+	const resolvedText = text.length > 0 ? text : fallbackText;
+	if (resolvedText.length === 0) return null;
+	return {
+		text: resolvedText,
+		startTimeSeconds: cue.startTimeSeconds,
+		durationSeconds: cue.durationSeconds,
+		...(tokens ? { tokens } : {}),
+	};
+}
+
+function sanitizeGeneratedTranscription({
+	transcription,
+}: {
+	transcription: TranscribeAudioResult;
+}): TranscribeAudioResult {
+	const cues = transcription.cues.flatMap((cue) => {
+		const sanitizedCue = sanitizeGeneratedTranscriptionCue({ cue });
+		return sanitizedCue ? [sanitizedCue] : [];
+	});
+	const text =
+		stripGeneratedSubtitlePunctuation({ text: transcription.text }) ||
+		cues.map((cue) => cue.text).join("");
+	return {
+		...transcription,
+		text,
+		cues,
 	};
 }
 
@@ -554,7 +612,7 @@ export function createTranscriptionToolDeps({
 				detail: provider,
 				...(provider === "local" ? {} : { current: 5, total: 100 }),
 			});
-			const transcription =
+			const rawTranscription =
 				provider === "local"
 					? await transcribeWithLocalWhisper({
 							audioBlob,
@@ -572,6 +630,9 @@ export function createTranscriptionToolDeps({
 							onProgress: input.onProgress,
 							progressIntervalMs: cloudAsrProgressIntervalMs,
 						});
+			const transcription = sanitizeGeneratedTranscription({
+				transcription: rawTranscription,
+			});
 			input.onProgress?.({
 				stage: "asr-provider",
 				label: "字幕识别完成",

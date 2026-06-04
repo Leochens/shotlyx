@@ -227,6 +227,100 @@ describe("transcription tools", () => {
 		]);
 	});
 
+	test("client deps remove punctuation from generated cues before import", async () => {
+		const execute = mock(async () => ({
+			status: "success" as const,
+			data: { imported: true, cueCount: 1 },
+		}));
+		const editor = {
+			scenes: {
+				getActiveScene: () => ({
+					tracks: {
+						main: { id: "main", elements: [] },
+						overlay: [],
+						audio: [],
+					},
+				}),
+			},
+			project: { getActive: () => ({ metadata: { id: "project-1" } }) },
+			media: { getAssets: () => [] },
+			timeline: { getTotalDuration: () => MEDIA_TIME_TICKS_PER_SECOND },
+			mcp: { execute },
+		} as unknown as EditorCore;
+		const fetchFn = mock(async () => {
+			return new Response(
+				JSON.stringify({
+					text: "你好，Shotlyx！今天，继续。",
+					provider: "volcengine",
+					cues: [
+						{
+							text: "你好，Shotlyx！",
+							startTimeSeconds: 0,
+							durationSeconds: 2,
+							tokens: [
+								{ text: "你", startTime: 0, duration: 0.25 },
+								{ text: "好", startTime: 0.25, duration: 0.25 },
+								{ text: "，", startTime: 0.5, duration: 0.05 },
+								{ text: "Shotlyx", startTime: 0.75, duration: 0.7 },
+								{ text: "！", startTime: 1.5, duration: 0.05 },
+							],
+						},
+						{
+							text: "今天，继续。",
+							startTimeSeconds: 2,
+							durationSeconds: 1.5,
+							tokens: [
+								{ text: "今天", startTime: 2, duration: 0.3 },
+								{ text: "，", startTime: 2.3, duration: 0.05 },
+								{ text: "继续", startTime: 2.6, duration: 0.4 },
+								{ text: "。", startTime: 3.1, duration: 0.05 },
+							],
+						},
+					],
+				}),
+				{ headers: { "Content-Type": "application/json" } },
+			);
+		});
+		const deps = createTranscriptionToolDeps({
+			editor,
+			fetchFn: fetchFn as unknown as typeof fetch,
+			extractTimelineAudioFn: mock(async () => {
+				return new Blob([new Uint8Array([1, 2, 3])], { type: "audio/wav" });
+			}),
+		});
+
+		const result = await deps.generateSubtitlesFromVideo({
+			source: "timeline",
+			provider: "volcengine",
+		});
+
+		expect(execute).toHaveBeenCalledWith(
+			expect.objectContaining({
+				toolName: "subtitles_import",
+				params: expect.objectContaining({
+					cues: [
+						expect.objectContaining({
+							text: "你好Shotlyx",
+							tokens: [
+								{ text: "你", startTime: 0, duration: 0.25 },
+								{ text: "好", startTime: 0.25, duration: 0.25 },
+								{ text: "Shotlyx", startTime: 0.75, duration: 0.7 },
+							],
+						}),
+						expect.objectContaining({
+							text: "今天继续",
+							tokens: [
+								{ text: "今天", startTime: 2, duration: 0.3 },
+								{ text: "继续", startTime: 2.6, duration: 0.4 },
+							],
+						}),
+					],
+				}),
+			}),
+		);
+		expect(result.text).toBe("你好Shotlyx今天继续");
+	});
+
 	test("client deps emit cloud ASR recognition progress while the request is pending", async () => {
 		const execute = mock(async () => ({
 			status: "success" as const,
