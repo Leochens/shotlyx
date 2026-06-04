@@ -8,8 +8,11 @@
 	"license": "AGPL-3.0-only",
 	"main": "main.cjs",
 	"scripts": {
+		"clean:cache": "node scripts/clean-render-cache.mjs",
 		"dev": "node scripts/dev.mjs",
+		"dev:safe": "SHOTLYX_DISABLE_HARDWARE_ACCELERATION=1 node scripts/dev.mjs",
 		"start": "node scripts/start.mjs",
+		"start:safe": "SHOTLYX_DISABLE_HARDWARE_ACCELERATION=1 node scripts/start.mjs",
 		"build": "node scripts/build.mjs",
 		"pack": "bun run build && electron-builder --dir",
 		"pack:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",

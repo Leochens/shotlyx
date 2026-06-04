@@ -11,6 +11,7 @@
 		"build:wasm": "wasm-pack build rust/wasm --target bundler --out-dir pkg",
 		"build:web": "turbo run build --filter=@shotlyx/web",
 		"build:client": "bun run --cwd apps/client build",
+		"clean:client-cache": "bun run --cwd apps/client clean:cache",
 		"dist:client": "bun run --cwd apps/client dist",
 		"dist:client:all": "bun run --cwd apps/client dist:all",
 		"dist:client:mac": "bun run --cwd apps/client dist:mac",
@@ -21,6 +22,7 @@
 		"dev:wasm": "cargo watch -w rust/crates -w rust/wasm/src -s 'wasm-pack build rust/wasm --target bundler --out-dir pkg'",
 		"dev:web": "turbo run dev --filter=@shotlyx/web",
 		"dev:client": "bun run --cwd apps/client dev",
+		"dev:client:safe": "bun run --cwd apps/client dev:safe",
 		"format:web": "prettier apps/web/src/services/renderer --write",
 		"generate:fonts": "npx tsx apps/web/scripts/generate-font-sprites.ts",
 		"lint:web": "eslint apps/web/src --ext .ts,.tsx",
@@ -32,6 +34,7 @@
 		"publish:wasm": "bun run build:wasm && npm publish rust/wasm/pkg --access public",
 		"start:tools": "turbo run start --filter=@shotlyx/tools",
 		"start:client": "bun run --cwd apps/client start",
+		"start:client:safe": "bun run --cwd apps/client start:safe",
 		"test": "bun test eslint/rules apps/web/src",
 		"test:e2e:client": "bun run --cwd apps/web test:e2e:desktop"
 	},

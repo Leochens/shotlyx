@@ -1,7 +1,14 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { app, BrowserWindow, dialog, net, protocol, shell } = require("electron");
+const {
+	app,
+	BrowserWindow,
+	dialog,
+	net,
+	protocol,
+	shell,
+} = require("electron");
 const {
 	getStorageOriginPrefix,
 	migrateLegacyDesktopStorage,
@@ -22,6 +29,21 @@ const LOCAL_RENDERER_URL = "app://shotlyx/desktop";
 const RENDERER_EXIT_TIMEOUT_MS = 8_000;
 let apiHandlerPromise = null;
 let isQuitting = false;
+
+function configureRenderingMode() {
+	const shouldDisableHardwareAcceleration =
+		process.env.SHOTLYX_DISABLE_HARDWARE_ACCELERATION === "1" ||
+		(process.platform === "darwin" &&
+			isDevelopmentRuntime() &&
+			process.env.SHOTLYX_ENABLE_HARDWARE_ACCELERATION !== "1");
+
+	if (!shouldDisableHardwareAcceleration) return;
+
+	app.disableHardwareAcceleration();
+	console.warn(
+		"Shotlyx Desktop hardware acceleration is disabled for this run.",
+	);
+}
 
 protocol.registerSchemesAsPrivileged([
 	{
@@ -54,7 +76,10 @@ function configureAppIdentity() {
 	}
 
 	if (isDevelopmentRuntime()) {
-		app.setPath("userData", path.join(app.getPath("appData"), DEV_PRODUCT_NAME));
+		app.setPath(
+			"userData",
+			path.join(app.getPath("appData"), DEV_PRODUCT_NAME),
+		);
 	}
 }
 
@@ -140,7 +165,9 @@ async function loadApiHandler() {
 	if (!apiHandlerPromise) {
 		const apiBundlePath = getApiBundlePath();
 		if (!fs.existsSync(apiBundlePath)) {
-			throw new Error(`Shotlyx desktop API bundle is missing: ${apiBundlePath}`);
+			throw new Error(
+				`Shotlyx desktop API bundle is missing: ${apiBundlePath}`,
+			);
 		}
 		apiHandlerPromise = import(pathToFileURL(apiBundlePath).toString()).then(
 			(module) => {
@@ -200,11 +227,15 @@ function registerLocalRendererProtocol() {
 		}
 
 		const requestedPath = path.resolve(rendererRoot, pathname.slice(1));
-		if (!isInsideDirectory({ filePath: requestedPath, directory: rendererRoot })) {
+		if (
+			!isInsideDirectory({ filePath: requestedPath, directory: rendererRoot })
+		) {
 			return responseWithStatus("Forbidden", 403);
 		}
 
-		const stat = fs.existsSync(requestedPath) ? fs.statSync(requestedPath) : null;
+		const stat = fs.existsSync(requestedPath)
+			? fs.statSync(requestedPath)
+			: null;
 		if (stat?.isFile()) {
 			return serveRendererFile(requestedPath);
 		}
@@ -271,6 +302,39 @@ function syncWindowState(win) {
 		});
 }
 
+function installRendererDiagnostics(win) {
+	win.webContents.on(
+		"did-fail-load",
+		(_event, errorCode, errorDescription, validatedURL) => {
+			if (errorCode === -3) return;
+			console.error(
+				`Shotlyx renderer failed to load ${validatedURL}: ${errorDescription} (${errorCode})`,
+			);
+		},
+	);
+
+	win.webContents.on("render-process-gone", (_event, details) => {
+		console.error(
+			`Shotlyx renderer process gone: ${details.reason} (${details.exitCode})`,
+		);
+	});
+
+	win.webContents.on("unresponsive", () => {
+		console.warn("Shotlyx renderer became unresponsive.");
+	});
+
+	win.webContents.on(
+		"console-message",
+		(_event, level, message, line, sourceId) => {
+			if (level < 2) return;
+			const label = level >= 3 ? "error" : "warn";
+			console[label](
+				`Shotlyx renderer console ${label}: ${message} (${sourceId}:${line})`,
+			);
+		},
+	);
+}
+
 function createWindow() {
 	const isMac = process.platform === "darwin";
 	const win = new BrowserWindow({
@@ -298,6 +362,7 @@ function createWindow() {
 		return { action: "allow" };
 	});
 
+	installRendererDiagnostics(win);
 	win.webContents.on("dom-ready", () => syncWindowState(win));
 	for (const eventName of [
 		"enter-full-screen",
@@ -330,6 +395,7 @@ function configureAutoUpdater() {
 	}, 5_000);
 }
 
+configureRenderingMode();
 configureAppIdentity();
 
 app.on("before-quit", () => {
