@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	useCallback,
 	useEffect,
 	useMemo,
 	useRef,
@@ -31,11 +32,16 @@ import {
 	RefreshCw,
 	Search,
 	Trash2,
+	Upload,
 	Video,
 	type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ReactMarkdownWrapper } from "@/components/ui/react-markdown-wrapper";
+import { useEditor } from "@/editor/use-editor";
+import { processMediaAssets } from "@/media/processing";
+import { showMediaUploadToast } from "@/media/upload-toast";
+import type { MediaAsset } from "@/media/types";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -48,6 +54,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/utils/ui";
 import { CreatorProfileDialogTrigger } from "./creator-profile-dialog";
+import {
+	buildDraftMarkdownAssetBlock,
+	extractDraftUploadFiles,
+	insertMarkdownAtRange,
+} from "./draft-markdown";
 import { getTopicProjectMode } from "./model";
 import { useTopicWorkbenchStore } from "./store";
 import { executeTopicWorkbenchTool } from "./tools";
@@ -624,11 +635,18 @@ function TopicWorkbenchHeader({ project }: { project: TopicProject }) {
 }
 
 function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
+	const editor = useEditor();
+	const mediaAssets = useEditor((currentEditor) =>
+		currentEditor.media.getAssets(),
+	);
 	const updateInputMaterial = useTopicWorkbenchStore(
 		(state) => state.updateInputMaterial,
 	);
 	const removeInputMaterial = useTopicWorkbenchStore(
 		(state) => state.removeInputMaterial,
+	);
+	const recordInputMaterials = useTopicWorkbenchStore(
+		(state) => state.recordInputMaterials,
 	);
 	const promoteBrainstormToWorkflow = useTopicWorkbenchStore(
 		(state) => state.promoteBrainstormToWorkflow,
@@ -637,7 +655,66 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 		(state) => state.emitAgentEvent,
 	);
 	const materials = project.inputMaterials ?? [];
+	const draftMaterials = materials.filter(
+		(material) => material.kind === "note",
+	);
+	const attachedMaterials = materials.filter(
+		(material) => material.kind !== "note",
+	);
 	const materialContext = buildInputMaterialContext(project);
+
+	const uploadDraftMediaFiles = useCallback(
+		async (files: File[]): Promise<MediaAsset[]> => {
+			const activeEditorProject = editor.project.getActiveOrNull();
+			if (!activeEditorProject || files.length === 0) return [];
+
+			let savedAssets: MediaAsset[] = [];
+			try {
+				await showMediaUploadToast({
+					filesCount: files.length,
+					promise: async () => {
+						const processedAssets = await processMediaAssets({ files });
+						for (const asset of processedAssets) {
+							if (asset.type !== "image" && asset.type !== "video") continue;
+							const saved = await editor.media.addMediaAsset({
+								projectId: activeEditorProject.metadata.id,
+								asset,
+							});
+							if (saved) {
+								savedAssets.push(saved);
+							}
+						}
+						return {
+							uploadedCount: savedAssets.length,
+							assetNames: savedAssets.map((asset) => asset.name),
+						};
+					},
+				});
+			} catch (error) {
+				console.error("Failed to upload draft media:", error);
+				return [];
+			}
+
+			if (savedAssets.length > 0) {
+				recordInputMaterials({
+					editorProjectId: project.editorProjectId,
+					materials: savedAssets.map((asset) => ({
+						id: `material-${asset.id}`,
+						kind: "uploaded-media",
+						title: asset.name,
+						summary: "草稿中上传的图片或视频素材。",
+						mediaAssetId: asset.id,
+						mediaType: asset.type,
+						durationSeconds: asset.duration,
+						sizeBytes: asset.file.size,
+					})),
+				});
+			}
+
+			return savedAssets;
+		},
+		[editor, project.editorProjectId, recordInputMaterials],
+	);
 
 	const handleCreateCandidates = () => {
 		promoteBrainstormToWorkflow();
@@ -674,16 +751,54 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 				</div>
 			</section>
 			<div className="space-y-3">
-				{materials.map((material) => (
+				{draftMaterials.map((material) => (
 					<BrainstormDraftCard
 						key={material.id}
 						material={material}
+						mediaAssets={mediaAssets}
+						onUploadFiles={uploadDraftMediaFiles}
 						onSave={(patch) =>
 							updateInputMaterial({ materialId: material.id, patch })
 						}
 						onRemove={() => removeInputMaterial({ materialId: material.id })}
 					/>
 				))}
+				{attachedMaterials.length > 0 ? (
+					<section className="rounded-sm border border-border/75 bg-background p-3">
+						<div className="mb-2 text-xs font-medium text-muted-foreground">
+							草稿素材
+						</div>
+						<div className="space-y-1.5">
+							{attachedMaterials.map((material) => (
+								<div
+									key={material.id}
+									className="flex items-center justify-between gap-2 rounded-sm border border-border/60 bg-muted/[0.14] px-2 py-1.5"
+								>
+									<div className="min-w-0">
+										<div className="truncate text-xs font-medium text-foreground">
+											{material.title}
+										</div>
+										<div className="text-[0.68rem] text-muted-foreground">
+											{INPUT_MATERIAL_KIND_LABELS[material.kind]}
+											{material.mediaType ? ` / ${material.mediaType}` : ""}
+										</div>
+									</div>
+									<Button
+										size="icon"
+										variant="ghost"
+										className="size-7 shrink-0 rounded-sm"
+										onClick={() =>
+											removeInputMaterial({ materialId: material.id })
+										}
+										title="移除素材"
+									>
+										<Trash2 size={12} />
+									</Button>
+								</div>
+							))}
+						</div>
+					</section>
+				) : null}
 			</div>
 		</div>
 	);
@@ -691,10 +806,14 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 
 function BrainstormDraftCard({
 	material,
+	mediaAssets,
+	onUploadFiles,
 	onSave,
 	onRemove,
 }: {
 	material: TopicProject["inputMaterials"][number];
+	mediaAssets: MediaAsset[];
+	onUploadFiles: (files: File[]) => Promise<MediaAsset[]>;
 	onSave: (patch: {
 		title?: string;
 		summary?: string;
@@ -703,9 +822,49 @@ function BrainstormDraftCard({
 	onRemove: () => void;
 }) {
 	const [isEditing, setEditing] = useState(false);
+	const [isUploading, setUploading] = useState(false);
+	const [isDragOver, setDragOver] = useState(false);
 	const [title, setTitle] = useState(material.title);
 	const [content, setContent] = useState(material.content ?? "");
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const fileInputRef = useRef<HTMLInputElement>(null);
 	const displayContent = material.content?.trim() || material.summary?.trim();
+
+	const insertUploadedFiles = async ({
+		files,
+		selectionStart,
+		selectionEnd,
+	}: {
+		files: File[];
+		selectionStart?: number;
+		selectionEnd?: number;
+	}) => {
+		if (files.length === 0 || isUploading) return;
+		setUploading(true);
+		try {
+			const savedAssets = await onUploadFiles(files);
+			const insertText = buildDraftMarkdownAssetBlock({ assets: savedAssets });
+			if (!insertText) return;
+			const currentValue = textareaRef.current?.value ?? content;
+			const nextContent = insertMarkdownAtRange({
+				value: currentValue,
+				insertText,
+				selectionStart: selectionStart ?? currentValue.length,
+				selectionEnd: selectionEnd ?? currentValue.length,
+			});
+			setContent(nextContent);
+			onSave({ title, content: nextContent });
+			requestAnimationFrame(() => {
+				const textarea = textareaRef.current;
+				if (!textarea) return;
+				textarea.focus();
+				const cursorPosition = nextContent.length;
+				textarea.setSelectionRange(cursorPosition, cursorPosition);
+			});
+		} finally {
+			setUploading(false);
+		}
+	};
 
 	return (
 		<article className="rounded-sm border border-border/75 bg-background p-3">
@@ -734,14 +893,82 @@ function BrainstormDraftCard({
 
 			{isEditing ? (
 				<div className="mt-3 space-y-2">
+					<input
+						ref={fileInputRef}
+						type="file"
+						accept="image/*,video/*"
+						multiple
+						className="hidden"
+						onChange={(event) => {
+							const files = Array.from(event.currentTarget.files ?? []);
+							event.currentTarget.value = "";
+							void insertUploadedFiles({
+								files,
+								selectionStart: textareaRef.current?.selectionStart,
+								selectionEnd: textareaRef.current?.selectionEnd,
+							});
+						}}
+					/>
 					<textarea
+						ref={textareaRef}
 						value={content}
 						onChange={(event) => setContent(event.target.value)}
+						onPaste={(event) => {
+							const files = extractDraftUploadFiles({
+								dataTransfer: event.clipboardData,
+							});
+							if (files.length === 0) return;
+							event.preventDefault();
+							void insertUploadedFiles({
+								files,
+								selectionStart: event.currentTarget.selectionStart,
+								selectionEnd: event.currentTarget.selectionEnd,
+							});
+						}}
+						onDragOver={(event) => {
+							const files = extractDraftUploadFiles({
+								dataTransfer: event.dataTransfer,
+							});
+							if (files.length === 0) return;
+							event.preventDefault();
+							setDragOver(true);
+						}}
+						onDragLeave={() => setDragOver(false)}
+						onDrop={(event) => {
+							const files = extractDraftUploadFiles({
+								dataTransfer: event.dataTransfer,
+							});
+							if (files.length === 0) return;
+							event.preventDefault();
+							setDragOver(false);
+							void insertUploadedFiles({
+								files,
+								selectionStart: event.currentTarget.selectionStart,
+								selectionEnd: event.currentTarget.selectionEnd,
+							});
+						}}
 						placeholder="随手写下还没成型的想法、问题、链接、标题碎片或表达冲动"
 						rows={12}
-						className="min-h-72 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 outline-none placeholder:text-muted-foreground focus:border-primary/40"
+						className={cn(
+							"min-h-72 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 outline-none placeholder:text-muted-foreground focus:border-primary/40",
+							isDragOver && "border-primary/50 bg-primary/[0.03]",
+						)}
 					/>
 					<div className="flex justify-end gap-2">
+						<Button
+							size="icon"
+							variant="ghost"
+							className="mr-auto size-8 rounded-sm"
+							onClick={() => fileInputRef.current?.click()}
+							disabled={isUploading}
+							title="上传图片或视频"
+						>
+							{isUploading ? (
+								<Loader2 size={14} className="animate-spin" />
+							) : (
+								<Upload size={14} />
+							)}
+						</Button>
 						<Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
 							取消
 						</Button>
@@ -760,7 +987,9 @@ function BrainstormDraftCard({
 				<>
 					<div className="mt-3 min-h-72 rounded-sm border border-border/65 bg-muted/[0.16] px-3 py-2 text-sm leading-6 text-foreground">
 						{displayContent ? (
-							<ReactMarkdownWrapper>{displayContent}</ReactMarkdownWrapper>
+							<ReactMarkdownWrapper rich mediaAssets={mediaAssets}>
+								{displayContent}
+							</ReactMarkdownWrapper>
 						) : (
 							<span className="text-muted-foreground">
 								空白草稿。点击编辑开始记录。

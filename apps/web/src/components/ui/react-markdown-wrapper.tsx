@@ -1,7 +1,17 @@
-import ReactMarkdown from "react-markdown";
-import { memo } from "react";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import {
+	memo,
+	useMemo,
+	type AnchorHTMLAttributes,
+	type ReactNode,
+} from "react";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import {
+	getAssetIdFromMarkdownUrl,
+	isMarkdownAssetUrl,
+} from "@/media/asset-markdown";
+import type { MediaAsset } from "@/media/types";
 import { cn } from "@/utils/ui";
 import {
 	Table,
@@ -30,32 +40,142 @@ const allowedMarkdownElements = [
 	"ul",
 ] as const;
 
+const richMarkdownElements = [
+	"blockquote",
+	"del",
+	"em",
+	"h1",
+	"h2",
+	"h3",
+	"h4",
+	"hr",
+	"img",
+] as const;
+
 export const ReactMarkdownWrapper = memo(function ReactMarkdownWrapper({
 	children,
 	inline = false,
+	mediaAssets = [],
+	rich = false,
 }: {
 	children: string;
 	inline?: boolean;
+	mediaAssets?: MediaAsset[];
+	rich?: boolean;
 }) {
+	const mediaAssetById = useMemo(
+		() => new Map(mediaAssets.map((asset) => [asset.id, asset])),
+		[mediaAssets],
+	);
+	const allowedElements = rich
+		? [...allowedMarkdownElements, ...richMarkdownElements]
+		: [...allowedMarkdownElements];
+
 	return (
 		<ReactMarkdown
-			allowedElements={[...allowedMarkdownElements]}
+			allowedElements={allowedElements}
 			remarkPlugins={[remarkGfm, remarkBreaks]}
+			urlTransform={(url) =>
+				isMarkdownAssetUrl(url) ? url : defaultUrlTransform(url)
+			}
 			unwrapDisallowed
 			components={{
 				a: ({ className: linkClassName, children, node: _node, ...props }) => (
-					<a
-						className={cn("text-primary hover:underline", linkClassName)}
-						target="_blank"
-						rel="noopener noreferrer"
+					<MarkdownLink
+						className={linkClassName}
+						mediaAssetById={mediaAssetById}
 						{...props}
 					>
 						{children}
-					</a>
+					</MarkdownLink>
 				),
+				blockquote: ({
+					className: blockquoteClassName,
+					node: _node,
+					...props
+				}) => (
+					<blockquote
+						className={cn(
+							"my-2 border-l-2 border-border pl-3 text-muted-foreground first:mt-0 last:mb-0",
+							blockquoteClassName,
+						)}
+						{...props}
+					/>
+				),
+				em: ({ children }) => <em className="italic">{children}</em>,
 				strong: ({ children }) => (
 					<strong className="text-foreground font-semibold">{children}</strong>
 				),
+				h1: ({ className: headingClassName, node: _node, ...props }) => (
+					<h1
+						className={cn(
+							"mb-2 mt-3 text-xl font-semibold leading-7 first:mt-0",
+							headingClassName,
+						)}
+						{...props}
+					/>
+				),
+				h2: ({ className: headingClassName, node: _node, ...props }) => (
+					<h2
+						className={cn(
+							"mb-2 mt-3 text-lg font-semibold leading-7 first:mt-0",
+							headingClassName,
+						)}
+						{...props}
+					/>
+				),
+				h3: ({ className: headingClassName, node: _node, ...props }) => (
+					<h3
+						className={cn(
+							"mb-1.5 mt-3 text-base font-semibold leading-6 first:mt-0",
+							headingClassName,
+						)}
+						{...props}
+					/>
+				),
+				h4: ({ className: headingClassName, node: _node, ...props }) => (
+					<h4
+						className={cn(
+							"mb-1.5 mt-2 text-sm font-semibold leading-6 first:mt-0",
+							headingClassName,
+						)}
+						{...props}
+					/>
+				),
+				hr: ({ className: hrClassName, node: _node, ...props }) => (
+					<hr className={cn("my-3 border-border", hrClassName)} {...props} />
+				),
+				img: ({ className: imageClassName, node: _node, ...props }) => {
+					const assetId = getAssetIdFromMarkdownUrl(
+						typeof props.src === "string" ? props.src : undefined,
+					);
+					const asset = assetId ? mediaAssetById.get(assetId) : null;
+					const imageSrc =
+						asset?.type === "image"
+							? (asset.thumbnailUrl ?? asset.url)
+							: typeof props.src === "string"
+								? props.src
+								: undefined;
+					if (!imageSrc) {
+						return (
+							<span className="text-xs text-muted-foreground">
+								{props.alt || asset?.name || "图片素材"}
+							</span>
+						);
+					}
+					return (
+						<img
+							className={cn(
+								"my-2 max-h-72 w-auto max-w-full rounded-sm border border-border object-contain",
+								imageClassName,
+							)}
+							alt={props.alt || asset?.name || ""}
+							loading="lazy"
+							{...props}
+							src={imageSrc}
+						/>
+					);
+				},
 				code: ({
 					className: codeClassName,
 					children,
@@ -156,3 +276,64 @@ export const ReactMarkdownWrapper = memo(function ReactMarkdownWrapper({
 		</ReactMarkdown>
 	);
 });
+
+function MarkdownLink({
+	children,
+	className,
+	href,
+	mediaAssetById,
+	...props
+}: AnchorHTMLAttributes<HTMLAnchorElement> & {
+	children: ReactNode;
+	mediaAssetById: Map<string, MediaAsset>;
+}) {
+	const assetId = getAssetIdFromMarkdownUrl(href);
+	const asset = assetId ? mediaAssetById.get(assetId) : null;
+
+	if (asset?.type === "video" && asset.url) {
+		return (
+			<span
+				className={cn(
+					"my-2 block overflow-hidden rounded-sm border border-border bg-background",
+					className,
+				)}
+			>
+				<video
+					className="max-h-80 w-full bg-black"
+					src={asset.url}
+					controls
+					preload="metadata"
+					poster={asset.thumbnailUrl}
+				/>
+				<span className="block px-2 py-1.5 text-xs text-muted-foreground">
+					视频素材：{asset.name}
+				</span>
+			</span>
+		);
+	}
+
+	if (asset) {
+		return (
+			<span
+				className={cn(
+					"inline-flex max-w-full items-center rounded-sm border border-border bg-muted/[0.22] px-1.5 py-0.5 text-xs text-muted-foreground",
+					className,
+				)}
+			>
+				素材：{asset.name}
+			</span>
+		);
+	}
+
+	return (
+		<a
+			className={cn("text-primary hover:underline", className)}
+			target="_blank"
+			rel="noopener noreferrer"
+			href={href}
+			{...props}
+		>
+			{children}
+		</a>
+	);
+}
