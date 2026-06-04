@@ -34,6 +34,7 @@ import {
 	type TopicCandidateDraft,
 	type TopicInputMaterialPatch,
 	type TopicInputMaterialDraft,
+	type TopicPackageDraft,
 	type TopicPackagePatch,
 	type TopicPackagePlatformRecommendationPatch,
 	type VideoStructureOptionDraft,
@@ -158,7 +159,11 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 	runResearch: () => void;
 	prepareStructureOptions: () => void;
 	selectStructure: ({ structureId }: { structureId: string }) => void;
-	createPackageVersion: () => TopicProject | null;
+	createPackageVersion: ({
+		draft,
+	}?: {
+		draft?: TopicPackageDraft;
+	}) => TopicProject | null;
 	createProductionPlan: ({
 		draft,
 	}: {
@@ -752,13 +757,13 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 					}),
 				),
 
-			createPackageVersion: () => {
+			createPackageVersion: ({ draft } = {}) => {
 				let nextProject: TopicProject | null = null;
 				set((state) =>
 					updateActiveProject({
 						state,
 						updater: (project) => {
-							nextProject = addPackageVersion({ project });
+							nextProject = addPackageVersion({ project, draft });
 							return nextProject;
 						},
 					}),

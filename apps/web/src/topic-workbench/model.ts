@@ -106,6 +106,27 @@ export interface ProductionPlanDraft {
 	nextActions?: string[];
 }
 
+export interface TopicPackageDraft {
+	title?: string;
+	summary?: string;
+	coreViewpoint?: string;
+	audienceAnalysis?: string;
+	durationMinutes?: number;
+	rationale?: string;
+	outline?: string[];
+	scriptSegments?: Array<{
+		timeRange?: string;
+		content?: string;
+		materialSuggestion?: string;
+	}>;
+	platformRecommendations?: Array<{
+		platform?: TopicPlatform;
+		title?: string;
+		description?: string;
+	}>;
+	coverIdeas?: string[];
+}
+
 export interface TopicPackagePatch {
 	title?: string;
 	summary?: string;
@@ -1310,10 +1331,43 @@ function createOutline({
 	);
 }
 
+function stripEndingPunctuation(value: string): string {
+	return value.trim().replace(/[。！？!?.,，、；;：:]+$/u, "");
+}
+
+function createVerbatimScriptDraft({
+	candidate,
+	step,
+	index,
+	totalSteps,
+}: {
+	candidate: TopicCandidate;
+	step: VideoStructureOption["flow"][number];
+	index: number;
+	totalSteps: number;
+}): string {
+	const title = stripEndingPunctuation(candidate.title);
+	const viewpoint = stripEndingPunctuation(candidate.coreViewpoint);
+	const audience = stripEndingPunctuation(candidate.audience);
+	const description = stripEndingPunctuation(step.description);
+
+	if (index === 0) {
+		return `今天这期我们先从一个很具体的问题开始：「${title}」到底值不值得做成一条内容？我的判断是，${viewpoint}。如果你是${audience}，先别急着找素材，我们先看第一个关键点：${description}。只要这个点成立，后面的案例和结论就都有了基础。`;
+	}
+
+	if (index === totalSteps - 1) {
+		return `最后我们把整条视频收回来。围绕「${title}」，这期最想留下的观点是：${viewpoint}。你可以把「${step.label}」理解成看完后的行动入口：${description}。所以这里不再扩散新信息，我们直接落到下一步：你可以怎么验证、怎么尝试，以及为什么现在就应该关注这个变化。`;
+	}
+
+	return `接下来我们看「${step.label}」。${description}。它放在「${title}」这个选题里真正重要的地方是：它在支撑这条主线，${viewpoint}。所以我不会只给你一个抽象判断，我会把它拆成一个可观察的画面：你看到什么、对比什么，最后应该得出什么结论。`;
+}
+
 function createScriptSegments({
+	candidate,
 	structure,
 	durationMinutes,
 }: {
+	candidate: TopicCandidate;
 	structure: VideoStructureOption;
 	durationMinutes: number;
 }): ScriptSegment[] {
@@ -1329,13 +1383,106 @@ function createScriptSegments({
 				: start + segmentLength;
 		return {
 			timeRange: `${Math.floor(start / 60)}:${String(start % 60).padStart(2, "0")} - ${Math.floor(end / 60)}:${String(end % 60).padStart(2, "0")}`,
-			content: `${step.label}：${step.description}`,
+			content: createVerbatimScriptDraft({
+				candidate,
+				step,
+				index,
+				totalSteps: structure.flow.length,
+			}),
 			materialSuggestion:
 				index === 0
 					? "使用高冲击标题画面、录屏或问题式口播开场。"
 					: "匹配同题案例截图、产品录屏、资料引用或简洁 MG 说明。",
 		};
 	});
+}
+
+function normalizePackageScriptSegments({
+	baseSegments,
+	draftSegments,
+}: {
+	baseSegments: ScriptSegment[];
+	draftSegments?: TopicPackageDraft["scriptSegments"];
+}): ScriptSegment[] {
+	if (!draftSegments?.length) return baseSegments;
+	const segments = draftSegments.flatMap((segment, index) => {
+		const base = baseSegments[index] ?? baseSegments.at(-1);
+		const content = segment.content?.trim();
+		if (!content) return [];
+		return [
+			{
+				timeRange: segment.timeRange?.trim() || base?.timeRange || "",
+				content,
+				materialSuggestion:
+					segment.materialSuggestion?.trim() ||
+					base?.materialSuggestion ||
+					"根据这一段逐字稿匹配录屏、截图、B-roll 或 MG 说明。",
+			},
+		];
+	});
+	return segments.length > 0 ? segments : baseSegments;
+}
+
+function normalizePackagePlatformRecommendations({
+	baseRecommendations,
+	draftRecommendations,
+}: {
+	baseRecommendations: PlatformRecommendation[];
+	draftRecommendations?: TopicPackageDraft["platformRecommendations"];
+}): PlatformRecommendation[] {
+	if (!draftRecommendations?.length) return baseRecommendations;
+	const recommendations = draftRecommendations.flatMap(
+		(recommendation, index) => {
+			const base = baseRecommendations[index];
+			const title = recommendation.title?.trim() || base?.title;
+			const description =
+				recommendation.description?.trim() || base?.description;
+			const platform = recommendation.platform ?? base?.platform;
+			if (!platform || !title || !description) return [];
+			return [{ platform, title, description }];
+		},
+	);
+	return recommendations.length > 0 ? recommendations : baseRecommendations;
+}
+
+function applyTopicPackageDraft({
+	version,
+	draft,
+}: {
+	version: TopicPackageVersion;
+	draft?: TopicPackageDraft;
+}): TopicPackageVersion {
+	if (!draft) return version;
+	const outline = draft.outline?.map((item) => item.trim()).filter(Boolean);
+	const coverIdeas = draft.coverIdeas
+		?.map((item) => item.trim())
+		.filter(Boolean);
+	return {
+		...version,
+		title: draft.title?.trim() || version.title,
+		summary: draft.summary?.trim() || version.summary,
+		coreViewpoint: draft.coreViewpoint?.trim() || version.coreViewpoint,
+		audienceAnalysis:
+			draft.audienceAnalysis?.trim() || version.audienceAnalysis,
+		durationMinutes:
+			typeof draft.durationMinutes === "number" &&
+			Number.isFinite(draft.durationMinutes) &&
+			draft.durationMinutes > 0
+				? Math.round(draft.durationMinutes)
+				: version.durationMinutes,
+		rationale: draft.rationale?.trim() || version.rationale,
+		outline: outline && outline.length > 0 ? outline : version.outline,
+		scriptSegments: normalizePackageScriptSegments({
+			baseSegments: version.scriptSegments,
+			draftSegments: draft.scriptSegments,
+		}),
+		platformRecommendations: normalizePackagePlatformRecommendations({
+			baseRecommendations: version.platformRecommendations,
+			draftRecommendations: draft.platformRecommendations,
+		}),
+		coverIdeas:
+			coverIdeas && coverIdeas.length > 0 ? coverIdeas : version.coverIdeas,
+	};
 }
 
 function createPlatformRecommendations({
@@ -1358,9 +1505,11 @@ function createPlatformRecommendations({
 
 export function createTopicPackageVersion({
 	project,
+	draft,
 	now = Date.now(),
 }: {
 	project: TopicProject;
+	draft?: TopicPackageDraft;
 	now?: number;
 }): TopicPackageVersion | null {
 	const candidate = getSelectedCandidate(project);
@@ -1371,7 +1520,7 @@ export function createTopicPackageVersion({
 	if (!candidate || !structure) return null;
 
 	const versionNumber = project.packageVersions.length + 1;
-	return {
+	const version: TopicPackageVersion = {
 		id: createId("topic-package"),
 		versionName: `V${versionNumber}`,
 		createdAt: now,
@@ -1385,6 +1534,7 @@ export function createTopicPackageVersion({
 		rationale: candidate.rationale,
 		outline: createOutline({ structure }),
 		scriptSegments: createScriptSegments({
+			candidate,
 			structure,
 			durationMinutes: candidate.durationMinutes,
 		}),
@@ -1396,6 +1546,7 @@ export function createTopicPackageVersion({
 		],
 		referenceSourceIds: project.researchSources.map((source) => source.id),
 	};
+	return applyTopicPackageDraft({ version, draft });
 }
 
 function getActivePackageVersion(
@@ -1485,16 +1636,20 @@ export function selectStructure({
 
 export function addPackageVersion({
 	project,
+	draft,
 	now = Date.now(),
 }: {
 	project: TopicProject;
+	draft?: TopicPackageDraft;
 	now?: number;
 }): TopicProject {
 	const activePackage =
 		project.stage === "package" ? getActivePackageVersion(project) : null;
-	const version = activePackage
-		? cloneTopicPackageVersion({ project, version: activePackage, now })
-		: createTopicPackageVersion({ project, now });
+	const version = draft
+		? createTopicPackageVersion({ project, draft, now })
+		: activePackage
+			? cloneTopicPackageVersion({ project, version: activePackage, now })
+			: createTopicPackageVersion({ project, now });
 	if (!version) return project;
 	return {
 		...project,
@@ -1541,14 +1696,9 @@ export function updateTopicPackageVersion({
 			version.id === targetVersionId
 				? {
 						...version,
-						title:
-							patch.title !== undefined
-								? patch.title
-								: version.title,
+						title: patch.title !== undefined ? patch.title : version.title,
 						summary:
-							patch.summary !== undefined
-								? patch.summary
-								: version.summary,
+							patch.summary !== undefined ? patch.summary : version.summary,
 						coreViewpoint:
 							patch.coreViewpoint !== undefined
 								? patch.coreViewpoint

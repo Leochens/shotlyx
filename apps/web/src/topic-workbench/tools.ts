@@ -7,6 +7,7 @@ import type {
 	ResearchSourceDraft,
 	TopicCandidateDraft,
 	TopicInputMaterialDraft,
+	TopicPackageDraft,
 	VideoStructureOptionDraft,
 } from "./model";
 import type {
@@ -74,7 +75,7 @@ export function getTopicPackageResourceToolSchemas(): FunctionSchema[] {
 		{
 			name: "topic_get_active_package",
 			description:
-				"Read the active topic package resource for the current editor project, including package fields, script segments, sources, usable knowledge insights, source materials, selected candidate, selected structure, and production plan.",
+				"Read the active topic package resource for the current editor project, including package fields, verbatim script segments, sources, usable knowledge insights, source materials, selected candidate, selected structure, and production plan.",
 			parameters: {
 				type: "object",
 				required: [],
@@ -181,11 +182,61 @@ export function getTopicWriteToolSchemas(): FunctionSchema[] {
 		{
 			name: "topic_create_package",
 			description:
-				"Create a versioned topic package from the selected candidate, research, and selected structure. Use this when the user confirms the package generation step.",
+				"Create a versioned topic package from the selected candidate, research, and selected structure. Use this when the user confirms the package generation step. If you provide scriptSegments, each content field must be verbatim spoken script or voiceover copy, not a summary or outline.",
 			parameters: {
 				type: "object",
 				required: [],
-				properties: {},
+				properties: {
+					title: stringParam({
+						description: "Optional package title override.",
+						optional: true,
+					}),
+					summary: stringParam({
+						description: "Optional package summary override.",
+						optional: true,
+					}),
+					coreViewpoint: stringParam({
+						description: "Optional core viewpoint override.",
+						optional: true,
+					}),
+					audienceAnalysis: stringParam({
+						description: "Optional audience analysis override.",
+						optional: true,
+					}),
+					rationale: stringParam({
+						description: "Optional topic rationale override.",
+						optional: true,
+					}),
+					durationMinutes: {
+						type: "number",
+						description: "Optional target duration in minutes.",
+						optional: true,
+					},
+					outline: arrayParam({
+						description: "Optional script outline strings.",
+						optional: true,
+					}),
+					scriptSegments: arrayParam({
+						description:
+							"Optional segment drafts. Each item can include timeRange, content, and materialSuggestion. content must be word-for-word spoken script/voiceover copy, not a content overview.",
+						optional: true,
+					}),
+					platformRecommendations: arrayParam({
+						description:
+							"Optional platform recommendation items with platform, title, and description.",
+						optional: true,
+					}),
+					coverIdeas: arrayParam({
+						description: "Optional cover idea strings.",
+						optional: true,
+					}),
+					package: {
+						type: "object",
+						description:
+							"Optional nested package draft using the same fields as above.",
+						optional: true,
+					},
+				},
 			},
 		},
 		{
@@ -462,6 +513,84 @@ function parseStructureDrafts(value: unknown): VideoStructureOptionDraft[] {
 	});
 }
 
+function parsePackageScriptSegmentDrafts(
+	value: unknown,
+): NonNullable<TopicPackageDraft["scriptSegments"]> {
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((item) => {
+		if (!isRecord(item)) return [];
+		const content = readString(item.content);
+		if (!content) return [];
+		return [
+			{
+				timeRange: readString(item.timeRange),
+				content,
+				materialSuggestion: readString(item.materialSuggestion),
+			},
+		];
+	});
+}
+
+function parsePackagePlatformRecommendationDrafts(
+	value: unknown,
+): NonNullable<TopicPackageDraft["platformRecommendations"]> {
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((item) => {
+		if (!isRecord(item)) return [];
+		const platform = readString(item.platform);
+		const title = readString(item.title);
+		const description = readString(item.description);
+		if (!title && !description) return [];
+		return [
+			{
+				platform: platform && isTopicPlatform(platform) ? platform : undefined,
+				title,
+				description,
+			},
+		];
+	});
+}
+
+function parseTopicPackageDraft(value: unknown): TopicPackageDraft | undefined {
+	if (!isRecord(value)) return undefined;
+	const source = isRecord(value.package) ? value.package : value;
+	const outline = readStringArray(source.outline);
+	const scriptSegments = parsePackageScriptSegmentDrafts(source.scriptSegments);
+	const platformRecommendations = parsePackagePlatformRecommendationDrafts(
+		source.platformRecommendations,
+	);
+	const coverIdeas = readStringArray(source.coverIdeas);
+	const draft: TopicPackageDraft = {
+		title: readString(source.title),
+		summary: readString(source.summary),
+		coreViewpoint: readString(source.coreViewpoint),
+		audienceAnalysis: readString(source.audienceAnalysis),
+		durationMinutes: readNumber(source.durationMinutes),
+		rationale: readString(source.rationale),
+		outline: outline.length > 0 ? outline : undefined,
+		scriptSegments: scriptSegments.length > 0 ? scriptSegments : undefined,
+		platformRecommendations:
+			platformRecommendations.length > 0 ? platformRecommendations : undefined,
+		coverIdeas: coverIdeas.length > 0 ? coverIdeas : undefined,
+	};
+	const hasDraft =
+		Boolean(
+			draft.title ||
+			draft.summary ||
+			draft.coreViewpoint ||
+			draft.audienceAnalysis ||
+			draft.rationale,
+		) ||
+		typeof draft.durationMinutes === "number" ||
+		Boolean(
+			draft.outline ||
+			draft.scriptSegments ||
+			draft.platformRecommendations ||
+			draft.coverIdeas,
+		);
+	return hasDraft ? draft : undefined;
+}
+
 function parseProductionPlanDraft(
 	value: unknown,
 ): ProductionPlanDraft | undefined {
@@ -699,13 +828,14 @@ export function executeTopicWorkbenchTool({
 
 	if (normalizedToolName === "topic_create_package") {
 		const before = store.getActiveTopicProject();
-		const project = store.createPackageVersion();
+		const draft = parseTopicPackageDraft(params);
+		const project = store.createPackageVersion({ draft });
 		const activePackageId = project?.activePackageVersionId ?? null;
 		if (!project || !activePackageId || before === project) {
 			return paramError("生成选题包前需要先确认选题并选择一个结构模板。");
 		}
 		return success({
-			message: "选题包版本已创建。",
+			message: "选题包版本已创建，脚本分段已按逐字稿写入。",
 			stage: project.stage,
 			activePackageVersionId: activePackageId,
 			packageVersionCount: project.packageVersions.length,

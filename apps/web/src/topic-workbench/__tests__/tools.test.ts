@@ -137,6 +137,50 @@ describe("topic workbench tools", () => {
 		).toBe(true);
 	});
 
+	test("topic_create_package stores agent-provided verbatim script segments", () => {
+		writeCandidates();
+		executeTopicWorkbenchTool({
+			toolName: "topic_select_candidate",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: { candidateIndex: 1 },
+		});
+		executeTopicWorkbenchTool({
+			toolName: "topic_set_structures",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: {
+				structures: [
+					{
+						name: "口播拆解",
+						bestFor: "把选题讲成一条完整口播视频。",
+						flow: [{ label: "开场", description: "先讲为什么今天值得看。" }],
+					},
+				],
+			},
+		});
+
+		executeTopicWorkbenchTool({
+			toolName: "topic_create_package",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: {
+				scriptSegments: [
+					{
+						timeRange: "0:00 - 0:45",
+						content:
+							"大家好，今天我们不先罗列工具，而是直接看一个真实问题：创作者为什么总是在选题阶段卡住。接下来我会用一个完整流程，把灵感、调研和脚本怎么串起来讲清楚。",
+						materialSuggestion: "使用工作台录屏和标题字卡开场。",
+					},
+				],
+			},
+		});
+
+		const project = useTopicWorkbenchStore.getState().getActiveTopicProject();
+		const segment = project?.packageVersions[0]?.scriptSegments[0];
+
+		expect(segment?.content).toContain("大家好，今天我们不先罗列工具");
+		expect(segment?.content).not.toContain("开场：先讲为什么今天值得看");
+		expect(segment?.materialSuggestion).toBe("使用工作台录屏和标题字卡开场。");
+	});
+
 	test("rejects invalid structured candidate payloads before mutating state", () => {
 		const result = executeTopicWorkbenchTool({
 			toolName: "topic_set_candidates",

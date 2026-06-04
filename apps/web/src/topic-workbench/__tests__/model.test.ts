@@ -126,6 +126,16 @@ describe("topic workbench model", () => {
 		expect(packaged.packageVersions[0]?.scriptSegments.length).toBe(
 			withStructure.structures[0]?.flow.length,
 		);
+		const firstStep = withStructure.structures[0]?.flow[0];
+		const firstSegment = packaged.packageVersions[0]?.scriptSegments[0];
+		if (!firstStep || !firstSegment) throw new Error("missing script segment");
+		expect(firstSegment.content).not.toBe(
+			`${firstStep.label}：${firstStep.description}`,
+		);
+		expect(firstSegment.content).toContain("今天");
+		expect(firstSegment.content.length).toBeGreaterThan(
+			firstStep.description.length + 40,
+		);
 	});
 
 	test("can skip research and advance directly from confirmed topic to structure", () => {
@@ -185,7 +195,7 @@ describe("topic workbench model", () => {
 						title: "已经手动编辑过的 V1 标题",
 						scriptSegments: firstVersion.scriptSegments.map((segment, index) =>
 							index === 0
-								? { ...segment, content: "V1 已编辑分段内容" }
+								? { ...segment, content: "V1 已编辑分段逐字稿" }
 								: segment,
 						),
 					},

@@ -322,7 +322,7 @@ function buildStageForwardTask({
 		return `${topicText}${materialContext}\n请进入结构设计阶段：基于当前选题、已有资料和用户提供素材，生成 2-4 个视频结构模板。完成后调用 topic_set_structures 写入右侧选题工作台。`;
 	}
 	if (stage === "package") {
-		return `${topicText}${materialContext}\n请进入选题包阶段：基于当前选题、调研、结构和用户提供素材，调用 topic_create_package 生成标题、摘要、核心观点、脚本大纲、分段素材建议和发布文案。`;
+		return `${topicText}${materialContext}\n请进入选题包阶段：基于当前选题、调研、结构和用户提供素材，调用 topic_create_package 生成标题、摘要、核心观点、脚本大纲、分段逐字稿、分段素材建议和发布文案。注意 scriptSegments.content 必须是可直接口播或配音的逐字稿，不要写成内容概述。`;
 	}
 	if (stage === "production") {
 		return `${topicText}${materialContext}\n请进入制作计划阶段：基于当前选题包和用户提供素材调用 topic_create_production_plan，拆解视频类型、时间段、素材需求、配音/口播建议和下一步制作动作。`;
@@ -362,7 +362,7 @@ function buildVideoProductionHandoffPrompt({
 	topicPackage: TopicPackageVersion;
 	action: string;
 }): string {
-	return `请接手当前选题包资源，进入视频制作流程。不要要求我重新粘贴完整选题包；请先调用 topic_get_active_package 读取结构化资源，再基于其中的脚本分段、素材建议、调研资料、知识脉络和制作计划，规划占位素材、口播/配音建议、MG 动画位置和剪辑结构。
+	return `请接手当前选题包资源，进入视频制作流程。不要要求我重新粘贴完整选题包；请先调用 topic_get_active_package 读取结构化资源，再基于其中的脚本分段逐字稿、素材建议、调研资料、知识脉络和制作计划，规划占位素材、口播/配音建议、MG 动画位置和剪辑结构。
 
 资源标题：${topicPackage.title}
 本次优先动作：${action}
@@ -1770,8 +1770,8 @@ function StructureSection({
 						<AlertDialogDescription className="leading-6">
 							系统会基于当前选题、资料和
 							{selectedStructure ? `「${selectedStructure.name}」` : "已选结构"}
-							生成脚本大纲、分段内容、素材建议和发布文案。生成后可通过左侧 Agent
-							调整并产出新版本。
+							生成脚本大纲、分段逐字稿、素材建议和发布文案。生成后可通过左侧
+							Agent 调整并产出新版本。
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
@@ -2100,7 +2100,7 @@ function PackageSection({
 			</div>
 			<div className="mt-3 rounded-sm border border-border/75 bg-muted/[0.18] p-3">
 				<div className="text-sm font-semibold text-foreground">
-					时间段内容与素材建议
+					时间段逐字稿与素材建议
 				</div>
 				<div className="mt-2 space-y-2">
 					{activePackage.scriptSegments.map((segment, index) => (
@@ -2282,7 +2282,7 @@ function ScriptSegmentViewRow({
 			</div>
 			<div>
 				<div className="text-[0.68rem] font-semibold text-muted-foreground">
-					内容
+					逐字稿
 				</div>
 				<textarea
 					value={segment.content}
@@ -2295,7 +2295,7 @@ function ScriptSegmentViewRow({
 					}
 					rows={3}
 					className="mt-1 w-full resize-y rounded-sm border border-border bg-background px-2 py-1.5 text-sm leading-5 text-foreground outline-none focus:border-primary/40"
-					aria-label={`内容 ${index + 1}`}
+					aria-label={`逐字稿 ${index + 1}`}
 				/>
 			</div>
 			<div>
