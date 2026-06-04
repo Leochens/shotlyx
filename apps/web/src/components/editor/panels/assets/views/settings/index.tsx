@@ -19,6 +19,7 @@ import {
 	SectionTitle,
 } from "@/components/section";
 import { BackgroundContent } from "./background";
+import { WatermarkContent } from "./watermark";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { NumberField } from "@/components/ui/number-field";
@@ -32,10 +33,12 @@ import { formatNumberForDisplay } from "@/utils/math";
 import { OcSquarePlusIcon } from "@/components/icons";
 import type { TCanvasSize } from "@/project/types";
 
-type SettingsView = "project-info" | "background";
+type SettingsView = "project-info" | "background" | "watermark";
 
 function isSettingsView(value: string): value is SettingsView {
-	return value === "project-info" || value === "background";
+	return (
+		value === "project-info" || value === "background" || value === "watermark"
+	);
 }
 
 const PRESET_LABELS: Record<string, string> = {
@@ -116,14 +119,15 @@ export function SettingsView() {
 		};
 	});
 
-	const selectedPresetId = canvasSizeMode === "preset"
-		? (presetItems.find((preset) =>
-				areCanvasSizesEqual({
-					left: preset.canvasSize,
-					right: currentCanvasSize,
-				}),
-			)?.id ?? null)
-		: null;
+	const selectedPresetId =
+		canvasSizeMode === "preset"
+			? (presetItems.find((preset) =>
+					areCanvasSizesEqual({
+						left: preset.canvasSize,
+						right: currentCanvasSize,
+					}),
+				)?.id ?? null)
+			: null;
 
 	const updateCustomCanvasSize = ({
 		canvasSize,
@@ -224,6 +228,7 @@ export function SettingsView() {
 					<TabsList>
 						<TabsTrigger value="project-info">Project info</TabsTrigger>
 						<TabsTrigger value="background">Background</TabsTrigger>
+						<TabsTrigger value="watermark">Watermark</TabsTrigger>
 					</TabsList>
 				</Tabs>
 			}
@@ -241,12 +246,14 @@ export function SettingsView() {
 					<Section showTopBorder={false}>
 						<SectionHeader className="justify-between">
 							<SectionTitle className="flex-1">Frame rate</SectionTitle>
-					<Select
-							value={String(Math.round(frameRateToFloat(activeProject.settings.fps)))}
-							onValueChange={(value) => {
-								const fps = floatToFrameRate(parseFloat(value));
-								editor.project.updateSettings({ settings: { fps } });
-							}}
+							<Select
+								value={String(
+									Math.round(frameRateToFloat(activeProject.settings.fps)),
+								)}
+								onValueChange={(value) => {
+									const fps = floatToFrameRate(parseFloat(value));
+									editor.project.updateSettings({ settings: { fps } });
+								}}
 							>
 								<SelectTrigger className="bg-transparent border-none p-1 h-auto">
 									<SelectValue placeholder="Select a frame rate" />
@@ -317,6 +324,7 @@ export function SettingsView() {
 				</div>
 			)}
 			{view === "background" && <BackgroundContent />}
+			{view === "watermark" && <WatermarkContent />}
 		</PanelView>
 	);
 }

@@ -20,6 +20,31 @@ export interface TCanvasSize {
 	height: number;
 }
 
+export type TProjectWatermark =
+	| {
+			enabled: boolean;
+			type: "text";
+			text: string;
+			positionX: number;
+			positionY: number;
+			scale: number;
+			rotate: number;
+			opacity: number;
+			fontSize: number;
+			color: string;
+			fontFamily: string;
+	  }
+	| {
+			enabled: boolean;
+			type: "image" | "video";
+			mediaId: string;
+			positionX: number;
+			positionY: number;
+			scale: number;
+			rotate: number;
+			opacity: number;
+	  };
+
 export interface TProjectMetadata {
 	id: string;
 	name: string;
@@ -36,6 +61,7 @@ export interface TProjectSettings {
 	lastCustomCanvasSize?: TCanvasSize | null;
 	originalCanvasSize?: TCanvasSize | null;
 	background: TBackground;
+	watermark?: TProjectWatermark | null;
 }
 
 export interface TTimelineViewState {

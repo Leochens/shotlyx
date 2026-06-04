@@ -274,6 +274,147 @@ describe("timeline_insert_media", () => {
 	});
 });
 
+describe("timeline_insert_cover", () => {
+	test("inserts a cover image at the beginning and shifts every existing track", () => {
+		const coverAsset: MediaAsset = {
+			id: "cover-asset",
+			name: "Cover image",
+			type: "image",
+			file: new File(["cover"], "cover.png", { type: "image/png" }),
+			url: "blob:cover",
+			width: 1280,
+			height: 720,
+		};
+		const scene = {
+			tracks: {
+				main: {
+					id: "main",
+					type: "video",
+					elements: [
+						{
+							id: "main-clip",
+							type: "video",
+							startTime: mockMediaTimeFromSeconds({ seconds: 2 }),
+							duration: mockMediaTimeFromSeconds({ seconds: 5 }),
+							trimStart: 0,
+							trimEnd: 0,
+							params: {},
+						},
+					],
+				},
+				overlay: [
+					{
+						id: "text-track",
+						type: "text",
+						elements: [
+							{
+								id: "title",
+								type: "text",
+								startTime: mockMediaTimeFromSeconds({ seconds: 1 }),
+								duration: mockMediaTimeFromSeconds({ seconds: 2 }),
+								trimStart: 0,
+								trimEnd: 0,
+								params: {},
+							},
+						],
+					},
+				],
+				audio: [
+					{
+						id: "audio-track",
+						type: "audio",
+						elements: [
+							{
+								id: "music",
+								type: "audio",
+								startTime: mockMediaTimeFromSeconds({ seconds: 0.5 }),
+								duration: mockMediaTimeFromSeconds({ seconds: 3 }),
+								trimStart: 0,
+								trimEnd: 0,
+								params: {},
+							},
+						],
+					},
+				],
+			},
+		};
+		const updateElements = mock(() => {});
+		const insertElement = mock(() => ({
+			elementId: "cover-element",
+			trackId: "main",
+		}));
+		const editor = createMockEditor({
+			timeline: {
+				insertElement,
+				updateElements,
+			},
+			media: {
+				getAssets: () => [coverAsset],
+			},
+			project: {
+				getActiveOrNull: () => ({
+					settings: { fps: { numerator: 30, denominator: 1 } },
+				}),
+			},
+			scenes: {
+				getActiveSceneOrNull: () => scene,
+			},
+		});
+		const tools = buildTimelineTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find((t) => t.name === "timeline_insert_cover");
+
+		const result = tool?.handler({
+			mediaId: "cover-asset",
+			durationFrames: 6,
+		});
+
+		const coverDuration = mockMediaTimeFromSeconds({ seconds: 0.2 });
+		expect(updateElements).toHaveBeenCalledWith({
+			updates: [
+				{
+					trackId: "main",
+					elementId: "main-clip",
+					patch: { startTime: mockMediaTimeFromSeconds({ seconds: 2.2 }) },
+				},
+				{
+					trackId: "text-track",
+					elementId: "title",
+					patch: { startTime: mockMediaTimeFromSeconds({ seconds: 1.2 }) },
+				},
+				{
+					trackId: "audio-track",
+					elementId: "music",
+					patch: { startTime: mockMediaTimeFromSeconds({ seconds: 0.7 }) },
+				},
+			],
+		});
+		expect(insertElement).toHaveBeenCalledWith({
+			element: expect.objectContaining({
+				type: "image",
+				mediaId: "cover-asset",
+				startTime: 0,
+				duration: coverDuration,
+				params: expect.objectContaining({
+					"cover.exclusive": true,
+				}),
+			}),
+			placement: { mode: "explicit", trackId: "main" },
+		});
+		expect(result).toMatchObject({
+			inserted: true,
+			mediaId: "cover-asset",
+			trackId: "main",
+			elementId: "cover-element",
+			durationSeconds: 0.2,
+			shiftedElementCount: 3,
+			exclusiveRange: { startTimeSeconds: 0, durationSeconds: 0.2 },
+		});
+	});
+});
+
 describe("timeline_insert_text", () => {
 	function setup({
 		trackType = "text",
@@ -1117,6 +1258,116 @@ describe("project_get_settings", () => {
 		const result = tool?.handler({});
 
 		expect(result.hasActiveProject).toBe(false);
+	});
+});
+
+describe("project_update_watermark", () => {
+	test("stores a text watermark in project settings", () => {
+		const updateSettings = mock(() => {});
+		const editor = createMockEditor({
+			project: {
+				getActiveOrNull: () => ({
+					settings: {
+						fps: { numerator: 30, denominator: 1 },
+						canvasSize: { width: 1920, height: 1080 },
+						background: { type: "color", color: "#000000" },
+					},
+				}),
+				updateSettings,
+			},
+		});
+		const tools = buildProjectTools(editor);
+		const tool = tools.find((t) => t.name === "project_update_watermark");
+
+		const result = tool?.handler({
+			type: "text",
+			text: "Shotlyx",
+			positionX: 120,
+			positionY: -80,
+			scale: 0.75,
+			rotate: 12,
+			opacity: 0.6,
+			fontSize: 6,
+			color: "#ffffff",
+		});
+
+		expect(updateSettings).toHaveBeenCalledWith({
+			settings: {
+				watermark: {
+					enabled: true,
+					type: "text",
+					text: "Shotlyx",
+					positionX: 120,
+					positionY: -80,
+					scale: 0.75,
+					rotate: 12,
+					opacity: 0.6,
+					fontSize: 6,
+					color: "#ffffff",
+					fontFamily: "Arial",
+				},
+			},
+			pushHistory: true,
+		});
+		expect(result).toMatchObject({
+			watermark: {
+				enabled: true,
+				type: "text",
+				text: "Shotlyx",
+			},
+		});
+	});
+
+	test("stores image or video media watermarks from the media library", () => {
+		const updateSettings = mock(() => {});
+		const imageAsset: MediaAsset = {
+			id: "logo",
+			name: "Logo",
+			type: "image",
+			file: new File(["logo"], "logo.png", { type: "image/png" }),
+			url: "blob:logo",
+		};
+		const editor = createMockEditor({
+			project: {
+				getActiveOrNull: () => ({
+					settings: {
+						fps: { numerator: 30, denominator: 1 },
+						canvasSize: { width: 1920, height: 1080 },
+						background: { type: "color", color: "#000000" },
+					},
+				}),
+				updateSettings,
+			},
+			media: {
+				getAssets: () => [imageAsset],
+			},
+		});
+		const tools = buildProjectTools(editor);
+		const tool = tools.find((t) => t.name === "project_update_watermark");
+
+		const result = tool?.handler({
+			type: "image",
+			mediaId: "logo",
+			positionX: 640,
+			positionY: 360,
+		});
+
+		expect(updateSettings).toHaveBeenCalledWith({
+			settings: {
+				watermark: expect.objectContaining({
+					enabled: true,
+					type: "image",
+					mediaId: "logo",
+				}),
+			},
+			pushHistory: true,
+		});
+		expect(result).toMatchObject({
+			watermark: {
+				type: "image",
+				mediaId: "logo",
+			},
+		});
 	});
 });
 

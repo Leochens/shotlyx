@@ -1,6 +1,10 @@
 import type { EditorCore } from "@/core";
 import type { RootNode } from "@/services/renderer/nodes/root-node";
-import type { ExportOptions, ExportProgressUpdate, ExportResult } from "@/export";
+import type {
+	ExportOptions,
+	ExportProgressUpdate,
+	ExportResult,
+} from "@/export";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { SceneExporter } from "@/services/renderer/scene-exporter";
 import { buildScene } from "@/services/renderer/scene-builder";
@@ -271,6 +275,7 @@ export class RendererManager {
 				duration,
 				canvasSize,
 				background: activeProject.settings.background,
+				watermark: activeProject.settings.watermark,
 				shotlyxMGRenderMap,
 			});
 

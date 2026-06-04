@@ -7,12 +7,26 @@ import {
 	type ExportQuality,
 } from "@/export";
 import { floatToFrameRate } from "@/fps/utils";
-import type { TBackground } from "@/project/types";
+import type { TBackground, TProjectWatermark } from "@/project/types";
 import {
+	DEFAULT_MEDIA_WATERMARK,
+	DEFAULT_TEXT_WATERMARK,
+	DEFAULT_WATERMARK_POSITION,
+	clampWatermarkOpacity,
+	clampWatermarkScale,
+	normalizeWatermarkTransform,
+} from "@/project/watermark";
+import {
+	optionalBooleanParam,
+	optionalNumberParam,
+	optionalStringParam,
 	requireEnumParam,
 	requireNumberParam,
 	requireStringParam,
 } from "./validation";
+
+const WATERMARK_TYPES = ["text", "image", "video"] as const;
+type WatermarkType = (typeof WATERMARK_TYPES)[number];
 
 function isExportFormat(value: string): value is ExportFormat {
 	return EXPORT_FORMAT_VALUES.some((f) => f === value);
@@ -20,6 +34,122 @@ function isExportFormat(value: string): value is ExportFormat {
 
 function isExportQuality(value: string): value is ExportQuality {
 	return EXPORT_QUALITY_VALUES.some((q) => q === value);
+}
+
+function resolveOptionalNumber({
+	fallback,
+	key,
+	params,
+}: {
+	fallback: number;
+	key: string;
+	params: Record<string, unknown>;
+}): number {
+	return optionalNumberParam(params, key) ?? fallback;
+}
+
+function resolveWatermarkTransform({
+	defaultScale,
+	defaultOpacity,
+	params,
+}: {
+	defaultScale: number;
+	defaultOpacity: number;
+	params: Record<string, unknown>;
+}) {
+	return {
+		positionX: resolveOptionalNumber({
+			params,
+			key: "positionX",
+			fallback: DEFAULT_WATERMARK_POSITION.positionX,
+		}),
+		positionY: resolveOptionalNumber({
+			params,
+			key: "positionY",
+			fallback: DEFAULT_WATERMARK_POSITION.positionY,
+		}),
+		scale: clampWatermarkScale(
+			resolveOptionalNumber({ params, key: "scale", fallback: defaultScale }),
+		),
+		rotate: resolveOptionalNumber({ params, key: "rotate", fallback: 0 }),
+		opacity: clampWatermarkOpacity(
+			resolveOptionalNumber({
+				params,
+				key: "opacity",
+				fallback: defaultOpacity,
+			}),
+		),
+	};
+}
+
+function buildWatermarkFromParams({
+	editor,
+	params,
+	watermarkType,
+}: {
+	editor: EditorCore;
+	params: Record<string, unknown>;
+	watermarkType: WatermarkType;
+}): TProjectWatermark {
+	const enabled = optionalBooleanParam(params, "enabled") ?? true;
+
+	if (watermarkType === "text") {
+		const text = requireStringParam(params, "text").trim();
+		if (!text) {
+			throw new Error("text 必须为非空字符串");
+		}
+		const color =
+			optionalStringParam(params, "color") ?? DEFAULT_TEXT_WATERMARK.color;
+		if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
+			throw new Error("color 必须是六位十六进制格式，如 #ffffff");
+		}
+		const fontSize = resolveOptionalNumber({
+			params,
+			key: "fontSize",
+			fallback: DEFAULT_TEXT_WATERMARK.fontSize,
+		});
+		if (fontSize <= 0) {
+			throw new Error("fontSize 必须大于 0");
+		}
+
+		return normalizeWatermarkTransform({
+			enabled,
+			type: "text",
+			text,
+			...resolveWatermarkTransform({
+				params,
+				defaultScale: DEFAULT_TEXT_WATERMARK.scale,
+				defaultOpacity: DEFAULT_TEXT_WATERMARK.opacity,
+			}),
+			fontSize,
+			color,
+			fontFamily:
+				optionalStringParam(params, "fontFamily") ??
+				DEFAULT_TEXT_WATERMARK.fontFamily,
+		});
+	}
+
+	const mediaId = requireStringParam(params, "mediaId");
+	const asset = editor.media.getAssets().find((item) => item.id === mediaId);
+	if (!asset) {
+		throw new Error(`片段不存在：找不到媒体资源 "${mediaId}"`);
+	}
+	if (asset.type !== watermarkType) {
+		throw new Error(
+			`类型不匹配：${watermarkType} 水印必须使用 ${watermarkType} 素材，当前为 ${asset.type}`,
+		);
+	}
+
+	return normalizeWatermarkTransform({
+		enabled,
+		type: watermarkType,
+		mediaId,
+		...resolveWatermarkTransform({
+			params,
+			defaultScale: DEFAULT_MEDIA_WATERMARK.scale,
+			defaultOpacity: DEFAULT_MEDIA_WATERMARK.opacity,
+		}),
+	});
 }
 
 export function buildProjectTools(editor: EditorCore): Tool[] {
@@ -64,6 +194,7 @@ export function buildProjectTools(editor: EditorCore): Tool[] {
 					canvasSize: project.settings.canvasSize,
 					canvasSizeMode: project.settings.canvasSizeMode,
 					background: project.settings.background,
+					watermark: project.settings.watermark ?? null,
 				};
 			},
 		},
@@ -165,6 +296,107 @@ export function buildProjectTools(editor: EditorCore): Tool[] {
 					pushHistory: true,
 				});
 				return { background };
+			},
+		},
+		{
+			name: "project_update_watermark",
+			description:
+				"Add or update a global project watermark stored in project settings. It does not create timeline elements or occupy tracks. Supports text, image, and video watermarks from the media library with position, scale, rotation, and opacity.",
+			parameters: {
+				type: {
+					type: "string",
+					description: 'Watermark type: "text", "image", or "video"',
+				},
+				enabled: {
+					type: "boolean",
+					description: "Whether the watermark is enabled. Defaults to true.",
+					optional: true,
+				},
+				text: {
+					type: "string",
+					description: "Text content. Required for type=text.",
+					optional: true,
+				},
+				mediaId: {
+					type: "string",
+					description:
+						"Image or video media asset ID. Required for type=image or type=video.",
+					optional: true,
+				},
+				positionX: {
+					type: "number",
+					description: "Watermark X position relative to canvas center.",
+					optional: true,
+				},
+				positionY: {
+					type: "number",
+					description: "Watermark Y position relative to canvas center.",
+					optional: true,
+				},
+				scale: {
+					type: "number",
+					description: "Watermark scale.",
+					optional: true,
+				},
+				rotate: {
+					type: "number",
+					description: "Watermark rotation in degrees.",
+					optional: true,
+				},
+				opacity: {
+					type: "number",
+					description: "Watermark opacity from 0 to 1.",
+					optional: true,
+				},
+				fontSize: {
+					type: "number",
+					description: "Text font size. Only applies to type=text.",
+					optional: true,
+				},
+				color: {
+					type: "string",
+					description:
+						"Text color as a six-digit hex value. Only applies to type=text.",
+					optional: true,
+				},
+				fontFamily: {
+					type: "string",
+					description: "Text font family. Only applies to type=text.",
+					optional: true,
+				},
+			},
+			mutating: true,
+			handler: (params) => {
+				if (!editor.project.getActiveOrNull()) {
+					throw new Error("参数缺失：未加载项目，无法更新水印");
+				}
+				const watermarkType = requireEnumParam(params, "type", WATERMARK_TYPES);
+				const watermark = buildWatermarkFromParams({
+					editor,
+					params,
+					watermarkType,
+				});
+				editor.project.updateSettings({
+					settings: { watermark },
+					pushHistory: true,
+				});
+				return { watermark };
+			},
+		},
+		{
+			name: "project_clear_watermark",
+			description: "Remove the global project watermark from project settings.",
+			parameters: {},
+			mutating: true,
+			handler: () => {
+				if (!editor.project.getActiveOrNull()) {
+					throw new Error("参数缺失：未加载项目，无法清除水印");
+				}
+				editor.project.updateSettings({
+					settings: { watermark: null },
+					pushHistory: true,
+				});
+				return { watermark: null };
 			},
 		},
 		{

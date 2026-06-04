@@ -932,7 +932,7 @@ export class ProjectManager {
 		const tracks = this.editor.scenes.getActiveScene().tracks;
 		const mediaAssets = this.editor.media.getAssets();
 		const duration = this.editor.timeline.getTotalDuration();
-		const { canvasSize, background } = this.active.settings;
+		const { canvasSize, background, watermark } = this.active.settings;
 
 		const scene = buildScene({
 			tracks,
@@ -940,6 +940,7 @@ export class ProjectManager {
 			duration: duration || 1,
 			canvasSize,
 			background,
+			watermark,
 		});
 
 		const renderer = new CanvasRenderer({

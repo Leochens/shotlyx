@@ -23,6 +23,7 @@ import {
 	PreviewViewportProvider,
 	usePreviewViewportState,
 } from "./preview-viewport";
+import { WatermarkAdjustOverlay } from "./watermark-adjust-overlay";
 import { ShotlyxRemotionPreviewOverlay } from "@/shotlyx/remotion-components/components/preview-overlay";
 
 function usePreviewSize() {
@@ -113,11 +114,19 @@ function RenderTreeController() {
 			duration,
 			canvasSize: { width, height },
 			background: activeProject.settings.background,
+			watermark: activeProject.settings.watermark,
 			isPreview: true,
 		});
 
 		editor.renderer.setRenderTree({ renderTree });
-	}, [tracks, mediaAssets, activeProject?.settings.background, width, height]);
+	}, [
+		tracks,
+		mediaAssets,
+		activeProject?.settings.background,
+		activeProject?.settings.watermark,
+		width,
+		height,
+	]);
 
 	return null;
 }
@@ -363,6 +372,7 @@ function PreviewCanvas({
 									plane="under-interaction"
 								/>
 								<PreviewInteractionOverlay />
+								<WatermarkAdjustOverlay />
 								<PreviewOverlayLayer
 									instances={overlayInstances}
 									plane="over-interaction"

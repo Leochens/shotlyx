@@ -12,8 +12,13 @@ import { ColorNode } from "./nodes/color-node";
 import { BlurBackgroundNode } from "./nodes/blur-background-node";
 import { EffectLayerNode } from "./nodes/effect-layer-node";
 import type { AnyBaseNode } from "./nodes/base-node";
-import type { TBackground, TCanvasSize } from "@/project/types";
+import type {
+	TBackground,
+	TCanvasSize,
+	TProjectWatermark,
+} from "@/project/types";
 import { DEFAULT_BACKGROUND_BLUR_INTENSITY } from "@/background/blur";
+import { DEFAULTS } from "@/timeline/defaults";
 import {
 	buildTransformFromParams,
 	type Transform,
@@ -322,12 +327,125 @@ function buildBlurBackgroundNodes({
 	return nodes;
 }
 
+function buildWatermarkNodes({
+	canvasSize,
+	duration,
+	mediaMap,
+	watermark,
+	isPreview,
+}: {
+	canvasSize: TCanvasSize;
+	duration: number;
+	mediaMap: Map<string, MediaAsset>;
+	watermark?: TProjectWatermark | null;
+	isPreview?: boolean;
+}): AnyBaseNode[] {
+	if (!watermark?.enabled) return [];
+
+	const params = {
+		"transform.positionX": watermark.positionX,
+		"transform.positionY": watermark.positionY,
+		"transform.scaleX": watermark.scale,
+		"transform.scaleY": watermark.scale,
+		"transform.rotate": watermark.rotate,
+		opacity: watermark.opacity,
+		blendMode: "normal",
+	};
+
+	if (watermark.type === "text") {
+		const textParams = {
+			...DEFAULTS.text.element.params,
+			...params,
+			content: watermark.text,
+			fontSize: watermark.fontSize,
+			fontFamily: watermark.fontFamily,
+			color: watermark.color,
+			"background.enabled": false,
+		};
+		return [
+			new TextNode({
+				id: "project-watermark",
+				type: "text",
+				name: "Global watermark",
+				duration,
+				startTime: 0,
+				trimStart: 0,
+				trimEnd: 0,
+				params: textParams,
+				transform: buildTransformFromParams({ params: textParams }),
+				opacity: readOpacityFromParams({ params: textParams }),
+				blendMode: readBlendModeFromParams({ params: textParams }),
+				canvasCenter: { x: canvasSize.width / 2, y: canvasSize.height / 2 },
+				canvasHeight: canvasSize.height,
+				textBaseline: "middle",
+			}),
+		];
+	}
+
+	const mediaAsset = mediaMap.get(watermark.mediaId);
+	if (
+		!mediaAsset?.file ||
+		!mediaAsset.url ||
+		mediaAsset.type !== watermark.type
+	) {
+		return [];
+	}
+
+	const transform = buildTransformFromParams({ params });
+	if (watermark.type === "image") {
+		return [
+			new ImageNode({
+				url: mediaAsset.url,
+				file: mediaAsset.file,
+				animated:
+					getAnimatedImageMimeType({
+						asset: mediaAsset,
+						elementName: mediaAsset.name,
+					}) !== null,
+				animatedMimeType:
+					getAnimatedImageMimeType({
+						asset: mediaAsset,
+						elementName: mediaAsset.name,
+					}) ?? undefined,
+				duration,
+				timeOffset: 0,
+				trimStart: 0,
+				trimEnd: 0,
+				transform,
+				opacity: watermark.opacity,
+				blendMode: "normal",
+				effects: [],
+				masks: [],
+				...(isPreview && { maxSourceSize: PREVIEW_MAX_IMAGE_SIZE }),
+			}),
+		];
+	}
+
+	return [
+		new VideoNode({
+			mediaId: mediaAsset.id,
+			url: mediaAsset.url,
+			file: mediaAsset.file,
+			duration,
+			timeOffset: 0,
+			trimStart: 0,
+			trimEnd: 0,
+			transform,
+			opacity: watermark.opacity,
+			blendMode: "normal",
+			effects: [],
+			masks: [],
+		}),
+	];
+}
+
 export type BuildSceneParams = {
 	canvasSize: TCanvasSize;
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
 	duration: number;
 	background: TBackground;
+	watermark?: TProjectWatermark | null;
 	isPreview?: boolean;
 	shotlyxMGRenderMap?: ShotlyxMGExportRenderMap;
 };
@@ -338,6 +456,7 @@ export function buildScene({
 	mediaAssets,
 	duration,
 	background,
+	watermark,
 	isPreview,
 	shotlyxMGRenderMap,
 }: BuildSceneParams) {
@@ -377,6 +496,16 @@ export function buildScene({
 	}
 
 	for (const node of allNodes) {
+		rootNode.add(node);
+	}
+
+	for (const node of buildWatermarkNodes({
+		canvasSize,
+		duration,
+		mediaMap,
+		watermark,
+		isPreview,
+	})) {
 		rootNode.add(node);
 	}
 

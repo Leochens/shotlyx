@@ -35,6 +35,7 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain("verify the timeline and media state");
 		expect(prompt).toContain("Use timeline_insert_text");
 		expect(prompt).toContain("Use timeline_insert_text_overlay");
+		expect(prompt).toContain("Use timeline_insert_cover");
 		expect(prompt).toContain("Use flower_text_list_presets");
 		expect(prompt).toContain("Use flower_text_insert");
 		expect(prompt).toContain("conservatively when the user asks for 花字");
@@ -47,6 +48,8 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain('Pass revealMode "karaoke"');
 		expect(prompt).toContain("Use subtitles_translate");
 		expect(prompt).toContain("Do not use karaoke or token reveal modes");
+		expect(prompt).toContain("Use project_update_watermark");
+		expect(prompt).toContain("global watermark");
 		expect(prompt).toContain("Use rough_cut_create_review");
 		expect(prompt).toContain("subtitles_update_style");
 		expect(prompt).toContain("Use agent_generate_voiceover");
