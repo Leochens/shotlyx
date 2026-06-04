@@ -1,14 +1,12 @@
 "use client";
 
 import { useRef } from "react";
-import { Move } from "lucide-react";
 import { useEditor } from "@/editor/use-editor";
 import type { MediaAsset } from "@/media/types";
 import { normalizeWatermarkTransform } from "@/project/watermark";
 import type { TProjectWatermark } from "@/project/types";
 import { usePreviewViewport } from "@/preview/components/preview-viewport";
 import { useWatermarkAdjustStore } from "@/preview/watermark-adjust-store";
-import { cn } from "@/utils/ui";
 
 interface DragSession {
 	pointerId: number;
@@ -159,17 +157,13 @@ export function WatermarkAdjustOverlay() {
 		<div className="pointer-events-none absolute inset-0 overflow-hidden">
 			<button
 				type="button"
-				className={cn(
-					"border-primary bg-background/60 text-foreground absolute flex cursor-move items-center justify-center overflow-hidden rounded-sm border text-xs shadow-lg backdrop-blur-sm",
-					"pointer-events-auto focus-visible:outline-primary focus-visible:outline-2",
-				)}
+				className="focus-visible:outline-primary pointer-events-auto absolute cursor-move rounded-sm border border-transparent bg-transparent p-0 focus-visible:outline-2"
 				style={{
 					left: center.x,
 					top: center.y,
-					width: Math.max(32, size.width),
-					height: Math.max(24, size.height),
+					width: Math.max(44, size.width),
+					height: Math.max(44, size.height),
 					transform: `translate(-50%, -50%) rotate(${watermark.rotate}deg)`,
-					opacity: Math.max(0.35, watermark.opacity),
 				}}
 				aria-label="Drag project watermark"
 				onPointerDown={handlePointerDown}
@@ -177,16 +171,7 @@ export function WatermarkAdjustOverlay() {
 				onPointerUp={handlePointerUp}
 				onPointerCancel={handlePointerUp}
 				onDragStart={(event) => event.preventDefault()}
-			>
-				{watermark.type === "text" ? (
-					<span className="truncate px-2">{watermark.text}</span>
-				) : (
-					<span className="flex items-center gap-1 px-2">
-						<Move className="size-3.5" />
-						{asset?.name ?? "Watermark"}
-					</span>
-				)}
-			</button>
+			/>
 		</div>
 	);
 }

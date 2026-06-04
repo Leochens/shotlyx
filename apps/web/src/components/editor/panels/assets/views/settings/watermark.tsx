@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NumberField } from "@/components/ui/number-field";
+import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import {
 	Section,
@@ -35,13 +36,7 @@ import { useWatermarkAdjustStore } from "@/preview/watermark-adjust-store";
 import { cn } from "@/utils/ui";
 
 type WatermarkType = TProjectWatermark["type"];
-type NumericWatermarkField =
-	| "positionX"
-	| "positionY"
-	| "scale"
-	| "rotate"
-	| "opacity"
-	| "fontSize";
+type NumericWatermarkField = "positionX" | "positionY" | "fontSize";
 
 interface WatermarkPatch {
 	color?: string;
@@ -120,6 +115,23 @@ function parseNumberInput(value: string): number | null {
 	return Number.isFinite(parsed) ? parsed : null;
 }
 
+function clampValue({
+	max,
+	min,
+	value,
+}: {
+	max: number;
+	min: number;
+	value: number;
+}) {
+	return Math.min(max, Math.max(min, value));
+}
+
+function formatRoundedNumber(value: number) {
+	if (!Number.isFinite(value)) return "";
+	return String(Math.round(value));
+}
+
 function mergeWatermarkPatch({
 	patch,
 	watermark,
@@ -160,6 +172,53 @@ function FieldRow({ children, label }: { children: ReactNode; label: string }) {
 			<Label>{label}</Label>
 			{children}
 		</div>
+	);
+}
+
+function SliderField({
+	label,
+	max,
+	min,
+	onInputChange,
+	onSliderChange,
+	step,
+	suffix,
+	value,
+}: {
+	label: string;
+	max: number;
+	min: number;
+	onInputChange: (value: string) => void;
+	onSliderChange: (value: number) => void;
+	step?: number;
+	suffix?: string;
+	value: number;
+}) {
+	const sliderValue = clampValue({ value, min, max });
+
+	return (
+		<FieldRow label={label}>
+			<div className="flex items-center gap-2">
+				<Slider
+					className="min-w-0 flex-1"
+					min={min}
+					max={max}
+					step={step}
+					value={[sliderValue]}
+					onValueChange={([nextValue]) => {
+						if (nextValue !== undefined) {
+							onSliderChange(nextValue);
+						}
+					}}
+				/>
+				<NumberField
+					className="w-20"
+					value={formatRoundedNumber(value)}
+					suffix={suffix}
+					onChange={(event) => onInputChange(event.currentTarget.value)}
+				/>
+			</div>
+		</FieldRow>
 	);
 }
 
@@ -243,15 +302,31 @@ export function WatermarkContent() {
 		(field: NumericWatermarkField, value: string) => {
 			const parsed = parseNumberInput(value);
 			if (parsed === null || !watermark) return;
-			const nextValue =
-				field === "opacity"
-					? clampWatermarkOpacity(parsed)
-					: field === "scale"
-						? clampWatermarkScale(parsed)
-						: parsed;
-			patchWatermark({ [field]: nextValue });
+			patchWatermark({ [field]: parsed });
 		},
 		[patchWatermark, watermark],
+	);
+
+	const updateScalePercent = useCallback(
+		(value: number) => {
+			patchWatermark({ scale: clampWatermarkScale(value / 100) });
+		},
+		[patchWatermark],
+	);
+
+	const updateOpacityPercent = useCallback(
+		(value: number) => {
+			patchWatermark({ opacity: clampWatermarkOpacity(value / 100) });
+		},
+		[patchWatermark],
+	);
+
+	const updateRotateDegrees = useCallback(
+		(value: number) => {
+			if (!Number.isFinite(value)) return;
+			patchWatermark({ rotate: value });
+		},
+		[patchWatermark],
 	);
 
 	const enabled = watermark?.enabled ?? false;
@@ -375,31 +450,45 @@ export function WatermarkContent() {
 									/>
 								</FieldRow>
 							</div>
-							<FieldRow label="Scale">
-								<NumberField
-									value={formatNumber(watermark.scale)}
-									onChange={(event) =>
-										updateNumericField("scale", event.currentTarget.value)
-									}
-								/>
-							</FieldRow>
-							<FieldRow label="Rotation">
-								<NumberField
-									value={formatNumber(watermark.rotate)}
-									suffix="deg"
-									onChange={(event) =>
-										updateNumericField("rotate", event.currentTarget.value)
-									}
-								/>
-							</FieldRow>
-							<FieldRow label="Opacity">
-								<NumberField
-									value={formatNumber(watermark.opacity)}
-									onChange={(event) =>
-										updateNumericField("opacity", event.currentTarget.value)
-									}
-								/>
-							</FieldRow>
+							<SliderField
+								label="Scale"
+								min={5}
+								max={500}
+								step={1}
+								suffix="%"
+								value={watermark.scale * 100}
+								onSliderChange={updateScalePercent}
+								onInputChange={(value) => {
+									const parsed = parseNumberInput(value);
+									if (parsed !== null) updateScalePercent(parsed);
+								}}
+							/>
+							<SliderField
+								label="Rotation"
+								min={-180}
+								max={180}
+								step={1}
+								suffix="deg"
+								value={watermark.rotate}
+								onSliderChange={updateRotateDegrees}
+								onInputChange={(value) => {
+									const parsed = parseNumberInput(value);
+									if (parsed !== null) updateRotateDegrees(parsed);
+								}}
+							/>
+							<SliderField
+								label="Opacity"
+								min={0}
+								max={100}
+								step={1}
+								suffix="%"
+								value={watermark.opacity * 100}
+								onSliderChange={updateOpacityPercent}
+								onInputChange={(value) => {
+									const parsed = parseNumberInput(value);
+									if (parsed !== null) updateOpacityPercent(parsed);
+								}}
+							/>
 						</SectionContent>
 					</Section>
 					{watermark.type === "text" ? (

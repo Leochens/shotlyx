@@ -25,6 +25,7 @@ import {
 } from "./preview-viewport";
 import { WatermarkAdjustOverlay } from "./watermark-adjust-overlay";
 import { ShotlyxRemotionPreviewOverlay } from "@/shotlyx/remotion-components/components/preview-overlay";
+import { useWatermarkAdjustStore } from "@/preview/watermark-adjust-store";
 
 function usePreviewSize() {
 	const canvasSize = useEditor(
@@ -163,6 +164,9 @@ function PreviewCanvas({
 	);
 	const mediaAssets = useEditor((e) => e.media.getAssets());
 	const shotlyxMGAssets = useEditor((e) => e.project.getShotlyxMGAssets());
+	const isAdjustingWatermark = useWatermarkAdjustStore(
+		(s) => s.isAdjustingWatermark,
+	);
 	const [remotionPreviewTime, setRemotionPreviewTime] = useState(0);
 	const viewport = usePreviewViewportState({
 		canvasHeight: nativeHeight,
@@ -371,7 +375,7 @@ function PreviewCanvas({
 									instances={overlayInstances}
 									plane="under-interaction"
 								/>
-								<PreviewInteractionOverlay />
+								{isAdjustingWatermark ? null : <PreviewInteractionOverlay />}
 								<WatermarkAdjustOverlay />
 								<PreviewOverlayLayer
 									instances={overlayInstances}
