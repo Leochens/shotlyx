@@ -5,10 +5,8 @@ import type { MediaTime } from "@/wasm";
 import type {
 	CreateTimelineElement,
 	RetimeConfig,
-	SceneTracks,
-	TimelineTrack,
 } from "@/timeline";
-import type { ParamValue, ParamValues } from "@/params";
+import type { ParamValue } from "@/params";
 import {
 	requireStringParam,
 	requireNumberParam,
@@ -24,13 +22,16 @@ import {
 	buildMosaicEffectElement,
 } from "@/callouts/presets";
 import { frameRateToFloat } from "@/fps/utils";
+import {
+	buildTimelineCoverInsertion,
+	resolveTimelineCoverDurationSeconds,
+} from "@/timeline/cover";
 
 const TRACK_TYPES = ["video", "text", "audio", "graphic", "effect"] as const;
 type TrackType = (typeof TRACK_TYPES)[number];
 const VISUAL_EFFECT_KINDS = ["arrow", "box", "circle", "mosaic"] as const;
 type VisualEffectKind = (typeof VISUAL_EFFECT_KINDS)[number];
 type MediaInsertTrackType = "video" | "audio";
-const DEFAULT_COVER_DURATION_FRAMES = 6;
 
 function isTrackType(value: unknown): value is TrackType {
 	return typeof value === "string" && TRACK_TYPES.some((t) => t === value);
@@ -65,14 +66,6 @@ function getMediaInsertTrackType({
 	return assetType === "audio" ? "audio" : "video";
 }
 
-function getAllTracksFromSceneTracks({
-	tracks,
-}: {
-	tracks: SceneTracks;
-}): TimelineTrack[] {
-	return [tracks.main, ...tracks.overlay, ...tracks.audio];
-}
-
 function getProjectFpsOrDefault(editor: EditorCore): number {
 	const fps = editor.project.getActiveOrNull()?.settings.fps;
 	if (!fps) return 30;
@@ -87,22 +80,11 @@ function resolveCoverDurationSeconds({
 	editor: EditorCore;
 	params: Record<string, unknown>;
 }): number {
-	const durationSeconds = optionalNumberParam(params, "durationSeconds");
-	if (durationSeconds !== undefined) {
-		if (durationSeconds <= 0) {
-			throw new Error("durationSeconds 必须大于 0");
-		}
-		return durationSeconds;
-	}
-
-	const durationFrames =
-		optionalNumberParam(params, "durationFrames") ??
-		DEFAULT_COVER_DURATION_FRAMES;
-	if (durationFrames <= 0) {
-		throw new Error("durationFrames 必须大于 0");
-	}
-
-	return durationFrames / getProjectFpsOrDefault(editor);
+	return resolveTimelineCoverDurationSeconds({
+		durationFrames: optionalNumberParam(params, "durationFrames"),
+		durationSeconds: optionalNumberParam(params, "durationSeconds"),
+		fps: getProjectFpsOrDefault(editor),
+	});
 }
 
 function isElementRefArray(value: unknown): value is Array<{
@@ -808,74 +790,34 @@ export function buildTimelineTools({
 					);
 				}
 
-				const trackId =
-					optionalStringParam(params, "trackId") ?? scene.tracks.main.id;
-				const targetTrack = getAllTracksFromSceneTracks({
-					tracks: scene.tracks,
-				}).find((track) => track.id === trackId);
-				if (!targetTrack) {
-					throw new Error(`轨道不存在：找不到轨道 "${trackId}"`);
-				}
-				if (targetTrack.type !== "video") {
-					throw new Error(
-						`类型不匹配：封面只能插入视频轨道，当前为 ${targetTrack.type}`,
-					);
-				}
-
 				const durationSeconds = resolveCoverDurationSeconds({
 					editor,
 					params,
 				});
 				const duration = mediaTimeFromSeconds({ seconds: durationSeconds });
-				const shiftBy = duration;
-				const updates = getAllTracksFromSceneTracks({
+				const plan = buildTimelineCoverInsertion({
+					asset,
+					duration,
 					tracks: scene.tracks,
-				}).flatMap((track) =>
-					track.elements.map((element) => ({
-						trackId: track.id,
-						elementId: element.id,
-						patch: {
-							startTime: (element.startTime + shiftBy) as MediaTime,
-						},
-					})),
-				);
+					trackId: optionalStringParam(params, "trackId"),
+				});
 
-				if (updates.length > 0) {
-					editor.timeline.updateElements({ updates });
+				if (plan.updates.length > 0) {
+					editor.timeline.updateElements({ updates: plan.updates });
 				}
 
-				const element: CreateTimelineElement = {
-					type: "image",
-					name: `Cover - ${asset.name}`,
-					mediaId: asset.id,
-					startTime: mediaTimeFromSeconds({ seconds: 0 }),
-					duration,
-					trimStart: 0 as MediaTime,
-					trimEnd: 0 as MediaTime,
-					params: {
-						"cover.exclusive": true,
-						"transform.positionX": 0,
-						"transform.positionY": 0,
-						"transform.scaleX": 1,
-						"transform.scaleY": 1,
-						"transform.rotate": 0,
-						opacity: 1,
-						blendMode: "normal",
-					} as ParamValues,
-				};
-
 				const insertion = editor.timeline.insertElement({
-					element,
-					placement: { mode: "explicit", trackId },
+					element: plan.element,
+					placement: { mode: "explicit", trackId: plan.trackId },
 				});
 
 				return {
 					inserted: true,
 					mediaId,
-					trackId: insertion?.trackId ?? trackId,
+					trackId: insertion?.trackId ?? plan.trackId,
 					elementId: insertion?.elementId,
 					durationSeconds,
-					shiftedElementCount: updates.length,
+					shiftedElementCount: plan.updates.length,
 					exclusiveRange: {
 						startTimeSeconds: 0,
 						durationSeconds,

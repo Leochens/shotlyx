@@ -2,6 +2,7 @@ import * as React from "react";
 import { useState } from "react";
 import { useEditor } from "@/editor/use-editor";
 import { useElementSelection } from "@/timeline/hooks/element/use-element-selection";
+import type { MediaAsset } from "@/media/types";
 import {
 	TooltipProvider,
 	Tooltip,
@@ -33,6 +34,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
 	Bookmark02Icon,
 	Delete02Icon,
+	ImageAdd01Icon,
 	SnowIcon,
 	ScissorIcon,
 	MagnetIcon,
@@ -55,6 +57,14 @@ import { PopoverTrigger } from "@/components/ui/popover";
 import { useGraphEditorController } from "./graph-editor/use-controller";
 import { SilenceCutDialog } from "@/silence/components/silence-cut-dialog";
 import { RecordingToolbarButton } from "./recording-toolbar-button";
+import { useAssetsPanelStore } from "@/components/editor/panels/assets/assets-panel-store";
+import { frameRateToFloat } from "@/fps/utils";
+import { mediaTimeFromSeconds } from "@/wasm";
+import {
+	buildTimelineCoverInsertion,
+	resolveTimelineCoverDurationSeconds,
+} from "@/timeline/cover";
+import { toast } from "sonner";
 
 export function TimelineToolbar({
 	zoomLevel,
@@ -105,6 +115,7 @@ function ToolbarLeftSection({ mode }: { mode: TimelineMode }) {
 	const mediaAssets = useEditor((currentEditor) =>
 		currentEditor.media.getAssets(),
 	);
+	const selectedAssetRefs = useAssetsPanelStore((s) => s.selectedAssetRefs);
 	const { selectedElements } = useElementSelection();
 	const graphEditor = useGraphEditorController();
 	const isCurrentlyBookmarked = useEditor((e) =>
@@ -155,6 +166,49 @@ function ToolbarLeftSection({ mode }: { mode: TimelineMode }) {
 		isSourceAudioSeparated({
 			element: selectedElement.element,
 		});
+
+	const handleInsertCover = ({ event }: { event: React.MouseEvent }) => {
+		event.stopPropagation();
+
+		const scene = editor.scenes.getActiveSceneOrNull();
+		if (!scene) {
+			toast.error("没有可用场景");
+			return;
+		}
+
+		const asset = resolveToolbarCoverAsset({
+			mediaAssets,
+			selectedAssetRefs,
+			selectedTimelineAsset: selectedMediaAsset,
+		});
+		if (!asset) {
+			toast.error("请先导入或选中一张图片素材");
+			return;
+		}
+
+		try {
+			const fps = editor.project.getActiveOrNull()?.settings.fps;
+			const durationSeconds = resolveTimelineCoverDurationSeconds({
+				fps: fps ? frameRateToFloat(fps) : 30,
+			});
+			const plan = buildTimelineCoverInsertion({
+				asset,
+				duration: mediaTimeFromSeconds({ seconds: durationSeconds }),
+				tracks: scene.tracks,
+			});
+
+			if (plan.updates.length > 0) {
+				editor.timeline.updateElements({ updates: plan.updates });
+			}
+			editor.timeline.insertElement({
+				element: plan.element,
+				placement: { mode: "explicit", trackId: plan.trackId },
+			});
+			toast.success("已添加封面");
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "添加封面失败");
+		}
+	};
 
 	const handleAction = ({
 		action,
@@ -227,6 +281,12 @@ function ToolbarLeftSection({ mode }: { mode: TimelineMode }) {
 				/>
 
 				<RecordingToolbarButton />
+
+				<ToolbarButton
+					icon={<HugeiconsIcon icon={ImageAdd01Icon} />}
+					tooltip="Add cover"
+					onClick={handleInsertCover}
+				/>
 
 				<ToolbarButton
 					icon={<HugeiconsIcon icon={Copy01Icon} />}
@@ -303,6 +363,28 @@ function ToolbarLeftSection({ mode }: { mode: TimelineMode }) {
 			</TooltipProvider>
 		</div>
 	);
+}
+
+function resolveToolbarCoverAsset({
+	mediaAssets,
+	selectedAssetRefs,
+	selectedTimelineAsset,
+}: {
+	mediaAssets: MediaAsset[];
+	selectedAssetRefs: Array<{ kind: string; id: string }>;
+	selectedTimelineAsset: MediaAsset | null;
+}): MediaAsset | null {
+	const selectedPanelImage = selectedAssetRefs
+		.filter((ref) => ref.kind === "media")
+		.map((ref) => mediaAssets.find((asset) => asset.id === ref.id) ?? null)
+		.find((asset): asset is MediaAsset => asset?.type === "image");
+	if (selectedPanelImage) {
+		return selectedPanelImage;
+	}
+	if (selectedTimelineAsset?.type === "image") {
+		return selectedTimelineAsset;
+	}
+	return mediaAssets.find((asset) => asset.type === "image") ?? null;
 }
 
 function TimelineModeSwitch({
