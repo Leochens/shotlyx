@@ -63,7 +63,10 @@ function arrayParam({
 }
 
 export function getTopicWorkbenchToolSchemas(): FunctionSchema[] {
-	return [...getTopicWriteToolSchemas(), ...getTopicPackageResourceToolSchemas()];
+	return [
+		...getTopicWriteToolSchemas(),
+		...getTopicPackageResourceToolSchemas(),
+	];
 }
 
 export function getTopicPackageResourceToolSchemas(): FunctionSchema[] {
@@ -111,7 +114,7 @@ export function getTopicWriteToolSchemas(): FunctionSchema[] {
 		{
 			name: "topic_select_candidate",
 			description:
-				"Select one candidate topic in the topic workbench. By default this confirms the choice and advances the current workflow to research, so call it only after the user has chosen a candidate.",
+				"Select one candidate topic in the topic workbench. Use advance=false for tentative selection; use advance=true only after the user confirms. After confirmation, the user may either run research or skip directly to structure design.",
 			parameters: {
 				type: "object",
 				required: [],
@@ -163,7 +166,7 @@ export function getTopicWriteToolSchemas(): FunctionSchema[] {
 		{
 			name: "topic_set_structures",
 			description:
-				"Write selectable video structure templates into the topic workbench after research is complete.",
+				"Write selectable video structure templates into the topic workbench after research is complete, or after the user explicitly skips research.",
 			parameters: {
 				type: "object",
 				required: ["structures"],

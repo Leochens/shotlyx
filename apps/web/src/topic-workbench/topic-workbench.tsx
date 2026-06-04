@@ -291,7 +291,7 @@ function canAccessStage({
 }): boolean {
 	if (stage === "ideation") return true;
 	if (stage === "research") return project.selectedCandidateId !== null;
-	if (stage === "structure") return project.researchSources.length > 0;
+	if (stage === "structure") return project.selectedCandidateId !== null;
 	if (stage === "package") {
 		return (
 			project.structures.length > 0 && project.selectedStructureId !== null
@@ -381,8 +381,9 @@ export function TopicWorkbench({
 	const [pendingResetStage, setPendingResetStage] = useState<TopicStage | null>(
 		null,
 	);
-	const [collapsedSections, setCollapsedSections] =
-		useState<CollapsedSections>(DEFAULT_COLLAPSED_SECTIONS);
+	const [collapsedSections, setCollapsedSections] = useState<CollapsedSections>(
+		DEFAULT_COLLAPSED_SECTIONS,
+	);
 	const lastAutoCollapsedPackageIdRef = useRef<string | null>(null);
 	const ideationSectionRef = useRef<HTMLElement | null>(null);
 	const researchSectionRef = useRef<HTMLElement | null>(null);
@@ -628,9 +629,9 @@ function InputMaterialsSection({
 
 	return (
 		<CollapsibleSection
-				icon={FileText}
-				title="素材输入"
-				description="用户提供的素材、脚本和录屏说明会作为后续选题、调研、脚本包的上下文。"
+			icon={FileText}
+			title="素材输入"
+			description="用户提供的素材、脚本和录屏说明会作为后续选题、调研、脚本包的上下文。"
 			isCollapsed={isCollapsed}
 			onToggleCollapse={onToggleCollapse}
 			className="bg-card/[0.34] dark:bg-cyan-300/[0.03]"
@@ -713,11 +714,7 @@ function InputMaterialCard({
 						className="w-full resize-y rounded-sm border border-border bg-background px-2 py-1.5 text-xs leading-5 outline-none placeholder:text-muted-foreground focus:border-primary/40"
 					/>
 					<div className="flex justify-end gap-2">
-						<Button
-							size="sm"
-							variant="ghost"
-							onClick={() => setEditing(false)}
-						>
+						<Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
 							取消
 						</Button>
 						<Button
@@ -929,13 +926,18 @@ function CandidatesSection({
 	const emitAgentEvent = useTopicWorkbenchStore(
 		(state) => state.emitAgentEvent,
 	);
+	const prepareStructureOptions = useTopicWorkbenchStore(
+		(state) => state.prepareStructureOptions,
+	);
 	const [evidenceCandidate, setEvidenceCandidate] =
 		useState<TopicCandidate | null>(null);
 	const [showOtherCandidates, setShowOtherCandidates] = useState(false);
+	const [isSkipResearchDialogOpen, setSkipResearchDialogOpen] = useState(false);
 	const hasSelection = project.selectedCandidateId !== null;
 	const canInteract = project.stage === "ideation";
 	const selectedCandidate = getSelectedCandidate(project);
-	const shouldCollapseOtherCandidates = !canInteract && selectedCandidate !== null;
+	const shouldCollapseOtherCandidates =
+		!canInteract && selectedCandidate !== null;
 	const selectedCandidates = selectedCandidate ? [selectedCandidate] : [];
 	const otherCandidates = project.candidates.filter(
 		(candidate) => candidate.id !== selectedCandidate?.id,
@@ -975,6 +977,26 @@ function CandidatesSection({
 		});
 	};
 
+	const handleSkipResearch = () => {
+		if (!selectedCandidate) return;
+		executeTopicWorkbenchTool({
+			toolName: "topic_select_candidate",
+			editorProjectId: project.editorProjectId,
+			params: {
+				candidateId: selectedCandidate.id,
+				advance: true,
+			},
+		});
+		prepareStructureOptions();
+		setSkipResearchDialogOpen(false);
+		emitAgentEvent({
+			editorProjectId: project.editorProjectId,
+			source: "stage-forward",
+			autoRun: true,
+			content: `我已经在右侧确认选题「${selectedCandidate.title}」，并选择跳过资料搜索。${materialContext}\n请不要搜索 B 站、YouTube 或网页资料，直接基于当前选题、用户定位和用户提供素材生成 2-4 个视频结构模板。完成后调用 topic_set_structures 写入右侧选题工作台。`,
+		});
+	};
+
 	const handleAskAdjust = (candidate: TopicCandidate) => {
 		if (!canInteract) return;
 		emitAgentEvent({
@@ -988,33 +1010,30 @@ function CandidatesSection({
 	return (
 		<CollapsibleSection
 			sectionRef={sectionRef}
-				icon={Lightbulb}
-				title="候选选题"
-				description="Agent 聊出来的方向会先在这里变成可查看、可选择的方案。"
-				action={
-					<Button
-						size="sm"
-						variant="outline"
-						onClick={() => {
-							if (
-								project.candidates.length > 0 ||
-								project.stage !== "ideation"
-							) {
-								onRequestStageReset("ideation");
-								return;
-							}
-							emitAgentEvent({
-								editorProjectId: project.editorProjectId,
-								source: "stage-reset",
-								autoRun: true,
-								content: `请基于当前方向「${project.originPrompt || project.title}」和用户提供素材重新生成一版候选选题，并调用 topic_set_candidates 写入右侧选题工作台。${materialContext}`,
-							});
-						}}
-					>
-						<RefreshCw size={14} />
-						新版
-					</Button>
-				}
+			icon={Lightbulb}
+			title="候选选题"
+			description="Agent 聊出来的方向会先在这里变成可查看、可选择的方案。"
+			action={
+				<Button
+					size="sm"
+					variant="outline"
+					onClick={() => {
+						if (project.candidates.length > 0 || project.stage !== "ideation") {
+							onRequestStageReset("ideation");
+							return;
+						}
+						emitAgentEvent({
+							editorProjectId: project.editorProjectId,
+							source: "stage-reset",
+							autoRun: true,
+							content: `请基于当前方向「${project.originPrompt || project.title}」和用户提供素材重新生成一版候选选题，并调用 topic_set_candidates 写入右侧选题工作台。${materialContext}`,
+						});
+					}}
+				>
+					<RefreshCw size={14} />
+					新版
+				</Button>
+			}
 			isCollapsed={isCollapsed}
 			onToggleCollapse={onToggleCollapse}
 		>
@@ -1077,7 +1096,17 @@ function CandidatesSection({
 					</div>
 				) : null}
 			</div>
-			<div className="mt-3 flex justify-end">
+			<div className="mt-3 flex flex-wrap justify-end gap-2">
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={!hasSelection || !canInteract}
+					onClick={() => setSkipResearchDialogOpen(true)}
+					title="不做同题搜索，直接进入结构设计"
+				>
+					跳过资料搜索
+					<ArrowRight size={14} />
+				</Button>
 				<Button
 					size="sm"
 					disabled={!hasSelection || !canInteract}
@@ -1087,6 +1116,25 @@ function CandidatesSection({
 					<ArrowRight size={14} />
 				</Button>
 			</div>
+			<AlertDialog
+				open={isSkipResearchDialogOpen}
+				onOpenChange={setSkipResearchDialogOpen}
+			>
+				<AlertDialogContent className="rounded-sm">
+					<AlertDialogHeader>
+						<AlertDialogTitle>跳过资料搜索？</AlertDialogTitle>
+						<AlertDialogDescription className="leading-6">
+							确认后会保留当前候选选题，直接进入结构设计阶段；资料汇总不会自动生成，你之后仍可以回到调研阶段补做资料搜索。
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>取消</AlertDialogCancel>
+						<AlertDialogAction onClick={handleSkipResearch}>
+							确认跳过
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 			<AlertDialog
 				open={evidenceCandidate !== null}
 				onOpenChange={(open) => {
@@ -1265,6 +1313,8 @@ function ResearchSection({
 	const selectedCandidate = getSelectedCandidate(project);
 	const isResearchLoading =
 		project.stage === "research" && hasSelection && !hasResearchSources;
+	const hasSkippedResearch =
+		project.stage !== "research" && hasSelection && !hasResearchSources;
 	const [sourcesOpen, setSourcesOpen] = useState(false);
 	const [showAddInsight, setShowAddInsight] = useState(false);
 	const [customInsightTitle, setCustomInsightTitle] = useState("");
@@ -1275,27 +1325,27 @@ function ResearchSection({
 	return (
 		<CollapsibleSection
 			sectionRef={sectionRef}
-				icon={Radar}
-				title="同题雷达与资料汇总"
-				description="先判断 B 站、YouTube 和网页资料里有哪些相似选题，再找差异化切口。"
-				action={
-					<Button
-						size="sm"
-						variant="outline"
-						disabled={!hasSelection || !hasResearchSources}
-						onClick={() =>
-							emitAgentEvent({
-								editorProjectId: project.editorProjectId,
-								source: "stage-forward",
-								autoRun: true,
-								content: `请重新调研当前选题「${selectedCandidate?.title ?? project.title}」。${materialContext}\n重点搜索 B 站、YouTube 和网页资料，判断同类选题、灵感来源和差异化空位。请输出 3-6 段知识脉络并绑定引用来源，然后调用 topic_set_research 写入 sources 和 insights。`,
-							})
-						}
-					>
-						<Search size={14} />
-						重新调研
-					</Button>
-				}
+			icon={Radar}
+			title="同题雷达与资料汇总"
+			description="先判断 B 站、YouTube 和网页资料里有哪些相似选题，再找差异化切口。"
+			action={
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={!hasSelection || !hasResearchSources}
+					onClick={() =>
+						emitAgentEvent({
+							editorProjectId: project.editorProjectId,
+							source: "stage-forward",
+							autoRun: true,
+							content: `请重新调研当前选题「${selectedCandidate?.title ?? project.title}」。${materialContext}\n重点搜索 B 站、YouTube 和网页资料，判断同类选题、灵感来源和差异化空位。请输出 3-6 段知识脉络并绑定引用来源，然后调用 topic_set_research 写入 sources 和 insights。`,
+						})
+					}
+				>
+					<Search size={14} />
+					重新调研
+				</Button>
+			}
 			isCollapsed={isCollapsed}
 			onToggleCollapse={onToggleCollapse}
 		>
@@ -1309,7 +1359,9 @@ function ResearchSection({
 							<span>
 								{isResearchLoading
 									? "Agent 正在检索同题内容、资料来源和知识脉络，写入后这里会自动更新。"
-									: "等待 Agent 检索 B 站、YouTube 和网页资料后写入这里。"}
+									: hasSkippedResearch
+										? "已跳过资料搜索。你可以继续结构设计，也可以回到调研分析阶段补做资料搜索。"
+										: "等待 Agent 检索 B 站、YouTube 和网页资料后写入这里。"}
 							</span>
 						</div>
 					</div>
@@ -1569,9 +1621,7 @@ function ContentMindMap({
 			</div>
 			<div className="mt-3 grid gap-3 [grid-template-columns:minmax(0,0.9fr)_minmax(0,1.1fr)] max-[760px]:grid-cols-1">
 				<div className="rounded-sm border border-primary/25 bg-primary/[0.05] px-3 py-2">
-					<div className="text-[0.68rem] font-semibold text-primary">
-						主线
-					</div>
+					<div className="text-[0.68rem] font-semibold text-primary">主线</div>
 					<div className="mt-1 text-sm font-semibold leading-5 text-foreground">
 						{rootTitle}
 					</div>
@@ -1649,9 +1699,9 @@ function StructureSection({
 	return (
 		<CollapsibleSection
 			sectionRef={sectionRef}
-				icon={LayoutTemplate}
-				title="视频结构模板"
-				description="选题确定后，先选择叙事结构，再进入脚本和发布包。"
+			icon={LayoutTemplate}
+			title="视频结构模板"
+			description="选题确定后，先选择叙事结构，再进入脚本和发布包。"
 			isCollapsed={isCollapsed}
 			onToggleCollapse={onToggleCollapse}
 		>
@@ -1844,9 +1894,9 @@ function PackageSection({
 	return (
 		<CollapsibleSection
 			sectionRef={sectionRef}
-				icon={BookOpenText}
-				title="完整选题包"
-				description="这里会成为后续视频制作流程的输入：脚本、素材表、封面和发布文案。"
+			icon={BookOpenText}
+			title="完整选题包"
+			description="这里会成为后续视频制作流程的输入：脚本、素材表、封面和发布文案。"
 			isCollapsed={isCollapsed}
 			onToggleCollapse={onToggleCollapse}
 		>
@@ -2110,9 +2160,9 @@ function ProductionPlanSection({
 	return (
 		<CollapsibleSection
 			sectionRef={sectionRef}
-				icon={Clapperboard}
-				title="视频制作计划"
-				description="把选题包转成剪辑 Agent 可执行的素材、配音和占位计划。"
+			icon={Clapperboard}
+			title="视频制作计划"
+			description="把选题包转成剪辑 Agent 可执行的素材、配音和占位计划。"
 			isCollapsed={isCollapsed}
 			onToggleCollapse={onToggleCollapse}
 		>

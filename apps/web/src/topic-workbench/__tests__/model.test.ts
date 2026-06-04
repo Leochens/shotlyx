@@ -128,6 +128,32 @@ describe("topic workbench model", () => {
 		);
 	});
 
+	test("can skip research and advance directly from confirmed topic to structure", () => {
+		const project = createTopicProjectFromPrompt({
+			editorProjectId: "project-1",
+			prompt: "AI Agent 如何帮创作者做选题",
+			now: 1_000,
+		});
+		const candidateId = project.candidates[0]?.id;
+		if (!candidateId) throw new Error("missing candidate");
+
+		const confirmed = confirmSelectedCandidate({
+			project: selectCandidate({ project, candidateId, now: 2_000 }),
+			now: 3_000,
+		});
+		const structured = advanceToStructureStage({
+			project: confirmed,
+			now: 4_000,
+		});
+
+		expect(structured.stage).toBe("structure");
+		expect(structured.selectedCandidateId).toBe(candidateId);
+		expect(structured.researchSources).toHaveLength(0);
+		expect(structured.researchInsights).toHaveLength(0);
+		expect(structured.structures.length).toBeGreaterThan(0);
+		expect(structured.selectedStructureId).toBe(structured.structures[0]?.id);
+	});
+
 	test("duplicates the active topic package as an isolated version snapshot", () => {
 		const project = createTopicProjectFromPrompt({
 			editorProjectId: "project-1",
