@@ -32,10 +32,7 @@ let isQuitting = false;
 
 function configureRenderingMode() {
 	const shouldDisableHardwareAcceleration =
-		process.env.SHOTLYX_DISABLE_HARDWARE_ACCELERATION === "1" ||
-		(process.platform === "darwin" &&
-			isDevelopmentRuntime() &&
-			process.env.SHOTLYX_ENABLE_HARDWARE_ACCELERATION !== "1");
+		process.env.SHOTLYX_DISABLE_HARDWARE_ACCELERATION === "1";
 
 	if (!shouldDisableHardwareAcceleration) return;
 
