@@ -20,11 +20,8 @@ import { MigrationDialog } from "@/project/components/migration-dialog";
 import { usePanelStore } from "@/editor/panel-store";
 import { usePasteMedia } from "@/media/use-paste-media";
 import { MobileGate } from "@/components/editor/mobile-gate";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useEditor } from "@/editor/use-editor";
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@/components/ui/button";
 import { ChangelogNotification } from "@/changelog/components/changelog-notification";
 import { ChatPanel } from "@/agent/chat/panel";
 import { TopicWorkbench } from "@/topic-workbench/topic-workbench";
@@ -45,7 +42,6 @@ import {
 	getBookmarkPreviewOverlaySource,
 } from "@/timeline/bookmarks/index";
 import { cn } from "@/utils/ui";
-import { useAppLocale } from "@/i18n/use-app-locale";
 
 export default function Editor() {
 	const params = useParams<{ project_id: string }>();
@@ -55,7 +51,6 @@ export default function Editor() {
 		<MobileGate>
 			<EditorProvider projectId={projectId}>
 				<div className="editor-workbench flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-					<DegradedRendererBanner />
 					<EditorHeader />
 					<div className="min-h-0 min-w-0 flex-1">
 						<EditorLayout />
@@ -66,28 +61,6 @@ export default function Editor() {
 				</div>
 			</EditorProvider>
 		</MobileGate>
-	);
-}
-
-function DegradedRendererBanner() {
-	const { copy } = useAppLocale();
-	const isDegraded = useEditor((e) => e.renderer.isDegraded);
-	const [dismissed, setDismissed] = useState(false);
-	if (!isDegraded || dismissed) return null;
-
-	return (
-		<div className="bg-accent border-b h-9 flex items-center justify-center gap-2 text-xs text-muted-foreground">
-			<span>{copy.editor.chromeWarning}</span>
-			<Button
-				variant="text"
-				size="icon"
-				className="p-0 w-auto [&_svg]:size-3.5"
-				onClick={() => setDismissed(true)}
-				aria-label={copy.editor.dismiss}
-			>
-				<HugeiconsIcon icon={Cancel01Icon} />
-			</Button>
-		</div>
 	);
 }
 

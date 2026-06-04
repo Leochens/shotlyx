@@ -29,6 +29,47 @@ function createKit({
 	};
 }
 
+function installLocalStorageMock(): () => void {
+	const originalWindowDescriptor = Object.getOwnPropertyDescriptor(
+		globalThis,
+		"window",
+	);
+	const data = new Map<string, string>();
+	const localStorage = {
+		get length() {
+			return data.size;
+		},
+		clear() {
+			data.clear();
+		},
+		getItem(key: string) {
+			return data.get(key) ?? null;
+		},
+		key(index: number) {
+			return Array.from(data.keys())[index] ?? null;
+		},
+		removeItem(key: string) {
+			data.delete(key);
+		},
+		setItem(key: string, value: string) {
+			data.set(key, value);
+		},
+	} satisfies Storage;
+
+	Object.defineProperty(globalThis, "window", {
+		configurable: true,
+		value: { localStorage },
+	});
+
+	return () => {
+		if (originalWindowDescriptor) {
+			Object.defineProperty(globalThis, "window", originalWindowDescriptor);
+			return;
+		}
+		Reflect.deleteProperty(globalThis, "window");
+	};
+}
+
 afterEach(() => {
 	clearGlobalBrandKitStateForTests();
 });
@@ -62,5 +103,25 @@ describe("global brand kit store", () => {
 			"kit-legacy",
 		]);
 		expect(getGlobalActiveBrandKit()?.id).toBe(existing.id);
+	});
+
+	test("keeps snapshot references stable while storage is unchanged", () => {
+		const restoreWindow = installLocalStorageMock();
+		const kit = createKit({ id: "kit-1", name: "GuanTou Lab" });
+
+		try {
+			upsertGlobalBrandKit({ kit });
+			setGlobalActiveBrandKit({ id: kit.id });
+
+			const firstKits = getGlobalBrandKits();
+			const secondKits = getGlobalBrandKits();
+			const firstActiveKit = getGlobalActiveBrandKit();
+			const secondActiveKit = getGlobalActiveBrandKit();
+
+			expect(secondKits).toBe(firstKits);
+			expect(secondActiveKit).toBe(firstActiveKit);
+		} finally {
+			restoreWindow();
+		}
 	});
 });

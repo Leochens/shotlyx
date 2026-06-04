@@ -11,6 +11,8 @@ let memoryState: GlobalBrandKitState = {
 	brandKits: [],
 	activeBrandKitId: null,
 };
+let cachedStorageValue: string | null | undefined;
+let shouldPreferMemoryState = false;
 
 function getStorage(): Storage | null {
 	if (typeof window === "undefined") return null;
@@ -72,10 +74,17 @@ function areStatesEqual({
 
 export function getGlobalBrandKitState(): GlobalBrandKitState {
 	const storage = getStorage();
-	if (!storage) return memoryState;
+	if (!storage || shouldPreferMemoryState) return memoryState;
 	try {
 		const raw = storage.getItem(GLOBAL_BRAND_KIT_STORAGE_KEY);
-		if (!raw) return memoryState;
+		if (cachedStorageValue !== undefined && raw === cachedStorageValue) {
+			return memoryState;
+		}
+		cachedStorageValue = raw;
+		if (!raw) {
+			memoryState = { brandKits: [], activeBrandKitId: null };
+			return memoryState;
+		}
 		memoryState = normalizeState(JSON.parse(raw));
 		return memoryState;
 	} catch {
@@ -91,8 +100,12 @@ function writeGlobalBrandKitState(
 	const storage = getStorage();
 	if (storage) {
 		try {
-			storage.setItem(GLOBAL_BRAND_KIT_STORAGE_KEY, JSON.stringify(normalized));
+			const serialized = JSON.stringify(normalized);
+			storage.setItem(GLOBAL_BRAND_KIT_STORAGE_KEY, serialized);
+			cachedStorageValue = serialized;
+			shouldPreferMemoryState = false;
 		} catch {
+			shouldPreferMemoryState = true;
 			// Keep the in-memory value so the current session still reflects edits.
 		}
 	}
@@ -205,6 +218,8 @@ export function clearGlobalBrandKitStateForTests(): void {
 		brandKits: [],
 		activeBrandKitId: null,
 	};
+	cachedStorageValue = null;
+	shouldPreferMemoryState = false;
 	const storage = getStorage();
 	storage?.removeItem(GLOBAL_BRAND_KIT_STORAGE_KEY);
 }
