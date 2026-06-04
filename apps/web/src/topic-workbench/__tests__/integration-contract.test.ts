@@ -14,6 +14,20 @@ const editorPageSource = readFileSync(
 	"utf8",
 );
 
+const projectManagerSource = readFileSync(
+	fileURLToPath(
+		new URL("../../core/managers/project-manager.ts", import.meta.url),
+	),
+	"utf8",
+);
+
+const previewSource = readFileSync(
+	fileURLToPath(
+		new URL("../../preview/components/index.tsx", import.meta.url),
+	),
+	"utf8",
+);
+
 describe("topic workbench integration contract", () => {
 	test("lets topic agents understand uploaded media before generating topics", () => {
 		expect(chatPanelSource).toContain("TOPIC_SUPPORT_TOOL_NAMES");
@@ -49,11 +63,19 @@ describe("topic workbench integration contract", () => {
 	test("shows editable pending topic materials before the workbench appears", () => {
 		expect(chatPanelSource).toContain("PendingTopicMaterialsPanel");
 		expect(chatPanelSource).toContain("pendingTopicInputMaterials");
+		expect(chatPanelSource).toContain("EMPTY_TOPIC_INPUT_MATERIALS");
 		expect(chatPanelSource).toContain("updateTopicInputMaterial");
 		expect(chatPanelSource).toContain("removeTopicInputMaterial");
 		expect(chatPanelSource).toContain("分析过程中也可以修改或移除");
 		expect(chatPanelSource).toContain("aria-label=\"素材标题\"");
 		expect(chatPanelSource).toContain("aria-label=\"素材内容\"");
+	});
+
+	test("skips automatic thumbnail rendering when the editor is degraded", () => {
+		expect(projectManagerSource).toContain("updateThumbnailFromTimeline");
+		expect(projectManagerSource).toContain("this.editor.renderer.isDegraded");
+		expect(previewSource).toContain("isRendererDegraded");
+		expect(previewSource).toContain("if (isRendererDegraded) return;");
 	});
 
 	test("keeps topic and video chat sessions scoped separately", () => {

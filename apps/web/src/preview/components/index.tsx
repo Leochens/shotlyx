@@ -148,6 +148,7 @@ function PreviewCanvas({
 	const editor = useEditor();
 	const activeProject = useEditor((e) => e.project.getActive());
 	const renderTree = useEditor((e) => e.renderer.getRenderTree());
+	const isRendererDegraded = useEditor((e) => e.renderer.isDegraded);
 	const tracks = useEditor(
 		(e) => e.timeline.getPreviewTracks() ?? e.scenes.getActiveScene().tracks,
 	);
@@ -176,6 +177,8 @@ function PreviewCanvas({
 	// renders straight into this element, so there is no intermediate copy —
 	// the container div owns positioning/styling, the canvas itself fills it.
 	useEffect(() => {
+		if (isRendererDegraded) return;
+
 		const mount = canvasMountRef.current;
 		if (!mount) return;
 		const outputCanvas = renderer.getOutputCanvas();
@@ -188,9 +191,10 @@ function PreviewCanvas({
 				mount.removeChild(outputCanvas);
 			}
 		};
-	}, [renderer]);
+	}, [isRendererDegraded, renderer]);
 
 	const render = useCallback(() => {
+		if (isRendererDegraded) return;
 		if (!renderTree) return;
 
 		const renderTime = Math.min(
@@ -221,7 +225,13 @@ function PreviewCanvas({
 			.finally(() => {
 				renderingRef.current = false;
 			});
-	}, [renderer, renderTree, editor.playback, editor.timeline]);
+	}, [
+		isRendererDegraded,
+		renderer,
+		renderTree,
+		editor.playback,
+		editor.timeline,
+	]);
 
 	useRafLoop(render);
 

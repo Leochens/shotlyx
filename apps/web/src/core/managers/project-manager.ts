@@ -910,6 +910,7 @@ export class ProjectManager {
 
 	private async updateThumbnailFromTimeline(): Promise<boolean> {
 		if (!this.active) return false;
+		if (this.editor.renderer.isDegraded) return false;
 
 		const tracks = this.editor.scenes.getActiveScene().tracks;
 		const mediaAssets = this.editor.media.getAssets();

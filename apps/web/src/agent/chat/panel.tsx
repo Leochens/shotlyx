@@ -156,6 +156,8 @@ const STARTER_PROMPT_STYLES: Array<{
 	},
 ];
 
+const EMPTY_TOPIC_INPUT_MATERIALS: TopicInputMaterial[] = [];
+
 const STREAM_TEXT_FLUSH_INTERVAL_MS = 80;
 const TOPIC_SUPPORT_TOOL_NAMES = new Set([
 	"web_search",
@@ -1865,7 +1867,8 @@ export function ChatPanel() {
 	});
 	const pendingTopicInputMaterials = useTopicWorkbenchStore(
 		(state) =>
-			(state.pendingInputMaterialsByEditorProject ?? {})[editorProjectId] ?? [],
+			(state.pendingInputMaterialsByEditorProject ?? {})[editorProjectId] ??
+			EMPTY_TOPIC_INPUT_MATERIALS,
 	);
 	const updateTopicInputMaterial = useTopicWorkbenchStore(
 		(state) => state.updateInputMaterial,
