@@ -6,12 +6,16 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	type MouseEvent,
 	type ReactNode,
 	type Ref,
 } from "react";
+import type { Editor as TiptapEditor } from "@tiptap/core";
+import { EditorContent, useEditor as useTiptapEditor } from "@tiptap/react";
 import {
 	ArrowRight,
 	BookOpenText,
+	Bold,
 	BrainCircuit,
 	Check,
 	CheckCircle2,
@@ -23,11 +27,16 @@ import {
 	ExternalLink,
 	FileText,
 	History,
+	Heading2,
+	Italic,
 	LayoutTemplate,
 	Lightbulb,
+	List,
+	ListOrdered,
 	Loader2,
 	Pencil,
 	Plus,
+	Quote,
 	Radar,
 	RefreshCw,
 	Search,
@@ -55,9 +64,11 @@ import {
 import { cn } from "@/utils/ui";
 import { CreatorProfileDialogTrigger } from "./creator-profile-dialog";
 import {
-	buildDraftMarkdownAssetBlock,
+	createDraftTiptapExtensions,
 	extractDraftUploadFiles,
-	insertMarkdownAtRange,
+	draftMarkdownToTiptapHtml,
+	getDraftTiptapMarkdown,
+	insertUploadedAssetsIntoTiptap,
 } from "./draft-markdown";
 import { getTopicProjectMode } from "./model";
 import { useTopicWorkbenchStore } from "./store";
@@ -668,7 +679,7 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 			const activeEditorProject = editor.project.getActiveOrNull();
 			if (!activeEditorProject || files.length === 0) return [];
 
-			let savedAssets: MediaAsset[] = [];
+			const savedAssets: MediaAsset[] = [];
 			try {
 				await showMediaUploadToast({
 					filesCount: files.length,
@@ -825,51 +836,66 @@ function BrainstormDraftCard({
 	const [isUploading, setUploading] = useState(false);
 	const [isDragOver, setDragOver] = useState(false);
 	const [title, setTitle] = useState(material.title);
-	const [content, setContent] = useState(material.content ?? "");
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const titleRef = useRef(material.title);
+	const contentRef = useRef(material.content ?? "");
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const displayContent = material.content?.trim() || material.summary?.trim();
+	const tiptapExtensions = useMemo(
+		() => createDraftTiptapExtensions({ mediaAssets }),
+		[mediaAssets],
+	);
+	const draftEditor = useTiptapEditor(
+		{
+			extensions: tiptapExtensions,
+			content: draftMarkdownToTiptapHtml(material.content ?? ""),
+			editorProps: {
+				attributes: {
+					class: "whitespace-pre-wrap",
+				},
+			},
+			onUpdate: ({ editor }) => {
+				const nextContent = getDraftTiptapMarkdown(editor);
+				contentRef.current = nextContent;
+				onSave({ title: titleRef.current, content: nextContent });
+			},
+		},
+		[tiptapExtensions],
+	);
+
+	useEffect(() => {
+		if (isEditing) return;
+		const nextContent = material.content ?? "";
+		titleRef.current = material.title;
+		contentRef.current = nextContent;
+		draftEditor?.commands.setContent(draftMarkdownToTiptapHtml(nextContent), {
+			emitUpdate: false,
+		});
+	}, [draftEditor, isEditing, material.content, material.title]);
 
 	const handleTitleChange = (nextTitle: string) => {
+		titleRef.current = nextTitle;
 		setTitle(nextTitle);
-		onSave({ title: nextTitle, content });
-	};
-
-	const handleContentChange = (nextContent: string) => {
-		setContent(nextContent);
-		onSave({ title, content: nextContent });
+		onSave({ title: nextTitle, content: contentRef.current });
 	};
 
 	const insertUploadedFiles = async ({
 		files,
-		selectionStart,
-		selectionEnd,
 	}: {
 		files: File[];
-		selectionStart?: number;
-		selectionEnd?: number;
 	}) => {
-		if (files.length === 0 || isUploading) return;
+		if (files.length === 0 || isUploading || !draftEditor) return;
 		setUploading(true);
 		try {
 			const savedAssets = await onUploadFiles(files);
-			const insertText = buildDraftMarkdownAssetBlock({ assets: savedAssets });
-			if (!insertText) return;
-			const currentValue = textareaRef.current?.value ?? content;
-			const nextContent = insertMarkdownAtRange({
-				value: currentValue,
-				insertText,
-				selectionStart: selectionStart ?? currentValue.length,
-				selectionEnd: selectionEnd ?? currentValue.length,
+			insertUploadedAssetsIntoTiptap({
+				editor: draftEditor,
+				assets: savedAssets,
 			});
-			setContent(nextContent);
-			onSave({ title, content: nextContent });
+			const nextContent = getDraftTiptapMarkdown(draftEditor);
+			contentRef.current = nextContent;
+			onSave({ title: titleRef.current, content: nextContent });
 			requestAnimationFrame(() => {
-				const textarea = textareaRef.current;
-				if (!textarea) return;
-				textarea.focus();
-				const cursorPosition = nextContent.length;
-				textarea.setSelectionRange(cursorPosition, cursorPosition);
+				draftEditor.commands.focus();
 			});
 		} finally {
 			setUploading(false);
@@ -912,97 +938,69 @@ function BrainstormDraftCard({
 						onChange={(event) => {
 							const files = Array.from(event.currentTarget.files ?? []);
 							event.currentTarget.value = "";
-							void insertUploadedFiles({
-								files,
-								selectionStart: textareaRef.current?.selectionStart,
-								selectionEnd: textareaRef.current?.selectionEnd,
-							});
+							void insertUploadedFiles({ files });
 						}}
 					/>
-					<div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(18rem,0.9fr)]">
-						<div className="min-w-0">
-							<div className="mb-1 text-[0.68rem] font-medium text-muted-foreground">
-								编辑
-							</div>
-							<textarea
-								ref={textareaRef}
-								value={content}
-								onChange={(event) => handleContentChange(event.target.value)}
-								onPaste={(event) => {
-									const files = extractDraftUploadFiles({
-										dataTransfer: event.clipboardData,
-									});
-									if (files.length === 0) return;
-									event.preventDefault();
-									void insertUploadedFiles({
-										files,
-										selectionStart: event.currentTarget.selectionStart,
-										selectionEnd: event.currentTarget.selectionEnd,
-									});
-								}}
-								onDragOver={(event) => {
-									const files = extractDraftUploadFiles({
-										dataTransfer: event.dataTransfer,
-									});
-									if (files.length === 0) return;
-									event.preventDefault();
-									setDragOver(true);
-								}}
-								onDragLeave={() => setDragOver(false)}
-								onDrop={(event) => {
-									const files = extractDraftUploadFiles({
-										dataTransfer: event.dataTransfer,
-									});
-									if (files.length === 0) return;
-									event.preventDefault();
-									setDragOver(false);
-									void insertUploadedFiles({
-										files,
-										selectionStart: event.currentTarget.selectionStart,
-										selectionEnd: event.currentTarget.selectionEnd,
-									});
-								}}
-								placeholder="随手写下还没成型的想法、问题、链接、标题碎片或表达冲动"
-								rows={12}
-								className={cn(
-									"min-h-72 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 outline-none placeholder:text-muted-foreground focus:border-primary/40",
-									isDragOver && "border-primary/50 bg-primary/[0.03]",
-								)}
-							/>
-						</div>
-						<div className="min-w-0">
-							<div className="mb-1 text-[0.68rem] font-medium text-muted-foreground">
-								预览
-							</div>
-							<div
-								data-testid="draft-live-preview"
-								className="min-h-72 overflow-y-auto rounded-sm border border-border/65 bg-muted/[0.16] px-3 py-2 text-sm leading-6 text-foreground"
-							>
-								<ReactMarkdownWrapper rich mediaAssets={mediaAssets}>
-									{content || " "}
-								</ReactMarkdownWrapper>
-							</div>
+					<div className="space-y-2">
+						<DraftTiptapToolbar
+							editor={draftEditor}
+							isUploading={isUploading}
+							onUploadClick={() => fileInputRef.current?.click()}
+						/>
+						<div
+							data-testid="draft-tiptap-editor"
+							onPaste={(event) => {
+								const files = extractDraftUploadFiles({
+									dataTransfer: event.clipboardData,
+								});
+								if (files.length === 0) return;
+								event.preventDefault();
+								void insertUploadedFiles({ files });
+							}}
+							onDragOver={(event) => {
+								const files = extractDraftUploadFiles({
+									dataTransfer: event.dataTransfer,
+								});
+								if (files.length === 0) return;
+								event.preventDefault();
+								setDragOver(true);
+							}}
+							onDragLeave={() => setDragOver(false)}
+							onDrop={(event) => {
+								const files = extractDraftUploadFiles({
+									dataTransfer: event.dataTransfer,
+								});
+								if (files.length === 0) return;
+								event.preventDefault();
+								setDragOver(false);
+								void insertUploadedFiles({ files });
+							}}
+							className={cn(
+								"min-h-72 rounded-sm border border-border bg-background text-sm leading-6 text-foreground outline-none transition-colors focus-within:border-primary/40",
+								"[&_.ProseMirror]:min-h-72 [&_.ProseMirror]:whitespace-pre-wrap [&_.ProseMirror]:px-3 [&_.ProseMirror]:py-2 [&_.ProseMirror]:outline-none",
+								"[&_.ProseMirror_h1]:mb-2 [&_.ProseMirror_h1]:text-xl [&_.ProseMirror_h1]:font-semibold",
+								"[&_.ProseMirror_h2]:mb-2 [&_.ProseMirror_h2]:text-lg [&_.ProseMirror_h2]:font-semibold",
+								"[&_.ProseMirror_h3]:mb-2 [&_.ProseMirror_h3]:text-base [&_.ProseMirror_h3]:font-semibold",
+								"[&_.ProseMirror_blockquote]:my-2 [&_.ProseMirror_blockquote]:border-l-2 [&_.ProseMirror_blockquote]:border-primary/35 [&_.ProseMirror_blockquote]:pl-3 [&_.ProseMirror_blockquote]:text-muted-foreground",
+								"[&_.ProseMirror_ul]:my-2 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:pl-5",
+								"[&_.ProseMirror_ol]:my-2 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:pl-5",
+								"[&_.ProseMirror_p]:my-1",
+								"[&_.ProseMirror_.is-editor-empty:first-child::before]:pointer-events-none [&_.ProseMirror_.is-editor-empty:first-child::before]:float-left [&_.ProseMirror_.is-editor-empty:first-child::before]:h-0 [&_.ProseMirror_.is-editor-empty:first-child::before]:text-muted-foreground [&_.ProseMirror_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]",
+								isDragOver && "border-primary/50 bg-primary/[0.03]",
+							)}
+						>
+							<EditorContent editor={draftEditor} />
 						</div>
 					</div>
 					<div className="flex justify-end gap-2">
 						<Button
-							size="icon"
-							variant="ghost"
-							className="mr-auto size-8 rounded-sm"
-							onClick={() => fileInputRef.current?.click()}
-							disabled={isUploading}
-							title="上传图片或视频"
-						>
-							{isUploading ? (
-								<Loader2 size={14} className="animate-spin" />
-							) : (
-								<Upload size={14} />
-							)}
-						</Button>
-						<Button
 							size="sm"
 							onClick={() => {
-								onSave({ title, content });
+								const nextContent = draftEditor
+									? getDraftTiptapMarkdown(draftEditor)
+									: contentRef.current;
+								contentRef.current = nextContent;
+								onSave({ title: titleRef.current, content: nextContent });
 								setEditing(false);
 							}}
 						>
@@ -1028,9 +1026,18 @@ function BrainstormDraftCard({
 							size="sm"
 							variant="ghost"
 							onClick={() => {
+								const nextContent = material.content ?? "";
+								titleRef.current = material.title;
+								contentRef.current = nextContent;
 								setTitle(material.title);
-								setContent(material.content ?? "");
+								draftEditor?.commands.setContent(
+									draftMarkdownToTiptapHtml(nextContent),
+									{ emitUpdate: false },
+								);
 								setEditing(true);
+								requestAnimationFrame(() => {
+									draftEditor?.commands.focus();
+								});
 							}}
 							title="编辑草稿"
 						>
@@ -1050,6 +1057,113 @@ function BrainstormDraftCard({
 				</>
 			)}
 		</article>
+	);
+}
+
+function DraftTiptapToolbar({
+	editor,
+	isUploading,
+	onUploadClick,
+}: {
+	editor: TiptapEditor | null;
+	isUploading: boolean;
+	onUploadClick: () => void;
+}) {
+	const isDisabled = !editor;
+	const preventFocusLoss = (event: MouseEvent<HTMLButtonElement>) => {
+		event.preventDefault();
+	};
+	const buttonClassName = (isActive = false) =>
+		cn(
+			"size-8 rounded-sm",
+			isActive && "bg-muted text-foreground hover:bg-muted",
+		);
+
+	return (
+		<div className="flex flex-wrap items-center gap-1 rounded-sm border border-border/65 bg-muted/[0.16] p-1">
+			<Button
+				size="icon"
+				variant="ghost"
+				className={buttonClassName(editor?.isActive("heading", { level: 2 }))}
+				onMouseDown={preventFocusLoss}
+				onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+				disabled={isDisabled}
+				title="二级标题"
+			>
+				<Heading2 size={14} />
+			</Button>
+			<Button
+				size="icon"
+				variant="ghost"
+				className={buttonClassName(editor?.isActive("bold"))}
+				onMouseDown={preventFocusLoss}
+				onClick={() => editor?.chain().focus().toggleBold().run()}
+				disabled={isDisabled}
+				title="加粗"
+			>
+				<Bold size={14} />
+			</Button>
+			<Button
+				size="icon"
+				variant="ghost"
+				className={buttonClassName(editor?.isActive("italic"))}
+				onMouseDown={preventFocusLoss}
+				onClick={() => editor?.chain().focus().toggleItalic().run()}
+				disabled={isDisabled}
+				title="斜体"
+			>
+				<Italic size={14} />
+			</Button>
+			<div className="mx-1 h-5 w-px bg-border/70" />
+			<Button
+				size="icon"
+				variant="ghost"
+				className={buttonClassName(editor?.isActive("bulletList"))}
+				onMouseDown={preventFocusLoss}
+				onClick={() => editor?.chain().focus().toggleBulletList().run()}
+				disabled={isDisabled}
+				title="无序列表"
+			>
+				<List size={14} />
+			</Button>
+			<Button
+				size="icon"
+				variant="ghost"
+				className={buttonClassName(editor?.isActive("orderedList"))}
+				onMouseDown={preventFocusLoss}
+				onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+				disabled={isDisabled}
+				title="有序列表"
+			>
+				<ListOrdered size={14} />
+			</Button>
+			<Button
+				size="icon"
+				variant="ghost"
+				className={buttonClassName(editor?.isActive("blockquote"))}
+				onMouseDown={preventFocusLoss}
+				onClick={() => editor?.chain().focus().toggleBlockquote().run()}
+				disabled={isDisabled}
+				title="引用"
+			>
+				<Quote size={14} />
+			</Button>
+			<Button
+				size="icon"
+				variant="ghost"
+				className="ml-auto size-8 rounded-sm"
+				onMouseDown={preventFocusLoss}
+				onClick={onUploadClick}
+				disabled={isDisabled || isUploading}
+				title="上传图片或视频"
+			>
+				{isUploading ? (
+					<Loader2 size={14} className="animate-spin" />
+				) : (
+					<Upload size={14} />
+				)}
+			</Button>
+		</div>
 	);
 }
 

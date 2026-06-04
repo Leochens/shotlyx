@@ -26,6 +26,11 @@ const previewSource = readFileSync(
 	"utf8",
 );
 
+const packageJsonSource = readFileSync(
+	fileURLToPath(new URL("../../../package.json", import.meta.url)),
+	"utf8",
+);
+
 const topicWorkbenchSource = readFileSync(
 	fileURLToPath(new URL("../topic-workbench.tsx", import.meta.url)),
 	"utf8",
@@ -94,15 +99,13 @@ describe("topic workbench integration contract", () => {
 		expect(editorPageSource).toContain("activeTopicProject");
 	});
 
-	test("shows a live Markdown preview while editing a brainstorm draft", () => {
-		expect(topicWorkbenchSource).toContain('data-testid="draft-live-preview"');
-		expect(topicWorkbenchSource).toContain(
-			"<ReactMarkdownWrapper rich mediaAssets={mediaAssets}>",
-		);
-		expect(topicWorkbenchSource).toContain('{content || " "}');
-		expect(topicWorkbenchSource).toContain(
-			"md:grid-cols-[minmax(0,1fr)_minmax(18rem,0.9fr)]",
-		);
+	test("uses a Tiptap editor for brainstorm drafts while keeping Markdown storage", () => {
+		expect(packageJsonSource).toContain('"@tiptap/react"');
+		expect(topicWorkbenchSource).toContain('data-testid="draft-tiptap-editor"');
+		expect(topicWorkbenchSource).toContain("<EditorContent");
+		expect(topicWorkbenchSource).toContain("draftMarkdownToTiptapHtml");
+		expect(topicWorkbenchSource).toContain("getDraftTiptapMarkdown");
+		expect(topicWorkbenchSource).toContain("insertUploadedAssetsIntoTiptap");
 	});
 
 	test("skips automatic thumbnail rendering when the editor is degraded", () => {
