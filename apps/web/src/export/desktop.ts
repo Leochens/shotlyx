@@ -87,6 +87,13 @@ async function readJsonResponse({ response }: { response: Response }) {
 			(typeof bodyError === "string" && bodyError) ||
 			message;
 	}
+	if (
+		response.status === 404 &&
+		response.url.includes("/api/desktop/export/")
+	) {
+		message =
+			"Desktop export API route was not found. Restart Shotlyx Desktop after rebuilding the desktop API bundle.";
+	}
 	throw new Error(message);
 }
 

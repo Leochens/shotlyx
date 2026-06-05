@@ -7,6 +7,7 @@ import {
 	Dialog,
 	DialogBody,
 	DialogContent,
+	DialogDescription,
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
@@ -279,6 +280,11 @@ function ExportDialog({
 						<DialogTitle className="text-sm">
 							{isExporting ? copy.editor.exporting : copy.editor.export}
 						</DialogTitle>
+						<DialogDescription className="sr-only">
+							{isExporting
+								? copy.editor.exporting
+								: `${copy.editor.export} ${dialogCopy.format}, ${dialogCopy.quality}, ${dialogCopy.audio}`}
+						</DialogDescription>
 					</DialogHeader>
 
 					<DialogBody className="flex flex-col gap-4 p-0">
@@ -476,12 +482,14 @@ function ExportError({
 
 	return (
 		<div className="space-y-4 p-3">
-			<div className="flex flex-col gap-1.5">
-				<p className="text-destructive text-sm font-medium">
+			<DialogHeader className="space-y-1.5 p-0 text-left">
+				<DialogTitle className="text-destructive text-sm font-medium">
 					{dialogCopy.failed}
-				</p>
-				<p className="text-muted-foreground text-xs">{error}</p>
-			</div>
+				</DialogTitle>
+				<DialogDescription className="text-muted-foreground text-xs">
+					{error}
+				</DialogDescription>
+			</DialogHeader>
 
 			<div className="flex gap-2">
 				<Button
