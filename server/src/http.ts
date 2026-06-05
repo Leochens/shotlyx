@@ -22,6 +22,7 @@ export type ServerAppConfig = {
 };
 
 const DEFAULT_INITIAL_QUOTA = 100_000;
+const ADMIN_COOKIE_NAME = "shotlyx_admin_token";
 
 function json(data: unknown, init: ResponseInit = {}): Response {
 	const headers = new Headers(init.headers);
@@ -38,11 +39,22 @@ function html(body: string, init: ResponseInit = {}): Response {
 	return new Response(body, { ...init, headers });
 }
 
+function redirect(location: string, init: ResponseInit = {}): Response {
+	const headers = new Headers(init.headers);
+	headers.set("location", location);
+	return new Response(null, { ...init, status: init.status ?? 303, headers });
+}
+
 async function readJson(request: Request): Promise<Record<string, unknown>> {
 	const value = await request.json().catch(() => ({}));
 	return typeof value === "object" && value !== null
 		? (value as Record<string, unknown>)
 		: {};
+}
+
+async function readForm(request: Request): Promise<Record<string, string>> {
+	const params = new URLSearchParams(await request.text());
+	return Object.fromEntries(params.entries());
 }
 
 function readString(
@@ -58,6 +70,22 @@ function getBearerToken(request: Request): string | null {
 	const header = request.headers.get("authorization") ?? "";
 	const match = /^Bearer\s+(.+)$/i.exec(header);
 	return match?.[1] ?? null;
+}
+
+function parseCookies(request: Request): Record<string, string> {
+	const cookies: Record<string, string> = {};
+	const header = request.headers.get("cookie") ?? "";
+	for (const part of header.split(";")) {
+		const [rawName, ...rawValue] = part.trim().split("=");
+		if (!rawName) continue;
+		const value = rawValue.join("=");
+		try {
+			cookies[rawName] = decodeURIComponent(value);
+		} catch {
+			cookies[rawName] = value;
+		}
+	}
+	return cookies;
 }
 
 function maskKey(key: string): string {
@@ -92,14 +120,51 @@ function toAccountResponse(
 	};
 }
 
+function adminLoginPage({ error }: { error?: string } = {}): string {
+	return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Shotlyx 管理员登录</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #081013; color: #f8fafc; }
+    main { width: min(420px, calc(100vw - 32px)); border: 1px solid rgba(148, 163, 184, .24); padding: 28px; background: rgba(15, 23, 42, .72); }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    p { margin: 0 0 20px; color: #aebdcc; line-height: 1.6; }
+    label { display: block; margin: 0 0 8px; color: #cbd5e1; font-size: 14px; }
+    input { width: 100%; box-sizing: border-box; min-height: 42px; border: 1px solid rgba(148, 163, 184, .3); background: rgba(2, 6, 23, .72); color: #f8fafc; padding: 0 12px; font: inherit; }
+    button { width: 100%; min-height: 42px; margin-top: 16px; border: 0; background: #2dd4bf; color: #042f2e; font-weight: 700; cursor: pointer; }
+    .error { margin: 0 0 16px; padding: 10px 12px; border: 1px solid rgba(248, 113, 113, .36); background: rgba(127, 29, 29, .32); color: #fecaca; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>管理员登录</h1>
+    <p>输入服务端配置的管理 Token 后进入 Shotlyx 管理端。</p>
+    ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
+    <form method="post" action="/admin/login">
+      <label for="token">Admin Token</label>
+      <input id="token" name="token" type="password" autocomplete="current-password" required autofocus />
+      <button type="submit">进入管理端</button>
+    </form>
+  </main>
+</body>
+</html>`;
+}
+
 function adminPage({
 	users,
 	logs,
 	settings,
+	flash,
+	error,
 }: {
 	users: Array<{ email: string; name: string; createdAt: string }>;
 	logs: Array<{ type: string; message: string; createdAt: string }>;
 	settings: ServerSettings;
+	flash?: string;
+	error?: string;
 }): string {
 	return `<!doctype html>
 <html lang="zh-CN">
@@ -110,16 +175,52 @@ function adminPage({
   <style>
     body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #081013; color: #f8fafc; }
     main { max-width: 1120px; margin: 0 auto; padding: 32px; }
-    h1 { margin: 0 0 24px; }
+    header { display: flex; gap: 16px; align-items: center; justify-content: space-between; margin: 0 0 24px; }
+    h1 { margin: 0; }
     section { border: 1px solid rgba(148, 163, 184, .24); margin: 16px 0; padding: 18px; background: rgba(15, 23, 42, .72); }
     table { width: 100%; border-collapse: collapse; }
     td, th { padding: 10px; border-bottom: 1px solid rgba(148, 163, 184, .16); text-align: left; }
     code { color: #67e8f9; }
+    .top-up-form { display: grid; grid-template-columns: minmax(220px, 1.4fr) minmax(120px, .6fr) minmax(180px, 1fr) auto; gap: 12px; align-items: end; }
+    label { display: grid; gap: 6px; color: #cbd5e1; font-size: 14px; }
+    input { min-height: 40px; border: 1px solid rgba(148, 163, 184, .3); background: rgba(2, 6, 23, .72); color: #f8fafc; padding: 0 12px; font: inherit; }
+    button, .button { min-height: 40px; border: 0; background: #2dd4bf; color: #042f2e; padding: 0 14px; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+    .logout-form { margin: 0; }
+    .ghost { border: 1px solid rgba(148, 163, 184, .3); background: transparent; color: #e2e8f0; }
+    .flash { margin: 0 0 16px; padding: 10px 12px; border: 1px solid rgba(45, 212, 191, .36); background: rgba(20, 184, 166, .16); color: #ccfbf1; }
+    .error { margin: 0 0 16px; padding: 10px 12px; border: 1px solid rgba(248, 113, 113, .36); background: rgba(127, 29, 29, .32); color: #fecaca; }
+    @media (max-width: 760px) {
+      main { padding: 20px; }
+      header { align-items: flex-start; flex-direction: column; }
+      .top-up-form { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
   <main>
-    <h1>Shotlyx Server Admin</h1>
+    <header>
+      <h1>Shotlyx Server Admin</h1>
+      <form class="logout-form" method="post" action="/admin/logout">
+        <button class="ghost" type="submit">退出登录</button>
+      </form>
+    </header>
+    ${flash ? `<div class="flash">${escapeHtml(flash)}</div>` : ""}
+    ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
+    <section>
+      <h2>手动充值</h2>
+      <form class="top-up-form" method="post" action="/admin/credits/top-up">
+        <label>Email
+          <input name="email" type="email" placeholder="user@example.com" required />
+        </label>
+        <label>额度
+          <input name="amount" type="number" min="1" step="1" placeholder="1000" required />
+        </label>
+        <label>备注
+          <input name="note" type="text" placeholder="人工充值" />
+        </label>
+        <button type="submit">确认充值</button>
+      </form>
+    </section>
     <section>
       <h2>用户管理</h2>
       <table><thead><tr><th>Email</th><th>Name</th><th>Created</th></tr></thead><tbody>
@@ -180,8 +281,9 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 	const configuredInitialQuota =
 		config.initialQuota ?? Number(process.env.SHOTLYX_INITIAL_QUOTA);
 	const initialQuota = configuredInitialQuota || DEFAULT_INITIAL_QUOTA;
-	const adminToken = (config.adminToken ?? process.env.SHOTLYX_ADMIN_TOKEN)
-		?.trim();
+	const adminToken = (
+		config.adminToken ?? process.env.SHOTLYX_ADMIN_TOKEN
+	)?.trim();
 	if (process.env.NODE_ENV === "production" && !adminToken) {
 		throw new Error("SHOTLYX_ADMIN_TOKEN is required in production");
 	}
@@ -196,7 +298,41 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 
 	function requireAdmin(request: Request): boolean {
 		if (!adminToken) return true;
-		return request.headers.get("x-shotlyx-admin-token") === adminToken;
+		return (
+			request.headers.get("x-shotlyx-admin-token") === adminToken ||
+			parseCookies(request)[ADMIN_COOKIE_NAME] === adminToken
+		);
+	}
+
+	function createAdminCookie(value: string, maxAge?: number): string {
+		const parts = [
+			`${ADMIN_COOKIE_NAME}=${encodeURIComponent(value)}`,
+			"HttpOnly",
+			"SameSite=Lax",
+			"Path=/",
+		];
+		if (maxAge !== undefined) parts.push(`Max-Age=${maxAge}`);
+		return parts.join("; ");
+	}
+
+	async function renderAdminDashboard({
+		flash,
+		error,
+	}: { flash?: string; error?: string } = {}): Promise<Response> {
+		const [users, logs, settings] = await Promise.all([
+			store.listUsers(),
+			store.listLogs(),
+			store.getSettings(),
+		]);
+		return html(
+			adminPage({
+				users,
+				logs,
+				settings,
+				flash,
+				error,
+			}),
+		);
 	}
 
 	return {
@@ -210,6 +346,54 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 			try {
 				if (url.pathname === "/api/health" && request.method === "GET") {
 					return json({ ok: true, store: storeMode });
+				}
+
+				if (url.pathname === "/admin/login" && request.method === "POST") {
+					if (!adminToken) return redirect("/admin");
+					const form = await readForm(request);
+					if ((form.token ?? "").trim() !== adminToken) {
+						return html(
+							adminLoginPage({ error: "Admin Token 不正确，请重新输入。" }),
+							{ status: 403 },
+						);
+					}
+					return redirect("/admin", {
+						headers: { "set-cookie": createAdminCookie(adminToken) },
+					});
+				}
+
+				if (url.pathname === "/admin/logout" && request.method === "POST") {
+					return redirect("/admin", {
+						headers: { "set-cookie": createAdminCookie("", 0) },
+					});
+				}
+
+				if (
+					url.pathname === "/admin/credits/top-up" &&
+					request.method === "POST"
+				) {
+					if (!requireAdmin(request)) {
+						return html(adminLoginPage({ error: "请先登录管理端。" }), {
+							status: 403,
+						});
+					}
+					const form = await readForm(request);
+					try {
+						await billing.topUpUserCredits({
+							email: form.email || undefined,
+							amount: Number(form.amount),
+							idempotencyKey: `admin-manual:${crypto.randomUUID()}`,
+							note: form.note || undefined,
+						});
+						return redirect("/admin?topup=success");
+					} catch (error) {
+						return renderAdminDashboard({
+							error:
+								error instanceof Error
+									? error.message
+									: "充值失败，请稍后重试。",
+						});
+					}
 				}
 
 				if (
@@ -375,18 +559,13 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 				}
 
 				if (url.pathname === "/admin" && request.method === "GET") {
-					const [users, logs, settings] = await Promise.all([
-						store.listUsers(),
-						store.listLogs(),
-						store.getSettings(),
-					]);
-					return html(
-						adminPage({
-							users,
-							logs,
-							settings,
-						}),
-					);
+					if (!requireAdmin(request)) return html(adminLoginPage());
+					return renderAdminDashboard({
+						flash:
+							url.searchParams.get("topup") === "success"
+								? "充值已入账。"
+								: undefined,
+					});
 				}
 
 				return json({ error: "not_found" }, { status: 404 });

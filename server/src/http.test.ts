@@ -233,6 +233,90 @@ describe("Shotlyx server HTTP app", () => {
 		expect(ledger.entries[0].idempotencyKey).toBe("manual:topup:1");
 	});
 
+	test("serves a browser admin login and manual top-up form", async () => {
+		const app = createServerApp({
+			store: new InMemoryShotlyxStore(),
+			newApi: createFakeNewApi(),
+			initialQuota: 500,
+			adminToken: "admin-secret",
+		});
+		const registerResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/auth/register", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					email: "admin-topup@example.com",
+					password: "123456",
+					name: "Admin Topup",
+				}),
+			}),
+		);
+		const registered = await registerResponse.json();
+
+		const anonymousAdminResponse = await app.fetch(
+			new Request("http://shotlyx.test/admin"),
+		);
+		expect(anonymousAdminResponse.status).toBe(200);
+		expect(await anonymousAdminResponse.text()).toContain("管理员登录");
+
+		const loginResponse = await app.fetch(
+			new Request("http://shotlyx.test/admin/login", {
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({ token: "admin-secret" }),
+			}),
+		);
+		expect(loginResponse.status).toBe(303);
+		const cookie = loginResponse.headers.get("set-cookie") ?? "";
+		expect(cookie).toContain("shotlyx_admin_token=admin-secret");
+
+		const authedAdminResponse = await app.fetch(
+			new Request("http://shotlyx.test/admin", {
+				headers: { cookie },
+			}),
+		);
+		const adminHtml = await authedAdminResponse.text();
+		expect(adminHtml).toContain("手动充值");
+		expect(adminHtml).toContain("admin-topup@example.com");
+
+		const topUpResponse = await app.fetch(
+			new Request("http://shotlyx.test/admin/credits/top-up", {
+				method: "POST",
+				headers: {
+					"content-type": "application/x-www-form-urlencoded",
+					cookie,
+				},
+				body: new URLSearchParams({
+					email: "admin-topup@example.com",
+					amount: "2250",
+					note: "Manual admin top-up",
+				}),
+			}),
+		);
+		expect(topUpResponse.status).toBe(303);
+		expect(topUpResponse.headers.get("location")).toContain(
+			"/admin?topup=success",
+		);
+
+		const ledgerResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/account/credits/ledger", {
+				headers: { authorization: `Bearer ${registered.session.token}` },
+			}),
+		);
+		const ledger = await ledgerResponse.json();
+		expect(ledger.entries).toHaveLength(1);
+		expect(ledger.entries[0].balanceAfter).toBe(2750);
+
+		const logoutResponse = await app.fetch(
+			new Request("http://shotlyx.test/admin/logout", {
+				method: "POST",
+				headers: { cookie },
+			}),
+		);
+		expect(logoutResponse.status).toBe(303);
+		expect(logoutResponse.headers.get("set-cookie")).toContain("Max-Age=0");
+	});
+
 	test("requires a valid bearer token for account APIs", async () => {
 		const app = createServerApp({
 			store: new InMemoryShotlyxStore(),
