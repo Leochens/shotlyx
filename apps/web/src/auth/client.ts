@@ -45,6 +45,9 @@ type AuthState =
 	| { status: "authenticated"; account: AuthAccount };
 
 const AUTH_STORAGE_KEY = "shotlyx.auth.session.v1";
+const authSessionListeners = new Set<(account: AuthAccount | null) => void>();
+let cachedAccount: AuthAccount | null | undefined;
+
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
 	email_already_registered: "这个邮箱已经注册过了",
 	invalid_email: "请输入有效的邮箱地址",
@@ -78,9 +81,32 @@ function storeSession(session: AuthSession): void {
 	);
 }
 
+function notifyAuthSessionListeners(account: AuthAccount | null): void {
+	for (const listener of authSessionListeners) {
+		listener(account);
+	}
+}
+
+function storeAccount(account: AuthAccount): void {
+	cachedAccount = account;
+	storeSession(account.session);
+	notifyAuthSessionListeners(account);
+}
+
+export function subscribeAuthSessionChanges(
+	listener: (account: AuthAccount | null) => void,
+): () => void {
+	authSessionListeners.add(listener);
+	return () => {
+		authSessionListeners.delete(listener);
+	};
+}
+
 export function clearAuthSession(): void {
+	cachedAccount = null;
 	if (typeof window === "undefined") return;
 	window.localStorage.removeItem(AUTH_STORAGE_KEY);
+	notifyAuthSessionListeners(null);
 }
 
 async function parseJsonResponse(response: Response): Promise<unknown> {
@@ -115,7 +141,7 @@ async function requestAccount(
 		throw new Error(getErrorMessage(payload, "auth_request_failed"));
 	}
 	const account = payload as AuthAccount;
-	storeSession(account.session);
+	storeAccount(account);
 	return account;
 }
 
@@ -142,8 +168,12 @@ export async function loginWithEmail({
 }
 
 export async function getCurrentAccount(): Promise<AuthAccount | null> {
+	if (cachedAccount !== undefined) return cachedAccount;
 	const token = readStoredToken();
-	if (!token) return null;
+	if (!token) {
+		cachedAccount = null;
+		return null;
+	}
 	const response = await fetch(buildApiUrl("/api/account/me"), {
 		cache: "no-store",
 		headers: { authorization: `Bearer ${token}` },
@@ -156,7 +186,8 @@ export async function getCurrentAccount(): Promise<AuthAccount | null> {
 	if (!response.ok) {
 		throw new Error(getErrorMessage(payload, "account_request_failed"));
 	}
-	return payload as AuthAccount;
+	cachedAccount = payload as AuthAccount;
+	return cachedAccount;
 }
 
 export function useSession(): AuthState {
@@ -167,20 +198,27 @@ export function useSession(): AuthState {
 
 	useEffect(() => {
 		let cancelled = false;
+		const applyAccount = (account: AuthAccount | null) => {
+			setState(
+				account
+					? { status: "authenticated", account }
+					: { status: "anonymous", account: null },
+			);
+		};
 		getCurrentAccount()
 			.then((account) => {
 				if (cancelled) return;
-				setState(
-					account
-						? { status: "authenticated", account }
-						: { status: "anonymous", account: null },
-				);
+				applyAccount(account);
 			})
 			.catch(() => {
 				if (!cancelled) setState({ status: "anonymous", account: null });
 			});
+		const unsubscribe = subscribeAuthSessionChanges((account) => {
+			if (!cancelled) applyAccount(account);
+		});
 		return () => {
 			cancelled = true;
+			unsubscribe();
 		};
 	}, []);
 
