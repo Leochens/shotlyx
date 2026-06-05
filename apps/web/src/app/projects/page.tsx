@@ -10,7 +10,10 @@ import { useSession } from "@/auth/client";
 import type { EditorCore } from "@/core";
 import { MigrationDialog } from "@/project/components/migration-dialog";
 import { StoragePersistenceDialog } from "@/services/storage/components/storage-persistence-dialog";
-import { AccountMenu } from "@/components/auth/account-menu";
+import {
+	AccountCreditBadge,
+	AccountMenu,
+} from "@/components/auth/account-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -199,7 +202,10 @@ function ProjectsHeader() {
 					<SearchBar className="hidden md:block" />
 					<NewProjectButton />
 					{session.status === "authenticated" ? (
-						<AccountMenu user={session.account.user} />
+						<>
+							<AccountCreditBadge account={session.account} />
+							<AccountMenu account={session.account} />
+						</>
 					) : null}
 				</div>
 			</div>

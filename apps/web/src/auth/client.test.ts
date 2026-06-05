@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	getCreditLedgerEntries,
 	loginWithEmail,
 	mapAuthErrorMessage,
 	subscribeAuthSessionChanges,
@@ -63,6 +64,75 @@ describe("auth client errors", () => {
 			expect(notifications).toEqual(["user@example.com"]);
 		} finally {
 			unsubscribe();
+			globalThis.fetch = previousFetch;
+			Object.defineProperty(globalThis, "window", {
+				configurable: true,
+				value: previousWindow,
+			});
+		}
+	});
+
+	test("loads credit ledger entries with the stored bearer session", async () => {
+		const storage = new Map<string, string>();
+		const previousWindow = globalThis.window;
+		const previousFetch = globalThis.fetch;
+		Object.defineProperty(globalThis, "window", {
+			configurable: true,
+			value: {
+				localStorage: {
+					getItem: (key: string) => storage.get(key) ?? null,
+					removeItem: (key: string) => storage.delete(key),
+					setItem: (key: string, value: string) => storage.set(key, value),
+				},
+			},
+		});
+		storage.set(
+			"shotlyx.auth.session.v1",
+			JSON.stringify({
+				token: "shotlyx_session_ledger",
+				expiresAt: "2026-07-05T00:00:00.000Z",
+			}),
+		);
+		const requests: Array<{ url: string; authorization: string | null }> = [];
+		globalThis.fetch = async (input, init) => {
+			const headers = new Headers(init?.headers);
+			requests.push({
+				url: String(input),
+				authorization: headers.get("authorization"),
+			});
+			return new Response(
+				JSON.stringify({
+					entries: [
+						{
+							id: "credit-1",
+							userId: "user-1",
+							idempotencyKey: "manual:1",
+							type: "top_up",
+							amount: 2500,
+							balanceBefore: 1000,
+							balanceAfter: 3500,
+							status: "applied",
+							createdAt: "2026-06-05T09:00:00.000Z",
+							updatedAt: "2026-06-05T09:00:00.000Z",
+						},
+					],
+				}),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			);
+		};
+
+		try {
+			const entries = await getCreditLedgerEntries();
+
+			expect(entries).toHaveLength(1);
+			expect(entries[0]?.balanceAfter).toBe(3500);
+			expect(requests).toEqual([
+				{
+					url: "/api/account/credits/ledger",
+					authorization: "Bearer shotlyx_session_ledger",
+				},
+			]);
+		} finally {
 			globalThis.fetch = previousFetch;
 			Object.defineProperty(globalThis, "window", {
 				configurable: true,

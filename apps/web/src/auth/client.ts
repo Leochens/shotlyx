@@ -33,6 +33,22 @@ export type NewApiKeySummary = {
 	quota: number;
 };
 
+export type CreditLedgerEntry = {
+	id: string;
+	userId: string;
+	idempotencyKey: string;
+	type: "top_up";
+	amount: number;
+	balanceBefore: number;
+	balanceAfter: number;
+	status: "pending" | "applied" | "failed";
+	createdAt: string;
+	updatedAt: string;
+	externalPaymentId?: string;
+	note?: string;
+	meta?: Record<string, unknown>;
+};
+
 export type AuthAccount = {
 	user: AuthUser;
 	session: AuthSession;
@@ -188,6 +204,29 @@ export async function getCurrentAccount(): Promise<AuthAccount | null> {
 	}
 	cachedAccount = payload as AuthAccount;
 	return cachedAccount;
+}
+
+export async function getCreditLedgerEntries(): Promise<CreditLedgerEntry[]> {
+	const token = readStoredToken();
+	if (!token) throw new Error("unauthorized");
+
+	const response = await fetch(buildApiUrl("/api/account/credits/ledger"), {
+		cache: "no-store",
+		headers: { authorization: `Bearer ${token}` },
+	});
+	if (response.status === 401) {
+		clearAuthSession();
+		throw new Error(mapAuthErrorMessage("unauthorized", "请重新登录"));
+	}
+	const payload = await parseJsonResponse(response);
+	if (!response.ok) {
+		throw new Error(getErrorMessage(payload, "credit_ledger_request_failed"));
+	}
+	if (typeof payload === "object" && payload !== null) {
+		const entries = Reflect.get(payload, "entries");
+		if (Array.isArray(entries)) return entries as CreditLedgerEntry[];
+	}
+	return [];
 }
 
 export function useSession(): AuthState {
