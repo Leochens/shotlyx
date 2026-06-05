@@ -148,7 +148,7 @@ export function LoginForm() {
 						onChange={(event) => setPassword(event.target.value)}
 						autoComplete={isSignUp ? "new-password" : "current-password"}
 						required
-						minLength={8}
+						minLength={6}
 						showPassword={showPassword}
 						onShowPasswordChange={setShowPassword}
 						className="h-11 rounded-none border-slate-950/10 bg-white/70 text-slate-950 dark:border-white/10 dark:bg-black/30 dark:text-white"

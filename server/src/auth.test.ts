@@ -78,6 +78,22 @@ describe("Shotlyx auth service", () => {
 		expect(login.newApiKey?.key).toBe("sk-shotlyx-1");
 	});
 
+	test("accepts a six character password", async () => {
+		const auth = createAuthService({
+			store: new InMemoryShotlyxStore(),
+			newApi: createFakeNewApi(),
+			initialQuota: 1_000,
+		});
+
+		const result = await auth.register({
+			email: "six@example.com",
+			password: "123456",
+			name: "Six",
+		});
+
+		expect(result.user.email).toBe("six@example.com");
+	});
+
 	test("rejects duplicate registration and invalid passwords", async () => {
 		const auth = createAuthService({
 			store: new InMemoryShotlyxStore(),

@@ -32,7 +32,7 @@ describe("Shotlyx server HTTP app", () => {
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({
 					email: "maker@example.com",
-					password: "password-1234",
+					password: "123456",
 					name: "Maker",
 				}),
 			}),
@@ -48,7 +48,7 @@ describe("Shotlyx server HTTP app", () => {
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({
 					email: "maker@example.com",
-					password: "password-1234",
+					password: "123456",
 				}),
 			}),
 		);

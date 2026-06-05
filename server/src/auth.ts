@@ -53,7 +53,7 @@ function assertValidEmail(email: string): void {
 }
 
 function assertValidPassword(password: string): void {
-	if (password.length < 8) {
+	if (password.length < 6) {
 		throw new Error("password_too_short");
 	}
 }

@@ -45,6 +45,12 @@ type AuthState =
 	| { status: "authenticated"; account: AuthAccount };
 
 const AUTH_STORAGE_KEY = "shotlyx.auth.session.v1";
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+	email_already_registered: "这个邮箱已经注册过了",
+	invalid_email: "请输入有效的邮箱地址",
+	invalid_email_or_password: "邮箱或密码不正确",
+	password_too_short: "密码至少需要 6 位",
+};
 
 function buildApiUrl(path: string): string {
 	const baseUrl = getAuthBaseUrl();
@@ -84,9 +90,15 @@ async function parseJsonResponse(response: Response): Promise<unknown> {
 function getErrorMessage(payload: unknown, fallback: string): string {
 	if (typeof payload === "object" && payload !== null) {
 		const error = Reflect.get(payload, "error");
-		if (typeof error === "string" && error) return error;
+		if (typeof error === "string" && error) {
+			return mapAuthErrorMessage(error, fallback);
+		}
 	}
 	return fallback;
+}
+
+export function mapAuthErrorMessage(error: string, fallback = error): string {
+	return AUTH_ERROR_MESSAGES[error] ?? fallback;
 }
 
 async function requestAccount(
