@@ -6,9 +6,11 @@ import { useRouter } from "@/platform/router";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { useSession } from "@/auth/client";
 import type { EditorCore } from "@/core";
 import { MigrationDialog } from "@/project/components/migration-dialog";
 import { StoragePersistenceDialog } from "@/services/storage/components/storage-persistence-dialog";
+import { AccountMenu } from "@/components/auth/account-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -141,6 +143,7 @@ export default function ProjectsPage() {
 
 function ProjectsHeader() {
 	const { viewMode, isHydrated, setViewMode } = useProjectsStore();
+	const session = useSession();
 
 	return (
 		<header className="electron-drag-region sticky top-0 z-20 flex flex-col gap-2 bg-background px-8">
@@ -195,6 +198,9 @@ function ProjectsHeader() {
 				<div className="flex items-center gap-3 md:gap-4">
 					<SearchBar className="hidden md:block" />
 					<NewProjectButton />
+					{session.status === "authenticated" ? (
+						<AccountMenu user={session.account.user} />
+					) : null}
 				</div>
 			</div>
 			<SearchBar className="block md:hidden mb-4" />

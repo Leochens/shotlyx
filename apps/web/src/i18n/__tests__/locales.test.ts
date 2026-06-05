@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { getSiteCopy } from "../locales";
 
 describe("editor locale coverage", () => {
+	test("keeps auth password placeholders aligned with the six character minimum", () => {
+		expect(getSiteCopy("en").auth.passwordPlaceholder).toBe("6+ characters");
+		expect(getSiteCopy("zh-CN").auth.passwordPlaceholder).toBe("至少 6 个字符");
+	});
+
 	test("covers brand kit editing labels in both languages", () => {
 		expect(getSiteCopy("en").editor.brandKit.edit).toBe("Edit");
 		expect(getSiteCopy("zh-CN").editor.brandKit.edit).toBe("编辑");
