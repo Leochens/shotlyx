@@ -2,12 +2,13 @@ import { createAuthService } from "./auth";
 import { createBillingService } from "./billing";
 import type { NewApiGateway } from "./new-api";
 import { createNewApiGateway } from "./new-api";
+import { createPaymentService, type ZpayPaymentConfig } from "./payments";
 import {
 	createDefaultShotlyxStore,
 	resolveDefaultStoreMode,
 	type DefaultStoreMode,
 } from "./store-factory";
-import type { ServerSettings, ShotlyxStore } from "./types";
+import type { PaymentOrder, ServerSettings, ShotlyxStore } from "./types";
 
 export type ServerApp = {
 	fetch(request: Request): Promise<Response>;
@@ -19,6 +20,7 @@ export type ServerAppConfig = {
 	newApi?: NewApiGateway;
 	initialQuota?: number;
 	adminToken?: string;
+	zpay?: ZpayPaymentConfig;
 };
 
 const DEFAULT_INITIAL_QUOTA = 100_000;
@@ -118,6 +120,24 @@ function toAccountResponse(
 				}
 			: null,
 	};
+}
+
+function toPaymentOrderResponse(order: PaymentOrder) {
+	return {
+		id: order.id,
+		provider: order.provider,
+		outTradeNo: order.outTradeNo,
+		credits: order.credits,
+		money: formatPaymentMoney(order.moneyCents),
+		type: order.payType,
+		status: order.status,
+		createdAt: order.createdAt,
+		paidAt: order.paidAt,
+	};
+}
+
+function formatPaymentMoney(moneyCents: number): string {
+	return (moneyCents / 100).toFixed(2);
 }
 
 function adminLoginPage({ error }: { error?: string } = {}): string {
@@ -289,6 +309,11 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 	}
 	const auth = createAuthService({ store, newApi, initialQuota });
 	const billing = createBillingService({ store, newApi });
+	const payments = createPaymentService({
+		store,
+		billing,
+		zpay: config.zpay,
+	});
 
 	async function requireAccount(request: Request) {
 		const token = getBearerToken(request);
@@ -448,6 +473,41 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 				}
 
 				if (
+					url.pathname === "/api/account/credits/payments" &&
+					request.method === "POST"
+				) {
+					const account = await requireAccount(request);
+					if (!account) return json({ error: "unauthorized" }, { status: 401 });
+					const body = await readJson(request);
+					const credits =
+						typeof body.credits === "number"
+							? body.credits
+							: Number(readString(body, "credits"));
+					const type =
+						readString(body, "type") === "wxpay" ? "wxpay" : "alipay";
+					const payment = await payments.createCreditTopUpPayment({
+						user: account.user,
+						credits,
+						type,
+					});
+					return json(
+						{
+							order: toPaymentOrderResponse(payment.order),
+							checkoutUrl: payment.checkoutUrl,
+						},
+						{ status: 201 },
+					);
+				}
+
+				const checkoutMatch =
+					/^\/api\/account\/credits\/payments\/([^/]+)\/checkout$/.exec(
+						url.pathname,
+					);
+				if (checkoutMatch && request.method === "GET") {
+					return html(await payments.renderCheckout(checkoutMatch[1] ?? ""));
+				}
+
+				if (
 					url.pathname === "/api/account/credits/ledger" &&
 					request.method === "GET"
 				) {
@@ -556,6 +616,25 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 						meta: body,
 					});
 					return json({ ok: true });
+				}
+
+				if (
+					url.pathname === "/api/callbacks/zpay" &&
+					request.method === "GET"
+				) {
+					try {
+						await payments.handleZpayNotification(
+							Object.fromEntries(url.searchParams.entries()),
+						);
+						return new Response("success", {
+							headers: { "content-type": "text/plain; charset=utf-8" },
+						});
+					} catch {
+						return new Response("fail", {
+							status: 400,
+							headers: { "content-type": "text/plain; charset=utf-8" },
+						});
+					}
 				}
 
 				if (url.pathname === "/admin" && request.method === "GET") {

@@ -42,6 +42,26 @@ export type CreditLedgerEntry = {
 	meta?: Record<string, unknown>;
 };
 
+export type PaymentProvider = "zpay";
+export type PaymentOrderStatus = "pending" | "paid" | "failed";
+export type PaymentOrderPayType = "alipay" | "wxpay";
+
+export type PaymentOrder = {
+	id: string;
+	provider: PaymentProvider;
+	userId: string;
+	outTradeNo: string;
+	credits: number;
+	moneyCents: number;
+	payType: PaymentOrderPayType;
+	status: PaymentOrderStatus;
+	providerTradeNo?: string;
+	createdAt: string;
+	updatedAt: string;
+	paidAt?: string;
+	meta?: Record<string, unknown>;
+};
+
 export type ShotlyxLogEntry = {
 	id: string;
 	type: string;
@@ -80,10 +100,15 @@ export type ShotlyxStore = {
 	insertCreditLedgerEntryIfAbsent(
 		entry: CreditLedgerEntry,
 	): Promise<{ entry: CreditLedgerEntry; inserted: boolean }>;
-	updateCreditLedgerEntry(
-		entry: CreditLedgerEntry,
-	): Promise<CreditLedgerEntry>;
+	updateCreditLedgerEntry(entry: CreditLedgerEntry): Promise<CreditLedgerEntry>;
 	listCreditLedgerEntriesByUserId(userId: string): Promise<CreditLedgerEntry[]>;
+
+	createPaymentOrder(order: PaymentOrder): Promise<void>;
+	findPaymentOrderByOutTradeNo(
+		outTradeNo: string,
+	): Promise<PaymentOrder | null>;
+	updatePaymentOrder(order: PaymentOrder): Promise<PaymentOrder>;
+	listPaymentOrdersByUserId(userId: string): Promise<PaymentOrder[]>;
 
 	getSettings(): Promise<ServerSettings>;
 	updateSettings(settings: Partial<ServerSettings>): Promise<ServerSettings>;

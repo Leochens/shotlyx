@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createServerApp } from "./http";
 import type { NewApiGateway } from "./new-api";
 import { InMemoryShotlyxStore } from "./store";
+import { signZpayParams } from "./zpay";
 
 function createFakeNewApi(): NewApiGateway & { createdCount: number } {
 	return {
@@ -330,5 +331,104 @@ describe("Shotlyx server HTTP app", () => {
 
 		expect(response.status).toBe(401);
 		expect(await response.json()).toEqual({ error: "unauthorized" });
+	});
+
+	test("lets users create a ZPAY checkout and applies the verified payment callback once", async () => {
+		const app = createServerApp({
+			store: new InMemoryShotlyxStore(),
+			newApi: createFakeNewApi(),
+			initialQuota: 500,
+			zpay: {
+				pid: "zpay-pid",
+				key: "zpay-secret",
+				submitUrl: "https://zpayz.cn/submit.php",
+				publicBaseUrl: "https://shotlyx.example.com",
+				creditsPerCny: 10_000,
+			},
+		});
+		const registerResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/auth/register", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					email: "self-topup@example.com",
+					password: "123456",
+					name: "Self Topup",
+				}),
+			}),
+		);
+		const registered = await registerResponse.json();
+		const authorization = `Bearer ${registered.session.token}`;
+
+		const paymentResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/account/credits/payments", {
+				method: "POST",
+				headers: {
+					authorization,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({ credits: 20_000, type: "alipay" }),
+			}),
+		);
+
+		expect(paymentResponse.status).toBe(201);
+		const payment = await paymentResponse.json();
+		expect(payment.order.credits).toBe(20_000);
+		expect(payment.order.money).toBe("2.00");
+		expect(payment.checkoutUrl).toContain(
+			`/api/account/credits/payments/${payment.order.outTradeNo}/checkout`,
+		);
+
+		const checkoutResponse = await app.fetch(
+			new Request(`http://shotlyx.test${payment.checkoutUrl}`),
+		);
+		expect(checkoutResponse.status).toBe(200);
+		const checkoutHtml = await checkoutResponse.text();
+		expect(checkoutHtml).toContain("https://zpayz.cn/submit.php");
+		expect(checkoutHtml).toContain('name="notify_url"');
+		expect(checkoutHtml).toContain('name="sign"');
+
+		const notifyParams = {
+			pid: "zpay-pid",
+			type: "alipay",
+			out_trade_no: payment.order.outTradeNo,
+			trade_no: "zpay-trade-1",
+			name: "Shotlyx API 额度充值 20,000 credits",
+			money: "2.00",
+			trade_status: "TRADE_SUCCESS",
+		};
+		const signedNotifyParams = new URLSearchParams({
+			...notifyParams,
+			sign: signZpayParams(notifyParams, "zpay-secret"),
+			sign_type: "MD5",
+		});
+		const notifyResponse = await app.fetch(
+			new Request(
+				`http://shotlyx.test/api/callbacks/zpay?${signedNotifyParams}`,
+			),
+		);
+		const duplicateNotifyResponse = await app.fetch(
+			new Request(
+				`http://shotlyx.test/api/callbacks/zpay?${signedNotifyParams}`,
+			),
+		);
+
+		expect(notifyResponse.status).toBe(200);
+		expect(await notifyResponse.text()).toBe("success");
+		expect(duplicateNotifyResponse.status).toBe(200);
+		expect(await duplicateNotifyResponse.text()).toBe("success");
+
+		const ledgerResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/account/credits/ledger", {
+				headers: { authorization },
+			}),
+		);
+		const ledger = await ledgerResponse.json();
+		expect(ledger.entries).toHaveLength(1);
+		expect(ledger.entries[0].idempotencyKey).toBe(
+			`zpay:${payment.order.outTradeNo}`,
+		);
+		expect(ledger.entries[0].externalPaymentId).toBe("zpay-trade-1");
+		expect(ledger.entries[0].balanceAfter).toBe(20_500);
 	});
 });

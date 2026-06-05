@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Coins, KeyRound, Loader2, LogOut, ReceiptText } from "lucide-react";
 import {
 	clearAuthSession,
+	createCreditTopUpPayment,
 	getCreditLedgerEntries,
 	type AuthAccount,
 	type AuthUser,
@@ -21,6 +22,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/utils/ui";
+import { toast } from "sonner";
 
 type AccountIdentity = Pick<AuthUser, "email" | "name">;
 
@@ -45,6 +47,13 @@ export function getAccountInitials(user: AccountIdentity): string {
 export function formatCreditAmount(value: number | null | undefined): string {
 	if (typeof value !== "number" || !Number.isFinite(value)) return "未绑定";
 	return new Intl.NumberFormat("en-US").format(Math.max(0, Math.trunc(value)));
+}
+
+export function formatCreditPackageLabel(value: number): string {
+	if (Number.isInteger(value) && value >= 10_000 && value % 10_000 === 0) {
+		return `${value / 10_000}万`;
+	}
+	return formatCreditAmount(value);
 }
 
 export function getCreditLedgerStatusLabel(
@@ -103,13 +112,18 @@ export function AccountCreditBadge({ account }: { account: AuthAccount }) {
 export function AccountMenu({ account }: { account: AuthAccount }) {
 	const router = useRouter();
 	const { user } = account;
-	const displayName = user.name.trim() || user.email.split("@")[0] || user.email;
+	const displayName =
+		user.name.trim() || user.email.split("@")[0] || user.email;
 	const [ledgerEntries, setLedgerEntries] = useState<CreditLedgerEntry[]>([]);
 	const [ledgerState, setLedgerState] = useState<
 		"idle" | "loading" | "ready" | "error"
 	>("idle");
+	const [creatingPaymentCredits, setCreatingPaymentCredits] = useState<
+		number | null
+	>(null);
 	const latestBalance = getLatestBalance({ account, ledgerEntries });
 	const recentEntries = getRecentCreditLedgerEntries(ledgerEntries);
+	const topUpPackages = [100_000, 500_000, 1_000_000];
 
 	const loadLedgerEntries = async () => {
 		if (ledgerState === "loading") return;
@@ -125,6 +139,25 @@ export function AccountMenu({ account }: { account: AuthAccount }) {
 	const handleLogout = () => {
 		clearAuthSession();
 		router.replace("/login");
+	};
+
+	const handleCreateTopUpPayment = async (credits: number) => {
+		if (creatingPaymentCredits !== null) return;
+		setCreatingPaymentCredits(credits);
+		try {
+			const payment = await createCreditTopUpPayment({
+				credits,
+				type: "alipay",
+			});
+			window.location.assign(payment.checkoutUrl);
+		} catch (error) {
+			toast.error("充值订单创建失败", {
+				description:
+					error instanceof Error ? error.message : "请稍后再试或联系管理员",
+			});
+		} finally {
+			setCreatingPaymentCredits(null);
+		}
 	};
 
 	return (
@@ -171,6 +204,23 @@ export function AccountMenu({ account }: { account: AuthAccount }) {
 								? `Token ${account.newApiKey.tokenId}`
 								: "尚未绑定 New API Key"}
 						</span>
+					</div>
+					<div className="mt-3 grid grid-cols-3 gap-1">
+						{topUpPackages.map((credits) => (
+							<button
+								key={credits}
+								type="button"
+								disabled={creatingPaymentCredits !== null}
+								onClick={() => void handleCreateTopUpPayment(credits)}
+								className="flex h-8 items-center justify-center rounded-sm border border-border/70 bg-background px-2 font-medium text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+							>
+								{creatingPaymentCredits === credits ? (
+									<Loader2 className="size-3.5 animate-spin" />
+								) : (
+									formatCreditPackageLabel(credits)
+								)}
+							</button>
+						))}
 					</div>
 				</div>
 				<DropdownMenuSeparator />

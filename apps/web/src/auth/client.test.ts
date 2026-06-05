@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	createCreditTopUpPayment,
 	getCreditLedgerEntries,
 	loginWithEmail,
 	mapAuthErrorMessage,
@@ -130,6 +131,78 @@ describe("auth client errors", () => {
 				{
 					url: "/api/account/credits/ledger",
 					authorization: "Bearer shotlyx_session_ledger",
+				},
+			]);
+		} finally {
+			globalThis.fetch = previousFetch;
+			Object.defineProperty(globalThis, "window", {
+				configurable: true,
+				value: previousWindow,
+			});
+		}
+	});
+
+	test("creates a credit top-up payment with the stored bearer session", async () => {
+		const storage = new Map<string, string>();
+		const previousWindow = globalThis.window;
+		const previousFetch = globalThis.fetch;
+		Object.defineProperty(globalThis, "window", {
+			configurable: true,
+			value: {
+				localStorage: {
+					getItem: (key: string) => storage.get(key) ?? null,
+					removeItem: (key: string) => storage.delete(key),
+					setItem: (key: string, value: string) => storage.set(key, value),
+				},
+			},
+		});
+		storage.set(
+			"shotlyx.auth.session.v1",
+			JSON.stringify({
+				token: "shotlyx_session_payment",
+				expiresAt: "2026-07-05T00:00:00.000Z",
+			}),
+		);
+		const requests: Array<{
+			url: string;
+			authorization: string | null;
+			body: unknown;
+		}> = [];
+		globalThis.fetch = async (input, init) => {
+			const headers = new Headers(init?.headers);
+			requests.push({
+				url: String(input),
+				authorization: headers.get("authorization"),
+				body: JSON.parse(String(init?.body ?? "{}")),
+			});
+			return new Response(
+				JSON.stringify({
+					order: {
+						id: "pay-1",
+						outTradeNo: "sx_order",
+						credits: 100_000,
+						money: "10.00",
+						type: "alipay",
+						status: "pending",
+					},
+					checkoutUrl: "/api/account/credits/payments/sx_order/checkout",
+				}),
+				{ status: 201, headers: { "content-type": "application/json" } },
+			);
+		};
+
+		try {
+			const payment = await createCreditTopUpPayment({
+				credits: 100_000,
+				type: "alipay",
+			});
+
+			expect(payment.checkoutUrl).toContain("/sx_order/checkout");
+			expect(requests).toEqual([
+				{
+					url: "/api/account/credits/payments",
+					authorization: "Bearer shotlyx_session_payment",
+					body: { credits: 100_000, type: "alipay" },
 				},
 			]);
 		} finally {

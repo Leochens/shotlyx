@@ -49,6 +49,21 @@ export type CreditLedgerEntry = {
 	meta?: Record<string, unknown>;
 };
 
+export type CreditTopUpPayment = {
+	order: {
+		id: string;
+		provider?: "zpay";
+		outTradeNo: string;
+		credits: number;
+		money: string;
+		type: "alipay" | "wxpay";
+		status: "pending" | "paid" | "failed";
+		createdAt?: string;
+		paidAt?: string;
+	};
+	checkoutUrl: string;
+};
+
 export type AuthAccount = {
 	user: AuthUser;
 	session: AuthSession;
@@ -227,6 +242,35 @@ export async function getCreditLedgerEntries(): Promise<CreditLedgerEntry[]> {
 		if (Array.isArray(entries)) return entries as CreditLedgerEntry[];
 	}
 	return [];
+}
+
+export async function createCreditTopUpPayment({
+	credits,
+	type,
+}: {
+	credits: number;
+	type: "alipay" | "wxpay";
+}): Promise<CreditTopUpPayment> {
+	const token = readStoredToken();
+	if (!token) throw new Error("unauthorized");
+
+	const response = await fetch(buildApiUrl("/api/account/credits/payments"), {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${token}`,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({ credits, type }),
+	});
+	if (response.status === 401) {
+		clearAuthSession();
+		throw new Error(mapAuthErrorMessage("unauthorized", "请重新登录"));
+	}
+	const payload = await parseJsonResponse(response);
+	if (!response.ok) {
+		throw new Error(getErrorMessage(payload, "payment_request_failed"));
+	}
+	return payload as CreditTopUpPayment;
 }
 
 export function useSession(): AuthState {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	formatCreditAmount,
+	formatCreditPackageLabel,
 	formatLedgerTimestamp,
 	getAccountInitials,
 	getCreditLedgerStatusLabel,
@@ -30,6 +31,12 @@ describe("account menu", () => {
 		expect(formatCreditAmount(null)).toBe("未绑定");
 		expect(formatCreditAmount(1000)).toBe("1,000");
 		expect(formatCreditAmount(1250000)).toBe("1,250,000");
+	});
+
+	test("formats top-up packages for compact buttons", () => {
+		expect(formatCreditPackageLabel(100_000)).toBe("10万");
+		expect(formatCreditPackageLabel(1_000_000)).toBe("100万");
+		expect(formatCreditPackageLabel(12_500)).toBe("12,500");
 	});
 
 	test("labels ledger statuses in Chinese", () => {

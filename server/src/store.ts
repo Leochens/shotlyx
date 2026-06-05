@@ -1,6 +1,7 @@
 import type {
 	CreditLedgerEntry,
 	NewApiKeyBinding,
+	PaymentOrder,
 	ServerSettings,
 	ShotlyxLogEntry,
 	ShotlyxSession,
@@ -22,6 +23,7 @@ export class InMemoryShotlyxStore implements ShotlyxStore {
 	private readonly logs: ShotlyxLogEntry[] = [];
 	private readonly creditLedgerById = new Map<string, CreditLedgerEntry>();
 	private readonly creditLedgerIdsByIdempotencyKey = new Map<string, string>();
+	private readonly paymentOrdersByOutTradeNo = new Map<string, PaymentOrder>();
 	private settings: ServerSettings;
 
 	constructor(settings: Partial<ServerSettings> = {}) {
@@ -108,6 +110,32 @@ export class InMemoryShotlyxStore implements ShotlyxStore {
 			.filter((entry) => entry.userId === userId)
 			.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 			.map((entry) => ({ ...entry }));
+	}
+
+	async createPaymentOrder(order: PaymentOrder): Promise<void> {
+		if (this.paymentOrdersByOutTradeNo.has(order.outTradeNo)) {
+			throw new Error("payment_order_already_exists");
+		}
+		this.paymentOrdersByOutTradeNo.set(order.outTradeNo, { ...order });
+	}
+
+	async findPaymentOrderByOutTradeNo(
+		outTradeNo: string,
+	): Promise<PaymentOrder | null> {
+		const order = this.paymentOrdersByOutTradeNo.get(outTradeNo);
+		return order ? { ...order } : null;
+	}
+
+	async updatePaymentOrder(order: PaymentOrder): Promise<PaymentOrder> {
+		this.paymentOrdersByOutTradeNo.set(order.outTradeNo, { ...order });
+		return { ...order };
+	}
+
+	async listPaymentOrdersByUserId(userId: string): Promise<PaymentOrder[]> {
+		return Array.from(this.paymentOrdersByOutTradeNo.values())
+			.filter((order) => order.userId === userId)
+			.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+			.map((order) => ({ ...order }));
 	}
 
 	async getSettings(): Promise<ServerSettings> {

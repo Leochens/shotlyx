@@ -4,6 +4,7 @@ export const REQUIRED_SHOTLYX_TABLES = [
 	"shotlyx_users",
 	"shotlyx_sessions",
 	"shotlyx_new_api_key_bindings",
+	"shotlyx_payment_orders",
 	"shotlyx_credit_ledger",
 	"shotlyx_logs",
 	"shotlyx_server_settings",
@@ -34,6 +35,23 @@ export const CREATE_SHOTLYX_SCHEMA_STATEMENTS = [
 		quota BIGINT NOT NULL,
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	`CREATE TABLE IF NOT EXISTS shotlyx_payment_orders (
+		id TEXT PRIMARY KEY,
+		provider TEXT NOT NULL,
+		user_id TEXT NOT NULL REFERENCES shotlyx_users(id) ON DELETE CASCADE,
+		out_trade_no TEXT NOT NULL UNIQUE,
+		credits BIGINT NOT NULL,
+		money_cents BIGINT NOT NULL,
+		pay_type TEXT NOT NULL,
+		status TEXT NOT NULL,
+		provider_trade_no TEXT,
+		created_at TIMESTAMPTZ NOT NULL,
+		updated_at TIMESTAMPTZ NOT NULL,
+		paid_at TIMESTAMPTZ,
+		meta_json JSONB
+	)`,
+	`CREATE INDEX IF NOT EXISTS shotlyx_payment_orders_user_id_idx
+		ON shotlyx_payment_orders(user_id, created_at ASC)`,
 	`CREATE TABLE IF NOT EXISTS shotlyx_credit_ledger (
 		id TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL REFERENCES shotlyx_users(id) ON DELETE CASCADE,

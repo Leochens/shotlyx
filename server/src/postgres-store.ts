@@ -4,6 +4,10 @@ import type {
 	CreditLedgerEntry,
 	CreditLedgerStatus,
 	NewApiKeyBinding,
+	PaymentOrder,
+	PaymentOrderPayType,
+	PaymentOrderStatus,
+	PaymentProvider,
 	ServerSettings,
 	ShotlyxLogEntry,
 	ShotlyxSession,
@@ -61,6 +65,20 @@ function readLedgerStatus(row: Row): CreditLedgerStatus {
 	const value = readString(row, "status");
 	if (value === "applied" || value === "failed") return value;
 	return "pending";
+}
+
+function readPaymentProvider(row: Row): PaymentProvider {
+	return readString(row, "provider") === "zpay" ? "zpay" : "zpay";
+}
+
+function readPaymentStatus(row: Row): PaymentOrderStatus {
+	const value = readString(row, "status");
+	if (value === "paid" || value === "failed") return value;
+	return "pending";
+}
+
+function readPaymentPayType(row: Row): PaymentOrderPayType {
+	return readString(row, "pay_type") === "wxpay" ? "wxpay" : "alipay";
 }
 
 function readJsonMeta(row: Row): Record<string, unknown> | undefined {
@@ -139,6 +157,24 @@ function toCreditLedgerEntry(row: Row): CreditLedgerEntry {
 		updatedAt: readString(row, "updated_at"),
 		externalPaymentId: readOptionalString(row, "external_payment_id"),
 		note: readOptionalString(row, "note"),
+		meta: readJsonMeta(row),
+	};
+}
+
+function toPaymentOrder(row: Row): PaymentOrder {
+	return {
+		id: readString(row, "id"),
+		provider: readPaymentProvider(row),
+		userId: readString(row, "user_id"),
+		outTradeNo: readString(row, "out_trade_no"),
+		credits: readNumber(row, "credits"),
+		moneyCents: readNumber(row, "money_cents"),
+		payType: readPaymentPayType(row),
+		status: readPaymentStatus(row),
+		providerTradeNo: readOptionalString(row, "provider_trade_no"),
+		createdAt: readString(row, "created_at"),
+		updatedAt: readString(row, "updated_at"),
+		paidAt: readOptionalString(row, "paid_at"),
 		meta: readJsonMeta(row),
 	};
 }
@@ -488,6 +524,124 @@ export class PostgresShotlyxStore implements ShotlyxStore {
 			ORDER BY created_at ASC
 		`;
 		return rows.map(toCreditLedgerEntry);
+	}
+
+	async createPaymentOrder(order: PaymentOrder): Promise<void> {
+		await this.ensureReady();
+		const metaJson = order.meta ? JSON.stringify(order.meta) : null;
+		await this.sql`
+			INSERT INTO shotlyx_payment_orders (
+				id,
+				provider,
+				user_id,
+				out_trade_no,
+				credits,
+				money_cents,
+				pay_type,
+				status,
+				provider_trade_no,
+				created_at,
+				updated_at,
+				paid_at,
+				meta_json
+			)
+			VALUES (
+				${order.id},
+				${order.provider},
+				${order.userId},
+				${order.outTradeNo},
+				${order.credits},
+				${order.moneyCents},
+				${order.payType},
+				${order.status},
+				${order.providerTradeNo ?? null},
+				${order.createdAt},
+				${order.updatedAt},
+				${order.paidAt ?? null},
+				${metaJson}::jsonb
+			)
+		`;
+	}
+
+	async findPaymentOrderByOutTradeNo(
+		outTradeNo: string,
+	): Promise<PaymentOrder | null> {
+		await this.ensureReady();
+		const rows = await this.sql`
+			SELECT
+				id,
+				provider,
+				user_id,
+				out_trade_no,
+				credits,
+				money_cents,
+				pay_type,
+				status,
+				provider_trade_no,
+				created_at,
+				updated_at,
+				paid_at,
+				meta_json
+			FROM shotlyx_payment_orders
+			WHERE out_trade_no = ${outTradeNo}
+			LIMIT 1
+		`;
+		return rows[0] ? toPaymentOrder(rows[0]) : null;
+	}
+
+	async updatePaymentOrder(order: PaymentOrder): Promise<PaymentOrder> {
+		await this.ensureReady();
+		const metaJson = order.meta ? JSON.stringify(order.meta) : null;
+		const rows = await this.sql`
+			UPDATE shotlyx_payment_orders
+			SET
+				status = ${order.status},
+				provider_trade_no = ${order.providerTradeNo ?? null},
+				updated_at = ${order.updatedAt},
+				paid_at = ${order.paidAt ?? null},
+				meta_json = ${metaJson}::jsonb
+			WHERE out_trade_no = ${order.outTradeNo}
+			RETURNING
+				id,
+				provider,
+				user_id,
+				out_trade_no,
+				credits,
+				money_cents,
+				pay_type,
+				status,
+				provider_trade_no,
+				created_at,
+				updated_at,
+				paid_at,
+				meta_json
+		`;
+		if (!rows[0]) throw new Error("payment_order_not_found");
+		return toPaymentOrder(rows[0]);
+	}
+
+	async listPaymentOrdersByUserId(userId: string): Promise<PaymentOrder[]> {
+		await this.ensureReady();
+		const rows = await this.sql`
+			SELECT
+				id,
+				provider,
+				user_id,
+				out_trade_no,
+				credits,
+				money_cents,
+				pay_type,
+				status,
+				provider_trade_no,
+				created_at,
+				updated_at,
+				paid_at,
+				meta_json
+			FROM shotlyx_payment_orders
+			WHERE user_id = ${userId}
+			ORDER BY created_at ASC
+		`;
+		return rows.map(toPaymentOrder);
 	}
 
 	async getSettings(): Promise<ServerSettings> {
