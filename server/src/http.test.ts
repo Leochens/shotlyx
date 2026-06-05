@@ -15,10 +15,33 @@ function createFakeNewApi(): NewApiGateway & { createdCount: number } {
 				quota: initialQuota,
 			};
 		},
+		async updateTokenQuota({ quota }) {
+			return { quota };
+		},
 	};
 }
 
 describe("Shotlyx server HTTP app", () => {
+	test("requires an admin token in production", () => {
+		const previousNodeEnv = process.env.NODE_ENV;
+		process.env.NODE_ENV = "production";
+		try {
+			expect(() =>
+				createServerApp({
+					store: new InMemoryShotlyxStore(),
+					newApi: createFakeNewApi(),
+					adminToken: "",
+				}),
+			).toThrow("SHOTLYX_ADMIN_TOKEN is required");
+		} finally {
+			if (previousNodeEnv === undefined) {
+				delete process.env.NODE_ENV;
+			} else {
+				process.env.NODE_ENV = previousNodeEnv;
+			}
+		}
+	});
+
 	test("reports health and the configured store mode", async () => {
 		const app = createServerApp({
 			store: new InMemoryShotlyxStore(),
@@ -146,6 +169,68 @@ describe("Shotlyx server HTTP app", () => {
 				quota: 500,
 			},
 		});
+	});
+
+	test("lets admins top up user credits and users list their credit ledger", async () => {
+		const app = createServerApp({
+			store: new InMemoryShotlyxStore(),
+			newApi: createFakeNewApi(),
+			initialQuota: 500,
+			adminToken: "admin-secret",
+		});
+		const registerResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/auth/register", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					email: "billing@example.com",
+					password: "123456",
+					name: "Billing",
+				}),
+			}),
+		);
+		const registered = await registerResponse.json();
+		const authorization = `Bearer ${registered.session.token}`;
+
+		const topUpResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/admin/credits/top-up", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"x-shotlyx-admin-token": "admin-secret",
+				},
+				body: JSON.stringify({
+					email: "billing@example.com",
+					amount: 1_250,
+					idempotencyKey: "manual:topup:1",
+					note: "Manual recharge",
+				}),
+			}),
+		);
+
+		expect(topUpResponse.status).toBe(200);
+		const topUp = await topUpResponse.json();
+		expect(topUp.entry.status).toBe("applied");
+		expect(topUp.entry.balanceAfter).toBe(1_750);
+		expect(topUp.newApiKey.quota).toBe(1_750);
+
+		const meResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/account/me", {
+				headers: { authorization },
+			}),
+		);
+		const me = await meResponse.json();
+		expect(me.newApiKey.quota).toBe(1_750);
+
+		const ledgerResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/account/credits/ledger", {
+				headers: { authorization },
+			}),
+		);
+		expect(ledgerResponse.status).toBe(200);
+		const ledger = await ledgerResponse.json();
+		expect(ledger.entries).toHaveLength(1);
+		expect(ledger.entries[0].idempotencyKey).toBe("manual:topup:1");
 	});
 
 	test("requires a valid bearer token for account APIs", async () => {

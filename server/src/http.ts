@@ -1,4 +1,5 @@
 import { createAuthService } from "./auth";
+import { createBillingService } from "./billing";
 import type { NewApiGateway } from "./new-api";
 import { createNewApiGateway } from "./new-api";
 import {
@@ -165,6 +166,9 @@ function createDefaultNewApiGateway(): NewApiGateway {
 				quota: initialQuota,
 			};
 		},
+		async updateTokenQuota({ quota }) {
+			return { quota };
+		},
 	};
 }
 
@@ -176,8 +180,13 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 	const configuredInitialQuota =
 		config.initialQuota ?? Number(process.env.SHOTLYX_INITIAL_QUOTA);
 	const initialQuota = configuredInitialQuota || DEFAULT_INITIAL_QUOTA;
-	const adminToken = config.adminToken ?? process.env.SHOTLYX_ADMIN_TOKEN;
+	const adminToken = (config.adminToken ?? process.env.SHOTLYX_ADMIN_TOKEN)
+		?.trim();
+	if (process.env.NODE_ENV === "production" && !adminToken) {
+		throw new Error("SHOTLYX_ADMIN_TOKEN is required in production");
+	}
 	const auth = createAuthService({ store, newApi, initialQuota });
+	const billing = createBillingService({ store, newApi });
 
 	async function requireAccount(request: Request) {
 		const token = getBearerToken(request);
@@ -254,6 +263,19 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 					return json({ newApiKey });
 				}
 
+				if (
+					url.pathname === "/api/account/credits/ledger" &&
+					request.method === "GET"
+				) {
+					const account = await requireAccount(request);
+					if (!account) return json({ error: "unauthorized" }, { status: 401 });
+					return json({
+						entries: await store.listCreditLedgerEntriesByUserId(
+							account.user.id,
+						),
+					});
+				}
+
 				if (url.pathname === "/api/admin/users" && request.method === "GET") {
 					if (!requireAdmin(request)) {
 						return json({ error: "forbidden" }, { status: 403 });
@@ -269,6 +291,36 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 						return json({ error: "forbidden" }, { status: 403 });
 					}
 					return json({ logs: await store.listLogs() });
+				}
+
+				if (
+					url.pathname === "/api/admin/credits/top-up" &&
+					request.method === "POST"
+				) {
+					if (!requireAdmin(request)) {
+						return json({ error: "forbidden" }, { status: 403 });
+					}
+					const body = await readJson(request);
+					const amount =
+						typeof body.amount === "number"
+							? body.amount
+							: Number(readString(body, "amount"));
+					const result = await billing.topUpUserCredits({
+						userId: readString(body, "userId") || undefined,
+						email: readString(body, "email") || undefined,
+						amount,
+						idempotencyKey: readString(body, "idempotencyKey"),
+						externalPaymentId:
+							readString(body, "externalPaymentId") || undefined,
+						note: readString(body, "note") || undefined,
+					});
+					return json({
+						entry: result.entry,
+						newApiKey: {
+							...result.newApiKey,
+							key: maskKey(result.newApiKey.key),
+						},
+					});
 				}
 
 				if (

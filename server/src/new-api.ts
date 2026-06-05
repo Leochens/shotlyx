@@ -6,8 +6,21 @@ export type NewApiCreateUserKeyInput = {
 	initialQuota: number;
 };
 
+export type NewApiUpdateTokenQuotaInput = {
+	userId: string;
+	tokenId: string;
+	quota: number;
+};
+
+export type NewApiUpdateTokenQuotaResult = {
+	quota: number;
+};
+
 export type NewApiGateway = {
 	createUserKey(input: NewApiCreateUserKeyInput): Promise<NewApiKeyBinding>;
+	updateTokenQuota(
+		input: NewApiUpdateTokenQuotaInput,
+	): Promise<NewApiUpdateTokenQuotaResult>;
 };
 
 export type NewApiGatewayConfig = {
@@ -53,6 +66,13 @@ function unwrapResponsePayload(payload: unknown): NewApiResponse {
 	return record;
 }
 
+function normalizeTokenId(tokenId: string): string | number {
+	const numericId = Number(tokenId);
+	return Number.isInteger(numericId) && String(numericId) === tokenId
+		? numericId
+		: tokenId;
+}
+
 export function createNewApiGateway({
 	baseUrl,
 	adminToken,
@@ -61,12 +81,23 @@ export function createNewApiGateway({
 }: NewApiGatewayConfig): NewApiGateway {
 	const normalizedBaseUrl = trimTrailingSlash(baseUrl);
 
-	async function request(path: string, body: Record<string, unknown>) {
+	async function request({
+		path,
+		body,
+		method = "POST",
+		headers: extraHeaders = {},
+	}: {
+		path: string;
+		body: Record<string, unknown>;
+		method?: "POST" | "PUT";
+		headers?: Record<string, string>;
+	}) {
 		const response = await fetchImpl(`${normalizedBaseUrl}${path}`, {
-			method: "POST",
+			method,
 			headers: {
 				"content-type": "application/json",
 				authorization: `Bearer ${adminToken}`,
+				...extraHeaders,
 			},
 			body: JSON.stringify(body),
 		});
@@ -79,21 +110,27 @@ export function createNewApiGateway({
 
 	return {
 		async createUserKey({ email, name, initialQuota }) {
-			const userPayload = await request("/api/user/", {
-				username: email,
-				display_name: name,
-				quota: initialQuota,
-				group: defaultGroup,
+			const userPayload = await request({
+				path: "/api/user/",
+				body: {
+					username: email,
+					display_name: name,
+					quota: initialQuota,
+					group: defaultGroup,
+				},
 			});
 			const newApiUserId =
 				getString(userPayload, ["id", "user_id"]) ??
 				String(getNumber(userPayload, ["id", "user_id"]) ?? email);
 
-			const tokenPayload = await request("/api/token/", {
-				name: `Shotlyx ${name}`,
-				unlimited_quota: false,
-				remain_quota: initialQuota,
-				user_id: newApiUserId,
+			const tokenPayload = await request({
+				path: "/api/token/",
+				body: {
+					name: `Shotlyx ${name}`,
+					unlimited_quota: false,
+					remain_quota: initialQuota,
+					user_id: newApiUserId,
+				},
 			});
 
 			return {
@@ -107,6 +144,22 @@ export function createNewApiGateway({
 					"",
 				quota:
 					getNumber(tokenPayload, ["remain_quota", "quota"]) ?? initialQuota,
+			};
+		},
+		async updateTokenQuota({ userId, tokenId, quota }) {
+			const tokenPayload = await request({
+				path: "/api/token/",
+				method: "PUT",
+				headers: { "New-Api-User": userId },
+				body: {
+					id: normalizeTokenId(tokenId),
+					remain_quota: quota,
+					unlimited_quota: false,
+				},
+			});
+
+			return {
+				quota: getNumber(tokenPayload, ["remain_quota", "quota"]) ?? quota,
 			};
 		},
 	};

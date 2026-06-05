@@ -17,6 +17,9 @@ function createFakeNewApi(): NewApiGateway & {
 				quota: initialQuota,
 			};
 		},
+		async updateTokenQuota({ quota }) {
+			return { quota };
+		},
 	};
 }
 

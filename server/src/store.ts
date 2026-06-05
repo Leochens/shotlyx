@@ -1,4 +1,5 @@
 import type {
+	CreditLedgerEntry,
 	NewApiKeyBinding,
 	ServerSettings,
 	ShotlyxLogEntry,
@@ -19,6 +20,8 @@ export class InMemoryShotlyxStore implements ShotlyxStore {
 	private readonly sessionsByToken = new Map<string, ShotlyxSession>();
 	private readonly newApiKeysByUserId = new Map<string, NewApiKeyBinding>();
 	private readonly logs: ShotlyxLogEntry[] = [];
+	private readonly creditLedgerById = new Map<string, CreditLedgerEntry>();
+	private readonly creditLedgerIdsByIdempotencyKey = new Map<string, string>();
 	private settings: ServerSettings;
 
 	constructor(settings: Partial<ServerSettings> = {}) {
@@ -73,6 +76,38 @@ export class InMemoryShotlyxStore implements ShotlyxStore {
 
 	async listLogs(): Promise<ShotlyxLogEntry[]> {
 		return [...this.logs];
+	}
+
+	async insertCreditLedgerEntryIfAbsent(
+		entry: CreditLedgerEntry,
+	): Promise<{ entry: CreditLedgerEntry; inserted: boolean }> {
+		const existingId = this.creditLedgerIdsByIdempotencyKey.get(
+			entry.idempotencyKey,
+		);
+		if (existingId) {
+			const existing = this.creditLedgerById.get(existingId);
+			if (existing) return { entry: { ...existing }, inserted: false };
+		}
+		this.creditLedgerById.set(entry.id, { ...entry });
+		this.creditLedgerIdsByIdempotencyKey.set(entry.idempotencyKey, entry.id);
+		return { entry: { ...entry }, inserted: true };
+	}
+
+	async updateCreditLedgerEntry(
+		entry: CreditLedgerEntry,
+	): Promise<CreditLedgerEntry> {
+		this.creditLedgerById.set(entry.id, { ...entry });
+		this.creditLedgerIdsByIdempotencyKey.set(entry.idempotencyKey, entry.id);
+		return { ...entry };
+	}
+
+	async listCreditLedgerEntriesByUserId(
+		userId: string,
+	): Promise<CreditLedgerEntry[]> {
+		return Array.from(this.creditLedgerById.values())
+			.filter((entry) => entry.userId === userId)
+			.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+			.map((entry) => ({ ...entry }));
 	}
 
 	async getSettings(): Promise<ServerSettings> {

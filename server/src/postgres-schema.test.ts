@@ -10,6 +10,7 @@ describe("Shotlyx Postgres schema", () => {
 			"shotlyx_users",
 			"shotlyx_sessions",
 			"shotlyx_new_api_key_bindings",
+			"shotlyx_credit_ledger",
 			"shotlyx_logs",
 			"shotlyx_server_settings",
 		]);
@@ -26,5 +27,14 @@ describe("Shotlyx Postgres schema", () => {
 			"PRIMARY KEY REFERENCES shotlyx_users(id)",
 		);
 		expect(CREATE_SHOTLYX_SCHEMA_SQL).toContain("api_key TEXT NOT NULL");
+	});
+
+	test("keeps credit top-up callbacks idempotent", () => {
+		expect(CREATE_SHOTLYX_SCHEMA_SQL).toContain(
+			"idempotency_key TEXT NOT NULL UNIQUE",
+		);
+		expect(CREATE_SHOTLYX_SCHEMA_SQL).toContain(
+			"CREATE TABLE IF NOT EXISTS shotlyx_credit_ledger",
+		);
 	});
 });

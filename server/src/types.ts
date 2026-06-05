@@ -24,6 +24,24 @@ export type NewApiKeyBinding = {
 	quota: number;
 };
 
+export type CreditLedgerStatus = "pending" | "applied" | "failed";
+
+export type CreditLedgerEntry = {
+	id: string;
+	userId: string;
+	idempotencyKey: string;
+	type: "top_up";
+	amount: number;
+	balanceBefore: number;
+	balanceAfter: number;
+	status: CreditLedgerStatus;
+	createdAt: string;
+	updatedAt: string;
+	externalPaymentId?: string;
+	note?: string;
+	meta?: Record<string, unknown>;
+};
+
 export type ShotlyxLogEntry = {
 	id: string;
 	type: string;
@@ -58,6 +76,14 @@ export type ShotlyxStore = {
 
 	addLog(entry: ShotlyxLogEntry): Promise<void>;
 	listLogs(): Promise<ShotlyxLogEntry[]>;
+
+	insertCreditLedgerEntryIfAbsent(
+		entry: CreditLedgerEntry,
+	): Promise<{ entry: CreditLedgerEntry; inserted: boolean }>;
+	updateCreditLedgerEntry(
+		entry: CreditLedgerEntry,
+	): Promise<CreditLedgerEntry>;
+	listCreditLedgerEntriesByUserId(userId: string): Promise<CreditLedgerEntry[]>;
 
 	getSettings(): Promise<ServerSettings>;
 	updateSettings(settings: Partial<ServerSettings>): Promise<ServerSettings>;

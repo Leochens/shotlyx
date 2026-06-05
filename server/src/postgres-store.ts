@@ -1,6 +1,8 @@
 import postgres from "postgres";
 import { runShotlyxSchemaMigrations } from "./postgres-schema";
 import type {
+	CreditLedgerEntry,
+	CreditLedgerStatus,
 	NewApiKeyBinding,
 	ServerSettings,
 	ShotlyxLogEntry,
@@ -53,6 +55,12 @@ function readNumber(row: Row, key: string): number {
 
 function readBoolean(row: Row, key: string): boolean {
 	return row[key] === true;
+}
+
+function readLedgerStatus(row: Row): CreditLedgerStatus {
+	const value = readString(row, "status");
+	if (value === "applied" || value === "failed") return value;
+	return "pending";
 }
 
 function readJsonMeta(row: Row): Record<string, unknown> | undefined {
@@ -113,6 +121,24 @@ function toLog(row: Row): ShotlyxLogEntry {
 		userId: readOptionalString(row, "user_id"),
 		message: readString(row, "message"),
 		createdAt: readString(row, "created_at"),
+		meta: readJsonMeta(row),
+	};
+}
+
+function toCreditLedgerEntry(row: Row): CreditLedgerEntry {
+	return {
+		id: readString(row, "id"),
+		userId: readString(row, "user_id"),
+		idempotencyKey: readString(row, "idempotency_key"),
+		type: "top_up",
+		amount: readNumber(row, "amount"),
+		balanceBefore: readNumber(row, "balance_before"),
+		balanceAfter: readNumber(row, "balance_after"),
+		status: readLedgerStatus(row),
+		createdAt: readString(row, "created_at"),
+		updatedAt: readString(row, "updated_at"),
+		externalPaymentId: readOptionalString(row, "external_payment_id"),
+		note: readOptionalString(row, "note"),
 		meta: readJsonMeta(row),
 	};
 }
@@ -316,6 +342,152 @@ export class PostgresShotlyxStore implements ShotlyxStore {
 			ORDER BY created_at ASC
 		`;
 		return rows.map(toLog);
+	}
+
+	async insertCreditLedgerEntryIfAbsent(
+		entry: CreditLedgerEntry,
+	): Promise<{ entry: CreditLedgerEntry; inserted: boolean }> {
+		await this.ensureReady();
+		const metaJson = entry.meta ? JSON.stringify(entry.meta) : null;
+		const rows = await this.sql`
+			INSERT INTO shotlyx_credit_ledger (
+				id,
+				user_id,
+				idempotency_key,
+				type,
+				amount,
+				balance_before,
+				balance_after,
+				status,
+				external_payment_id,
+				note,
+				created_at,
+				updated_at,
+				meta_json
+			)
+			VALUES (
+				${entry.id},
+				${entry.userId},
+				${entry.idempotencyKey},
+				${entry.type},
+				${entry.amount},
+				${entry.balanceBefore},
+				${entry.balanceAfter},
+				${entry.status},
+				${entry.externalPaymentId ?? null},
+				${entry.note ?? null},
+				${entry.createdAt},
+				${entry.updatedAt},
+				${metaJson}::jsonb
+			)
+			ON CONFLICT (idempotency_key) DO NOTHING
+			RETURNING
+				id,
+				user_id,
+				idempotency_key,
+				type,
+				amount,
+				balance_before,
+				balance_after,
+				status,
+				external_payment_id,
+				note,
+				created_at,
+				updated_at,
+				meta_json
+		`;
+		if (rows[0]) {
+			return { entry: toCreditLedgerEntry(rows[0]), inserted: true };
+		}
+
+		const existingRows = await this.sql`
+			SELECT
+				id,
+				user_id,
+				idempotency_key,
+				type,
+				amount,
+				balance_before,
+				balance_after,
+				status,
+				external_payment_id,
+				note,
+				created_at,
+				updated_at,
+				meta_json
+			FROM shotlyx_credit_ledger
+			WHERE idempotency_key = ${entry.idempotencyKey}
+			LIMIT 1
+		`;
+		if (!existingRows[0]) {
+			throw new Error("credit_ledger_insert_conflict_not_found");
+		}
+		return {
+			entry: toCreditLedgerEntry(existingRows[0]),
+			inserted: false,
+		};
+	}
+
+	async updateCreditLedgerEntry(
+		entry: CreditLedgerEntry,
+	): Promise<CreditLedgerEntry> {
+		await this.ensureReady();
+		const metaJson = entry.meta ? JSON.stringify(entry.meta) : null;
+		const rows = await this.sql`
+			UPDATE shotlyx_credit_ledger
+			SET
+				amount = ${entry.amount},
+				balance_before = ${entry.balanceBefore},
+				balance_after = ${entry.balanceAfter},
+				status = ${entry.status},
+				external_payment_id = ${entry.externalPaymentId ?? null},
+				note = ${entry.note ?? null},
+				updated_at = ${entry.updatedAt},
+				meta_json = ${metaJson}::jsonb
+			WHERE id = ${entry.id}
+			RETURNING
+				id,
+				user_id,
+				idempotency_key,
+				type,
+				amount,
+				balance_before,
+				balance_after,
+				status,
+				external_payment_id,
+				note,
+				created_at,
+				updated_at,
+				meta_json
+		`;
+		if (!rows[0]) throw new Error("credit_ledger_entry_not_found");
+		return toCreditLedgerEntry(rows[0]);
+	}
+
+	async listCreditLedgerEntriesByUserId(
+		userId: string,
+	): Promise<CreditLedgerEntry[]> {
+		await this.ensureReady();
+		const rows = await this.sql`
+			SELECT
+				id,
+				user_id,
+				idempotency_key,
+				type,
+				amount,
+				balance_before,
+				balance_after,
+				status,
+				external_payment_id,
+				note,
+				created_at,
+				updated_at,
+				meta_json
+			FROM shotlyx_credit_ledger
+			WHERE user_id = ${userId}
+			ORDER BY created_at ASC
+		`;
+		return rows.map(toCreditLedgerEntry);
 	}
 
 	async getSettings(): Promise<ServerSettings> {
