@@ -274,147 +274,6 @@ describe("timeline_insert_media", () => {
 	});
 });
 
-describe("timeline_insert_cover", () => {
-	test("inserts a cover image at the beginning and shifts every existing track", () => {
-		const coverAsset: MediaAsset = {
-			id: "cover-asset",
-			name: "Cover image",
-			type: "image",
-			file: new File(["cover"], "cover.png", { type: "image/png" }),
-			url: "blob:cover",
-			width: 1280,
-			height: 720,
-		};
-		const scene = {
-			tracks: {
-				main: {
-					id: "main",
-					type: "video",
-					elements: [
-						{
-							id: "main-clip",
-							type: "video",
-							startTime: mockMediaTimeFromSeconds({ seconds: 2 }),
-							duration: mockMediaTimeFromSeconds({ seconds: 5 }),
-							trimStart: 0,
-							trimEnd: 0,
-							params: {},
-						},
-					],
-				},
-				overlay: [
-					{
-						id: "text-track",
-						type: "text",
-						elements: [
-							{
-								id: "title",
-								type: "text",
-								startTime: mockMediaTimeFromSeconds({ seconds: 1 }),
-								duration: mockMediaTimeFromSeconds({ seconds: 2 }),
-								trimStart: 0,
-								trimEnd: 0,
-								params: {},
-							},
-						],
-					},
-				],
-				audio: [
-					{
-						id: "audio-track",
-						type: "audio",
-						elements: [
-							{
-								id: "music",
-								type: "audio",
-								startTime: mockMediaTimeFromSeconds({ seconds: 0.5 }),
-								duration: mockMediaTimeFromSeconds({ seconds: 3 }),
-								trimStart: 0,
-								trimEnd: 0,
-								params: {},
-							},
-						],
-					},
-				],
-			},
-		};
-		const updateElements = mock(() => {});
-		const insertElement = mock(() => ({
-			elementId: "cover-element",
-			trackId: "main",
-		}));
-		const editor = createMockEditor({
-			timeline: {
-				insertElement,
-				updateElements,
-			},
-			media: {
-				getAssets: () => [coverAsset],
-			},
-			project: {
-				getActiveOrNull: () => ({
-					settings: { fps: { numerator: 30, denominator: 1 } },
-				}),
-			},
-			scenes: {
-				getActiveSceneOrNull: () => scene,
-			},
-		});
-		const tools = buildTimelineTools({
-			editor,
-			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
-		});
-		const tool = tools.find((t) => t.name === "timeline_insert_cover");
-
-		const result = tool?.handler({
-			mediaId: "cover-asset",
-			durationFrames: 6,
-		});
-
-		const coverDuration = mockMediaTimeFromSeconds({ seconds: 0.2 });
-		expect(updateElements).toHaveBeenCalledWith({
-			updates: [
-				{
-					trackId: "main",
-					elementId: "main-clip",
-					patch: { startTime: mockMediaTimeFromSeconds({ seconds: 2.2 }) },
-				},
-				{
-					trackId: "text-track",
-					elementId: "title",
-					patch: { startTime: mockMediaTimeFromSeconds({ seconds: 1.2 }) },
-				},
-				{
-					trackId: "audio-track",
-					elementId: "music",
-					patch: { startTime: mockMediaTimeFromSeconds({ seconds: 0.7 }) },
-				},
-			],
-		});
-		expect(insertElement).toHaveBeenCalledWith({
-			element: expect.objectContaining({
-				type: "image",
-				mediaId: "cover-asset",
-				startTime: 0,
-				duration: coverDuration,
-				params: expect.objectContaining({
-					"cover.exclusive": true,
-				}),
-			}),
-			placement: { mode: "explicit", trackId: "main" },
-		});
-		expect(result).toMatchObject({
-			inserted: true,
-			mediaId: "cover-asset",
-			trackId: "main",
-			elementId: "cover-element",
-			durationSeconds: 0.2,
-			shiftedElementCount: 3,
-			exclusiveRange: { startTimeSeconds: 0, durationSeconds: 0.2 },
-		});
-	});
-});
-
 describe("timeline_insert_text", () => {
 	function setup({
 		trackType = "text",
@@ -1368,6 +1227,111 @@ describe("project_update_watermark", () => {
 				mediaId: "logo",
 			},
 		});
+	});
+});
+
+describe("project_update_cover", () => {
+	test("stores a project cover in settings and updates the project thumbnail", async () => {
+		const updateSettings = mock(async () => {});
+		const updateThumbnail = mock(async () => {});
+		const coverAsset: MediaAsset = {
+			id: "cover",
+			name: "Cover image",
+			type: "image",
+			file: new File(["cover"], "cover.png", { type: "image/png" }),
+			url: "blob:cover",
+			thumbnailUrl: "data:image/jpeg;base64,cover",
+			width: 1280,
+			height: 720,
+		};
+		const editor = createMockEditor({
+			project: {
+				getActiveOrNull: () => ({
+					settings: {
+						fps: { numerator: 30, denominator: 1 },
+						canvasSize: { width: 1920, height: 1080 },
+						background: { type: "color", color: "#000000" },
+					},
+				}),
+				updateSettings,
+				updateThumbnail,
+			},
+			media: {
+				getAssets: () => [coverAsset],
+			},
+		});
+		const tools = buildProjectTools(editor);
+		const tool = tools.find((t) => t.name === "project_update_cover");
+
+		const result = await tool?.handler({
+			mediaId: "cover",
+			layoutMode: "custom",
+			width: 960,
+			height: 540,
+			durationSeconds: 4,
+		});
+
+		expect(updateSettings).toHaveBeenCalledWith({
+			settings: {
+				cover: {
+					enabled: true,
+					mediaId: "cover",
+					durationSeconds: 4,
+					layout: {
+						mode: "custom",
+						width: 960,
+						height: 540,
+					},
+				},
+			},
+			pushHistory: true,
+		});
+		expect(updateThumbnail).toHaveBeenCalledWith({
+			thumbnail: "data:image/jpeg;base64,cover",
+		});
+		expect(result).toMatchObject({
+			cover: {
+				enabled: true,
+				mediaId: "cover",
+				durationSeconds: 4,
+				layout: { mode: "custom" },
+			},
+		});
+	});
+
+	test("clears the project cover without deleting the image asset", async () => {
+		const updateSettings = mock(async () => {});
+		const refreshThumbnailFromTimeline = mock(async () => true);
+		const editor = createMockEditor({
+			project: {
+				getActiveOrNull: () => ({
+					settings: {
+						fps: { numerator: 30, denominator: 1 },
+						canvasSize: { width: 1920, height: 1080 },
+						background: { type: "color", color: "#000000" },
+						cover: {
+							enabled: true,
+							mediaId: "cover",
+							durationSeconds: 3,
+							layout: { mode: "fill" },
+						},
+					},
+				}),
+				updateSettings,
+				refreshThumbnailFromTimeline,
+			},
+		});
+		const tools = buildProjectTools(editor);
+		const tool = tools.find((t) => t.name === "project_clear_cover");
+
+		const result = await tool?.handler({});
+
+		expect(updateSettings).toHaveBeenCalledWith({
+			settings: { cover: null },
+			pushHistory: true,
+		});
+		expect(refreshThumbnailFromTimeline).toHaveBeenCalled();
+		expect(result).toEqual({ cover: null });
 	});
 });
 

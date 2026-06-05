@@ -19,6 +19,10 @@ import type {
 	TProjectSettings,
 	TTimelineViewState,
 } from "@/project/types";
+import {
+	getProjectCoverThumbnail,
+	getProjectDurationWithCover,
+} from "@/project/cover";
 import type { ExportOptions, ExportResult, ExportState } from "@/export";
 import { estimateExportRemainingSeconds } from "@/export/progress";
 import { storageService } from "@/services/storage/service";
@@ -203,7 +207,9 @@ export class ProjectManager {
 
 			if (!project.metadata.thumbnail) {
 				try {
-					const didUpdateThumbnail = await this.updateThumbnailFromTimeline();
+					const didUpdateThumbnail =
+						(await this.updateThumbnailFromProjectCover()) ||
+						(await this.updateThumbnailFromTimeline());
 					if (didUpdateThumbnail) {
 						await this.saveCurrentProject();
 					}
@@ -231,7 +237,10 @@ export class ProjectManager {
 				scenes,
 				metadata: {
 					...this.active.metadata,
-					duration: getProjectDurationFromScenes({ scenes }),
+					duration: getProjectDurationWithCover({
+						timelineDuration: getProjectDurationFromScenes({ scenes }),
+						cover: this.active.settings.cover,
+					}),
 					updatedAt: new Date(),
 				},
 			};
@@ -619,11 +628,17 @@ export class ProjectManager {
 		this.editor.save.markDirty();
 	}
 
+	async refreshThumbnailFromTimeline(): Promise<boolean> {
+		return this.updateThumbnailFromTimeline();
+	}
+
 	async prepareExit(): Promise<void> {
 		if (!this.active) return;
 
 		try {
-			await this.updateThumbnailFromTimeline();
+			if (!(await this.updateThumbnailFromProjectCover())) {
+				await this.updateThumbnailFromTimeline();
+			}
 		} catch (error) {
 			console.error("Failed to generate project thumbnail on exit:", error);
 		} finally {
@@ -923,6 +938,17 @@ export class ProjectManager {
 	subscribe(listener: () => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
+	}
+
+	private async updateThumbnailFromProjectCover(): Promise<boolean> {
+		if (!this.active) return false;
+		const thumbnail = getProjectCoverThumbnail({
+			cover: this.active.settings.cover,
+			mediaAssets: this.editor.media.getAssets(),
+		});
+		if (!thumbnail) return false;
+		await this.updateThumbnail({ thumbnail });
+		return true;
 	}
 
 	private async updateThumbnailFromTimeline(): Promise<boolean> {

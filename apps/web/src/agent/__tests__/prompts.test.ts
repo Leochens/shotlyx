@@ -35,7 +35,8 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain("verify the timeline and media state");
 		expect(prompt).toContain("Use timeline_insert_text");
 		expect(prompt).toContain("Use timeline_insert_text_overlay");
-		expect(prompt).toContain("Use timeline_insert_cover");
+		expect(prompt).toContain("Use project_update_cover");
+		expect(prompt).toContain("does not create timeline elements");
 		expect(prompt).toContain("Use flower_text_list_presets");
 		expect(prompt).toContain("Use flower_text_insert");
 		expect(prompt).toContain("conservatively when the user asks for 花字");

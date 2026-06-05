@@ -19,6 +19,7 @@ import {
 	SectionTitle,
 } from "@/components/section";
 import { BackgroundContent } from "./background";
+import { CoverContent } from "./cover";
 import { WatermarkContent } from "./watermark";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -33,11 +34,14 @@ import { formatNumberForDisplay } from "@/utils/math";
 import { OcSquarePlusIcon } from "@/components/icons";
 import type { TCanvasSize } from "@/project/types";
 
-type SettingsView = "project-info" | "background" | "watermark";
+type SettingsView = "project-info" | "background" | "cover" | "watermark";
 
 function isSettingsView(value: string): value is SettingsView {
 	return (
-		value === "project-info" || value === "background" || value === "watermark"
+		value === "project-info" ||
+		value === "background" ||
+		value === "cover" ||
+		value === "watermark"
 	);
 }
 
@@ -228,6 +232,7 @@ export function SettingsView() {
 					<TabsList>
 						<TabsTrigger value="project-info">Project info</TabsTrigger>
 						<TabsTrigger value="background">Background</TabsTrigger>
+						<TabsTrigger value="cover">Cover</TabsTrigger>
 						<TabsTrigger value="watermark">Watermark</TabsTrigger>
 					</TabsList>
 				</Tabs>
@@ -324,6 +329,7 @@ export function SettingsView() {
 				</div>
 			)}
 			{view === "background" && <BackgroundContent />}
+			{view === "cover" && <CoverContent />}
 			{view === "watermark" && <WatermarkContent />}
 		</PanelView>
 	);

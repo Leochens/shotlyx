@@ -21,11 +21,6 @@ import {
 	buildCalloutGraphicElement,
 	buildMosaicEffectElement,
 } from "@/callouts/presets";
-import { frameRateToFloat } from "@/fps/utils";
-import {
-	buildTimelineCoverInsertion,
-	resolveTimelineCoverDurationSeconds,
-} from "@/timeline/cover";
 
 const TRACK_TYPES = ["video", "text", "audio", "graphic", "effect"] as const;
 type TrackType = (typeof TRACK_TYPES)[number];
@@ -64,27 +59,6 @@ function getMediaInsertTrackType({
 	assetType: "audio" | "image" | "video";
 }): MediaInsertTrackType {
 	return assetType === "audio" ? "audio" : "video";
-}
-
-function getProjectFpsOrDefault(editor: EditorCore): number {
-	const fps = editor.project.getActiveOrNull()?.settings.fps;
-	if (!fps) return 30;
-	const value = frameRateToFloat(fps);
-	return Number.isFinite(value) && value > 0 ? value : 30;
-}
-
-function resolveCoverDurationSeconds({
-	editor,
-	params,
-}: {
-	editor: EditorCore;
-	params: Record<string, unknown>;
-}): number {
-	return resolveTimelineCoverDurationSeconds({
-		durationFrames: optionalNumberParam(params, "durationFrames"),
-		durationSeconds: optionalNumberParam(params, "durationSeconds"),
-		fps: getProjectFpsOrDefault(editor),
-	});
 }
 
 function isElementRefArray(value: unknown): value is Array<{
@@ -283,40 +257,6 @@ function checkTrackExists(
 			ok: false,
 			error: `轨道不存在：找不到轨道 "${trackId}"`,
 			suggestion: "使用 timeline_get_summary 查看可用轨道",
-		};
-	}
-	return { ok: true };
-}
-
-function checkElementExists(
-	editor: EditorCore,
-	trackId: string,
-	elementId: string,
-): { ok: true } | { ok: false; error: string; suggestion: string } {
-	const trackCheck = checkTrackExists(editor, trackId);
-	if (!trackCheck.ok) return trackCheck;
-
-	const scene = editor.scenes.getActiveSceneOrNull();
-	if (!scene) {
-		return {
-			ok: false,
-			error: "状态错误：未加载场景",
-			suggestion: "使用 scene_get_active 检查当前场景状态",
-		};
-	}
-
-	const track = [
-		scene.tracks.main,
-		...scene.tracks.overlay,
-		...scene.tracks.audio,
-	].find((t) => t.id === trackId);
-
-	if (!track || !track.elements.some((e) => e.id === elementId)) {
-		return {
-			ok: false,
-			error: `片段不存在：在轨道 "${trackId}" 中找不到片段 "${elementId}"`,
-			suggestion:
-				"使用 timeline_get_clip_details 或 timeline_get_summary 查看可用片段",
 		};
 	}
 	return { ok: true };
@@ -728,100 +668,6 @@ export function buildTimelineTools({
 					startTime: startTimeSeconds,
 					duration: durationSeconds ?? asset.duration,
 					placement: trackId ? "explicit" : "auto",
-				};
-			},
-		},
-		{
-			name: "timeline_insert_cover",
-			description:
-				"Insert an image media asset as an exclusive opening cover at timeline start. This shifts every existing element on every track to the right by the cover duration, then inserts the cover image from 0s on the main track.",
-			parameters: {
-				mediaId: {
-					type: "string",
-					description:
-						"Image media asset ID to use as the cover. Can be omitted when Agent context has a primary image asset reference.",
-					optional: true,
-				},
-				durationFrames: {
-					type: "number",
-					description:
-						"Cover duration in frames. Defaults to 6 frames when durationSeconds is omitted.",
-					optional: true,
-				},
-				durationSeconds: {
-					type: "number",
-					description:
-						"Cover duration in seconds. Takes precedence over durationFrames.",
-					optional: true,
-				},
-				trackId: {
-					type: "string",
-					description:
-						"Optional explicit video track ID. Defaults to the active scene main track.",
-					optional: true,
-				},
-			},
-			mutating: true,
-			preconditions: (params) =>
-				typeof params.trackId === "string"
-					? checkTrackExists(editor, params.trackId)
-					: { ok: true },
-			handler: (params) => {
-				const scene = editor.scenes.getActiveSceneOrNull();
-				if (!scene) {
-					throw new Error("状态错误：未加载场景");
-				}
-
-				const mediaId =
-					optionalStringParam(params, "mediaId") ?? getPrimaryMediaAssetId();
-				if (!mediaId) {
-					throw new Error(
-						"参数缺失：mediaId 为空，且 Agent 上下文里没有封面图片素材引用",
-					);
-				}
-
-				const asset = editor.media.getAssets().find((a) => a.id === mediaId);
-				if (!asset) {
-					throw new Error(`片段不存在：找不到媒体资源 "${mediaId}"`);
-				}
-				if (asset.type !== "image") {
-					throw new Error(
-						`类型不匹配：封面必须使用图片素材，当前为 ${asset.type}`,
-					);
-				}
-
-				const durationSeconds = resolveCoverDurationSeconds({
-					editor,
-					params,
-				});
-				const duration = mediaTimeFromSeconds({ seconds: durationSeconds });
-				const plan = buildTimelineCoverInsertion({
-					asset,
-					duration,
-					tracks: scene.tracks,
-					trackId: optionalStringParam(params, "trackId"),
-				});
-
-				if (plan.updates.length > 0) {
-					editor.timeline.updateElements({ updates: plan.updates });
-				}
-
-				const insertion = editor.timeline.insertElement({
-					element: plan.element,
-					placement: { mode: "explicit", trackId: plan.trackId },
-				});
-
-				return {
-					inserted: true,
-					mediaId,
-					trackId: insertion?.trackId ?? plan.trackId,
-					elementId: insertion?.elementId,
-					durationSeconds,
-					shiftedElementCount: plan.updates.length,
-					exclusiveRange: {
-						startTimeSeconds: 0,
-						durationSeconds,
-					},
 				};
 			},
 		},

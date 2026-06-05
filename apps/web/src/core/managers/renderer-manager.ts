@@ -15,6 +15,7 @@ import {
 	prerenderShotlyxMGExportSegments,
 	type ShotlyxMGExportRenderMap,
 } from "@/services/renderer/shotlyx-mg-export-prerender";
+import { buildProjectCoverExportPlan } from "@/project/cover";
 
 type SnapshotResult =
 	| { success: true; blob: Blob; filename: string }
@@ -176,13 +177,21 @@ export class RendererManager {
 				return { success: false, error: "No active project" };
 			}
 
-			const duration = this.editor.timeline.getTotalDuration();
+			const exportFps = fps ?? activeProject.settings.fps;
+			const canvasSize = activeProject.settings.canvasSize;
+			const coverPlan = buildProjectCoverExportPlan({
+				canvasSize,
+				cover: activeProject.settings.cover,
+				mediaAssets,
+				timelineDuration: this.editor.timeline.getTotalDuration(),
+				tracks,
+			});
+			const duration = coverPlan.duration;
+			const exportTracks = coverPlan.tracks;
+
 			if (duration === 0) {
 				return { success: false, error: "Project is empty" };
 			}
-
-			const exportFps = fps ?? activeProject.settings.fps;
-			const canvasSize = activeProject.settings.canvasSize;
 
 			const abortController = new AbortController();
 			const checkCancel = () => {
@@ -238,7 +247,7 @@ export class RendererManager {
 					},
 					shotlyxMGAssets: activeProject.shotlyxMGAssets ?? [],
 					signal: abortController.signal,
-					tracks,
+					tracks: exportTracks,
 				});
 				exportMediaAssets = prerenderResult.mediaAssets;
 				shotlyxMGRenderMap = prerenderResult.renderMap;
@@ -263,14 +272,14 @@ export class RendererManager {
 					subProgress: null,
 				});
 				audioBuffer = await createTimelineAudioBuffer({
-					tracks,
+					tracks: exportTracks,
 					mediaAssets: exportMediaAssets,
 					duration,
 				});
 			}
 
 			const scene = buildScene({
-				tracks,
+				tracks: exportTracks,
 				mediaAssets: exportMediaAssets,
 				duration,
 				canvasSize,

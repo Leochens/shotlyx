@@ -45,6 +45,26 @@ export type TProjectWatermark =
 			opacity: number;
 	  };
 
+export type TProjectCover =
+	| {
+			enabled: boolean;
+			mediaId: string;
+			durationSeconds: number;
+			layout: {
+				mode: "fill";
+			};
+	  }
+	| {
+			enabled: boolean;
+			mediaId: string;
+			durationSeconds: number;
+			layout: {
+				mode: "custom";
+				width: number;
+				height: number;
+			};
+	  };
+
 export interface TProjectMetadata {
 	id: string;
 	name: string;
@@ -62,6 +82,7 @@ export interface TProjectSettings {
 	originalCanvasSize?: TCanvasSize | null;
 	background: TBackground;
 	watermark?: TProjectWatermark | null;
+	cover?: TProjectCover | null;
 }
 
 export interface TTimelineViewState {

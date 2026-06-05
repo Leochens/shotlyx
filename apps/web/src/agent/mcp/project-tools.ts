@@ -7,7 +7,20 @@ import {
 	type ExportQuality,
 } from "@/export";
 import { floatToFrameRate } from "@/fps/utils";
-import type { TBackground, TProjectWatermark } from "@/project/types";
+import type {
+	TBackground,
+	TProjectCover,
+	TProjectWatermark,
+} from "@/project/types";
+import {
+	DEFAULT_PROJECT_COVER_DURATION_SECONDS,
+	clampProjectCoverDurationSeconds,
+	createDefaultProjectCover,
+	getDefaultProjectCoverCustomSize,
+	getProjectCoverThumbnail,
+	normalizeProjectCover,
+	type ProjectCoverLayoutMode,
+} from "@/project/cover";
 import {
 	DEFAULT_MEDIA_WATERMARK,
 	DEFAULT_TEXT_WATERMARK,
@@ -27,6 +40,7 @@ import {
 
 const WATERMARK_TYPES = ["text", "image", "video"] as const;
 type WatermarkType = (typeof WATERMARK_TYPES)[number];
+const COVER_LAYOUT_MODES = ["fill", "custom"] as const;
 
 function isExportFormat(value: string): value is ExportFormat {
 	return EXPORT_FORMAT_VALUES.some((f) => f === value);
@@ -152,6 +166,97 @@ function buildWatermarkFromParams({
 	});
 }
 
+function isCoverLayoutMode(value: string): value is ProjectCoverLayoutMode {
+	return COVER_LAYOUT_MODES.some((mode) => mode === value);
+}
+
+function resolveCoverLayoutMode({
+	currentCover,
+	params,
+}: {
+	currentCover?: TProjectCover | null;
+	params: Record<string, unknown>;
+}): ProjectCoverLayoutMode {
+	const rawMode = optionalStringParam(params, "layoutMode");
+	if (rawMode !== undefined) {
+		if (!isCoverLayoutMode(rawMode)) {
+			throw new Error('layoutMode 必须是 "fill" 或 "custom"');
+		}
+		return rawMode;
+	}
+	return currentCover?.layout.mode ?? "fill";
+}
+
+function buildProjectCoverFromParams({
+	editor,
+	params,
+}: {
+	editor: EditorCore;
+	params: Record<string, unknown>;
+}): TProjectCover {
+	const project = editor.project.getActiveOrNull();
+	if (!project) {
+		throw new Error("参数缺失：未加载项目，无法设置封面");
+	}
+	const mediaId = requireStringParam(params, "mediaId");
+	const asset = editor.media.getAssets().find((item) => item.id === mediaId);
+	if (!asset) {
+		throw new Error(`片段不存在：找不到媒体资源 "${mediaId}"`);
+	}
+	if (asset.type !== "image") {
+		throw new Error(`类型不匹配：封面必须使用图片素材，当前为 ${asset.type}`);
+	}
+
+	const currentCover = project.settings.cover ?? null;
+	const layoutMode = resolveCoverLayoutMode({ currentCover, params });
+	const durationSeconds = clampProjectCoverDurationSeconds(
+		optionalNumberParam(params, "durationSeconds") ??
+			currentCover?.durationSeconds ??
+			DEFAULT_PROJECT_COVER_DURATION_SECONDS,
+	);
+	const baseCover = createDefaultProjectCover({
+		asset,
+		canvasSize: project.settings.canvasSize,
+	});
+
+	if (layoutMode === "fill") {
+		return {
+			...baseCover,
+			durationSeconds,
+			layout: { mode: "fill" },
+		};
+	}
+
+	const fallbackSize =
+		currentCover?.layout.mode === "custom" && currentCover.mediaId === mediaId
+			? {
+					width: currentCover.layout.width,
+					height: currentCover.layout.height,
+				}
+			: getDefaultProjectCoverCustomSize({
+					asset,
+					canvasSize: project.settings.canvasSize,
+				});
+	const cover: TProjectCover = {
+		...baseCover,
+		durationSeconds,
+		layout: {
+			mode: "custom",
+			width: optionalNumberParam(params, "width") ?? fallbackSize.width,
+			height: optionalNumberParam(params, "height") ?? fallbackSize.height,
+		},
+	};
+	const normalizedCover = normalizeProjectCover({
+		asset,
+		canvasSize: project.settings.canvasSize,
+		cover,
+	});
+	if (!normalizedCover) {
+		throw new Error("封面设置无效");
+	}
+	return normalizedCover;
+}
+
 export function buildProjectTools(editor: EditorCore): Tool[] {
 	return [
 		{
@@ -179,7 +284,7 @@ export function buildProjectTools(editor: EditorCore): Tool[] {
 		},
 		{
 			name: "project_get_settings",
-			description: "获取当前项目设置，包括帧率、画布尺寸和背景",
+			description: "获取当前项目设置，包括帧率、画布尺寸、背景、水印和封面",
 			parameters: {},
 			handler: () => {
 				const project = editor.project.getActiveOrNull();
@@ -195,6 +300,7 @@ export function buildProjectTools(editor: EditorCore): Tool[] {
 					canvasSizeMode: project.settings.canvasSizeMode,
 					background: project.settings.background,
 					watermark: project.settings.watermark ?? null,
+					cover: project.settings.cover ?? null,
 				};
 			},
 		},
@@ -397,6 +503,72 @@ export function buildProjectTools(editor: EditorCore): Tool[] {
 					pushHistory: true,
 				});
 				return { watermark: null };
+			},
+		},
+		{
+			name: "project_update_cover",
+			description:
+				"Add or update the project cover stored in project settings. It uses an existing image media asset, does not create timeline elements, and is prepended only during export. Supports fill-screen or custom-size layout plus display duration.",
+			parameters: {
+				mediaId: {
+					type: "string",
+					description: "Image media asset ID to use as the project cover.",
+				},
+				layoutMode: {
+					type: "string",
+					description: 'Cover layout mode: "fill" or "custom". Defaults to fill.',
+					optional: true,
+				},
+				durationSeconds: {
+					type: "number",
+					description: "Cover display duration in seconds. Defaults to 3.",
+					optional: true,
+				},
+				width: {
+					type: "number",
+					description: "Custom cover width in pixels. Only applies to custom layout.",
+					optional: true,
+				},
+				height: {
+					type: "number",
+					description:
+						"Custom cover height in pixels. Only applies to custom layout.",
+					optional: true,
+				},
+			},
+			mutating: true,
+			handler: async (params) => {
+				const cover = buildProjectCoverFromParams({ editor, params });
+				await editor.project.updateSettings({
+					settings: { cover },
+					pushHistory: true,
+				});
+				const thumbnail = getProjectCoverThumbnail({
+					cover,
+					mediaAssets: editor.media.getAssets(),
+				});
+				if (thumbnail) {
+					await editor.project.updateThumbnail({ thumbnail });
+				}
+				return { cover };
+			},
+		},
+		{
+			name: "project_clear_cover",
+			description:
+				"Remove the project cover from project settings. This does not delete the image asset.",
+			parameters: {},
+			mutating: true,
+			handler: async () => {
+				if (!editor.project.getActiveOrNull()) {
+					throw new Error("参数缺失：未加载项目，无法清除封面");
+				}
+				await editor.project.updateSettings({
+					settings: { cover: null },
+					pushHistory: true,
+				});
+				await editor.project.refreshThumbnailFromTimeline();
+				return { cover: null };
 			},
 		},
 		{
