@@ -4,7 +4,8 @@
 	"packageManager": "bun@1.2.18",
 	"workspaces": [
 		"apps/*",
-		"packages/*"
+		"packages/*",
+		"server"
 	],
 	"scripts": {
 		"build:tools": "turbo run build --filter=@shotlyx/tools",
@@ -21,6 +22,7 @@
 		"dev:tools": "turbo run dev --filter=@shotlyx/tools",
 		"dev:wasm": "cargo watch -w rust/crates -w rust/wasm/src -s 'wasm-pack build rust/wasm --target bundler --out-dir pkg'",
 		"dev:web": "turbo run dev --filter=@shotlyx/web",
+		"dev:server": "bun run --cwd server dev",
 		"dev:client": "bun run --cwd apps/client dev",
 		"dev:client:safe": "bun run --cwd apps/client dev:safe",
 		"format:web": "prettier apps/web/src/services/renderer --write",
@@ -33,8 +35,10 @@
 		"publish:client:win": "bun run --cwd apps/client publish:win",
 		"publish:wasm": "bun run build:wasm && npm publish rust/wasm/pkg --access public",
 		"start:tools": "turbo run start --filter=@shotlyx/tools",
+		"start:server": "bun run --cwd server start",
 		"start:client": "bun run --cwd apps/client start",
 		"start:client:safe": "bun run --cwd apps/client start:safe",
+		"test:server": "bun run --cwd server test",
 		"test": "bun test eslint/rules apps/web/src",
 		"test:e2e:client": "bun run --cwd apps/web test:e2e:desktop"
 	},

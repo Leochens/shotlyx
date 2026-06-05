@@ -141,6 +141,10 @@
         "wrangler": "^4.77.0",
       },
     },
+    "server": {
+      "name": "@shotlyx/server",
+      "version": "0.1.0",
+    },
   },
   "trustedDependencies": [
     "@tailwindcss/oxide",
@@ -753,6 +757,8 @@
     "@rspack/plugin-react-refresh": ["@rspack/plugin-react-refresh@1.6.1", "", { "dependencies": { "error-stack-parser": "^2.1.4", "html-entities": "^2.6.0" }, "peerDependencies": { "react-refresh": ">=0.10.0 <1.0.0", "webpack-hot-middleware": "2.x" }, "optionalPeers": ["webpack-hot-middleware"] }, "sha512-eqqW5645VG3CzGzFgNg5HqNdHVXY+567PGjtDhhrM8t67caxmsSzRmT5qfoEIfBcGgFkH9vEg7kzXwmCYQdQDw=="],
 
     "@shotlyx/client": ["@shotlyx/client@workspace:apps/client"],
+
+    "@shotlyx/server": ["@shotlyx/server@workspace:server"],
 
     "@shotlyx/web": ["@shotlyx/web@workspace:apps/web"],
 

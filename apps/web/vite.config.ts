@@ -45,7 +45,9 @@ function desktopApiDevServer(): Plugin {
 							: Buffer.concat(chunks),
 				});
 
-				const module = await server.ssrLoadModule("/src/electron-api/handler.ts");
+				const module = await server.ssrLoadModule(
+					"/src/electron-api/handler.ts",
+				);
 				const apiResponse = await module.handleElectronApiRequest(apiRequest);
 
 				response.statusCode = apiResponse.status;
@@ -100,6 +102,9 @@ export default defineConfig(({ mode }) => ({
 			process.env.VITE_SITE_URL ??
 				process.env.SHOTLYX_RENDERER_ORIGIN ??
 				"app://shotlyx",
+		),
+		"process.env.VITE_SHOTLYX_SERVER_URL": JSON.stringify(
+			process.env.VITE_SHOTLYX_SERVER_URL ?? "http://127.0.0.1:8787",
 		),
 		"process.env.VITE_MARBLE_API_URL": JSON.stringify(
 			process.env.VITE_MARBLE_API_URL ??

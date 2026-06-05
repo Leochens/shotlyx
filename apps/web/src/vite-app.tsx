@@ -28,6 +28,8 @@ import {
 } from "./platform/router";
 import { Toaster } from "./components/ui/sonner";
 import { TooltipProvider } from "./components/ui/tooltip";
+import { getAuthGateDecision } from "./auth/session-gate";
+import { useSession } from "./auth/client";
 
 type DesktopConfigStatusGroup = {
 	configured: boolean;
@@ -186,7 +188,36 @@ function AsyncRoute({
 
 function RouteSwitch() {
 	const { route } = useShotlyxRouter();
+	const router = useRouter();
+	const session = useSession();
 	const routeKey = `${route.pathname}${route.search}`;
+	const gate = getAuthGateDecision({
+		pathname: route.pathname,
+		routeKind: route.kind,
+		user: session.account?.user ?? null,
+	});
+
+	useEffect(() => {
+		if (session.status === "loading") return;
+		if (gate.kind === "redirect") {
+			router.replace(gate.href);
+		}
+	}, [gate, router, session.status]);
+
+	if (session.status === "loading" && gate.kind === "redirect") {
+		return (
+			<div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+				Checking login...
+			</div>
+		);
+	}
+	if (session.status !== "loading" && gate.kind === "redirect") {
+		return (
+			<div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+				Opening login...
+			</div>
+		);
+	}
 
 	if (route.kind === "home") return <HomePage />;
 	if (route.kind === "desktop") return <DesktopRedirect />;

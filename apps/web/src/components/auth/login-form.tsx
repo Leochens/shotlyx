@@ -4,18 +4,20 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "@/platform/router";
 import { toast } from "sonner";
 import { ArrowRight, Fingerprint, Loader2, Terminal } from "lucide-react";
-import { signIn, signUp } from "@/auth/client";
+import { loginWithEmail, registerWithEmail } from "@/auth/client";
 import { PRODUCT_NAME } from "@/site/brand";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/utils/ui";
 import { useAppLocale } from "@/i18n/use-app-locale";
+import { useShotlyxRouter } from "@/platform/router";
 
 type AuthMode = "sign-in" | "sign-up";
 
 export function LoginForm() {
 	const router = useRouter();
+	const { route } = useShotlyxRouter();
 	const { copy } = useAppLocale();
 	const [mode, setMode] = useState<AuthMode>("sign-in");
 	const [email, setEmail] = useState("");
@@ -35,25 +37,18 @@ export function LoginForm() {
 		setIsSubmitting(true);
 
 		try {
-			const response = isSignUp
-				? await signUp.email({
-						email,
-						password,
-						name: name || email.split("@")[0] || PRODUCT_NAME,
-						callbackURL: "/projects",
-					})
-				: await signIn.email({
-						email,
-						password,
-						callbackURL: "/projects",
-					});
-
-			if (response?.error) {
-				toast.error(response.error.message || copy.auth.authFailed);
-				return;
+			if (isSignUp) {
+				await registerWithEmail({
+					email,
+					password,
+					name: name || email.split("@")[0] || PRODUCT_NAME,
+				});
+			} else {
+				await loginWithEmail({ email, password });
 			}
 
-			router.push("/projects");
+			const next = new URLSearchParams(route.search).get("next");
+			router.push(next?.startsWith("/") ? next : "/projects");
 			router.refresh();
 		} catch (error) {
 			toast.error(
