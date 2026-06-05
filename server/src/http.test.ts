@@ -19,6 +19,25 @@ function createFakeNewApi(): NewApiGateway & { createdCount: number } {
 }
 
 describe("Shotlyx server HTTP app", () => {
+	test("reports health and the configured store mode", async () => {
+		const app = createServerApp({
+			store: new InMemoryShotlyxStore(),
+			newApi: createFakeNewApi(),
+			initialQuota: 500,
+			storeMode: "memory",
+		});
+
+		const response = await app.fetch(
+			new Request("http://shotlyx.test/api/health"),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			ok: true,
+			store: "memory",
+		});
+	});
+
 	test("supports register, login, current account, and admin pages", async () => {
 		const app = createServerApp({
 			store: new InMemoryShotlyxStore(),

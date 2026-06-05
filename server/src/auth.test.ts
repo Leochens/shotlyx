@@ -48,7 +48,7 @@ describe("Shotlyx auth service", () => {
 		expect(newApi.created).toEqual([
 			{ email: "leo@example.com", name: "Leo", initialQuota: 120_000 },
 		]);
-		expect(store.listLogs().map((log) => log.type)).toEqual([
+		expect((await store.listLogs()).map((log) => log.type)).toEqual([
 			"user.registered",
 			"newapi.key.provisioned",
 		]);

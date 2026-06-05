@@ -43,7 +43,7 @@ export type ShotlyxStore = {
 	createUser(user: ShotlyxUser): Promise<void>;
 	findUserByEmail(email: string): Promise<ShotlyxUser | null>;
 	findUserById(id: string): Promise<ShotlyxUser | null>;
-	listUsers(): ShotlyxUser[];
+	listUsers(): Promise<ShotlyxUser[]>;
 
 	createSession(session: ShotlyxSession): Promise<void>;
 	findSessionByToken(token: string): Promise<ShotlyxSession | null>;
@@ -57,8 +57,8 @@ export type ShotlyxStore = {
 	): Promise<NewApiKeyBinding | null>;
 
 	addLog(entry: ShotlyxLogEntry): Promise<void>;
-	listLogs(): ShotlyxLogEntry[];
+	listLogs(): Promise<ShotlyxLogEntry[]>;
 
-	getSettings(): ServerSettings;
-	updateSettings(settings: Partial<ServerSettings>): ServerSettings;
+	getSettings(): Promise<ServerSettings>;
+	updateSettings(settings: Partial<ServerSettings>): Promise<ServerSettings>;
 };

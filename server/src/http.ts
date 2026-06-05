@@ -1,7 +1,11 @@
 import { createAuthService } from "./auth";
 import type { NewApiGateway } from "./new-api";
 import { createNewApiGateway } from "./new-api";
-import { InMemoryShotlyxStore } from "./store";
+import {
+	createDefaultShotlyxStore,
+	resolveDefaultStoreMode,
+	type DefaultStoreMode,
+} from "./store-factory";
 import type { ServerSettings, ShotlyxStore } from "./types";
 
 export type ServerApp = {
@@ -10,6 +14,7 @@ export type ServerApp = {
 
 export type ServerAppConfig = {
 	store?: ShotlyxStore;
+	storeMode?: DefaultStoreMode | "custom";
 	newApi?: NewApiGateway;
 	initialQuota?: number;
 	adminToken?: string;
@@ -163,13 +168,15 @@ function createDefaultNewApiGateway(): NewApiGateway {
 	};
 }
 
-export function createServerApp({
-	store = new InMemoryShotlyxStore(),
-	newApi = createDefaultNewApiGateway(),
-	initialQuota = Number(process.env.SHOTLYX_INITIAL_QUOTA) ||
-		DEFAULT_INITIAL_QUOTA,
-	adminToken = process.env.SHOTLYX_ADMIN_TOKEN,
-}: ServerAppConfig = {}): ServerApp {
+export function createServerApp(config: ServerAppConfig = {}): ServerApp {
+	const storeMode =
+		config.storeMode ?? (config.store ? "custom" : resolveDefaultStoreMode());
+	const store = config.store ?? createDefaultShotlyxStore();
+	const newApi = config.newApi ?? createDefaultNewApiGateway();
+	const configuredInitialQuota =
+		config.initialQuota ?? Number(process.env.SHOTLYX_INITIAL_QUOTA);
+	const initialQuota = configuredInitialQuota || DEFAULT_INITIAL_QUOTA;
+	const adminToken = config.adminToken ?? process.env.SHOTLYX_ADMIN_TOKEN;
 	const auth = createAuthService({ store, newApi, initialQuota });
 
 	async function requireAccount(request: Request) {
@@ -192,6 +199,10 @@ export function createServerApp({
 			const url = new URL(request.url);
 
 			try {
+				if (url.pathname === "/api/health" && request.method === "GET") {
+					return json({ ok: true, store: storeMode });
+				}
+
 				if (
 					url.pathname === "/api/auth/register" &&
 					request.method === "POST"
@@ -247,10 +258,9 @@ export function createServerApp({
 					if (!requireAdmin(request)) {
 						return json({ error: "forbidden" }, { status: 403 });
 					}
+					const users = await store.listUsers();
 					return json({
-						users: store
-							.listUsers()
-							.map(({ passwordHash: _hash, ...user }) => user),
+						users: users.map(({ passwordHash: _hash, ...user }) => user),
 					});
 				}
 
@@ -258,7 +268,7 @@ export function createServerApp({
 					if (!requireAdmin(request)) {
 						return json({ error: "forbidden" }, { status: 403 });
 					}
-					return json({ logs: store.listLogs() });
+					return json({ logs: await store.listLogs() });
 				}
 
 				if (
@@ -268,7 +278,7 @@ export function createServerApp({
 					if (!requireAdmin(request)) {
 						return json({ error: "forbidden" }, { status: 403 });
 					}
-					return json({ settings: store.getSettings() });
+					return json({ settings: await store.getSettings() });
 				}
 
 				if (
@@ -279,16 +289,17 @@ export function createServerApp({
 						return json({ error: "forbidden" }, { status: 403 });
 					}
 					const body = await readJson(request);
-					const settings = store.updateSettings({
+					const currentSettings = await store.getSettings();
+					const settings = await store.updateSettings({
 						newApiBaseUrl: readString(
 							body,
 							"newApiBaseUrl",
-							store.getSettings().newApiBaseUrl,
+							currentSettings.newApiBaseUrl,
 						),
 						initialQuota:
 							typeof body.initialQuota === "number"
 								? body.initialQuota
-								: store.getSettings().initialQuota,
+								: currentSettings.initialQuota,
 						callbackSecretSet:
 							typeof body.callbackSecret === "string" &&
 							body.callbackSecret.length > 0,
@@ -312,11 +323,16 @@ export function createServerApp({
 				}
 
 				if (url.pathname === "/admin" && request.method === "GET") {
+					const [users, logs, settings] = await Promise.all([
+						store.listUsers(),
+						store.listLogs(),
+						store.getSettings(),
+					]);
 					return html(
 						adminPage({
-							users: store.listUsers(),
-							logs: store.listLogs(),
-							settings: store.getSettings(),
+							users,
+							logs,
+							settings,
 						}),
 					);
 				}

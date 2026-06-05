@@ -7,5 +7,8 @@
 		"dev": "bun --watch src/index.ts",
 		"start": "bun src/index.ts",
 		"test": "bun test src"
+	},
+	"dependencies": {
+		"postgres": "^3.4.9"
 	}
 }

@@ -39,7 +39,7 @@ export class InMemoryShotlyxStore implements ShotlyxStore {
 		return this.usersById.get(id) ?? null;
 	}
 
-	listUsers(): ShotlyxUser[] {
+	async listUsers(): Promise<ShotlyxUser[]> {
 		return Array.from(this.usersById.values());
 	}
 
@@ -71,16 +71,18 @@ export class InMemoryShotlyxStore implements ShotlyxStore {
 		this.logs.push(entry);
 	}
 
-	listLogs(): ShotlyxLogEntry[] {
+	async listLogs(): Promise<ShotlyxLogEntry[]> {
 		return [...this.logs];
 	}
 
-	getSettings(): ServerSettings {
+	async getSettings(): Promise<ServerSettings> {
 		return { ...this.settings };
 	}
 
-	updateSettings(settings: Partial<ServerSettings>): ServerSettings {
+	async updateSettings(
+		settings: Partial<ServerSettings>,
+	): Promise<ServerSettings> {
 		this.settings = { ...this.settings, ...settings };
-		return this.getSettings();
+		return { ...this.settings };
 	}
 }
