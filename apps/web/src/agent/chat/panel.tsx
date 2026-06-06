@@ -108,6 +108,8 @@ function getErrorMessage(error: unknown): string {
 function formatTopicScriptTableForAgent(
 	project: TopicProject,
 ): string | undefined {
+	const autoTimeLabel = "由 Agent 自动估算时间";
+	const metadata = project.scriptTableMetadata;
 	const rows = (project.scriptTableRows ?? []).filter(
 		(row) =>
 			row.timeRange.trim() ||
@@ -115,7 +117,29 @@ function formatTopicScriptTableForAgent(
 			row.visualContent.trim() ||
 			row.assets.length > 0,
 	);
-	if (rows.length === 0) return undefined;
+	const hasMetadata = Boolean(
+		metadata?.title?.trim() ||
+			metadata?.description?.trim() ||
+			metadata?.coverAsset,
+	);
+	if (rows.length === 0 && !hasMetadata) return undefined;
+
+	const metadataText = hasMetadata
+		? [
+				"脚本信息：",
+				`标题：${metadata?.title?.trim() || "未填写"}`,
+				`简介：${metadata?.description?.trim() || "未填写"}`,
+				`封面：${
+					metadata?.coverAsset
+						? `${metadata.coverAsset.name}${
+								metadata.coverAsset.mediaType
+									? ` / ${metadata.coverAsset.mediaType}`
+									: ""
+							}（${metadata.coverAsset.mediaAssetId}）`
+						: "未填写"
+				}`,
+			].join("\n")
+		: "";
 
 	const rowText = rows.map((row, index) => {
 		const assets =
@@ -128,14 +152,20 @@ function formatTopicScriptTableForAgent(
 						.join("、")
 				: "无";
 		return [
-			`${index + 1}. 时间：${row.timeRange.trim() || "未填写"}`,
+			`${index + 1}. 时间：${row.timeRange.trim() || autoTimeLabel}`,
 			`文案：${row.copy.trim() || "未填写"}`,
 			`画面内容：${row.visualContent.trim() || "未填写"}`,
 			`选择素材：${assets}`,
 		].join("\n");
 	});
 
-	return `脚本表格：\n${rowText.join("\n\n")}`;
+	return [
+		"脚本表格：",
+		metadataText,
+		rowText.length > 0 ? rowText.join("\n\n") : "",
+	]
+		.filter(Boolean)
+		.join("\n");
 }
 
 function buildClientToolErrorResult({

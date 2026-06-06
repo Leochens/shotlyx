@@ -26,6 +26,7 @@ import {
 	selectCandidate,
 	selectStructure,
 	toggleResearchInsightHidden,
+	updateTopicScriptTableMetadata,
 	updateCandidate,
 	updateResearchInsight,
 	updateTopicScriptTableRow,
@@ -44,6 +45,7 @@ import {
 	type TopicPackageDraft,
 	type TopicPackagePatch,
 	type TopicPackagePlatformRecommendationPatch,
+	type TopicScriptTableMetadataPatch,
 	type TopicScriptTableRowPatch,
 	type VideoStructureOptionDraft,
 } from "./model";
@@ -171,6 +173,11 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 	}: {
 		rowId: string;
 		mediaAssetId: string;
+	}) => void;
+	updateScriptTableMetadata: ({
+		patch,
+	}: {
+		patch: TopicScriptTableMetadataPatch;
 	}) => void;
 	toggleResearchInsightHidden: ({
 		insightId,
@@ -850,6 +857,15 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 								rowId,
 								mediaAssetId,
 							}),
+					}),
+				),
+
+			updateScriptTableMetadata: ({ patch }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							updateTopicScriptTableMetadata({ project, patch }),
 					}),
 				),
 

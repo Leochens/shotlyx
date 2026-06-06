@@ -144,6 +144,22 @@ describe("topic workbench integration contract", () => {
 		expect(chatPanelSource).toContain("选择素材");
 	});
 
+	test("lets brainstorm scripts skip ideation and carry metadata into direct editing", () => {
+		expect(topicWorkbenchSource).toContain("buildDirectScriptCutPrompt");
+		expect(topicWorkbenchSource).toContain("直接根据脚本进行剪辑");
+		expect(topicWorkbenchSource).toContain("跳过候选选题、调研、结构和选题包");
+		expect(topicWorkbenchSource).toContain("由 Agent 自动估算时间");
+		expect(topicWorkbenchSource).toContain("updateScriptTableMetadata");
+		expect(topicWorkbenchSource).toContain('aria-label="脚本标题"');
+		expect(topicWorkbenchSource).toContain('aria-label="脚本简介"');
+		expect(topicWorkbenchSource).toContain("脚本封面");
+		expect(topicWorkbenchSource).toContain("脚本表格封面素材。");
+		expect(topicWorkbenchSource).toContain("project_update_cover");
+		expect(chatPanelSource).toContain("脚本信息");
+		expect(chatPanelSource).toContain("封面");
+		expect(chatPanelSource).toContain("由 Agent 自动估算时间");
+	});
+
 	test("skips automatic thumbnail rendering when the editor is degraded", () => {
 		expect(projectManagerSource).toContain("updateThumbnailFromTimeline");
 		expect(projectManagerSource).toContain("this.editor.renderer.isDegraded");

@@ -91,6 +91,13 @@ export interface TopicScriptTableRow {
 	updatedAt: number;
 }
 
+export interface TopicScriptTableMetadata {
+	title: string;
+	description: string;
+	coverAsset: TopicScriptTableAsset | null;
+	updatedAt: number;
+}
+
 export interface PlatformRecommendation {
 	platform: TopicPlatform;
 	title: string;
@@ -193,6 +200,7 @@ export interface TopicProject {
 	promptHistory: string[];
 	inputMaterials: TopicInputMaterial[];
 	scriptTableRows: TopicScriptTableRow[];
+	scriptTableMetadata: TopicScriptTableMetadata;
 	candidates: TopicCandidate[];
 	selectedCandidateId: string | null;
 	researchSources: ResearchSource[];

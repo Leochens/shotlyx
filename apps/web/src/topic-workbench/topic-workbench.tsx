@@ -72,7 +72,11 @@ import {
 	getDraftTiptapMarkdown,
 	insertUploadedAssetsIntoTiptap,
 } from "./draft-markdown";
-import { ensureTopicScriptTableRows, getTopicProjectMode } from "./model";
+import {
+	ensureTopicScriptTableMetadata,
+	ensureTopicScriptTableRows,
+	getTopicProjectMode,
+} from "./model";
 import { useTopicWorkbenchStore } from "./store";
 import { executeTopicWorkbenchTool } from "./tools";
 import type {
@@ -214,6 +218,8 @@ const INPUT_MATERIAL_KIND_LABELS: Record<
 	note: "备注",
 };
 
+const SCRIPT_TABLE_AUTO_TIME_LABEL = "由 Agent 自动估算时间";
+
 function getStageIndex(stage: TopicStage): number {
 	return STAGES.findIndex((item) => item.stage === stage);
 }
@@ -260,11 +266,43 @@ function hasScriptTableRowContent(row: TopicScriptTableRow): boolean {
 	);
 }
 
+function formatScriptTableAssetReference(
+	asset: TopicScriptTableAsset | null,
+): string {
+	if (!asset) return "未填写";
+	const meta = asset.mediaType ? ` / ${asset.mediaType}` : "";
+	return `${asset.name}${meta}（${asset.mediaAssetId}）`;
+}
+
+function hasScriptTableMetadataContent(project: TopicProject): boolean {
+	const metadata = ensureTopicScriptTableMetadata({
+		metadata: project.scriptTableMetadata,
+	});
+	return Boolean(
+		metadata.title.trim() ||
+			metadata.description.trim() ||
+			metadata.coverAsset,
+	);
+}
+
 function buildTopicScriptTableContext(project: TopicProject): string {
 	const rows = ensureTopicScriptTableRows({
 		rows: project.scriptTableRows,
 	}).filter(hasScriptTableRowContent);
-	if (rows.length === 0) return "";
+	const metadata = ensureTopicScriptTableMetadata({
+		metadata: project.scriptTableMetadata,
+	});
+	const hasMetadata = hasScriptTableMetadataContent(project);
+	if (rows.length === 0 && !hasMetadata) return "";
+
+	const metadataLines = hasMetadata
+		? [
+				"脚本信息：",
+				`标题：${metadata.title.trim() || "未填写"}`,
+				`简介：${metadata.description.trim() || "未填写"}`,
+				`封面：${formatScriptTableAssetReference(metadata.coverAsset)}`,
+			].join("\n")
+		: "";
 
 	const rowLines = rows.map((row, index) => {
 		const assets =
@@ -277,14 +315,35 @@ function buildTopicScriptTableContext(project: TopicProject): string {
 						.join("、")
 				: "无";
 		return [
-			`${index + 1}. 时间：${row.timeRange.trim() || "未填写"}`,
+			`${index + 1}. 时间：${row.timeRange.trim() || SCRIPT_TABLE_AUTO_TIME_LABEL}`,
 			`文案：${row.copy.trim() || "未填写"}`,
 			`画面内容：${row.visualContent.trim() || "未填写"}`,
 			`选择素材：${assets}`,
 		].join("\n");
 	});
 
-	return `\n\n脚本表格：\n${rowLines.join("\n\n")}`;
+	return [
+		"\n\n脚本表格：",
+		metadataLines,
+		rowLines.length > 0 ? rowLines.join("\n\n") : "",
+	]
+		.filter(Boolean)
+		.join("\n");
+}
+
+function buildDirectScriptCutPrompt(project: TopicProject): string {
+	const materialContext =
+		buildInputMaterialContext(project) + buildTopicScriptTableContext(project);
+	return `请直接根据脚本进行剪辑，跳过候选选题、调研、结构和选题包，直接进入视频剪辑执行。
+
+${materialContext}
+
+执行要求：
+1. 先调用 media_get_all 和 timeline_get_summary，确认素材库和当前时间线状态。
+2. 以「脚本表格」为唯一脚本来源；如果某行时间为空，按“${SCRIPT_TABLE_AUTO_TIME_LABEL}”处理，请根据文案长度、画面内容、素材时长和整体节奏自动推算合理时间段，不要要求用户补时间。
+3. 优先使用每行「选择素材」里的 mediaAssetId 进行剪辑；如果某行没有素材，用画面内容描述从现有素材库中匹配，必要时用文本、字幕或占位画面承接。
+4. 如果脚本信息里有封面素材，请使用 project_update_cover 设置项目封面；标题和简介用于视频命名、开场字幕和发布描述参考。
+5. 可以直接调用 timeline_insert_media、timeline_insert_text_overlay、subtitle 或 MG 相关工具生成时间线草稿；完成后说明哪些时间是自动估算的、哪些素材已经放入时间线。`;
 }
 
 function getActivePackage(project: TopicProject): TopicPackageVersion | null {
@@ -708,6 +767,9 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 	const promoteBrainstormToWorkflow = useTopicWorkbenchStore(
 		(state) => state.promoteBrainstormToWorkflow,
 	);
+	const setActiveWorkbench = useTopicWorkbenchStore(
+		(state) => state.setActiveWorkbench,
+	);
 	const emitAgentEvent = useTopicWorkbenchStore(
 		(state) => state.emitAgentEvent,
 	);
@@ -720,6 +782,11 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 	);
 	const materialContext =
 		buildInputMaterialContext(project) + buildTopicScriptTableContext(project);
+	const scriptRows = useMemo(
+		() => ensureTopicScriptTableRows({ rows: project.scriptTableRows }),
+		[project.scriptTableRows],
+	);
+	const hasScriptRows = scriptRows.some(hasScriptTableRowContent);
 
 	const uploadBrainstormMediaFiles = useCallback(
 		async ({
@@ -790,6 +857,16 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 		});
 	};
 
+	const handleDirectScriptCut = () => {
+		setActiveWorkbench({ mode: "video" });
+		emitAgentEvent({
+			editorProjectId: project.editorProjectId,
+			source: "handoff-video",
+			autoRun: true,
+			content: buildDirectScriptCutPrompt(project),
+		});
+	};
+
 	return (
 		<div className="min-h-full min-w-0 space-y-3 p-3">
 			<section className="rounded-sm border border-border/75 bg-card/[0.38] p-3 dark:bg-cyan-300/[0.03]">
@@ -803,15 +880,31 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 							草稿和脚本表格都会自动保存；左侧可以继续头脑风暴、提问或查资料。
 						</p>
 					</div>
-					<Button
-						size="sm"
-						onClick={handleCreateCandidates}
-						disabled={materials.length === 0}
-						title="把右侧草稿整理成正式候选选题"
-					>
-						<Lightbulb size={14} />
-						整理成候选选题
-					</Button>
+					<div className="flex flex-col items-stretch gap-2 sm:items-end">
+						<Button
+							size="sm"
+							onClick={handleCreateCandidates}
+							disabled={materials.length === 0}
+							title="把右侧草稿整理成正式候选选题"
+						>
+							<Lightbulb size={14} />
+							整理成候选选题
+						</Button>
+						<Button
+							size="sm"
+							variant="secondary"
+							onClick={handleDirectScriptCut}
+							disabled={!hasScriptRows}
+							title={
+								hasScriptRows
+									? "跳过候选选题、调研、结构和选题包，直接交给剪辑 Agent"
+									: "先在脚本表格里补充至少一行脚本"
+							}
+						>
+							<Clapperboard size={14} />
+							直接根据脚本进行剪辑
+						</Button>
+					</div>
 				</div>
 				<div
 					className="mt-3 inline-flex rounded-sm border border-border/75 bg-background p-1"
@@ -893,10 +986,10 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 				<ScriptTableWorkspace
 					project={project}
 					mediaAssets={mediaAssets}
-					onUploadFiles={({ files, rowIndex }) =>
+					onUploadFiles={({ files, inputMaterialSummary }) =>
 						uploadBrainstormMediaFiles({
 							files,
-							inputMaterialSummary: `脚本表格第 ${rowIndex + 1} 行选择的画面素材。`,
+							inputMaterialSummary,
 						})
 					}
 				/>
@@ -958,18 +1051,28 @@ function ScriptTableWorkspace({
 	mediaAssets: MediaAsset[];
 	onUploadFiles: ({
 		files,
-		rowIndex,
+		inputMaterialSummary,
 	}: {
 		files: File[];
-		rowIndex: number;
+		inputMaterialSummary: string;
 	}) => Promise<MediaAsset[]>;
 }) {
 	const rows = useMemo(
 		() => ensureTopicScriptTableRows({ rows: project.scriptTableRows }),
 		[project.scriptTableRows],
 	);
+	const metadata = useMemo(
+		() =>
+			ensureTopicScriptTableMetadata({
+				metadata: project.scriptTableMetadata,
+			}),
+		[project.scriptTableMetadata],
+	);
 	const updateScriptTableRow = useTopicWorkbenchStore(
 		(state) => state.updateScriptTableRow,
+	);
+	const updateScriptTableMetadata = useTopicWorkbenchStore(
+		(state) => state.updateScriptTableMetadata,
 	);
 	const addScriptTableRow = useTopicWorkbenchStore(
 		(state) => state.addScriptTableRow,
@@ -997,11 +1100,25 @@ function ScriptTableWorkspace({
 		rowIndex: number;
 		files: File[];
 	}) => {
-		const savedAssets = await onUploadFiles({ files, rowIndex });
+		const savedAssets = await onUploadFiles({
+			files,
+			inputMaterialSummary: `脚本表格第 ${rowIndex + 1} 行选择的画面素材。`,
+		});
 		if (savedAssets.length === 0) return;
 		attachScriptTableAssets({
 			rowId,
 			assets: savedAssets.map(buildScriptTableAsset),
+		});
+	};
+
+	const handleUploadCoverFiles = async (files: File[]) => {
+		const [coverAsset] = await onUploadFiles({
+			files,
+			inputMaterialSummary: "脚本表格封面素材。",
+		});
+		if (!coverAsset) return;
+		updateScriptTableMetadata({
+			patch: { coverAsset: buildScriptTableAsset(coverAsset) },
 		});
 	};
 
@@ -1059,7 +1176,146 @@ function ScriptTableWorkspace({
 					</button>
 				</div>
 			</div>
+			<ScriptTableMetadataPanel
+				metadata={metadata}
+				mediaAssetsById={mediaAssetsById}
+				onUpdate={(patch) => updateScriptTableMetadata({ patch })}
+				onUploadCoverFiles={handleUploadCoverFiles}
+			/>
 		</section>
+	);
+}
+
+function ScriptTableMetadataPanel({
+	metadata,
+	mediaAssetsById,
+	onUpdate,
+	onUploadCoverFiles,
+}: {
+	metadata: TopicProject["scriptTableMetadata"];
+	mediaAssetsById: Map<string, MediaAsset>;
+	onUpdate: (patch: {
+		title?: string;
+		description?: string;
+		coverAsset?: TopicScriptTableAsset | null;
+	}) => void;
+	onUploadCoverFiles: (files: File[]) => Promise<void>;
+}) {
+	const [isUploadingCover, setUploadingCover] = useState(false);
+	const fileInputRef = useRef<HTMLInputElement>(null);
+	const coverMediaAsset = metadata.coverAsset
+		? mediaAssetsById.get(metadata.coverAsset.mediaAssetId)
+		: undefined;
+	const coverPreviewUrl = coverMediaAsset?.thumbnailUrl ?? coverMediaAsset?.url;
+
+	const handleCoverFiles = async (files: File[]) => {
+		if (files.length === 0 || isUploadingCover) return;
+		setUploadingCover(true);
+		try {
+			await onUploadCoverFiles(files.slice(0, 1));
+		} finally {
+			setUploadingCover(false);
+		}
+	};
+
+	return (
+		<div className="border-t border-border/75 bg-muted/[0.08] p-3">
+			<div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+				<FileText size={14} />
+				视频信息
+			</div>
+			<div className="grid gap-3 [grid-template-columns:minmax(11rem,0.8fr)_minmax(13rem,0.85fr)_minmax(14rem,1fr)] max-[980px]:grid-cols-1">
+				<label className="block min-w-0">
+					<span className="text-xs font-semibold text-muted-foreground">
+						标题
+					</span>
+					<input
+						value={metadata.title}
+						onChange={(event) => onUpdate({ title: event.target.value })}
+						placeholder="视频标题"
+						className="mt-1 h-9 w-full rounded-sm border border-border bg-background px-2 text-sm text-foreground outline-none focus:border-primary/45"
+						aria-label="脚本标题"
+					/>
+				</label>
+				<div className="min-w-0">
+					<input
+						ref={fileInputRef}
+						type="file"
+						accept="image/*"
+						className="hidden"
+						onChange={(event) => {
+							const files = Array.from(event.currentTarget.files ?? []);
+							event.currentTarget.value = "";
+							void handleCoverFiles(files);
+						}}
+					/>
+					<div className="mb-1 text-xs font-semibold text-muted-foreground">
+						脚本封面
+					</div>
+					<div className="flex min-h-20 items-center gap-2 rounded-sm border border-border/70 bg-background p-2">
+						<div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-border/65 bg-muted/[0.18]">
+							{coverPreviewUrl ? (
+								<img
+									src={coverPreviewUrl}
+									alt=""
+									className="size-full object-cover"
+								/>
+							) : (
+								<ImagePlus size={18} className="text-muted-foreground" />
+							)}
+						</div>
+						<div className="min-w-0 flex-1">
+							<div className="truncate text-xs font-medium text-foreground">
+								{metadata.coverAsset?.name ?? "未选择封面"}
+							</div>
+							<div className="mt-1 flex flex-wrap gap-1.5">
+								<Button
+									size="sm"
+									variant="outline"
+									className="h-7 rounded-sm"
+									onClick={() => fileInputRef.current?.click()}
+									disabled={isUploadingCover}
+									title="上传脚本封面"
+								>
+									{isUploadingCover ? (
+										<Loader2 size={13} className="animate-spin" />
+									) : (
+										<Upload size={13} />
+									)}
+									上传封面
+								</Button>
+								{metadata.coverAsset ? (
+									<Button
+										size="icon"
+										variant="ghost"
+										className="size-7 rounded-sm text-muted-foreground hover:text-destructive"
+										onClick={() => onUpdate({ coverAsset: null })}
+										title="移除脚本封面"
+									>
+										<X size={13} />
+									</Button>
+								) : null}
+							</div>
+						</div>
+					</div>
+				</div>
+				<label className="block min-w-0">
+					<span className="text-xs font-semibold text-muted-foreground">
+						简介
+					</span>
+					<textarea
+						value={metadata.description}
+						onChange={(event) =>
+							onUpdate({ description: event.target.value })
+						}
+						placeholder="视频简介或发布描述"
+						rows={3}
+						className="mt-1 min-h-20 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-foreground outline-none focus:border-primary/45"
+						aria-label="脚本简介"
+					/>
+				</label>
+			</div>
+		</div>
 	);
 }
 
@@ -1108,7 +1364,7 @@ function ScriptTableRowEditor({
 				<input
 					value={row.timeRange}
 					onChange={(event) => onUpdate({ timeRange: event.target.value })}
-					placeholder="0:00 - 0:15"
+					placeholder="可空，自动估算"
 					className="h-9 w-full rounded-sm border border-border bg-background px-2 text-xs font-medium text-foreground outline-none focus:border-primary/45"
 					aria-label="脚本表格时间"
 				/>

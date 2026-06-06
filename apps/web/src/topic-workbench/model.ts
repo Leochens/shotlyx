@@ -15,6 +15,7 @@ import type {
 	TopicProject,
 	TopicProjectMode,
 	TopicScriptTableAsset,
+	TopicScriptTableMetadata,
 	TopicScriptTableRow,
 	TopicStage,
 	VideoStructureOption,
@@ -157,6 +158,12 @@ export interface TopicScriptTableRowPatch {
 	visualContent?: string;
 }
 
+export interface TopicScriptTableMetadataPatch {
+	title?: string;
+	description?: string;
+	coverAsset?: TopicScriptTableAsset | null;
+}
+
 function createId(prefix: string): string {
 	if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
 		return `${prefix}-${crypto.randomUUID()}`;
@@ -191,6 +198,19 @@ export function createDefaultScriptTableRows({
 	);
 }
 
+function createDefaultScriptTableMetadata({
+	now = Date.now(),
+}: {
+	now?: number;
+} = {}): TopicScriptTableMetadata {
+	return {
+		title: "",
+		description: "",
+		coverAsset: null,
+		updatedAt: now,
+	};
+}
+
 function normalizeScriptTableAsset({
 	asset,
 	now,
@@ -217,6 +237,28 @@ function normalizeScriptTableAsset({
 		addedAt:
 			typeof asset.addedAt === "number" && Number.isFinite(asset.addedAt)
 				? asset.addedAt
+				: now,
+	};
+}
+
+export function ensureTopicScriptTableMetadata({
+	metadata,
+	now = Date.now(),
+}: {
+	metadata?: Partial<TopicScriptTableMetadata> | null;
+	now?: number;
+}): TopicScriptTableMetadata {
+	if (!metadata) return createDefaultScriptTableMetadata({ now });
+	return {
+		title: metadata.title?.slice(0, 120) ?? "",
+		description: metadata.description?.slice(0, 2000) ?? "",
+		coverAsset: metadata.coverAsset
+			? normalizeScriptTableAsset({ asset: metadata.coverAsset, now })
+			: null,
+		updatedAt:
+			typeof metadata.updatedAt === "number" &&
+			Number.isFinite(metadata.updatedAt)
+				? metadata.updatedAt
 				: now,
 	};
 }
@@ -264,6 +306,42 @@ export function ensureTopicScriptTableRows({
 	return rows.map((row, index) =>
 		normalizeScriptTableRow({ row, index, now }),
 	);
+}
+
+export function updateTopicScriptTableMetadata({
+	project,
+	patch,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	patch: TopicScriptTableMetadataPatch;
+	now?: number;
+}): TopicProject {
+	const current = ensureTopicScriptTableMetadata({
+		metadata: project.scriptTableMetadata,
+		now,
+	});
+	const coverAsset =
+		patch.coverAsset === undefined
+			? current.coverAsset
+			: patch.coverAsset
+				? normalizeScriptTableAsset({ asset: patch.coverAsset, now })
+				: null;
+	return {
+		...project,
+		scriptTableMetadata: {
+			...current,
+			title:
+				patch.title !== undefined ? patch.title.slice(0, 120) : current.title,
+			description:
+				patch.description !== undefined
+					? patch.description.slice(0, 2000)
+					: current.description,
+			coverAsset,
+			updatedAt: now,
+		},
+		updatedAt: now,
+	};
 }
 
 export function getTopicProjectMode(project: TopicProject): TopicProjectMode {
@@ -1174,6 +1252,7 @@ export function createTopicProjectFromPrompt({
 		promptHistory: [prompt.trim()].filter(Boolean),
 		inputMaterials: normalizedInputMaterials,
 		scriptTableRows: createDefaultScriptTableRows({ now }),
+		scriptTableMetadata: createDefaultScriptTableMetadata({ now }),
 		candidates,
 		selectedCandidateId: null,
 		researchSources: [],
@@ -1227,6 +1306,7 @@ export function createTopicProjectFromDraft({
 		promptHistory: [],
 		inputMaterials: normalizedInputMaterials,
 		scriptTableRows: createDefaultScriptTableRows({ now }),
+		scriptTableMetadata: createDefaultScriptTableMetadata({ now }),
 		candidates: [],
 		selectedCandidateId: null,
 		researchSources: [],
