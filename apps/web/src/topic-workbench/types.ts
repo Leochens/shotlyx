@@ -73,6 +73,24 @@ export interface ScriptSegment {
 	materialSuggestion: string;
 }
 
+export interface TopicScriptTableAsset {
+	mediaAssetId: string;
+	name: string;
+	mediaType?: string;
+	durationSeconds?: number;
+	sizeBytes?: number;
+	addedAt: number;
+}
+
+export interface TopicScriptTableRow {
+	id: string;
+	timeRange: string;
+	copy: string;
+	visualContent: string;
+	assets: TopicScriptTableAsset[];
+	updatedAt: number;
+}
+
 export interface PlatformRecommendation {
 	platform: TopicPlatform;
 	title: string;
@@ -174,6 +192,7 @@ export interface TopicProject {
 	updatedAt: number;
 	promptHistory: string[];
 	inputMaterials: TopicInputMaterial[];
+	scriptTableRows: TopicScriptTableRow[];
 	candidates: TopicCandidate[];
 	selectedCandidateId: string | null;
 	researchSources: ResearchSource[];

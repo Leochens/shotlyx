@@ -4,9 +4,11 @@ import { createIndexedDBPersistStorage } from "@/agent/chat/indexeddb-storage";
 import {
 	addPackageVersion,
 	addResearchInsight,
+	addTopicScriptTableRow,
 	advanceToStructureStage,
 	applyResearchSources,
 	applyStructureOptions,
+	attachTopicScriptTableAssets,
 	confirmSelectedCandidate,
 	createProductionPlan as createProductionPlanModel,
 	createResearchSources,
@@ -17,6 +19,8 @@ import {
 	mergePromptIntoProject,
 	mergeTopicInputMaterials,
 	removeTopicInputMaterial,
+	removeTopicScriptTableAsset,
+	removeTopicScriptTableRow,
 	replaceTopicCandidates,
 	resetTopicProjectToStage,
 	selectCandidate,
@@ -24,6 +28,7 @@ import {
 	toggleResearchInsightHidden,
 	updateCandidate,
 	updateResearchInsight,
+	updateTopicScriptTableRow,
 	updateTopicInputMaterial,
 	updateTopicPackageCoverIdea,
 	updateTopicPackageOutlineItem,
@@ -39,6 +44,7 @@ import {
 	type TopicPackageDraft,
 	type TopicPackagePatch,
 	type TopicPackagePlatformRecommendationPatch,
+	type TopicScriptTableRowPatch,
 	type VideoStructureOptionDraft,
 } from "./model";
 import type {
@@ -50,6 +56,7 @@ import type {
 	TopicProject,
 	WorkbenchMode,
 	ResearchInsight,
+	TopicScriptTableAsset,
 } from "./types";
 
 interface PersistedTopicWorkbenchState {
@@ -142,6 +149,29 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 		patch: TopicInputMaterialPatch;
 	}) => void;
 	removeInputMaterial: ({ materialId }: { materialId: string }) => void;
+	updateScriptTableRow: ({
+		rowId,
+		patch,
+	}: {
+		rowId: string;
+		patch: TopicScriptTableRowPatch;
+	}) => void;
+	addScriptTableRow: ({ afterRowId }: { afterRowId?: string }) => void;
+	removeScriptTableRow: ({ rowId }: { rowId: string }) => void;
+	attachScriptTableAssets: ({
+		rowId,
+		assets,
+	}: {
+		rowId: string;
+		assets: TopicScriptTableAsset[];
+	}) => void;
+	removeScriptTableAsset: ({
+		rowId,
+		mediaAssetId,
+	}: {
+		rowId: string;
+		mediaAssetId: string;
+	}) => void;
 	toggleResearchInsightHidden: ({
 		insightId,
 		hidden,
@@ -773,6 +803,55 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 					}),
 					...removePendingInputMaterial({ state, materialId }),
 				})),
+
+			updateScriptTableRow: ({ rowId, patch }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							updateTopicScriptTableRow({ project, rowId, patch }),
+					}),
+				),
+
+			addScriptTableRow: ({ afterRowId }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							addTopicScriptTableRow({ project, afterRowId }),
+					}),
+				),
+
+			removeScriptTableRow: ({ rowId }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							removeTopicScriptTableRow({ project, rowId }),
+					}),
+				),
+
+			attachScriptTableAssets: ({ rowId, assets }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							attachTopicScriptTableAssets({ project, rowId, assets }),
+					}),
+				),
+
+			removeScriptTableAsset: ({ rowId, mediaAssetId }) =>
+				set((state) =>
+					updateActiveProject({
+						state,
+						updater: (project) =>
+							removeTopicScriptTableAsset({
+								project,
+								rowId,
+								mediaAssetId,
+							}),
+					}),
+				),
 
 			toggleResearchInsightHidden: ({ insightId, hidden }) =>
 				set((state) =>

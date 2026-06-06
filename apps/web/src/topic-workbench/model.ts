@@ -14,6 +14,8 @@ import type {
 	TopicPlatform,
 	TopicProject,
 	TopicProjectMode,
+	TopicScriptTableAsset,
+	TopicScriptTableRow,
 	TopicStage,
 	VideoStructureOption,
 } from "./types";
@@ -149,11 +151,119 @@ export interface TopicInputMaterialPatch {
 	content?: string;
 }
 
+export interface TopicScriptTableRowPatch {
+	timeRange?: string;
+	copy?: string;
+	visualContent?: string;
+}
+
 function createId(prefix: string): string {
 	if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
 		return `${prefix}-${crypto.randomUUID()}`;
 	}
 	return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createTopicScriptTableRow({
+	index,
+	now,
+}: {
+	index: number;
+	now: number;
+}): TopicScriptTableRow {
+	return {
+		id: `script-row-${index + 1}`,
+		timeRange: "",
+		copy: "",
+		visualContent: "",
+		assets: [],
+		updatedAt: now,
+	};
+}
+
+export function createDefaultScriptTableRows({
+	now = Date.now(),
+}: {
+	now?: number;
+} = {}): TopicScriptTableRow[] {
+	return Array.from({ length: 3 }, (_, index) =>
+		createTopicScriptTableRow({ index, now }),
+	);
+}
+
+function normalizeScriptTableAsset({
+	asset,
+	now,
+}: {
+	asset: TopicScriptTableAsset;
+	now: number;
+}): TopicScriptTableAsset | null {
+	const mediaAssetId = asset.mediaAssetId.trim();
+	const name = asset.name.trim();
+	if (!mediaAssetId || !name) return null;
+	return {
+		mediaAssetId,
+		name: clampText({ value: name, maxLength: 120 }),
+		mediaType: asset.mediaType?.trim() || undefined,
+		durationSeconds:
+			typeof asset.durationSeconds === "number" &&
+			Number.isFinite(asset.durationSeconds)
+				? asset.durationSeconds
+				: undefined,
+		sizeBytes:
+			typeof asset.sizeBytes === "number" && Number.isFinite(asset.sizeBytes)
+				? asset.sizeBytes
+				: undefined,
+		addedAt:
+			typeof asset.addedAt === "number" && Number.isFinite(asset.addedAt)
+				? asset.addedAt
+				: now,
+	};
+}
+
+function normalizeScriptTableRow({
+	row,
+	index,
+	now,
+}: {
+	row: Partial<TopicScriptTableRow> | null | undefined;
+	index: number;
+	now: number;
+}): TopicScriptTableRow {
+	const fallback = createTopicScriptTableRow({ index, now });
+	if (!row) return fallback;
+
+	const assets = new Map<string, TopicScriptTableAsset>();
+	for (const asset of row.assets ?? []) {
+		const normalized = normalizeScriptTableAsset({ asset, now });
+		if (!normalized) continue;
+		assets.set(normalized.mediaAssetId, normalized);
+	}
+
+	return {
+		id: row.id?.trim() || fallback.id,
+		timeRange: row.timeRange?.slice(0, 80) ?? "",
+		copy: row.copy?.slice(0, 6000) ?? "",
+		visualContent: row.visualContent?.slice(0, 6000) ?? "",
+		assets: [...assets.values()],
+		updatedAt:
+			typeof row.updatedAt === "number" && Number.isFinite(row.updatedAt)
+				? row.updatedAt
+				: now,
+	};
+}
+
+export function ensureTopicScriptTableRows({
+	rows,
+	now = Date.now(),
+}: {
+	rows?: TopicScriptTableRow[];
+	now?: number;
+}): TopicScriptTableRow[] {
+	if (!rows || rows.length === 0) return createDefaultScriptTableRows({ now });
+	return rows.map((row, index) =>
+		normalizeScriptTableRow({ row, index, now }),
+	);
 }
 
 export function getTopicProjectMode(project: TopicProject): TopicProjectMode {
@@ -261,6 +371,180 @@ export function mergeTopicInputMaterials({
 		nextMaterials.set(createMaterialDedupKey(material), material);
 	}
 	return [...nextMaterials.values()].slice(-12);
+}
+
+export function updateTopicScriptTableRow({
+	project,
+	rowId,
+	patch,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	rowId: string;
+	patch: TopicScriptTableRowPatch;
+	now?: number;
+}): TopicProject {
+	const rows = ensureTopicScriptTableRows({
+		rows: project.scriptTableRows,
+		now,
+	});
+	return {
+		...project,
+		scriptTableRows: rows.map((row) =>
+			row.id === rowId
+				? {
+						...row,
+						timeRange:
+							patch.timeRange !== undefined
+								? patch.timeRange.slice(0, 80)
+								: row.timeRange,
+						copy:
+							patch.copy !== undefined ? patch.copy.slice(0, 6000) : row.copy,
+						visualContent:
+							patch.visualContent !== undefined
+								? patch.visualContent.slice(0, 6000)
+								: row.visualContent,
+						updatedAt: now,
+					}
+				: row,
+		),
+		updatedAt: now,
+	};
+}
+
+export function addTopicScriptTableRow({
+	project,
+	afterRowId,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	afterRowId?: string;
+	now?: number;
+}): TopicProject {
+	const rows = ensureTopicScriptTableRows({
+		rows: project.scriptTableRows,
+		now,
+	});
+	const nextRow: TopicScriptTableRow = {
+		...createTopicScriptTableRow({ index: rows.length, now }),
+		id: createId("script-row"),
+	};
+	if (!afterRowId) {
+		return {
+			...project,
+			scriptTableRows: [...rows, nextRow],
+			updatedAt: now,
+		};
+	}
+	const insertIndex = rows.findIndex((row) => row.id === afterRowId);
+	if (insertIndex < 0) {
+		return {
+			...project,
+			scriptTableRows: [...rows, nextRow],
+			updatedAt: now,
+		};
+	}
+	return {
+		...project,
+		scriptTableRows: [
+			...rows.slice(0, insertIndex + 1),
+			nextRow,
+			...rows.slice(insertIndex + 1),
+		],
+		updatedAt: now,
+	};
+}
+
+export function removeTopicScriptTableRow({
+	project,
+	rowId,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	rowId: string;
+	now?: number;
+}): TopicProject {
+	const rows = ensureTopicScriptTableRows({
+		rows: project.scriptTableRows,
+		now,
+	}).filter((row) => row.id !== rowId);
+	return {
+		...project,
+		scriptTableRows:
+			rows.length > 0 ? rows : createDefaultScriptTableRows({ now }),
+		updatedAt: now,
+	};
+}
+
+export function attachTopicScriptTableAssets({
+	project,
+	rowId,
+	assets,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	rowId: string;
+	assets: TopicScriptTableAsset[];
+	now?: number;
+}): TopicProject {
+	if (assets.length === 0) return project;
+	const rows = ensureTopicScriptTableRows({
+		rows: project.scriptTableRows,
+		now,
+	});
+	return {
+		...project,
+		scriptTableRows: rows.map((row) => {
+			if (row.id !== rowId) return row;
+			const nextAssets = new Map<string, TopicScriptTableAsset>();
+			for (const asset of row.assets) {
+				nextAssets.set(asset.mediaAssetId, asset);
+			}
+			for (const asset of assets) {
+				const normalized = normalizeScriptTableAsset({ asset, now });
+				if (!normalized) continue;
+				nextAssets.set(normalized.mediaAssetId, normalized);
+			}
+			return {
+				...row,
+				assets: [...nextAssets.values()],
+				updatedAt: now,
+			};
+		}),
+		updatedAt: now,
+	};
+}
+
+export function removeTopicScriptTableAsset({
+	project,
+	rowId,
+	mediaAssetId,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	rowId: string;
+	mediaAssetId: string;
+	now?: number;
+}): TopicProject {
+	const rows = ensureTopicScriptTableRows({
+		rows: project.scriptTableRows,
+		now,
+	});
+	return {
+		...project,
+		scriptTableRows: rows.map((row) =>
+			row.id === rowId
+				? {
+						...row,
+						assets: row.assets.filter(
+							(asset) => asset.mediaAssetId !== mediaAssetId,
+						),
+						updatedAt: now,
+					}
+				: row,
+		),
+		updatedAt: now,
+	};
 }
 
 function encodeQuery(query: string): string {
@@ -889,6 +1173,7 @@ export function createTopicProjectFromPrompt({
 		updatedAt: now,
 		promptHistory: [prompt.trim()].filter(Boolean),
 		inputMaterials: normalizedInputMaterials,
+		scriptTableRows: createDefaultScriptTableRows({ now }),
 		candidates,
 		selectedCandidateId: null,
 		researchSources: [],
@@ -941,6 +1226,7 @@ export function createTopicProjectFromDraft({
 		updatedAt: now,
 		promptHistory: [],
 		inputMaterials: normalizedInputMaterials,
+		scriptTableRows: createDefaultScriptTableRows({ now }),
 		candidates: [],
 		selectedCandidateId: null,
 		researchSources: [],

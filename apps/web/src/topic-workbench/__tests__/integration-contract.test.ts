@@ -125,6 +125,25 @@ describe("topic workbench integration contract", () => {
 		expect(brainstormDraftCardSource).not.toContain("点击编辑开始记录");
 	});
 
+	test("adds a four-column script table tab to brainstorm mode and forwards it to Agent context", () => {
+		expect(topicWorkbenchSource).toContain("type BrainstormWorkspaceTab");
+		expect(topicWorkbenchSource).toContain("topic-script-table-tab");
+		expect(topicWorkbenchSource).toContain('data-testid="topic-script-table"');
+		expect(topicWorkbenchSource).toContain('aria-label="脚本表格时间"');
+		expect(topicWorkbenchSource).toContain('aria-label="脚本文案"');
+		expect(topicWorkbenchSource).toContain('aria-label="画面内容"');
+		expect(topicWorkbenchSource).toContain("选择素材");
+		expect(topicWorkbenchSource).toContain("添加一行");
+		expect(topicWorkbenchSource).toContain('title="删除这一行"');
+		expect(topicWorkbenchSource).toContain("addScriptTableRow");
+		expect(topicWorkbenchSource).toContain("removeScriptTableRow");
+		expect(topicWorkbenchSource).toContain("attachScriptTableAssets");
+		expect(chatPanelSource).toContain("formatTopicScriptTableForAgent");
+		expect(chatPanelSource).toContain("脚本表格");
+		expect(chatPanelSource).toContain("画面内容");
+		expect(chatPanelSource).toContain("选择素材");
+	});
+
 	test("skips automatic thumbnail rendering when the editor is degraded", () => {
 		expect(projectManagerSource).toContain("updateThumbnailFromTimeline");
 		expect(projectManagerSource).toContain("this.editor.renderer.isDegraded");

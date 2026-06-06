@@ -28,6 +28,7 @@ import {
 	FileText,
 	History,
 	Heading2,
+	ImagePlus,
 	Italic,
 	LayoutTemplate,
 	Lightbulb,
@@ -40,9 +41,11 @@ import {
 	Radar,
 	RefreshCw,
 	Search,
+	Table2,
 	Trash2,
 	Upload,
 	Video,
+	X,
 	type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -69,7 +72,7 @@ import {
 	getDraftTiptapMarkdown,
 	insertUploadedAssetsIntoTiptap,
 } from "./draft-markdown";
-import { getTopicProjectMode } from "./model";
+import { ensureTopicScriptTableRows, getTopicProjectMode } from "./model";
 import { useTopicWorkbenchStore } from "./store";
 import { executeTopicWorkbenchTool } from "./tools";
 import type {
@@ -80,6 +83,8 @@ import type {
 	TopicPackageVersion,
 	TopicPlatform,
 	TopicProject,
+	TopicScriptTableAsset,
+	TopicScriptTableRow,
 	TopicStage,
 	VideoStructureOption,
 } from "./types";
@@ -135,6 +140,8 @@ type TopicWorkbenchSectionId =
 	| "structure"
 	| "package"
 	| "production";
+
+type BrainstormWorkspaceTab = "draft" | "script-table";
 
 type CollapsedSections = Record<TopicWorkbenchSectionId, boolean>;
 
@@ -244,6 +251,42 @@ function buildInputMaterialContext(project: TopicProject): string {
 	return `\n\n用户提供素材上下文：\n${materialLines.join("\n")}`;
 }
 
+function hasScriptTableRowContent(row: TopicScriptTableRow): boolean {
+	return Boolean(
+		row.timeRange.trim() ||
+			row.copy.trim() ||
+			row.visualContent.trim() ||
+			row.assets.length > 0,
+	);
+}
+
+function buildTopicScriptTableContext(project: TopicProject): string {
+	const rows = ensureTopicScriptTableRows({
+		rows: project.scriptTableRows,
+	}).filter(hasScriptTableRowContent);
+	if (rows.length === 0) return "";
+
+	const rowLines = rows.map((row, index) => {
+		const assets =
+			row.assets.length > 0
+				? row.assets
+						.map((asset) => {
+							const meta = asset.mediaType ? ` / ${asset.mediaType}` : "";
+							return `${asset.name}${meta}（${asset.mediaAssetId}）`;
+						})
+						.join("、")
+				: "无";
+		return [
+			`${index + 1}. 时间：${row.timeRange.trim() || "未填写"}`,
+			`文案：${row.copy.trim() || "未填写"}`,
+			`画面内容：${row.visualContent.trim() || "未填写"}`,
+			`选择素材：${assets}`,
+		].join("\n");
+	});
+
+	return `\n\n脚本表格：\n${rowLines.join("\n\n")}`;
+}
+
 function getActivePackage(project: TopicProject): TopicPackageVersion | null {
 	if (project.activePackageVersionId) {
 		return (
@@ -336,7 +379,8 @@ function buildStageForwardTask({
 	const topicText = selected
 		? `当前已选题：「${selected.title}」。核心观点：${selected.coreViewpoint}`
 		: `当前选题方向：「${project.title}」。`;
-	const materialContext = buildInputMaterialContext(project);
+	const materialContext =
+		buildInputMaterialContext(project) + buildTopicScriptTableContext(project);
 
 	if (stage === "research") {
 		return `${topicText}${materialContext}\n请进入调研阶段：搜索 B 站、YouTube 和网页资料，判断是否有人做同类选题、他们的灵感来源和差异化空位。请同时总结 3-6 段可直接参考的知识点，每段绑定引用来源。完成后调用 topic_set_research，用 sources 写来源链接，用 insights 写知识脉络段落。`;
@@ -363,7 +407,8 @@ function buildStageResetTask({
 	project: TopicProject;
 	stage: TopicStage;
 }): string {
-	const materialContext = buildInputMaterialContext(project);
+	const materialContext =
+		buildInputMaterialContext(project) + buildTopicScriptTableContext(project);
 	if (stage === "ideation") {
 		return `我已经在右侧工作台确认要回到选题阶段。请重新理解当前方向「${project.originPrompt || project.title}」和用户提供素材，生成新一版候选选题，并调用 topic_set_candidates 写入右侧选题工作台。${materialContext}`;
 	}
@@ -649,6 +694,8 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 	const mediaAssets = useEditor((currentEditor) =>
 		currentEditor.media.getAssets(),
 	);
+	const [activeTab, setActiveTab] =
+		useState<BrainstormWorkspaceTab>("draft");
 	const updateInputMaterial = useTopicWorkbenchStore(
 		(state) => state.updateInputMaterial,
 	);
@@ -671,10 +718,17 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 	const attachedMaterials = materials.filter(
 		(material) => material.kind !== "note",
 	);
-	const materialContext = buildInputMaterialContext(project);
+	const materialContext =
+		buildInputMaterialContext(project) + buildTopicScriptTableContext(project);
 
-	const uploadDraftMediaFiles = useCallback(
-		async (files: File[]): Promise<MediaAsset[]> => {
+	const uploadBrainstormMediaFiles = useCallback(
+		async ({
+			files,
+			inputMaterialSummary,
+		}: {
+			files: File[];
+			inputMaterialSummary: string;
+		}): Promise<MediaAsset[]> => {
 			const activeEditorProject = editor.project.getActiveOrNull();
 			if (!activeEditorProject || files.length === 0) return [];
 
@@ -712,7 +766,7 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 						id: `material-${asset.id}`,
 						kind: "uploaded-media",
 						title: asset.name,
-						summary: "草稿中上传的图片或视频素材。",
+						summary: inputMaterialSummary,
 						mediaAssetId: asset.id,
 						mediaType: asset.type,
 						durationSeconds: asset.duration,
@@ -743,10 +797,10 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 					<div className="min-w-0">
 						<div className="flex items-center gap-2 text-sm font-semibold text-foreground">
 							<BookOpenText size={15} />
-							我的草稿
+							选题草稿
 						</div>
 						<p className="mt-1 text-xs leading-5 text-muted-foreground">
-							草稿会自动保存；左侧可以继续头脑风暴、提问或查资料。
+							草稿和脚本表格都会自动保存；左侧可以继续头脑风暴、提问或查资料。
 						</p>
 					</div>
 					<Button
@@ -759,57 +813,430 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 						整理成候选选题
 					</Button>
 				</div>
-			</section>
-			<div className="space-y-3">
-				{draftMaterials.map((material) => (
-					<BrainstormDraftCard
-						key={material.id}
-						material={material}
-						mediaAssets={mediaAssets}
-						onUploadFiles={uploadDraftMediaFiles}
-						onSave={(patch) =>
-							updateInputMaterial({ materialId: material.id, patch })
-						}
-						onRemove={() => removeInputMaterial({ materialId: material.id })}
+				<div
+					className="mt-3 inline-flex rounded-sm border border-border/75 bg-background p-1"
+					role="tablist"
+					aria-label="选题草稿工作区"
+				>
+					<BrainstormWorkspaceTabButton
+						active={activeTab === "draft"}
+						icon={BookOpenText}
+						label="草稿"
+						onClick={() => setActiveTab("draft")}
 					/>
-				))}
-				{attachedMaterials.length > 0 ? (
-					<section className="rounded-sm border border-border/75 bg-background p-3">
-						<div className="mb-2 text-xs font-medium text-muted-foreground">
-							草稿素材
-						</div>
-						<div className="space-y-1.5">
-							{attachedMaterials.map((material) => (
-								<div
-									key={material.id}
-									className="flex items-center justify-between gap-2 rounded-sm border border-border/60 bg-muted/[0.14] px-2 py-1.5"
-								>
-									<div className="min-w-0">
-										<div className="truncate text-xs font-medium text-foreground">
-											{material.title}
-										</div>
-										<div className="text-[0.68rem] text-muted-foreground">
-											{INPUT_MATERIAL_KIND_LABELS[material.kind]}
-											{material.mediaType ? ` / ${material.mediaType}` : ""}
-										</div>
-									</div>
-									<Button
-										size="icon"
-										variant="ghost"
-										className="size-7 shrink-0 rounded-sm"
-										onClick={() =>
-											removeInputMaterial({ materialId: material.id })
-										}
-										title="移除素材"
+					<BrainstormWorkspaceTabButton
+						active={activeTab === "script-table"}
+						icon={Table2}
+						label="脚本表格"
+						testId="topic-script-table-tab"
+						onClick={() => setActiveTab("script-table")}
+					/>
+				</div>
+			</section>
+			{activeTab === "draft" ? (
+				<div className="space-y-3">
+					{draftMaterials.map((material) => (
+						<BrainstormDraftCard
+							key={material.id}
+							material={material}
+							mediaAssets={mediaAssets}
+							onUploadFiles={(files) =>
+								uploadBrainstormMediaFiles({
+									files,
+									inputMaterialSummary: "草稿中上传的图片或视频素材。",
+								})
+							}
+							onSave={(patch) =>
+								updateInputMaterial({ materialId: material.id, patch })
+							}
+							onRemove={() => removeInputMaterial({ materialId: material.id })}
+						/>
+					))}
+					{attachedMaterials.length > 0 ? (
+						<section className="rounded-sm border border-border/75 bg-background p-3">
+							<div className="mb-2 text-xs font-medium text-muted-foreground">
+								草稿素材
+							</div>
+							<div className="space-y-1.5">
+								{attachedMaterials.map((material) => (
+									<div
+										key={material.id}
+										className="flex items-center justify-between gap-2 rounded-sm border border-border/60 bg-muted/[0.14] px-2 py-1.5"
 									>
-										<Trash2 size={12} />
-									</Button>
-								</div>
-							))}
+										<div className="min-w-0">
+											<div className="truncate text-xs font-medium text-foreground">
+												{material.title}
+											</div>
+											<div className="text-[0.68rem] text-muted-foreground">
+												{INPUT_MATERIAL_KIND_LABELS[material.kind]}
+												{material.mediaType ? ` / ${material.mediaType}` : ""}
+											</div>
+										</div>
+										<Button
+											size="icon"
+											variant="ghost"
+											className="size-7 shrink-0 rounded-sm"
+											onClick={() =>
+												removeInputMaterial({ materialId: material.id })
+											}
+											title="移除素材"
+										>
+											<Trash2 size={12} />
+										</Button>
+									</div>
+								))}
+							</div>
+						</section>
+					) : null}
+				</div>
+			) : (
+				<ScriptTableWorkspace
+					project={project}
+					mediaAssets={mediaAssets}
+					onUploadFiles={({ files, rowIndex }) =>
+						uploadBrainstormMediaFiles({
+							files,
+							inputMaterialSummary: `脚本表格第 ${rowIndex + 1} 行选择的画面素材。`,
+						})
+					}
+				/>
+			)}
+		</div>
+	);
+}
+
+function BrainstormWorkspaceTabButton({
+	active,
+	icon: Icon,
+	label,
+	testId,
+	onClick,
+}: {
+	active: boolean;
+	icon: LucideIcon;
+	label: string;
+	testId?: string;
+	onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			role="tab"
+			data-testid={testId}
+			aria-selected={active}
+			onClick={onClick}
+			className={cn(
+				"flex h-8 items-center gap-1.5 rounded-sm px-3 text-xs font-medium transition-colors",
+				active
+					? "bg-primary text-primary-foreground shadow-sm"
+					: "text-muted-foreground hover:bg-accent hover:text-foreground",
+			)}
+		>
+			<Icon size={13} />
+			{label}
+		</button>
+	);
+}
+
+function buildScriptTableAsset(asset: MediaAsset): TopicScriptTableAsset {
+	return {
+		mediaAssetId: asset.id,
+		name: asset.name,
+		mediaType: asset.type,
+		durationSeconds: asset.duration,
+		sizeBytes: asset.file.size,
+		addedAt: Date.now(),
+	};
+}
+
+function ScriptTableWorkspace({
+	project,
+	mediaAssets,
+	onUploadFiles,
+}: {
+	project: TopicProject;
+	mediaAssets: MediaAsset[];
+	onUploadFiles: ({
+		files,
+		rowIndex,
+	}: {
+		files: File[];
+		rowIndex: number;
+	}) => Promise<MediaAsset[]>;
+}) {
+	const rows = useMemo(
+		() => ensureTopicScriptTableRows({ rows: project.scriptTableRows }),
+		[project.scriptTableRows],
+	);
+	const updateScriptTableRow = useTopicWorkbenchStore(
+		(state) => state.updateScriptTableRow,
+	);
+	const addScriptTableRow = useTopicWorkbenchStore(
+		(state) => state.addScriptTableRow,
+	);
+	const removeScriptTableRow = useTopicWorkbenchStore(
+		(state) => state.removeScriptTableRow,
+	);
+	const attachScriptTableAssets = useTopicWorkbenchStore(
+		(state) => state.attachScriptTableAssets,
+	);
+	const removeScriptTableAsset = useTopicWorkbenchStore(
+		(state) => state.removeScriptTableAsset,
+	);
+	const mediaAssetsById = useMemo(
+		() => new Map(mediaAssets.map((asset) => [asset.id, asset])),
+		[mediaAssets],
+	);
+
+	const handleUploadRowFiles = async ({
+		rowId,
+		rowIndex,
+		files,
+	}: {
+		rowId: string;
+		rowIndex: number;
+		files: File[];
+	}) => {
+		const savedAssets = await onUploadFiles({ files, rowIndex });
+		if (savedAssets.length === 0) return;
+		attachScriptTableAssets({
+			rowId,
+			assets: savedAssets.map(buildScriptTableAsset),
+		});
+	};
+
+	return (
+		<section
+			data-testid="topic-script-table"
+			className="overflow-hidden rounded-sm border border-border/75 bg-background"
+		>
+			<div className="overflow-x-auto">
+				<div className="min-w-[820px]">
+					<div className="grid border-b border-border/75 bg-muted/[0.2] [grid-template-columns:7.5rem_minmax(13rem,0.9fr)_minmax(14rem,1fr)_minmax(13rem,0.85fr)]">
+						<div className="border-r border-border/70 px-3 py-2 text-xs font-semibold text-muted-foreground">
+							时间
 						</div>
-					</section>
-				) : null}
+						<div className="border-r border-border/70 px-3 py-2 text-xs font-semibold text-muted-foreground">
+							文案
+						</div>
+						<div className="border-r border-border/70 px-3 py-2 text-xs font-semibold text-muted-foreground">
+							画面内容
+						</div>
+						<div className="px-3 py-2 text-xs font-semibold text-muted-foreground">
+							选择素材
+						</div>
+					</div>
+					{rows.map((row, index) => (
+						<ScriptTableRowEditor
+							key={row.id}
+							row={row}
+							index={index}
+							mediaAssetsById={mediaAssetsById}
+							canRemove={rows.length > 1}
+							onUpdate={(patch) =>
+								updateScriptTableRow({ rowId: row.id, patch })
+							}
+							onUploadFiles={(files) =>
+								handleUploadRowFiles({ rowId: row.id, rowIndex: index, files })
+							}
+							onRemoveRow={() => removeScriptTableRow({ rowId: row.id })}
+							onRemoveAsset={(mediaAssetId) =>
+								removeScriptTableAsset({
+									rowId: row.id,
+									mediaAssetId,
+								})
+							}
+						/>
+					))}
+					<button
+						type="button"
+						onClick={() => addScriptTableRow({})}
+						className="flex min-h-12 w-full items-center justify-center gap-2 border-t border-dashed border-border/75 bg-muted/[0.12] px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						title="添加一行"
+					>
+						<Plus size={15} />
+						添加一行
+					</button>
+				</div>
 			</div>
+		</section>
+	);
+}
+
+function ScriptTableRowEditor({
+	row,
+	index,
+	mediaAssetsById,
+	canRemove,
+	onUpdate,
+	onUploadFiles,
+	onRemoveRow,
+	onRemoveAsset,
+}: {
+	row: TopicScriptTableRow;
+	index: number;
+	mediaAssetsById: Map<string, MediaAsset>;
+	canRemove: boolean;
+	onUpdate: (patch: {
+		timeRange?: string;
+		copy?: string;
+		visualContent?: string;
+	}) => void;
+	onUploadFiles: (files: File[]) => Promise<void>;
+	onRemoveRow: () => void;
+	onRemoveAsset: (mediaAssetId: string) => void;
+}) {
+	const [isUploading, setUploading] = useState(false);
+	const fileInputRef = useRef<HTMLInputElement>(null);
+
+	const handleFiles = async (files: File[]) => {
+		if (files.length === 0 || isUploading) return;
+		setUploading(true);
+		try {
+			await onUploadFiles(files);
+		} finally {
+			setUploading(false);
+		}
+	};
+
+	return (
+		<div className="grid border-b border-border/65 last:border-b-0 [grid-template-columns:7.5rem_minmax(13rem,0.9fr)_minmax(14rem,1fr)_minmax(13rem,0.85fr)]">
+			<div className="border-r border-border/65 bg-muted/[0.08] px-3 py-3">
+				<div className="mb-1 text-[0.68rem] font-medium text-muted-foreground">
+					#{index + 1}
+				</div>
+				<input
+					value={row.timeRange}
+					onChange={(event) => onUpdate({ timeRange: event.target.value })}
+					placeholder="0:00 - 0:15"
+					className="h-9 w-full rounded-sm border border-border bg-background px-2 text-xs font-medium text-foreground outline-none focus:border-primary/45"
+					aria-label="脚本表格时间"
+				/>
+			</div>
+			<div className="border-r border-border/65 px-3 py-3">
+				<textarea
+					value={row.copy}
+					onChange={(event) => onUpdate({ copy: event.target.value })}
+					placeholder="逐字文案"
+					rows={5}
+					className="h-full min-h-28 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/45"
+					aria-label="脚本文案"
+				/>
+			</div>
+			<div className="border-r border-border/65 px-3 py-3">
+				<textarea
+					value={row.visualContent}
+					onChange={(event) =>
+						onUpdate({ visualContent: event.target.value })
+					}
+					placeholder="画面描述"
+					rows={5}
+					className="h-full min-h-28 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/45"
+					aria-label="画面内容"
+				/>
+			</div>
+			<div className="flex min-h-36 flex-col gap-2 px-3 py-3">
+				<input
+					ref={fileInputRef}
+					type="file"
+					accept="image/*,video/*"
+					multiple
+					className="hidden"
+					onChange={(event) => {
+						const files = Array.from(event.currentTarget.files ?? []);
+						event.currentTarget.value = "";
+						void handleFiles(files);
+					}}
+				/>
+				<div className="flex items-center justify-between gap-2">
+					<Button
+						size="sm"
+						variant="outline"
+						className="h-8 rounded-sm"
+						onClick={() => fileInputRef.current?.click()}
+						disabled={isUploading}
+						title="选择图片或视频"
+					>
+						{isUploading ? (
+							<Loader2 size={14} className="animate-spin" />
+						) : (
+							<ImagePlus size={14} />
+						)}
+						选择素材
+					</Button>
+					<Button
+						size="icon"
+						variant="ghost"
+						className="size-8 rounded-sm text-muted-foreground hover:text-destructive"
+						onClick={onRemoveRow}
+						disabled={!canRemove}
+						title="删除这一行"
+					>
+						<Trash2 size={14} />
+					</Button>
+				</div>
+				<div className="min-h-16 space-y-1.5">
+					{row.assets.length === 0 ? (
+						<div className="flex min-h-16 items-center rounded-sm border border-dashed border-border/70 bg-muted/[0.12] px-2 text-xs text-muted-foreground">
+							未选择素材
+						</div>
+					) : (
+						row.assets.map((asset) => (
+							<ScriptTableAssetChip
+								key={asset.mediaAssetId}
+								asset={asset}
+								mediaAsset={mediaAssetsById.get(asset.mediaAssetId)}
+								onRemove={() => onRemoveAsset(asset.mediaAssetId)}
+							/>
+						))
+					)}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function ScriptTableAssetChip({
+	asset,
+	mediaAsset,
+	onRemove,
+}: {
+	asset: TopicScriptTableAsset;
+	mediaAsset?: MediaAsset;
+	onRemove: () => void;
+}) {
+	const previewUrl = mediaAsset?.thumbnailUrl ?? mediaAsset?.url;
+	return (
+		<div className="flex min-w-0 items-center gap-2 rounded-sm border border-border/70 bg-muted/[0.16] px-2 py-1.5">
+			<div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-border/60 bg-background">
+				{previewUrl ? (
+					<img
+						src={previewUrl}
+						alt=""
+						className="size-full object-cover"
+						draggable={false}
+					/>
+				) : (
+					<ImagePlus size={14} className="text-muted-foreground" />
+				)}
+			</div>
+			<div className="min-w-0 flex-1">
+				<div className="truncate text-xs font-medium text-foreground">
+					{mediaAsset?.name ?? asset.name}
+				</div>
+				<div className="text-[0.68rem] text-muted-foreground">
+					{mediaAsset?.type ?? asset.mediaType ?? "素材"}
+				</div>
+			</div>
+			<Button
+				size="icon"
+				variant="ghost"
+				className="size-7 shrink-0 rounded-sm text-muted-foreground"
+				onClick={onRemove}
+				title="移除素材"
+			>
+				<X size={13} />
+			</Button>
 		</div>
 	);
 }

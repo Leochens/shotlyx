@@ -58,7 +58,10 @@ import { processMediaAssets } from "@/media/processing";
 import { showMediaUploadToast } from "@/media/upload-toast";
 import { buildTopicInputMaterialsFromReferences } from "@/topic-workbench/input-materials";
 import { getTopicProjectMode } from "@/topic-workbench/model";
-import type { TopicInputMaterial } from "@/topic-workbench/types";
+import type {
+	TopicInputMaterial,
+	TopicProject,
+} from "@/topic-workbench/types";
 import { WorkbenchSwitcher } from "@/topic-workbench/workbench-switcher";
 import { CreatorProfileDialogTrigger } from "@/topic-workbench/creator-profile-dialog";
 import { useTopicWorkbenchStore } from "@/topic-workbench/store";
@@ -100,6 +103,39 @@ function getErrorMessage(error: unknown): string {
 	} catch {
 		return "工具执行失败";
 	}
+}
+
+function formatTopicScriptTableForAgent(
+	project: TopicProject,
+): string | undefined {
+	const rows = (project.scriptTableRows ?? []).filter(
+		(row) =>
+			row.timeRange.trim() ||
+			row.copy.trim() ||
+			row.visualContent.trim() ||
+			row.assets.length > 0,
+	);
+	if (rows.length === 0) return undefined;
+
+	const rowText = rows.map((row, index) => {
+		const assets =
+			row.assets.length > 0
+				? row.assets
+						.map((asset) => {
+							const mediaType = asset.mediaType ? ` / ${asset.mediaType}` : "";
+							return `${asset.name}${mediaType}（${asset.mediaAssetId}）`;
+						})
+						.join("、")
+				: "无";
+		return [
+			`${index + 1}. 时间：${row.timeRange.trim() || "未填写"}`,
+			`文案：${row.copy.trim() || "未填写"}`,
+			`画面内容：${row.visualContent.trim() || "未填写"}`,
+			`选择素材：${assets}`,
+		].join("\n");
+	});
+
+	return `脚本表格：\n${rowText.join("\n\n")}`;
 }
 
 function buildClientToolErrorResult({
@@ -1912,7 +1948,13 @@ export function ChatPanel() {
 			if (!content && !summary) return [];
 			return `${index + 1}. ${material.title}\n${content || summary}`;
 		});
-		return lines.length > 0 ? lines.join("\n\n") : undefined;
+		const scriptTableContext =
+			formatTopicScriptTableForAgent(activeTopicProject);
+		const contextBlocks = [
+			lines.length > 0 ? lines.join("\n\n") : undefined,
+			scriptTableContext,
+		].filter((block): block is string => Boolean(block));
+		return contextBlocks.length > 0 ? contextBlocks.join("\n\n") : undefined;
 	}, [activeTopicProject, isTopicBrainstorming]);
 	const toRequestMessage = (
 		message: Pick<ChatMessage, "role" | "content" | "toolCalls"> & {
