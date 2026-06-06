@@ -41,6 +41,17 @@ const brainstormDraftCardSource = topicWorkbenchSource.slice(
 	topicWorkbenchSource.indexOf("function DraftTiptapToolbar"),
 );
 
+const scriptTableWorkspaceSource = (() => {
+	const start = topicWorkbenchSource.indexOf("function ScriptTableWorkspace");
+	const end = topicWorkbenchSource.indexOf(
+		"function ScriptTableMetadataPanel",
+		start,
+	);
+	return start >= 0 && end > start
+		? topicWorkbenchSource.slice(start, end)
+		: "";
+})();
+
 const directScriptCutSource = (() => {
 	const start = topicWorkbenchSource.indexOf(
 		"function buildDirectScriptCutPrompt",
@@ -214,6 +225,26 @@ describe("topic workbench integration contract", () => {
 			"addScriptTableRow({ afterRowId: row.id })",
 		);
 		expect(topicWorkbenchSource).toContain("group-hover:opacity-100");
+	});
+
+	test("keeps script table copy readable and metadata preview-first", () => {
+		const metadataIndex = scriptTableWorkspaceSource.indexOf(
+			"<ScriptTableMetadataPanel",
+		);
+		const tableIndex = scriptTableWorkspaceSource.indexOf("overflow-x-auto");
+		expect(metadataIndex).toBeGreaterThanOrEqual(0);
+		expect(tableIndex).toBeGreaterThanOrEqual(0);
+		expect(metadataIndex).toBeLessThan(tableIndex);
+		expect(topicWorkbenchSource).toContain("AutoResizeTextarea");
+		expect(topicWorkbenchSource).toContain("resizeAutoTextareaToContent");
+		expect(topicWorkbenchSource).toContain("minRows={2}");
+		expect(topicWorkbenchSource).toContain("resize-none");
+		expect(topicWorkbenchSource).toContain("overflow-hidden");
+		expect(topicWorkbenchSource).toContain("ScriptTableAssetPreviewDialog");
+		expect(topicWorkbenchSource).toContain("previewAsset");
+		expect(topicWorkbenchSource).toContain("预览素材");
+		expect(topicWorkbenchSource).toContain("<video");
+		expect(topicWorkbenchSource).toContain("<img");
 	});
 
 	test("skips automatic thumbnail rendering when the editor is degraded", () => {

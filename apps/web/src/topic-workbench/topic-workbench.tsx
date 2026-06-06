@@ -7,9 +7,12 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	type ChangeEventHandler,
+	type CSSProperties,
 	type MouseEvent,
 	type ReactNode,
 	type Ref,
+	type TextareaHTMLAttributes,
 } from "react";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import { EditorContent, useEditor as useTiptapEditor } from "@tiptap/react";
@@ -50,6 +53,14 @@ import {
 	type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogBody,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { useEditor } from "@/editor/use-editor";
 import { processMediaAssets } from "@/media/processing";
 import { showMediaUploadToast } from "@/media/upload-toast";
@@ -810,8 +821,7 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 	const mediaAssets = useEditor((currentEditor) =>
 		currentEditor.media.getAssets(),
 	);
-	const [activeTab, setActiveTab] =
-		useState<BrainstormWorkspaceTab>("draft");
+	const [activeTab, setActiveTab] = useState<BrainstormWorkspaceTab>("draft");
 	const updateInputMaterial = useTopicWorkbenchStore(
 		(state) => state.updateInputMaterial,
 	);
@@ -1099,6 +1109,72 @@ function buildScriptTableAsset(asset: MediaAsset): TopicScriptTableAsset {
 	};
 }
 
+type ScriptTablePreviewAsset = {
+	asset: TopicScriptTableAsset;
+	mediaAsset?: MediaAsset;
+};
+
+type AutoResizeTextareaProps = Omit<
+	TextareaHTMLAttributes<HTMLTextAreaElement>,
+	"value"
+> & {
+	value: string;
+	minRows?: number;
+};
+
+const SCRIPT_TABLE_AUTO_TEXTAREA_LINE_HEIGHT = 24;
+const SCRIPT_TABLE_AUTO_TEXTAREA_VERTICAL_PADDING = 16;
+
+function resizeAutoTextareaToContent({
+	textarea,
+}: {
+	textarea: HTMLTextAreaElement | null;
+}) {
+	if (!textarea) return;
+	textarea.style.height = "auto";
+	textarea.style.height = `${textarea.scrollHeight}px`;
+}
+
+function AutoResizeTextarea({
+	value,
+	minRows = 2,
+	className,
+	style,
+	onChange,
+	...props
+}: AutoResizeTextareaProps) {
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const minHeight = `${
+		minRows * SCRIPT_TABLE_AUTO_TEXTAREA_LINE_HEIGHT +
+		SCRIPT_TABLE_AUTO_TEXTAREA_VERTICAL_PADDING
+	}px`;
+	const mergedStyle: CSSProperties = {
+		...style,
+		minHeight,
+	};
+
+	useEffect(() => {
+		resizeAutoTextareaToContent({ textarea: textareaRef.current });
+	}, [minRows, value]);
+
+	const handleChange: ChangeEventHandler<HTMLTextAreaElement> = (event) => {
+		onChange?.(event);
+		resizeAutoTextareaToContent({ textarea: event.currentTarget });
+	};
+
+	return (
+		<textarea
+			{...props}
+			ref={textareaRef}
+			value={value}
+			rows={minRows}
+			onChange={handleChange}
+			style={mergedStyle}
+			className={cn("resize-none overflow-hidden", className)}
+		/>
+	);
+}
+
 function ScriptTableWorkspace({
 	project,
 	mediaAssets,
@@ -1125,6 +1201,8 @@ function ScriptTableWorkspace({
 			}),
 		[project.scriptTableMetadata],
 	);
+	const [previewAsset, setPreviewAsset] =
+		useState<ScriptTablePreviewAsset | null>(null);
 	const updateScriptTableRow = useTopicWorkbenchStore(
 		(state) => state.updateScriptTableRow,
 	);
@@ -1184,6 +1262,13 @@ function ScriptTableWorkspace({
 			data-testid="topic-script-table"
 			className="overflow-hidden rounded-sm border border-border/75 bg-background"
 		>
+			<ScriptTableMetadataPanel
+				metadata={metadata}
+				mediaAssetsById={mediaAssetsById}
+				onUpdate={(patch) => updateScriptTableMetadata({ patch })}
+				onUploadCoverFiles={handleUploadCoverFiles}
+				onPreviewAsset={setPreviewAsset}
+			/>
 			<div className="overflow-x-auto">
 				<div className="min-w-[860px]">
 					<div
@@ -1219,7 +1304,11 @@ function ScriptTableWorkspace({
 									updateScriptTableRow({ rowId: row.id, patch })
 								}
 								onUploadFiles={(files) =>
-									handleUploadRowFiles({ rowId: row.id, rowIndex: index, files })
+									handleUploadRowFiles({
+										rowId: row.id,
+										rowIndex: index,
+										files,
+									})
 								}
 								onRemoveRow={() => removeScriptTableRow({ rowId: row.id })}
 								onRemoveAsset={(mediaAssetId) =>
@@ -1228,6 +1317,7 @@ function ScriptTableWorkspace({
 										mediaAssetId,
 									})
 								}
+								onPreviewAsset={setPreviewAsset}
 							/>
 							{index < rows.length - 1 ? (
 								<ScriptTableRowInsertHandle
@@ -1248,11 +1338,11 @@ function ScriptTableWorkspace({
 					</button>
 				</div>
 			</div>
-			<ScriptTableMetadataPanel
-				metadata={metadata}
-				mediaAssetsById={mediaAssetsById}
-				onUpdate={(patch) => updateScriptTableMetadata({ patch })}
-				onUploadCoverFiles={handleUploadCoverFiles}
+			<ScriptTableAssetPreviewDialog
+				previewAsset={previewAsset}
+				onOpenChange={(open) => {
+					if (!open) setPreviewAsset(null);
+				}}
 			/>
 		</section>
 	);
@@ -1263,6 +1353,7 @@ function ScriptTableMetadataPanel({
 	mediaAssetsById,
 	onUpdate,
 	onUploadCoverFiles,
+	onPreviewAsset,
 }: {
 	metadata: TopicProject["scriptTableMetadata"];
 	mediaAssetsById: Map<string, MediaAsset>;
@@ -1272,6 +1363,7 @@ function ScriptTableMetadataPanel({
 		coverAsset?: TopicScriptTableAsset | null;
 	}) => void;
 	onUploadCoverFiles: (files: File[]) => Promise<void>;
+	onPreviewAsset: (previewAsset: ScriptTablePreviewAsset) => void;
 }) {
 	const [isUploadingCover, setUploadingCover] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1289,14 +1381,21 @@ function ScriptTableMetadataPanel({
 			setUploadingCover(false);
 		}
 	};
+	const handlePreviewCover = () => {
+		if (!metadata.coverAsset) return;
+		onPreviewAsset({
+			asset: metadata.coverAsset,
+			mediaAsset: coverMediaAsset,
+		});
+	};
 
 	return (
-		<div className="border-t border-border/75 bg-muted/[0.08] p-3">
+		<div className="border-b border-border/75 bg-muted/[0.08] p-3">
 			<div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
 				<FileText size={14} />
 				视频信息
 			</div>
-			<div className="grid items-stretch gap-3 [grid-template-columns:minmax(11rem,0.8fr)_minmax(13rem,0.85fr)_minmax(14rem,1fr)] max-[980px]:grid-cols-1">
+			<div className="grid auto-rows-fr items-stretch gap-3 [grid-template-columns:minmax(11rem,0.8fr)_minmax(13rem,0.85fr)_minmax(14rem,1fr)] max-[980px]:grid-cols-1">
 				<ScriptTableMetadataField
 					label="标题"
 					testId="script-table-metadata-title"
@@ -1325,49 +1424,65 @@ function ScriptTableMetadataPanel({
 						}}
 					/>
 					<div className="flex h-full min-h-0 w-full items-center gap-2 rounded-sm border border-border/70 bg-muted/[0.08] p-2">
-						<div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-border/65 bg-muted/[0.18]">
-							{coverPreviewUrl ? (
-								<img
-									src={coverPreviewUrl}
-									alt=""
-									className="size-full object-cover"
-								/>
-							) : (
-								<ImagePlus size={18} className="text-muted-foreground" />
+						<button
+							type="button"
+							onClick={handlePreviewCover}
+							className={cn(
+								"flex min-w-0 flex-1 items-center gap-2 rounded-sm p-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
+								metadata.coverAsset
+									? "cursor-zoom-in hover:bg-accent/60"
+									: "cursor-default",
 							)}
-						</div>
-						<div className="min-w-0 flex-1">
-							<div className="truncate text-xs font-medium text-foreground">
-								{metadata.coverAsset?.name ?? "未选择封面"}
+							title={metadata.coverAsset ? "预览素材" : "未选择封面"}
+							aria-label="预览素材"
+						>
+							<div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-border/65 bg-muted/[0.18]">
+								{coverPreviewUrl ? (
+									<img
+										src={coverPreviewUrl}
+										alt=""
+										className="size-full object-cover"
+									/>
+								) : (
+									<ImagePlus size={18} className="text-muted-foreground" />
+								)}
 							</div>
-							<div className="mt-1 flex flex-wrap gap-1.5">
+							<div className="min-w-0 flex-1">
+								<div className="truncate text-xs font-medium text-foreground">
+									{metadata.coverAsset?.name ?? "未选择封面"}
+								</div>
+								<div className="mt-1 truncate text-[0.68rem] text-muted-foreground">
+									{metadata.coverAsset ? "点击预览封面素材" : "支持上传图片"}
+								</div>
+							</div>
+						</button>
+						<div className="flex shrink-0 flex-wrap gap-1.5">
+							<Button
+								size="sm"
+								variant="outline"
+								className="h-7 rounded-sm"
+								onClick={() => fileInputRef.current?.click()}
+								disabled={isUploadingCover}
+								title="上传脚本封面"
+							>
+								{isUploadingCover ? (
+									<Loader2 size={13} className="animate-spin" />
+								) : (
+									<Upload size={13} />
+								)}
+								上传封面
+							</Button>
+							{metadata.coverAsset ? (
 								<Button
-									size="sm"
-									variant="outline"
-									className="h-7 rounded-sm"
-									onClick={() => fileInputRef.current?.click()}
-									disabled={isUploadingCover}
-									title="上传脚本封面"
+									size="icon"
+									variant="ghost"
+									className="size-7 rounded-sm text-muted-foreground hover:text-destructive"
+									onClick={() => onUpdate({ coverAsset: null })}
+									title="移除脚本封面"
 								>
-									{isUploadingCover ? (
-										<Loader2 size={13} className="animate-spin" />
-									) : (
-										<Upload size={13} />
-									)}
-									上传封面
+									<X size={13} />
 								</Button>
-								{metadata.coverAsset ? (
-									<Button
-										size="icon"
-										variant="ghost"
-										className="size-7 rounded-sm text-muted-foreground hover:text-destructive"
-										onClick={() => onUpdate({ coverAsset: null })}
-										title="移除脚本封面"
-									>
-										<X size={13} />
-									</Button>
-								) : null}
-							</div>
+							) : null}
 						</div>
 					</div>
 				</ScriptTableMetadataField>
@@ -1375,14 +1490,12 @@ function ScriptTableMetadataPanel({
 					label="简介"
 					testId="script-table-metadata-description"
 				>
-					<textarea
+					<AutoResizeTextarea
 						value={metadata.description}
-						onChange={(event) =>
-							onUpdate({ description: event.target.value })
-						}
+						onChange={(event) => onUpdate({ description: event.target.value })}
 						placeholder="视频简介或发布描述"
-						rows={3}
-						className="h-full min-h-0 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-foreground outline-none focus:border-primary/45"
+						minRows={2}
+						className="w-full rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-foreground outline-none focus:border-primary/45"
 						aria-label="脚本简介"
 					/>
 				</ScriptTableMetadataField>
@@ -1450,6 +1563,7 @@ function ScriptTableRowEditor({
 	onUploadFiles,
 	onRemoveRow,
 	onRemoveAsset,
+	onPreviewAsset,
 }: {
 	row: TopicScriptTableRow;
 	index: number;
@@ -1463,6 +1577,7 @@ function ScriptTableRowEditor({
 	onUploadFiles: (files: File[]) => Promise<void>;
 	onRemoveRow: () => void;
 	onRemoveAsset: (mediaAssetId: string) => void;
+	onPreviewAsset: (previewAsset: ScriptTablePreviewAsset) => void;
 }) {
 	const [isUploading, setUploading] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1497,24 +1612,22 @@ function ScriptTableRowEditor({
 				/>
 			</div>
 			<div className="border-r border-border/65 px-3 py-3">
-				<textarea
+				<AutoResizeTextarea
 					value={row.copy}
 					onChange={(event) => onUpdate({ copy: event.target.value })}
 					placeholder="逐字文案"
-					rows={5}
-					className="h-full min-h-28 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/45"
+					minRows={2}
+					className="w-full rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/45"
 					aria-label="脚本文案"
 				/>
 			</div>
 			<div className="border-r border-border/65 px-3 py-3">
-				<textarea
+				<AutoResizeTextarea
 					value={row.visualContent}
-					onChange={(event) =>
-						onUpdate({ visualContent: event.target.value })
-					}
+					onChange={(event) => onUpdate({ visualContent: event.target.value })}
 					placeholder="画面描述"
-					rows={5}
-					className="h-full min-h-28 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/45"
+					minRows={2}
+					className="w-full rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/45"
 					aria-label="画面内容"
 				/>
 			</div>
@@ -1560,6 +1673,12 @@ function ScriptTableRowEditor({
 								asset={asset}
 								mediaAsset={mediaAssetsById.get(asset.mediaAssetId)}
 								onRemove={() => onRemoveAsset(asset.mediaAssetId)}
+								onPreview={() =>
+									onPreviewAsset({
+										asset,
+										mediaAsset: mediaAssetsById.get(asset.mediaAssetId),
+									})
+								}
 							/>
 						))
 					)}
@@ -1586,10 +1705,12 @@ function ScriptTableAssetChip({
 	asset,
 	mediaAsset,
 	onRemove,
+	onPreview,
 }: {
 	asset: TopicScriptTableAsset;
 	mediaAsset?: MediaAsset;
 	onRemove: () => void;
+	onPreview: () => void;
 }) {
 	const previewUrl = mediaAsset?.thumbnailUrl ?? mediaAsset?.url;
 	const duration = getScriptTableAssetDuration({ asset, mediaAsset });
@@ -1600,27 +1721,35 @@ function ScriptTableAssetChip({
 		.filter(Boolean)
 		.join(" · ");
 	return (
-		<div className="flex min-w-0 items-center gap-2 rounded-sm border border-border/70 bg-muted/[0.16] px-2 py-1.5">
-			<div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-border/60 bg-background">
-				{previewUrl ? (
-					<img
-						src={previewUrl}
-						alt=""
-						className="size-full object-cover"
-						draggable={false}
-					/>
-				) : (
-					<ImagePlus size={14} className="text-muted-foreground" />
-				)}
-			</div>
-			<div className="min-w-0 flex-1">
-				<div className="truncate text-xs font-medium text-foreground">
-					{mediaAsset?.name ?? asset.name}
+		<div className="flex min-w-0 items-center gap-1 rounded-sm border border-border/70 bg-muted/[0.16] p-1">
+			<button
+				type="button"
+				onClick={onPreview}
+				className="flex min-w-0 flex-1 cursor-zoom-in items-center gap-2 rounded-sm px-1 py-0.5 text-left transition-colors hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+				title="预览素材"
+				aria-label={`预览素材 ${mediaAsset?.name ?? asset.name}`}
+			>
+				<div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-border/60 bg-background">
+					{previewUrl ? (
+						<img
+							src={previewUrl}
+							alt=""
+							className="size-full object-cover"
+							draggable={false}
+						/>
+					) : (
+						<ImagePlus size={14} className="text-muted-foreground" />
+					)}
 				</div>
-				<div className="truncate text-[0.68rem] text-muted-foreground">
-					{detailText}
+				<div className="min-w-0 flex-1">
+					<div className="truncate text-xs font-medium text-foreground">
+						{mediaAsset?.name ?? asset.name}
+					</div>
+					<div className="truncate text-[0.68rem] text-muted-foreground">
+						{detailText}
+					</div>
 				</div>
-			</div>
+			</button>
 			<Button
 				size="icon"
 				variant="ghost"
@@ -1631,6 +1760,55 @@ function ScriptTableAssetChip({
 				<X size={13} />
 			</Button>
 		</div>
+	);
+}
+
+function ScriptTableAssetPreviewDialog({
+	previewAsset,
+	onOpenChange,
+}: {
+	previewAsset: ScriptTablePreviewAsset | null;
+	onOpenChange: (open: boolean) => void;
+}) {
+	const asset = previewAsset?.asset;
+	const mediaAsset = previewAsset?.mediaAsset;
+	const assetType = mediaAsset?.type ?? asset?.mediaType;
+	const mediaUrl = mediaAsset?.url;
+	const previewUrl = mediaAsset?.thumbnailUrl ?? mediaAsset?.url;
+
+	return (
+		<Dialog open={Boolean(previewAsset)} onOpenChange={onOpenChange}>
+			<DialogContent className="max-h-[86vh] max-w-3xl overflow-hidden rounded-sm">
+				<DialogHeader>
+					<DialogTitle>预览素材</DialogTitle>
+					<DialogDescription>
+						{mediaAsset?.name ?? asset?.name ?? "脚本表格素材"}
+					</DialogDescription>
+				</DialogHeader>
+				<DialogBody className="max-h-[68vh] overflow-auto">
+					{assetType === "video" && mediaUrl ? (
+						<video
+							src={mediaUrl}
+							poster={mediaAsset?.thumbnailUrl}
+							controls
+							className="max-h-[56vh] w-full rounded-sm bg-black object-contain"
+						>
+							<track kind="captions" />
+						</video>
+					) : previewUrl ? (
+						<img
+							src={previewUrl}
+							alt={mediaAsset?.name ?? asset?.name ?? "脚本表格素材"}
+							className="max-h-[56vh] w-full rounded-sm bg-muted/[0.18] object-contain"
+						/>
+					) : (
+						<div className="flex min-h-48 items-center justify-center rounded-sm border border-dashed border-border/70 bg-muted/[0.12] text-sm text-muted-foreground">
+							暂时无法预览这个素材
+						</div>
+					)}
+				</DialogBody>
+			</DialogContent>
+		</Dialog>
 	);
 }
 
@@ -1693,11 +1871,7 @@ function BrainstormDraftCard({
 		onSave({ title: nextTitle, content: contentRef.current });
 	};
 
-	const insertUploadedFiles = async ({
-		files,
-	}: {
-		files: File[];
-	}) => {
+	const insertUploadedFiles = async ({ files }: { files: File[] }) => {
 		if (files.length === 0 || isUploading || !draftEditor) return;
 		setUploading(true);
 		try {
@@ -1801,12 +1975,7 @@ function BrainstormDraftCard({
 					</div>
 				</div>
 				<div className="flex justify-end gap-1">
-					<Button
-						size="sm"
-						variant="ghost"
-						onClick={onRemove}
-						title="删除草稿"
-					>
+					<Button size="sm" variant="ghost" onClick={onRemove} title="删除草稿">
 						<Trash2 size={13} />
 						删除
 					</Button>
@@ -1842,7 +2011,9 @@ function DraftTiptapToolbar({
 				variant="ghost"
 				className={buttonClassName(editor?.isActive("heading", { level: 2 }))}
 				onMouseDown={preventFocusLoss}
-				onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+				onClick={() =>
+					editor?.chain().focus().toggleHeading({ level: 2 }).run()
+				}
 				disabled={isDisabled}
 				title="二级标题"
 			>
