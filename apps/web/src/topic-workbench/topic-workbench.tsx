@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	Fragment,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -1208,26 +1209,33 @@ function ScriptTableWorkspace({
 						</div>
 					</div>
 					{rows.map((row, index) => (
-						<ScriptTableRowEditor
-							key={row.id}
-							row={row}
-							index={index}
-							mediaAssetsById={mediaAssetsById}
-							canRemove={rows.length > 1}
-							onUpdate={(patch) =>
-								updateScriptTableRow({ rowId: row.id, patch })
-							}
-							onUploadFiles={(files) =>
-								handleUploadRowFiles({ rowId: row.id, rowIndex: index, files })
-							}
-							onRemoveRow={() => removeScriptTableRow({ rowId: row.id })}
-							onRemoveAsset={(mediaAssetId) =>
-								removeScriptTableAsset({
-									rowId: row.id,
-									mediaAssetId,
-								})
-							}
-						/>
+						<Fragment key={row.id}>
+							<ScriptTableRowEditor
+								row={row}
+								index={index}
+								mediaAssetsById={mediaAssetsById}
+								canRemove={rows.length > 1}
+								onUpdate={(patch) =>
+									updateScriptTableRow({ rowId: row.id, patch })
+								}
+								onUploadFiles={(files) =>
+									handleUploadRowFiles({ rowId: row.id, rowIndex: index, files })
+								}
+								onRemoveRow={() => removeScriptTableRow({ rowId: row.id })}
+								onRemoveAsset={(mediaAssetId) =>
+									removeScriptTableAsset({
+										rowId: row.id,
+										mediaAssetId,
+									})
+								}
+							/>
+							{index < rows.length - 1 ? (
+								<ScriptTableRowInsertHandle
+									index={index}
+									onInsert={() => addScriptTableRow({ afterRowId: row.id })}
+								/>
+							) : null}
+						</Fragment>
 					))}
 					<button
 						type="button"
@@ -1401,6 +1409,34 @@ function ScriptTableMetadataField({
 				{label}
 			</span>
 			<div className="mt-1 flex min-h-0 flex-1">{children}</div>
+		</div>
+	);
+}
+
+function ScriptTableRowInsertHandle({
+	index,
+	onInsert,
+}: {
+	index: number;
+	onInsert: () => void;
+}) {
+	return (
+		<div
+			data-testid="script-table-row-insert-handle"
+			className="group relative z-10 flex h-3 -my-1.5 items-center justify-center"
+		>
+			<div className="pointer-events-none absolute inset-x-3 top-1/2 border-t border-dashed border-primary/0 transition-colors group-hover:border-primary/35" />
+			<Button
+				type="button"
+				size="icon"
+				variant="outline"
+				className="size-7 scale-90 rounded-full border-primary/30 bg-background text-primary opacity-0 shadow-sm transition-all duration-150 hover:bg-primary hover:text-primary-foreground focus-visible:scale-100 focus-visible:opacity-100 group-hover:scale-100 group-hover:opacity-100"
+				onClick={onInsert}
+				title="在此处添加一行"
+				aria-label={`在第 ${index + 1} 行后添加一行`}
+			>
+				<Plus size={14} />
+			</Button>
 		</div>
 	);
 }

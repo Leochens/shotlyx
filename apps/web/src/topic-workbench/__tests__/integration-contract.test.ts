@@ -203,6 +203,19 @@ describe("topic workbench integration contract", () => {
 		expect(topicWorkbenchSource).toContain("h-full");
 	});
 
+	test("shows a hover insert control between script table rows", () => {
+		expect(topicWorkbenchSource).toContain("ScriptTableRowInsertHandle");
+		expect(topicWorkbenchSource).toContain(
+			'data-testid="script-table-row-insert-handle"',
+		);
+		expect(topicWorkbenchSource).toContain("在此处添加一行");
+		expect(topicWorkbenchSource).toContain("index < rows.length - 1");
+		expect(topicWorkbenchSource).toContain(
+			"addScriptTableRow({ afterRowId: row.id })",
+		);
+		expect(topicWorkbenchSource).toContain("group-hover:opacity-100");
+	});
+
 	test("skips automatic thumbnail rendering when the editor is degraded", () => {
 		expect(projectManagerSource).toContain("updateThumbnailFromTimeline");
 		expect(projectManagerSource).toContain("this.editor.renderer.isDegraded");
