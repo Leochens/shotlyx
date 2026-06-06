@@ -41,6 +41,16 @@ const brainstormDraftCardSource = topicWorkbenchSource.slice(
 	topicWorkbenchSource.indexOf("function DraftTiptapToolbar"),
 );
 
+const directScriptCutSource = (() => {
+	const start = topicWorkbenchSource.indexOf(
+		"function buildDirectScriptCutPrompt",
+	);
+	const end = topicWorkbenchSource.indexOf("function getActivePackage", start);
+	return start >= 0 && end > start
+		? topicWorkbenchSource.slice(start, end)
+		: "";
+})();
+
 describe("topic workbench integration contract", () => {
 	test("lets topic agents understand uploaded media before generating topics", () => {
 		expect(chatPanelSource).toContain("TOPIC_SUPPORT_TOOL_NAMES");
@@ -160,11 +170,34 @@ describe("topic workbench integration contract", () => {
 		expect(chatPanelSource).toContain("由 Agent 自动估算时间");
 	});
 
+	test("sends direct script cuts as Markdown without draft context and shows asset duration", () => {
+		expect(topicWorkbenchSource).toContain(
+			"buildTopicScriptTableMarkdownContext",
+		);
+		expect(topicWorkbenchSource).toContain("## 脚本表格");
+		expect(topicWorkbenchSource).toContain(
+			"| 时间 | 文案 | 画面内容 | 选择素材 |",
+		);
+		expect(topicWorkbenchSource).toContain("## 执行要求");
+		expect(directScriptCutSource).toContain(
+			"buildTopicScriptTableMarkdownContext(project)",
+		);
+		expect(directScriptCutSource).not.toContain(
+			"buildInputMaterialContext(project)",
+		);
+		expect(topicWorkbenchSource).toContain("formatScriptAssetDuration");
+		expect(topicWorkbenchSource).toContain("时长");
+		expect(chatPanelSource).toContain("formatTopicScriptTableForAgent");
+		expect(chatPanelSource).toContain("| 时间 | 文案 | 画面内容 | 选择素材 |");
+	});
+
 	test("keeps script row actions and video metadata visually aligned", () => {
 		expect(topicWorkbenchSource).toContain("SCRIPT_TABLE_GRID_CLASS");
 		expect(topicWorkbenchSource).toContain("_2.75rem]");
 		expect(topicWorkbenchSource).toContain("操作");
-		expect(topicWorkbenchSource).toContain('aria-label={`删除第 ${index + 1} 行`}');
+		expect(topicWorkbenchSource).toContain(
+			"aria-label={`删除第 ${index + 1} 行`}",
+		);
 		expect(topicWorkbenchSource).toContain("ScriptTableMetadataField");
 		expect(topicWorkbenchSource).toContain("min-h-28");
 		expect(topicWorkbenchSource).toContain("h-full");

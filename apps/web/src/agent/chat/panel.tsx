@@ -61,6 +61,7 @@ import { getTopicProjectMode } from "@/topic-workbench/model";
 import type {
 	TopicInputMaterial,
 	TopicProject,
+	TopicScriptTableAsset,
 } from "@/topic-workbench/types";
 import { WorkbenchSwitcher } from "@/topic-workbench/workbench-switcher";
 import { CreatorProfileDialogTrigger } from "@/topic-workbench/creator-profile-dialog";
@@ -105,6 +106,52 @@ function getErrorMessage(error: unknown): string {
 	}
 }
 
+function formatTopicScriptAssetDuration(
+	durationSeconds?: number,
+): string | null {
+	if (
+		typeof durationSeconds !== "number" ||
+		!Number.isFinite(durationSeconds) ||
+		durationSeconds <= 0
+	) {
+		return null;
+	}
+	const totalSeconds = Math.max(1, Math.round(durationSeconds));
+	if (totalSeconds < 60) return `${totalSeconds} 秒`;
+	const seconds = totalSeconds % 60;
+	const minutes = Math.floor(totalSeconds / 60) % 60;
+	const hours = Math.floor(totalSeconds / 3600);
+	const pad = (value: number) => String(value).padStart(2, "0");
+	if (hours > 0) return `${hours}:${pad(minutes)}:${pad(seconds)}`;
+	return `${minutes}:${pad(seconds)}`;
+}
+
+function escapeTopicMarkdownTableCell(value: string): string {
+	return value.replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
+}
+
+function formatTopicScriptAssetForAgent(
+	asset: TopicScriptTableAsset | null | undefined,
+): string {
+	if (!asset) return "未填写";
+	const duration = formatTopicScriptAssetDuration(asset.durationSeconds);
+	const meta = [asset.mediaType, duration ? `时长 ${duration}` : null]
+		.filter(Boolean)
+		.join(" / ");
+	const metaText = meta ? ` / ${meta}` : "";
+	return `${asset.name}${metaText}（${asset.mediaAssetId}）`;
+}
+
+function formatTopicScriptTableCell({
+	value,
+	fallback = "未填写",
+}: {
+	value: string;
+	fallback?: string;
+}): string {
+	return escapeTopicMarkdownTableCell(value.trim() || fallback);
+}
+
 function formatTopicScriptTableForAgent(
 	project: TopicProject,
 ): string | undefined {
@@ -119,52 +166,49 @@ function formatTopicScriptTableForAgent(
 	);
 	const hasMetadata = Boolean(
 		metadata?.title?.trim() ||
-			metadata?.description?.trim() ||
-			metadata?.coverAsset,
+		metadata?.description?.trim() ||
+		metadata?.coverAsset,
 	);
 	if (rows.length === 0 && !hasMetadata) return undefined;
 
-	const metadataText = hasMetadata
+	const metadataLines = hasMetadata
 		? [
-				"脚本信息：",
-				`标题：${metadata?.title?.trim() || "未填写"}`,
-				`简介：${metadata?.description?.trim() || "未填写"}`,
-				`封面：${
-					metadata?.coverAsset
-						? `${metadata.coverAsset.name}${
-								metadata.coverAsset.mediaType
-									? ` / ${metadata.coverAsset.mediaType}`
-									: ""
-							}（${metadata.coverAsset.mediaAssetId}）`
-						: "未填写"
-				}`,
-			].join("\n")
-		: "";
+				"## 脚本信息",
+				`- 标题：${metadata?.title?.trim() || "未填写"}`,
+				`- 简介：${metadata?.description?.trim() || "未填写"}`,
+				`- 封面：${formatTopicScriptAssetForAgent(metadata?.coverAsset)}`,
+			]
+		: [];
 
-	const rowText = rows.map((row, index) => {
-		const assets =
-			row.assets.length > 0
-				? row.assets
-						.map((asset) => {
-							const mediaType = asset.mediaType ? ` / ${asset.mediaType}` : "";
-							return `${asset.name}${mediaType}（${asset.mediaAssetId}）`;
-						})
-						.join("、")
-				: "无";
-		return [
-			`${index + 1}. 时间：${row.timeRange.trim() || autoTimeLabel}`,
-			`文案：${row.copy.trim() || "未填写"}`,
-			`画面内容：${row.visualContent.trim() || "未填写"}`,
-			`选择素材：${assets}`,
-		].join("\n");
-	});
+	const tableLines =
+		rows.length > 0
+			? [
+					"## 脚本表格",
+					"",
+					"| 时间 | 文案 | 画面内容 | 选择素材 |",
+					"| --- | --- | --- | --- |",
+					...rows.map((row) => {
+						const assets =
+							row.assets.length > 0
+								? row.assets
+										.map((asset) =>
+											escapeTopicMarkdownTableCell(
+												formatTopicScriptAssetForAgent(asset),
+											),
+										)
+										.join("<br>")
+								: "无";
+						return `| ${formatTopicScriptTableCell({ value: row.timeRange, fallback: autoTimeLabel })} | ${formatTopicScriptTableCell({ value: row.copy })} | ${formatTopicScriptTableCell({ value: row.visualContent })} | ${assets} |`;
+					}),
+				]
+			: [];
 
 	return [
-		"脚本表格：",
-		metadataText,
-		rowText.length > 0 ? rowText.join("\n\n") : "",
+		...metadataLines,
+		metadataLines.length > 0 && tableLines.length > 0 ? "" : null,
+		...tableLines,
 	]
-		.filter(Boolean)
+		.filter((line): line is string => line !== null)
 		.join("\n");
 }
 

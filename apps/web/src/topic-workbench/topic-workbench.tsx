@@ -262,32 +262,74 @@ function buildInputMaterialContext(project: TopicProject): string {
 function hasScriptTableRowContent(row: TopicScriptTableRow): boolean {
 	return Boolean(
 		row.timeRange.trim() ||
-			row.copy.trim() ||
-			row.visualContent.trim() ||
-			row.assets.length > 0,
+		row.copy.trim() ||
+		row.visualContent.trim() ||
+		row.assets.length > 0,
 	);
+}
+
+function formatScriptAssetDuration(durationSeconds?: number): string | null {
+	if (
+		typeof durationSeconds !== "number" ||
+		!Number.isFinite(durationSeconds) ||
+		durationSeconds <= 0
+	) {
+		return null;
+	}
+	const totalSeconds = Math.max(1, Math.round(durationSeconds));
+	if (totalSeconds < 60) return `${totalSeconds} 秒`;
+	const seconds = totalSeconds % 60;
+	const minutes = Math.floor(totalSeconds / 60) % 60;
+	const hours = Math.floor(totalSeconds / 3600);
+	const pad = (value: number) => String(value).padStart(2, "0");
+	if (hours > 0) return `${hours}:${pad(minutes)}:${pad(seconds)}`;
+	return `${minutes}:${pad(seconds)}`;
+}
+
+function escapeMarkdownTableCell(value: string): string {
+	return value.replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
 }
 
 function formatScriptTableAssetReference(
 	asset: TopicScriptTableAsset | null,
 ): string {
 	if (!asset) return "未填写";
-	const meta = asset.mediaType ? ` / ${asset.mediaType}` : "";
-	return `${asset.name}${meta}（${asset.mediaAssetId}）`;
+	const duration = formatScriptAssetDuration(asset.durationSeconds);
+	const meta = [asset.mediaType, duration ? `时长 ${duration}` : null]
+		.filter(Boolean)
+		.join(" / ");
+	const metaText = meta ? ` / ${meta}` : "";
+	return `${asset.name}${metaText}（${asset.mediaAssetId}）`;
 }
 
-function hasScriptTableMetadataContent(project: TopicProject): boolean {
-	const metadata = ensureTopicScriptTableMetadata({
-		metadata: project.scriptTableMetadata,
-	});
-	return Boolean(
-		metadata.title.trim() ||
-			metadata.description.trim() ||
-			metadata.coverAsset,
+function getScriptTableAssetDuration({
+	asset,
+	mediaAsset,
+}: {
+	asset: TopicScriptTableAsset;
+	mediaAsset?: MediaAsset;
+}): string | null {
+	return formatScriptAssetDuration(
+		mediaAsset?.duration ?? asset.durationSeconds,
 	);
 }
 
-function buildTopicScriptTableContext(project: TopicProject): string {
+function formatScriptTableAssetMarkdown(asset: TopicScriptTableAsset): string {
+	return escapeMarkdownTableCell(formatScriptTableAssetReference(asset));
+}
+
+function formatScriptTableCell({
+	value,
+	fallback = "未填写",
+}: {
+	value: string;
+	fallback?: string;
+}): string {
+	const trimmed = value.trim();
+	return escapeMarkdownTableCell(trimmed || fallback);
+}
+
+function buildTopicScriptTableMarkdownContext(project: TopicProject): string {
 	const rows = ensureTopicScriptTableRows({
 		rows: project.scriptTableRows,
 	}).filter(hasScriptTableRowContent);
@@ -299,48 +341,60 @@ function buildTopicScriptTableContext(project: TopicProject): string {
 
 	const metadataLines = hasMetadata
 		? [
-				"脚本信息：",
-				`标题：${metadata.title.trim() || "未填写"}`,
-				`简介：${metadata.description.trim() || "未填写"}`,
-				`封面：${formatScriptTableAssetReference(metadata.coverAsset)}`,
-			].join("\n")
-		: "";
-
-	const rowLines = rows.map((row, index) => {
-		const assets =
-			row.assets.length > 0
-				? row.assets
-						.map((asset) => {
-							const meta = asset.mediaType ? ` / ${asset.mediaType}` : "";
-							return `${asset.name}${meta}（${asset.mediaAssetId}）`;
-						})
-						.join("、")
-				: "无";
-		return [
-			`${index + 1}. 时间：${row.timeRange.trim() || SCRIPT_TABLE_AUTO_TIME_LABEL}`,
-			`文案：${row.copy.trim() || "未填写"}`,
-			`画面内容：${row.visualContent.trim() || "未填写"}`,
-			`选择素材：${assets}`,
-		].join("\n");
-	});
+				"## 脚本信息",
+				`- 标题：${metadata.title.trim() || "未填写"}`,
+				`- 简介：${metadata.description.trim() || "未填写"}`,
+				`- 封面：${formatScriptTableAssetReference(metadata.coverAsset)}`,
+			]
+		: [];
+	const tableLines =
+		rows.length > 0
+			? [
+					"## 脚本表格",
+					"",
+					"| 时间 | 文案 | 画面内容 | 选择素材 |",
+					"| --- | --- | --- | --- |",
+					...rows.map((row) => {
+						const assets =
+							row.assets.length > 0
+								? row.assets.map(formatScriptTableAssetMarkdown).join("<br>")
+								: "无";
+						return `| ${formatScriptTableCell({ value: row.timeRange, fallback: SCRIPT_TABLE_AUTO_TIME_LABEL })} | ${formatScriptTableCell({ value: row.copy })} | ${formatScriptTableCell({ value: row.visualContent })} | ${assets} |`;
+					}),
+				]
+			: [];
 
 	return [
-		"\n\n脚本表格：",
-		metadataLines,
-		rowLines.length > 0 ? rowLines.join("\n\n") : "",
+		...metadataLines,
+		metadataLines.length > 0 && tableLines.length > 0 ? "" : null,
+		...tableLines,
 	]
-		.filter(Boolean)
+		.filter((line): line is string => line !== null)
 		.join("\n");
 }
 
+function buildTopicScriptTableContext(project: TopicProject): string {
+	const markdownContext = buildTopicScriptTableMarkdownContext(project);
+	if (!markdownContext) return "";
+	return `\n\n${markdownContext}`;
+}
+
+function hasScriptTableMetadataContent(project: TopicProject): boolean {
+	const metadata = ensureTopicScriptTableMetadata({
+		metadata: project.scriptTableMetadata,
+	});
+	return Boolean(
+		metadata.title.trim() || metadata.description.trim() || metadata.coverAsset,
+	);
+}
+
 function buildDirectScriptCutPrompt(project: TopicProject): string {
-	const materialContext =
-		buildInputMaterialContext(project) + buildTopicScriptTableContext(project);
+	const scriptTableContext = buildTopicScriptTableMarkdownContext(project);
 	return `请直接根据脚本进行剪辑，跳过候选选题、调研、结构和选题包，直接进入视频剪辑执行。
 
-${materialContext}
+${scriptTableContext}
 
-执行要求：
+## 执行要求
 1. 先调用 media_get_all 和 timeline_get_summary，确认素材库和当前时间线状态。
 2. 以「脚本表格」为唯一脚本来源；如果某行时间为空，按“${SCRIPT_TABLE_AUTO_TIME_LABEL}”处理，请根据文案长度、画面内容、素材时长和整体节奏自动推算合理时间段，不要要求用户补时间。
 3. 优先使用每行「选择素材」里的 mediaAssetId 进行剪辑；如果某行没有素材，用画面内容描述从现有素材库中匹配，必要时用文本、字幕或占位画面承接。
@@ -1502,6 +1556,13 @@ function ScriptTableAssetChip({
 	onRemove: () => void;
 }) {
 	const previewUrl = mediaAsset?.thumbnailUrl ?? mediaAsset?.url;
+	const duration = getScriptTableAssetDuration({ asset, mediaAsset });
+	const detailText = [
+		mediaAsset?.type ?? asset.mediaType ?? "素材",
+		duration ? `时长 ${duration}` : null,
+	]
+		.filter(Boolean)
+		.join(" · ");
 	return (
 		<div className="flex min-w-0 items-center gap-2 rounded-sm border border-border/70 bg-muted/[0.16] px-2 py-1.5">
 			<div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-border/60 bg-background">
@@ -1520,8 +1581,8 @@ function ScriptTableAssetChip({
 				<div className="truncate text-xs font-medium text-foreground">
 					{mediaAsset?.name ?? asset.name}
 				</div>
-				<div className="text-[0.68rem] text-muted-foreground">
-					{mediaAsset?.type ?? asset.mediaType ?? "素材"}
+				<div className="truncate text-[0.68rem] text-muted-foreground">
+					{detailText}
 				</div>
 			</div>
 			<Button
