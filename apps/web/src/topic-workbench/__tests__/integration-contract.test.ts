@@ -160,6 +160,16 @@ describe("topic workbench integration contract", () => {
 		expect(chatPanelSource).toContain("由 Agent 自动估算时间");
 	});
 
+	test("keeps script row actions and video metadata visually aligned", () => {
+		expect(topicWorkbenchSource).toContain("SCRIPT_TABLE_GRID_CLASS");
+		expect(topicWorkbenchSource).toContain("_2.75rem]");
+		expect(topicWorkbenchSource).toContain("操作");
+		expect(topicWorkbenchSource).toContain('aria-label={`删除第 ${index + 1} 行`}');
+		expect(topicWorkbenchSource).toContain("ScriptTableMetadataField");
+		expect(topicWorkbenchSource).toContain("min-h-28");
+		expect(topicWorkbenchSource).toContain("h-full");
+	});
+
 	test("skips automatic thumbnail rendering when the editor is degraded", () => {
 		expect(projectManagerSource).toContain("updateThumbnailFromTimeline");
 		expect(projectManagerSource).toContain("this.editor.renderer.isDegraded");

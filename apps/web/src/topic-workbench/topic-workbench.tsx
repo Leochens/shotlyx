@@ -219,6 +219,8 @@ const INPUT_MATERIAL_KIND_LABELS: Record<
 };
 
 const SCRIPT_TABLE_AUTO_TIME_LABEL = "由 Agent 自动估算时间";
+const SCRIPT_TABLE_GRID_CLASS =
+	"[grid-template-columns:7.5rem_minmax(13rem,0.86fr)_minmax(14rem,0.94fr)_minmax(13rem,0.84fr)_2.75rem]";
 
 function getStageIndex(stage: TopicStage): number {
 	return STAGES.findIndex((item) => item.stage === stage);
@@ -1128,8 +1130,13 @@ function ScriptTableWorkspace({
 			className="overflow-hidden rounded-sm border border-border/75 bg-background"
 		>
 			<div className="overflow-x-auto">
-				<div className="min-w-[820px]">
-					<div className="grid border-b border-border/75 bg-muted/[0.2] [grid-template-columns:7.5rem_minmax(13rem,0.9fr)_minmax(14rem,1fr)_minmax(13rem,0.85fr)]">
+				<div className="min-w-[860px]">
+					<div
+						className={cn(
+							"grid border-b border-border/75 bg-muted/[0.2]",
+							SCRIPT_TABLE_GRID_CLASS,
+						)}
+					>
 						<div className="border-r border-border/70 px-3 py-2 text-xs font-semibold text-muted-foreground">
 							时间
 						</div>
@@ -1141,6 +1148,9 @@ function ScriptTableWorkspace({
 						</div>
 						<div className="px-3 py-2 text-xs font-semibold text-muted-foreground">
 							选择素材
+						</div>
+						<div className="border-l border-border/70 px-2 py-2 text-center text-xs font-semibold text-muted-foreground">
+							操作
 						</div>
 					</div>
 					{rows.map((row, index) => (
@@ -1224,20 +1234,23 @@ function ScriptTableMetadataPanel({
 				<FileText size={14} />
 				视频信息
 			</div>
-			<div className="grid gap-3 [grid-template-columns:minmax(11rem,0.8fr)_minmax(13rem,0.85fr)_minmax(14rem,1fr)] max-[980px]:grid-cols-1">
-				<label className="block min-w-0">
-					<span className="text-xs font-semibold text-muted-foreground">
-						标题
-					</span>
+			<div className="grid items-stretch gap-3 [grid-template-columns:minmax(11rem,0.8fr)_minmax(13rem,0.85fr)_minmax(14rem,1fr)] max-[980px]:grid-cols-1">
+				<ScriptTableMetadataField
+					label="标题"
+					testId="script-table-metadata-title"
+				>
 					<input
 						value={metadata.title}
 						onChange={(event) => onUpdate({ title: event.target.value })}
 						placeholder="视频标题"
-						className="mt-1 h-9 w-full rounded-sm border border-border bg-background px-2 text-sm text-foreground outline-none focus:border-primary/45"
+						className="h-9 w-full rounded-sm border border-border bg-background px-2 text-sm text-foreground outline-none focus:border-primary/45"
 						aria-label="脚本标题"
 					/>
-				</label>
-				<div className="min-w-0">
+				</ScriptTableMetadataField>
+				<ScriptTableMetadataField
+					label="脚本封面"
+					testId="script-table-metadata-cover"
+				>
 					<input
 						ref={fileInputRef}
 						type="file"
@@ -1249,10 +1262,7 @@ function ScriptTableMetadataPanel({
 							void handleCoverFiles(files);
 						}}
 					/>
-					<div className="mb-1 text-xs font-semibold text-muted-foreground">
-						脚本封面
-					</div>
-					<div className="flex min-h-20 items-center gap-2 rounded-sm border border-border/70 bg-background p-2">
+					<div className="flex h-full min-h-0 w-full items-center gap-2 rounded-sm border border-border/70 bg-muted/[0.08] p-2">
 						<div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-border/65 bg-muted/[0.18]">
 							{coverPreviewUrl ? (
 								<img
@@ -1298,11 +1308,11 @@ function ScriptTableMetadataPanel({
 							</div>
 						</div>
 					</div>
-				</div>
-				<label className="block min-w-0">
-					<span className="text-xs font-semibold text-muted-foreground">
-						简介
-					</span>
+				</ScriptTableMetadataField>
+				<ScriptTableMetadataField
+					label="简介"
+					testId="script-table-metadata-description"
+				>
 					<textarea
 						value={metadata.description}
 						onChange={(event) =>
@@ -1310,11 +1320,33 @@ function ScriptTableMetadataPanel({
 						}
 						placeholder="视频简介或发布描述"
 						rows={3}
-						className="mt-1 min-h-20 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-foreground outline-none focus:border-primary/45"
+						className="h-full min-h-0 w-full resize-y rounded-sm border border-border bg-background px-2 py-2 text-sm leading-6 text-foreground outline-none focus:border-primary/45"
 						aria-label="脚本简介"
 					/>
-				</label>
+				</ScriptTableMetadataField>
 			</div>
+		</div>
+	);
+}
+
+function ScriptTableMetadataField({
+	label,
+	children,
+	testId,
+}: {
+	label: string;
+	children: ReactNode;
+	testId: string;
+}) {
+	return (
+		<div
+			data-testid={testId}
+			className="flex h-full min-h-28 min-w-0 flex-col rounded-sm border border-border/70 bg-background p-2"
+		>
+			<span className="text-xs font-semibold text-muted-foreground">
+				{label}
+			</span>
+			<div className="mt-1 flex min-h-0 flex-1">{children}</div>
 		</div>
 	);
 }
@@ -1356,7 +1388,12 @@ function ScriptTableRowEditor({
 	};
 
 	return (
-		<div className="grid border-b border-border/65 last:border-b-0 [grid-template-columns:7.5rem_minmax(13rem,0.9fr)_minmax(14rem,1fr)_minmax(13rem,0.85fr)]">
+		<div
+			className={cn(
+				"grid border-b border-border/65 last:border-b-0",
+				SCRIPT_TABLE_GRID_CLASS,
+			)}
+		>
 			<div className="border-r border-border/65 bg-muted/[0.08] px-3 py-3">
 				<div className="mb-1 text-[0.68rem] font-medium text-muted-foreground">
 					#{index + 1}
@@ -1404,7 +1441,7 @@ function ScriptTableRowEditor({
 						void handleFiles(files);
 					}}
 				/>
-				<div className="flex items-center justify-between gap-2">
+				<div className="flex items-center gap-2">
 					<Button
 						size="sm"
 						variant="outline"
@@ -1419,16 +1456,6 @@ function ScriptTableRowEditor({
 							<ImagePlus size={14} />
 						)}
 						选择素材
-					</Button>
-					<Button
-						size="icon"
-						variant="ghost"
-						className="size-8 rounded-sm text-muted-foreground hover:text-destructive"
-						onClick={onRemoveRow}
-						disabled={!canRemove}
-						title="删除这一行"
-					>
-						<Trash2 size={14} />
 					</Button>
 				</div>
 				<div className="min-h-16 space-y-1.5">
@@ -1447,6 +1474,19 @@ function ScriptTableRowEditor({
 						))
 					)}
 				</div>
+			</div>
+			<div className="flex border-l border-border/65 px-1.5 py-3">
+				<Button
+					size="icon"
+					variant="ghost"
+					className="size-8 rounded-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+					onClick={onRemoveRow}
+					disabled={!canRemove}
+					title="删除这一行"
+					aria-label={`删除第 ${index + 1} 行`}
+				>
+					<Trash2 size={14} />
+				</Button>
 			</div>
 		</div>
 	);
