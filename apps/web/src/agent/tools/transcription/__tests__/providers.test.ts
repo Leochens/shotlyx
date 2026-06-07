@@ -33,6 +33,8 @@ describe("ASR providers", () => {
 				type: "audio/wav",
 			}),
 			language: "zh",
+			referenceText:
+				"参考脚本：这里会提到 Shotlyx 和时间线字幕，不要写成 short links。",
 		});
 
 		expect(fetchFn).toHaveBeenCalledWith(
@@ -52,6 +54,9 @@ describe("ASR providers", () => {
 		const form = init?.body as FormData;
 		expect(form.get("model")).toBe("whisper-large-v3");
 		expect(form.get("language")).toBe("zh");
+		expect(form.get("prompt")).toBe(
+			"参考脚本：这里会提到 Shotlyx 和时间线字幕，不要写成 short links。",
+		);
 		expect(form.get("response_format")).toBe("verbose_json");
 		expect(result).toMatchObject({
 			text: "你好 Shotlyx",
@@ -228,6 +233,8 @@ describe("ASR providers", () => {
 				audio: new File([new Uint8Array([1, 2, 3])], "audio.wav", {
 					type: "audio/wav",
 				}),
+				referenceText:
+					"Shotlyx 字幕识别\n正确写法是 Volcengine ASR，不是火山 ACR。",
 			},
 		});
 
@@ -258,6 +265,13 @@ describe("ASR providers", () => {
 		const body =
 			typeof request?.body === "string" ? JSON.parse(request.body) : null;
 		expect(body?.audio?.data).toBe("AQID");
+		expect(JSON.parse(body?.corpus?.context)).toEqual({
+			hotwords: [
+				{ word: "Shotlyx 字幕识别" },
+				{ word: "正确写法是 Volcengine ASR" },
+				{ word: "不是火山 ACR" },
+			],
+		});
 	});
 
 	test("keeps Volcengine word timing when word text or timing values use alternate shapes", async () => {

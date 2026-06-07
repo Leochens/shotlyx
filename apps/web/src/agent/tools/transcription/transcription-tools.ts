@@ -448,6 +448,7 @@ async function transcribeWithApi({
 	provider,
 	language,
 	model,
+	referenceText,
 	fetchFn,
 	abortSignal,
 	onProgress,
@@ -457,6 +458,7 @@ async function transcribeWithApi({
 	provider: string;
 	language?: string;
 	model?: string;
+	referenceText?: string;
 	fetchFn: typeof fetch;
 	abortSignal?: AbortSignal;
 	onProgress?: GenerateSubtitlesFromVideoInput["onProgress"];
@@ -467,6 +469,7 @@ async function transcribeWithApi({
 	form.set("provider", provider);
 	if (language) form.set("language", language);
 	if (model) form.set("model", model);
+	if (referenceText) form.set("referenceText", referenceText);
 	const stopProgress = startCloudAsrProgress({
 		provider,
 		onProgress,
@@ -581,6 +584,7 @@ export function createTranscriptionToolDeps({
 							provider,
 							language: input.language,
 							model: input.model,
+							referenceText: input.referenceText,
 							fetchFn,
 							abortSignal: input.abortSignal,
 							onProgress: input.onProgress,
@@ -729,6 +733,12 @@ export function buildTranscriptionTools({
 					description: "ASR 模型名，由 provider 解释",
 					optional: true,
 				},
+				referenceText: {
+					type: "string",
+					description:
+						"可选参考脚本、提示稿、术语或易错词；用户提供长稿时，先总结成关键台词、专有名词和纠错提示后传入，用于提升 ASR 准确度。",
+					optional: true,
+				},
 				style: {
 					type: "string",
 					description: "字幕样式：clean、documentary、social",
@@ -788,6 +798,10 @@ export function buildTranscriptionTools({
 					}),
 					language: optionalTrimmedString({ params, key: "language" }),
 					model: optionalTrimmedString({ params, key: "model" }),
+					referenceText: optionalTrimmedString({
+						params,
+						key: "referenceText",
+					}),
 					style: optionalTrimmedString({
 						params,
 						key: "style",

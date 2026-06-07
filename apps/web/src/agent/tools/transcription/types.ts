@@ -26,6 +26,7 @@ export interface TranscribeAudioInput {
 	language?: string;
 	model?: string;
 	provider?: string;
+	referenceText?: string;
 }
 
 export interface TranscriptionCue {
@@ -54,6 +55,7 @@ export interface GenerateSubtitlesFromVideoInput {
 	provider?: string;
 	language?: string;
 	model?: string;
+	referenceText?: string;
 	style?: string;
 	placement?: string;
 	trackId?: string;

@@ -16,6 +16,9 @@ const DEFAULT_TEXT_ONLY_DURATION_SECONDS = 3;
 const DEFAULT_VOLCENGINE_FLASH_URL =
 	"https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash";
 const DEFAULT_VOLCENGINE_FLASH_RESOURCE_ID = "volc.bigasr.auc_turbo";
+const MAX_ASR_REFERENCE_TEXT_CHARS = 4000;
+const MAX_VOLCENGINE_HOTWORDS = 64;
+const MAX_VOLCENGINE_HOTWORD_CHARS = 80;
 
 export const ASR_PROVIDER_CONFIGS: AsrProviderConfig[] = [
 	{
@@ -100,6 +103,51 @@ function optionalNumber(value: unknown): number | undefined {
 		return Number.isFinite(parsed) ? parsed : undefined;
 	}
 	return undefined;
+}
+
+function normalizeReferenceText(value: string | undefined): string | undefined {
+	if (!value) return undefined;
+	const normalized = value
+		.replace(/\r\n?/g, "\n")
+		.replace(/[^\S\n]+/g, " ")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+	if (!normalized) return undefined;
+	return normalized.slice(0, MAX_ASR_REFERENCE_TEXT_CHARS).trim();
+}
+
+function buildVolcengineCorpus({
+	referenceText,
+}: {
+	referenceText?: string;
+}): { context: string } | undefined {
+	const normalized = normalizeReferenceText(referenceText);
+	if (!normalized) return undefined;
+
+	const seen = new Set<string>();
+	const hotwords: Array<{ word: string }> = [];
+	const addCandidate = (value: string) => {
+		const word = value
+			.replace(/\s+/g, " ")
+			.trim()
+			.slice(0, MAX_VOLCENGINE_HOTWORD_CHARS)
+			.trim();
+		if (!word || seen.has(word)) return;
+		seen.add(word);
+		hotwords.push({ word });
+	};
+
+	for (const candidate of normalized.split(/[\r\n，。！？；、,.!?;:：]+/u)) {
+		if (hotwords.length >= MAX_VOLCENGINE_HOTWORDS) break;
+		addCandidate(candidate);
+	}
+
+	if (hotwords.length === 0) addCandidate(normalized);
+	if (hotwords.length === 0) return undefined;
+
+	return {
+		context: JSON.stringify({ hotwords }),
+	};
 }
 
 function normalizeTokens({
@@ -392,6 +440,10 @@ export class OpenAICompatibleAsrProvider implements AsrProvider {
 		if (input.language && input.language !== "auto") {
 			form.set("language", input.language);
 		}
+		const referenceText = normalizeReferenceText(input.referenceText);
+		if (referenceText) {
+			form.set("prompt", referenceText);
+		}
 
 		const response = await (this.deps.fetchFn ?? fetch)(
 			`${baseUrl}/audio/transcriptions`,
@@ -428,6 +480,9 @@ export class VolcengineAsrProvider implements AsrProvider {
 	): Promise<TranscribeAudioResult> {
 		const env = this.deps.env ?? getRuntimeEnv();
 		const requestId = randomUUID();
+		const corpus = buildVolcengineCorpus({
+			referenceText: input.referenceText,
+		});
 		const audioData = Buffer.from(await input.audio.arrayBuffer()).toString(
 			"base64",
 		);
@@ -443,6 +498,7 @@ export class VolcengineAsrProvider implements AsrProvider {
 					audio: {
 						data: audioData,
 					},
+					...(corpus ? { corpus } : {}),
 					request: {
 						model_name: input.model ?? "bigmodel",
 						enable_itn: true,

@@ -16,8 +16,10 @@ function stringFormValue({
 
 function normalizeError(error: unknown): { message: string; status: number } {
 	const message = error instanceof Error ? error.message : "provider_error";
-	if (message.startsWith("configuration_error")) return { message, status: 500 };
-	if (message.startsWith("provider_unsupported")) return { message, status: 400 };
+	if (message.startsWith("configuration_error"))
+		return { message, status: 500 };
+	if (message.startsWith("provider_unsupported"))
+		return { message, status: 400 };
 	if (message.startsWith("provider_error")) return { message, status: 502 };
 	return { message: "provider_error: ASR transcription failed", status: 502 };
 }
@@ -46,6 +48,7 @@ export async function POST(request: ApiRequest) {
 				provider: stringFormValue({ form, key: "provider" }),
 				language: stringFormValue({ form, key: "language" }),
 				model: stringFormValue({ form, key: "model" }),
+				referenceText: stringFormValue({ form, key: "referenceText" }),
 			},
 		});
 		return ApiResponse.json(result);

@@ -25,6 +25,7 @@ describe("transcription tools", () => {
 			provider: { type: "string", optional: true },
 			language: { type: "string", optional: true },
 			model: { type: "string", optional: true },
+			referenceText: { type: "string", optional: true },
 			style: { type: "string", optional: true },
 			placement: { type: "string", optional: true },
 			revealMode: { type: "string", optional: true },
@@ -49,6 +50,7 @@ describe("transcription tools", () => {
 
 		const result = await tool?.handler({
 			language: "zh",
+			referenceText: "开场讲 Shotlyx 字幕识别，不要写成 Short links。",
 			style: "social",
 			revealMode: "karaoke",
 			lineBreakMode: "page",
@@ -61,6 +63,7 @@ describe("transcription tools", () => {
 				source: "timeline",
 				provider: "volcengine",
 				language: "zh",
+				referenceText: "开场讲 Shotlyx 字幕识别，不要写成 Short links。",
 				style: "social",
 				placement: "bottom",
 				revealMode: "karaoke",
@@ -165,6 +168,8 @@ describe("transcription tools", () => {
 			source: "timeline",
 			provider: "tencent",
 			language: "zh",
+			referenceText:
+				"脚本提示：这里会说你好 Shotlyx，Shotlyx 是产品名，保持英文拼写。",
 			style: "social",
 			placement: "lower_third",
 			revealMode: "karaoke",
@@ -184,6 +189,9 @@ describe("transcription tools", () => {
 		const body = fetchCalls[0]?.[1].body as FormData;
 		expect(body.get("provider")).toBe("tencent");
 		expect(body.get("language")).toBe("zh");
+		expect(body.get("referenceText")).toBe(
+			"脚本提示：这里会说你好 Shotlyx，Shotlyx 是产品名，保持英文拼写。",
+		);
 		expect(execute).toHaveBeenCalledWith(
 			expect.objectContaining({
 				toolName: "subtitles_import",
