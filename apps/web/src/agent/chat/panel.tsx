@@ -269,7 +269,8 @@ const STARTER_PROMPT_STYLES: Array<{
 
 const EMPTY_TOPIC_INPUT_MATERIALS: TopicInputMaterial[] = [];
 
-const STREAM_TEXT_FLUSH_INTERVAL_MS = 80;
+const STREAM_TEXT_FLUSH_INTERVAL_MS = 120;
+const STREAM_THOUGHT_FLUSH_INTERVAL_MS = 180;
 const TOPIC_SUPPORT_TOOL_NAMES = new Set([
 	"web_search",
 	"web_fetch",
@@ -1935,32 +1936,46 @@ export function ChatPanel() {
 		return () => clearInterval(interval);
 	}, [startTime]);
 
-	const {
-		getActiveMessages,
-		addMessage,
-		isLoading,
-		setLoading,
-		mode,
-		setMode,
-		selectedAgent,
-		setSelectedAgent,
-		pendingPlan,
-		setPendingPlan,
-		streamingMessageId,
-		setStreamingMessageId,
-		updateMessageContent,
-		updateMessageThought,
-		updateMessageActions,
-		updateMessageClarification,
-		updateMessageToolCalls,
-		updateMessageTokenUsage,
-		activeSessionId,
-		isHydrated,
-		setActiveProject,
-		clearSessionMessages,
-		removeMessage,
-		getSessionMessages,
-	} = useChatStore();
+	const getActiveMessages = useChatStore((state) => state.getActiveMessages);
+	const addMessage = useChatStore((state) => state.addMessage);
+	const isLoading = useChatStore((state) => state.isLoading);
+	const setLoading = useChatStore((state) => state.setLoading);
+	const mode = useChatStore((state) => state.mode);
+	const setMode = useChatStore((state) => state.setMode);
+	const selectedAgent = useChatStore((state) => state.selectedAgent);
+	const setSelectedAgent = useChatStore((state) => state.setSelectedAgent);
+	const pendingPlan = useChatStore((state) => state.pendingPlan);
+	const setPendingPlan = useChatStore((state) => state.setPendingPlan);
+	const streamingMessageId = useChatStore((state) => state.streamingMessageId);
+	const setStreamingMessageId = useChatStore(
+		(state) => state.setStreamingMessageId,
+	);
+	const updateMessageContent = useChatStore(
+		(state) => state.updateMessageContent,
+	);
+	const updateMessageThought = useChatStore(
+		(state) => state.updateMessageThought,
+	);
+	const updateMessageActions = useChatStore(
+		(state) => state.updateMessageActions,
+	);
+	const updateMessageClarification = useChatStore(
+		(state) => state.updateMessageClarification,
+	);
+	const updateMessageToolCalls = useChatStore(
+		(state) => state.updateMessageToolCalls,
+	);
+	const updateMessageTokenUsage = useChatStore(
+		(state) => state.updateMessageTokenUsage,
+	);
+	const activeSessionId = useChatStore((state) => state.activeSessionId);
+	const isHydrated = useChatStore((state) => state.isHydrated);
+	const setActiveProject = useChatStore((state) => state.setActiveProject);
+	const clearSessionMessages = useChatStore(
+		(state) => state.clearSessionMessages,
+	);
+	const removeMessage = useChatStore((state) => state.removeMessage);
+	const getSessionMessages = useChatStore((state) => state.getSessionMessages);
 	const editor = useEditor();
 	const projectId = useEditor(
 		(editor) => editor.project.getActiveOrNull()?.metadata.id ?? null,
@@ -1994,7 +2009,7 @@ export function ChatPanel() {
 		(editor) =>
 			editor.media.getAssets().filter((asset) => !asset.ephemeral).length,
 	);
-	const messages = getActiveMessages();
+	const messages = useChatStore((state) => state.getActiveMessages());
 	const activeChatSession = useChatStore((state) =>
 		state.sessions.find((session) => session.id === state.activeSessionId),
 	);
@@ -2169,6 +2184,8 @@ export function ChatPanel() {
 		runSignal,
 		queueMessageContentUpdate,
 		flushMessageContentUpdate,
+		queueMessageThoughtUpdate,
+		flushMessageThoughtUpdate,
 	}: {
 		sseEvent: SSEEvent;
 		accumulated: { text: string; thought: string };
@@ -2182,6 +2199,12 @@ export function ChatPanel() {
 			immediate?: boolean;
 		}) => void;
 		flushMessageContentUpdate: () => void;
+		queueMessageThoughtUpdate: (args: {
+			id: string;
+			thought: string;
+			immediate?: boolean;
+		}) => void;
+		flushMessageThoughtUpdate: () => void;
 	}) => {
 		if (runSignal.aborted) return;
 		const data: unknown = JSON.parse(sseEvent.data);
@@ -2215,6 +2238,7 @@ export function ChatPanel() {
 
 		if (sseEvent.event === "done") {
 			flushMessageContentUpdate();
+			flushMessageThoughtUpdate();
 			return;
 		}
 
@@ -2227,14 +2251,12 @@ export function ChatPanel() {
 			const text = getStringField({ value: data, key: "text" }) ?? "";
 			accumulated.thought += text;
 			const mid = ensureAssistantMessage();
-			updateMessageThought(
-				{ id: mid, thought: accumulated.thought },
-				chatSessionId,
-			);
+			queueMessageThoughtUpdate({ id: mid, thought: accumulated.thought });
 			return;
 		}
 
 		if (sseEvent.event === "reasoning-end") {
+			flushMessageThoughtUpdate();
 			return;
 		}
 
@@ -2486,13 +2508,11 @@ export function ChatPanel() {
 			if (planData.reasoning) {
 				accumulated.thought = planData.reasoning;
 				const mid = ensureAssistantMessage();
-				updateMessageThought(
-					{
-						id: mid,
-						thought: planData.reasoning,
-					},
-					chatSessionId,
-				);
+				queueMessageThoughtUpdate({
+					id: mid,
+					thought: planData.reasoning,
+					immediate: true,
+				});
 			}
 			if (planData.displayContent) {
 				accumulated.text = planData.displayContent;
@@ -2537,6 +2557,7 @@ export function ChatPanel() {
 		}
 		if (sseEvent.event === "error") {
 			flushMessageContentUpdate();
+			flushMessageThoughtUpdate();
 			const message =
 				getStringField({ value: data, key: "message" }) ?? "未知错误";
 			const category =
@@ -2594,6 +2615,15 @@ export function ChatPanel() {
 			content: "",
 			timer: null,
 		};
+		const pendingThoughtUpdateRef: {
+			id: string | null;
+			thought: string;
+			timer: ReturnType<typeof setTimeout> | null;
+		} = {
+			id: null,
+			thought: "",
+			timer: null,
+		};
 		const flushMessageContentUpdate = () => {
 			if (pendingContentUpdateRef.timer !== null) {
 				clearTimeout(pendingContentUpdateRef.timer);
@@ -2608,6 +2638,21 @@ export function ChatPanel() {
 				chatSessionId,
 			);
 			pendingContentUpdateRef.id = null;
+		};
+		const flushMessageThoughtUpdate = () => {
+			if (pendingThoughtUpdateRef.timer !== null) {
+				clearTimeout(pendingThoughtUpdateRef.timer);
+				pendingThoughtUpdateRef.timer = null;
+			}
+			if (pendingThoughtUpdateRef.id === null) return;
+			updateMessageThought(
+				{
+					id: pendingThoughtUpdateRef.id,
+					thought: pendingThoughtUpdateRef.thought,
+				},
+				chatSessionId,
+			);
+			pendingThoughtUpdateRef.id = null;
 		};
 		const queueMessageContentUpdate = ({
 			id,
@@ -2631,6 +2676,29 @@ export function ChatPanel() {
 			pendingContentUpdateRef.timer = setTimeout(() => {
 				flushMessageContentUpdate();
 			}, STREAM_TEXT_FLUSH_INTERVAL_MS);
+		};
+		const queueMessageThoughtUpdate = ({
+			id,
+			thought,
+			immediate = false,
+		}: {
+			id: string;
+			thought: string;
+			immediate?: boolean;
+		}) => {
+			pendingThoughtUpdateRef.id = id;
+			pendingThoughtUpdateRef.thought = thought;
+
+			if (immediate) {
+				flushMessageThoughtUpdate();
+				return;
+			}
+
+			if (pendingThoughtUpdateRef.timer !== null) return;
+
+			pendingThoughtUpdateRef.timer = setTimeout(() => {
+				flushMessageThoughtUpdate();
+			}, STREAM_THOUGHT_FLUSH_INTERVAL_MS);
 		};
 
 		try {
@@ -2716,14 +2784,18 @@ export function ChatPanel() {
 							runSignal: runAbort.signal,
 							queueMessageContentUpdate,
 							flushMessageContentUpdate,
+							queueMessageThoughtUpdate,
+							flushMessageThoughtUpdate,
 						});
 					},
 					onComplete: () => {
 						flushMessageContentUpdate();
+						flushMessageThoughtUpdate();
 						resolve();
 					},
 					onError: (error) => {
 						flushMessageContentUpdate();
+						flushMessageThoughtUpdate();
 						addMessage(
 							{
 								id: `err-${getClientNow()}`,
@@ -2766,6 +2838,7 @@ export function ChatPanel() {
 			);
 		} finally {
 			flushMessageContentUpdate();
+			flushMessageThoughtUpdate();
 			setStreamingMessageId(null, chatSessionId);
 			setLoading(false, chatSessionId);
 			setStartTime(null);

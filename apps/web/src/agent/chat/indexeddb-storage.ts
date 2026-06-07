@@ -187,13 +187,78 @@ export function createIndexedDBPersistStorage<T>({
 	dbName,
 	storeName,
 	legacyStorage,
+	setItemDebounceMs = 0,
 }: {
 	dbName: string;
 	storeName: string;
 	legacyStorage: BrowserStorage | null;
+	setItemDebounceMs?: number;
 }): PersistStorage<T, Promise<void>> {
 	if (typeof window === "undefined" || typeof indexedDB === "undefined") {
 		return getNoopStorage<T>();
+	}
+
+	let pendingSetItem: {
+		name: string;
+		value: StorageValue<T>;
+	} | null = null;
+	let pendingSetItemTimer: ReturnType<typeof setTimeout> | null = null;
+
+	const persistItem = async ({
+		name,
+		value,
+	}: {
+		name: string;
+		value: StorageValue<T>;
+	}): Promise<void> => {
+		try {
+			await writeIndexedDBItem<T>({
+				dbName,
+				storeName,
+				name,
+				value,
+			});
+			removeLegacyItem({ name, legacyStorage });
+		} catch {
+			writeLegacyItem<T>({ name, value, legacyStorage });
+		}
+	};
+
+	const clearPendingSetItemTimer = () => {
+		if (pendingSetItemTimer === null) return;
+		clearTimeout(pendingSetItemTimer);
+		pendingSetItemTimer = null;
+	};
+
+	const flushPendingSetItem = () => {
+		clearPendingSetItemTimer();
+		const nextPendingSetItem = pendingSetItem;
+		pendingSetItem = null;
+		if (!nextPendingSetItem) return;
+		void persistItem(nextPendingSetItem);
+	};
+
+	const scheduleSetItem = ({
+		name,
+		value,
+	}: {
+		name: string;
+		value: StorageValue<T>;
+	}) => {
+		pendingSetItem = { name, value };
+		clearPendingSetItemTimer();
+		pendingSetItemTimer = setTimeout(() => {
+			flushPendingSetItem();
+		}, setItemDebounceMs);
+	};
+
+	if (setItemDebounceMs > 0) {
+		window.addEventListener("pagehide", flushPendingSetItem);
+		window.addEventListener("visibilitychange", () => {
+			if (document.visibilityState === "hidden") {
+				flushPendingSetItem();
+			}
+		});
 	}
 
 	return {
@@ -226,22 +291,19 @@ export function createIndexedDBPersistStorage<T>({
 
 			return legacyValue;
 		},
-			// PersistStorage follows the Web Storage shape here.
-			// eslint-disable-next-line shotlyx/prefer-object-params
-			setItem: async (name, value) => {
-			try {
-				await writeIndexedDBItem<T>({
-					dbName,
-					storeName,
-					name,
-					value,
-				});
-				removeLegacyItem({ name, legacyStorage });
-			} catch {
-				writeLegacyItem<T>({ name, value, legacyStorage });
+		// PersistStorage follows the Web Storage shape here.
+		// eslint-disable-next-line shotlyx/prefer-object-params
+		setItem: async (name, value) => {
+			if (setItemDebounceMs > 0) {
+				scheduleSetItem({ name, value });
+				return;
 			}
+
+			await persistItem({ name, value });
 		},
 		removeItem: async (name) => {
+			pendingSetItem = null;
+			clearPendingSetItemTimer();
 			try {
 				await removeIndexedDBItem({ dbName, storeName, name });
 			} catch {

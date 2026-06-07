@@ -19,6 +19,7 @@ interface PersistedChatState {
 
 const DEFAULT_CHAT_PROJECT_ID = "default-project";
 const CHAT_WORKBENCH_PROJECT_SEPARATOR = "::";
+const CHAT_STORAGE_WRITE_DEBOUNCE_MS = 350;
 
 function getLegacyStorage() {
 	if (typeof window === "undefined") return null;
@@ -34,6 +35,7 @@ function getStorage() {
 		dbName: "shotlyx-agent-chat",
 		storeName: "chat-state",
 		legacyStorage: getLegacyStorage(),
+		setItemDebounceMs: CHAT_STORAGE_WRITE_DEBOUNCE_MS,
 	});
 }
 
@@ -74,7 +76,9 @@ function getProjectSessions({
 	sessions: ChatSession[];
 	projectId: string;
 }): ChatSession[] {
-	return sessions.filter((session) => getSessionProjectId(session) === projectId);
+	return sessions.filter(
+		(session) => getSessionProjectId(session) === projectId,
+	);
 }
 
 function getLegacyProjectIdForScopedProject({
@@ -226,8 +230,8 @@ export const useChatStore = create<ChatState>()(
 			getSessionMessages: (sessionId) => {
 				if (!sessionId) return [];
 				return (
-					get().sessions.find((session) => session.id === sessionId)?.messages ??
-					[]
+					get().sessions.find((session) => session.id === sessionId)
+						?.messages ?? []
 				);
 			},
 
@@ -269,8 +273,9 @@ export const useChatStore = create<ChatState>()(
 					});
 					if (projectSessions.length > 0) {
 						const nextActive =
-							projectSessions.toSorted((a, b) => a.updatedAt - b.updatedAt).at(-1) ??
-							projectSessions[0];
+							projectSessions
+								.toSorted((a, b) => a.updatedAt - b.updatedAt)
+								.at(-1) ?? projectSessions[0];
 						return {
 							sessions,
 							activeProjectId: normalizedProjectId,
