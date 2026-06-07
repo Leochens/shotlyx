@@ -84,6 +84,7 @@ const requestSchema = z.object({
 			activeWorkbench: z.enum(["video", "topic"]).optional(),
 			topicInteractionMode: z.enum(["brainstorm", "workflow"]).optional(),
 			topicBrainstormDraft: z.string().optional(),
+			topicScriptTableContext: z.string().optional(),
 			topicCreatorProfile: z.string().optional(),
 		})
 		.optional(),
@@ -149,12 +150,14 @@ function buildRequestContextText({
 	activeWorkbench,
 	topicInteractionMode,
 	topicBrainstormDraft,
+	topicScriptTableContext,
 	topicCreatorProfile,
 }: {
 	activeBrandKit?: unknown;
 	activeWorkbench?: "video" | "topic";
 	topicInteractionMode?: "brainstorm" | "workflow";
 	topicBrainstormDraft?: string;
+	topicScriptTableContext?: string;
 	topicCreatorProfile?: string;
 }): string | null {
 	const contextLines: string[] = [];
@@ -172,6 +175,11 @@ function buildRequestContextText({
 			contextLines.push(
 				"Active workbench: topic management. Act as a topic research sub-agent for creators: help turn vague ideas into candidate topics, same-topic research, video structures, script outlines, citations, publishing copy, and a production plan before video handoff. Prefer web_search/web_fetch for current public context. Do not plan timeline edits in this mode. If the creator profile is empty and the current conversation does not already describe the account positioning, ask the user for account positioning before deep topic generation. When you produce structured candidates, select a candidate, write research, write structures, create a package, create a production plan, or reset a stage, call the topic_* tools so the right-side workbench updates; do not leave those results only in chat prose.",
 			);
+			if (topicScriptTableContext?.trim()) {
+				contextLines.push(
+					`Current script table reference:\n${topicScriptTableContext.trim()}`,
+				);
+			}
 		}
 		if (topicCreatorProfile?.trim()) {
 			contextLines.push(`Creator profile:\n${topicCreatorProfile.trim()}`);
@@ -573,6 +581,7 @@ export async function POST(request: ApiRequest) {
 			activeWorkbench: context?.activeWorkbench,
 			topicInteractionMode: context?.topicInteractionMode,
 			topicBrainstormDraft: context?.topicBrainstormDraft,
+			topicScriptTableContext: context?.topicScriptTableContext,
 			topicCreatorProfile: context?.topicCreatorProfile,
 		});
 		if (!contextText) return messages;
@@ -1083,6 +1092,7 @@ export async function POST(request: ApiRequest) {
 					activeWorkbench: context?.activeWorkbench,
 					topicInteractionMode: context?.topicInteractionMode,
 					topicBrainstormDraft: context?.topicBrainstormDraft,
+					topicScriptTableContext: context?.topicScriptTableContext,
 					topicCreatorProfile: context?.topicCreatorProfile,
 				});
 				if (contextText) {

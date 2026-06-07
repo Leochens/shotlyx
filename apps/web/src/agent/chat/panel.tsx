@@ -2011,6 +2011,10 @@ export function ChatPanel() {
 		activeWorkbench === "topic" &&
 		activeTopicProject !== null &&
 		getTopicProjectMode(activeTopicProject) === "brainstorm";
+	const topicScriptTableContext = useMemo(() => {
+		if (activeWorkbench !== "topic" || !activeTopicProject) return undefined;
+		return formatTopicScriptTableForAgent(activeTopicProject);
+	}, [activeTopicProject, activeWorkbench]);
 	const topicBrainstormDraft = useMemo(() => {
 		if (!isTopicBrainstorming || !activeTopicProject) return undefined;
 		const noteMaterials = (activeTopicProject.inputMaterials ?? []).filter(
@@ -2022,14 +2026,12 @@ export function ChatPanel() {
 			if (!content && !summary) return [];
 			return `${index + 1}. ${material.title}\n${content || summary}`;
 		});
-		const scriptTableContext =
-			formatTopicScriptTableForAgent(activeTopicProject);
 		const contextBlocks = [
 			lines.length > 0 ? lines.join("\n\n") : undefined,
-			scriptTableContext,
+			topicScriptTableContext,
 		].filter((block): block is string => Boolean(block));
 		return contextBlocks.length > 0 ? contextBlocks.join("\n\n") : undefined;
-	}, [activeTopicProject, isTopicBrainstorming]);
+	}, [activeTopicProject, isTopicBrainstorming, topicScriptTableContext]);
 	const toRequestMessage = (
 		message: Pick<ChatMessage, "role" | "content" | "toolCalls"> & {
 			references?: AgentContextReference[];
@@ -2640,10 +2642,12 @@ export function ChatPanel() {
 				? {
 						topicInteractionMode: "brainstorm",
 						topicBrainstormDraft,
+						topicScriptTableContext: undefined,
 					}
 				: {
 						topicInteractionMode: "workflow",
 						topicBrainstormDraft: undefined,
+						topicScriptTableContext,
 					};
 			const body: Record<string, unknown> = {
 				messages: msgsToSend,

@@ -150,6 +150,7 @@ const STAGES: Array<{
 ];
 
 type TopicWorkbenchSectionId =
+	| "scriptTable"
 	| "inputMaterials"
 	| "ideation"
 	| "research"
@@ -162,6 +163,7 @@ type BrainstormWorkspaceTab = "draft" | "script-table";
 type CollapsedSections = Record<TopicWorkbenchSectionId, boolean>;
 
 const DEFAULT_COLLAPSED_SECTIONS: CollapsedSections = {
+	scriptTable: false,
 	inputMaterials: false,
 	ideation: false,
 	research: false,
@@ -397,6 +399,15 @@ function hasScriptTableMetadataContent(project: TopicProject): boolean {
 	});
 	return Boolean(
 		metadata.title.trim() || metadata.description.trim() || metadata.coverAsset,
+	);
+}
+
+function hasTopicScriptTableContent(project: TopicProject): boolean {
+	return (
+		hasScriptTableMetadataContent(project) ||
+		ensureTopicScriptTableRows({ rows: project.scriptTableRows }).some(
+			hasScriptTableRowContent,
+		)
 	);
 }
 
@@ -701,6 +712,11 @@ export function TopicWorkbench({
 				) : (
 					<div className="min-h-full min-w-0 space-y-3 p-3">
 						<VersionSummaryBar project={activeProject} />
+						<WorkflowScriptTableSection
+							project={activeProject}
+							isCollapsed={collapsedSections.scriptTable}
+							onToggleCollapse={() => toggleSection("scriptTable")}
+						/>
 						<InputMaterialsSection
 							project={activeProject}
 							isCollapsed={collapsedSections.inputMaterials}
@@ -817,7 +833,6 @@ function TopicWorkbenchHeader({ project }: { project: TopicProject }) {
 }
 
 function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
-	const editor = useEditor();
 	const mediaAssets = useEditor((currentEditor) =>
 		currentEditor.media.getAssets(),
 	);
@@ -827,9 +842,6 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 	);
 	const removeInputMaterial = useTopicWorkbenchStore(
 		(state) => state.removeInputMaterial,
-	);
-	const recordInputMaterials = useTopicWorkbenchStore(
-		(state) => state.recordInputMaterials,
 	);
 	const promoteBrainstormToWorkflow = useTopicWorkbenchStore(
 		(state) => state.promoteBrainstormToWorkflow,
@@ -854,65 +866,9 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 		[project.scriptTableRows],
 	);
 	const hasScriptRows = scriptRows.some(hasScriptTableRowContent);
-
-	const uploadBrainstormMediaFiles = useCallback(
-		async ({
-			files,
-			inputMaterialSummary,
-		}: {
-			files: File[];
-			inputMaterialSummary: string;
-		}): Promise<MediaAsset[]> => {
-			const activeEditorProject = editor.project.getActiveOrNull();
-			if (!activeEditorProject || files.length === 0) return [];
-
-			const savedAssets: MediaAsset[] = [];
-			try {
-				await showMediaUploadToast({
-					filesCount: files.length,
-					promise: async () => {
-						const processedAssets = await processMediaAssets({ files });
-						for (const asset of processedAssets) {
-							if (asset.type !== "image" && asset.type !== "video") continue;
-							const saved = await editor.media.addMediaAsset({
-								projectId: activeEditorProject.metadata.id,
-								asset,
-							});
-							if (saved) {
-								savedAssets.push(saved);
-							}
-						}
-						return {
-							uploadedCount: savedAssets.length,
-							assetNames: savedAssets.map((asset) => asset.name),
-						};
-					},
-				});
-			} catch (error) {
-				console.error("Failed to upload draft media:", error);
-				return [];
-			}
-
-			if (savedAssets.length > 0) {
-				recordInputMaterials({
-					editorProjectId: project.editorProjectId,
-					materials: savedAssets.map((asset) => ({
-						id: `material-${asset.id}`,
-						kind: "uploaded-media",
-						title: asset.name,
-						summary: inputMaterialSummary,
-						mediaAssetId: asset.id,
-						mediaType: asset.type,
-						durationSeconds: asset.duration,
-						sizeBytes: asset.file.size,
-					})),
-				});
-			}
-
-			return savedAssets;
-		},
-		[editor, project.editorProjectId, recordInputMaterials],
-	);
+	const uploadTopicScriptTableMediaFiles = useTopicScriptTableMediaUpload({
+		project,
+	});
 
 	const handleCreateCandidates = () => {
 		promoteBrainstormToWorkflow();
@@ -1001,7 +957,7 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 							material={material}
 							mediaAssets={mediaAssets}
 							onUploadFiles={(files) =>
-								uploadBrainstormMediaFiles({
+								uploadTopicScriptTableMediaFiles({
 									files,
 									inputMaterialSummary: "草稿中上传的图片或视频素材。",
 								})
@@ -1054,7 +1010,7 @@ function BrainstormDraftWorkspace({ project }: { project: TopicProject }) {
 					project={project}
 					mediaAssets={mediaAssets}
 					onUploadFiles={({ files, inputMaterialSummary }) =>
-						uploadBrainstormMediaFiles({
+						uploadTopicScriptTableMediaFiles({
 							files,
 							inputMaterialSummary,
 						})
@@ -1107,6 +1063,76 @@ function buildScriptTableAsset(asset: MediaAsset): TopicScriptTableAsset {
 		sizeBytes: asset.file.size,
 		addedAt: Date.now(),
 	};
+}
+
+function useTopicScriptTableMediaUpload({
+	project,
+}: {
+	project: TopicProject;
+}) {
+	const editor = useEditor();
+	const recordInputMaterials = useTopicWorkbenchStore(
+		(state) => state.recordInputMaterials,
+	);
+
+	return useCallback(
+		async ({
+			files,
+			inputMaterialSummary,
+		}: {
+			files: File[];
+			inputMaterialSummary: string;
+		}): Promise<MediaAsset[]> => {
+			const activeEditorProject = editor.project.getActiveOrNull();
+			if (!activeEditorProject || files.length === 0) return [];
+
+			const savedAssets: MediaAsset[] = [];
+			try {
+				await showMediaUploadToast({
+					filesCount: files.length,
+					promise: async () => {
+						const processedAssets = await processMediaAssets({ files });
+						for (const asset of processedAssets) {
+							if (asset.type !== "image" && asset.type !== "video") continue;
+							const saved = await editor.media.addMediaAsset({
+								projectId: activeEditorProject.metadata.id,
+								asset,
+							});
+							if (saved) {
+								savedAssets.push(saved);
+							}
+						}
+						return {
+							uploadedCount: savedAssets.length,
+							assetNames: savedAssets.map((asset) => asset.name),
+						};
+					},
+				});
+			} catch (error) {
+				console.error("Failed to upload script table media:", error);
+				return [];
+			}
+
+			if (savedAssets.length > 0) {
+				recordInputMaterials({
+					editorProjectId: project.editorProjectId,
+					materials: savedAssets.map((asset) => ({
+						id: `material-${asset.id}`,
+						kind: "uploaded-media",
+						title: asset.name,
+						summary: inputMaterialSummary,
+						mediaAssetId: asset.id,
+						mediaType: asset.type,
+						durationSeconds: asset.duration,
+						sizeBytes: asset.file.size,
+					})),
+				});
+			}
+
+			return savedAssets;
+		},
+		[editor, project.editorProjectId, recordInputMaterials],
+	);
 }
 
 type ScriptTablePreviewAsset = {
@@ -2091,6 +2117,45 @@ function DraftTiptapToolbar({
 				)}
 			</Button>
 		</div>
+	);
+}
+
+function WorkflowScriptTableSection({
+	project,
+	isCollapsed,
+	onToggleCollapse,
+}: {
+	project: TopicProject;
+	isCollapsed: boolean;
+	onToggleCollapse: () => void;
+}) {
+	const mediaAssets = useEditor((currentEditor) =>
+		currentEditor.media.getAssets(),
+	);
+	const uploadTopicScriptTableMediaFiles = useTopicScriptTableMediaUpload({
+		project,
+	});
+
+	if (!hasTopicScriptTableContent(project)) return null;
+
+	return (
+		<CollapsibleSection
+			testId="workflow-script-table-section"
+			icon={Table2}
+			title="脚本表格"
+			description="脚本表格不会因为进入选题流程而删除，可以随时回看、补充素材或继续编辑。"
+			isCollapsed={isCollapsed}
+			onToggleCollapse={onToggleCollapse}
+			className="bg-card/[0.34] dark:bg-cyan-300/[0.03]"
+		>
+			<div className="mt-3">
+				<ScriptTableWorkspace
+					project={project}
+					mediaAssets={mediaAssets}
+					onUploadFiles={uploadTopicScriptTableMediaFiles}
+				/>
+			</div>
+		</CollapsibleSection>
 	);
 }
 
@@ -3849,6 +3914,7 @@ function SectionHeading({
 
 function CollapsibleSection({
 	sectionRef,
+	testId,
 	icon,
 	title,
 	description,
@@ -3859,6 +3925,7 @@ function CollapsibleSection({
 	className,
 }: {
 	sectionRef?: Ref<HTMLElement>;
+	testId?: string;
 	icon: LucideIcon;
 	title: string;
 	description: string;
@@ -3871,6 +3938,7 @@ function CollapsibleSection({
 	return (
 		<section
 			ref={sectionRef}
+			data-testid={testId}
 			className={cn(
 				"rounded-sm border border-border/75 bg-background p-3",
 				className,

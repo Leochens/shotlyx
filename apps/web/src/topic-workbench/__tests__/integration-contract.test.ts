@@ -36,6 +36,11 @@ const topicWorkbenchSource = readFileSync(
 	"utf8",
 );
 
+const agentChatRouteSource = readFileSync(
+	fileURLToPath(new URL("../../api/agent/chat/route.ts", import.meta.url)),
+	"utf8",
+);
+
 const brainstormDraftCardSource = topicWorkbenchSource.slice(
 	topicWorkbenchSource.indexOf("function BrainstormDraftCard"),
 	topicWorkbenchSource.indexOf("function DraftTiptapToolbar"),
@@ -245,6 +250,38 @@ describe("topic workbench integration contract", () => {
 		expect(topicWorkbenchSource).toContain("预览素材");
 		expect(topicWorkbenchSource).toContain("<video");
 		expect(topicWorkbenchSource).toContain("<img");
+	});
+
+	test("keeps script table visible and connected after entering topic workflow", () => {
+		const workflowScriptTableIndex = topicWorkbenchSource.indexOf(
+			"<WorkflowScriptTableSection",
+		);
+		const inputMaterialsIndex = topicWorkbenchSource.indexOf(
+			"<InputMaterialsSection",
+		);
+		expect(workflowScriptTableIndex).toBeGreaterThanOrEqual(0);
+		expect(inputMaterialsIndex).toBeGreaterThanOrEqual(0);
+		expect(workflowScriptTableIndex).toBeLessThan(inputMaterialsIndex);
+		expect(topicWorkbenchSource).toContain('| "scriptTable"');
+		expect(topicWorkbenchSource).toContain("scriptTable: false");
+		expect(topicWorkbenchSource).toContain(
+			"function WorkflowScriptTableSection",
+		);
+		expect(topicWorkbenchSource).toContain(
+			'testId="workflow-script-table-section"',
+		);
+		expect(topicWorkbenchSource).toContain("data-testid={testId}");
+		expect(topicWorkbenchSource).toContain("hasTopicScriptTableContent");
+		expect(topicWorkbenchSource).toContain(
+			"脚本表格不会因为进入选题流程而删除",
+		);
+		expect(chatPanelSource).toContain(
+			"const topicScriptTableContext = useMemo",
+		);
+		expect(chatPanelSource).toContain("topicScriptTableContext:");
+		expect(chatPanelSource).toContain("topicBrainstormDraft: undefined");
+		expect(agentChatRouteSource).toContain("topicScriptTableContext");
+		expect(agentChatRouteSource).toContain("Current script table reference");
 	});
 
 	test("skips automatic thumbnail rendering when the editor is degraded", () => {
