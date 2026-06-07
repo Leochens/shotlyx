@@ -40,7 +40,10 @@ import {
 	List,
 	ListOrdered,
 	Loader2,
+	Mic,
+	Pause,
 	Pencil,
+	Play,
 	Plus,
 	Quote,
 	Radar,
@@ -53,6 +56,9 @@ import {
 	X,
 	type LucideIcon,
 } from "lucide-react";
+import { BatchCommand } from "@/commands";
+import { AddMediaAssetCommand } from "@/commands/media";
+import { InsertElementCommand } from "@/commands/timeline";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -63,9 +69,15 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { useEditor } from "@/editor/use-editor";
+import {
+	buildAudioRecordingConstraints,
+	createAudioRecordingFile,
+	formatRecordingDuration,
+	getSupportedAudioRecordingMimeType,
+} from "@/media/audio-recording";
 import { processMediaAssets } from "@/media/processing";
 import { showMediaUploadToast } from "@/media/upload-toast";
-import type { MediaAsset } from "@/media/types";
+import type { MediaAsset, TimelineMediaType } from "@/media/types";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -77,6 +89,10 @@ import {
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/utils/ui";
+import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
+import { buildElementFromMedia } from "@/timeline/element-utils";
+import { mediaTimeFromSeconds } from "@/wasm";
+import { toast } from "sonner";
 import { CreatorProfileDialogTrigger } from "./creator-profile-dialog";
 import {
 	createDraftTiptapExtensions,
@@ -236,6 +252,22 @@ const INPUT_MATERIAL_KIND_LABELS: Record<
 const SCRIPT_TABLE_AUTO_TIME_LABEL = "由 Agent 自动估算时间";
 const SCRIPT_TABLE_GRID_CLASS =
 	"[grid-template-columns:7.5rem_minmax(13rem,0.86fr)_minmax(14rem,0.94fr)_minmax(13rem,0.84fr)_2.75rem]";
+
+type ScriptTableRecordingStatus =
+	| "idle"
+	| "requesting"
+	| "recording"
+	| "paused"
+	| "saving";
+
+type ScriptTableRecordingControls = {
+	status: ScriptTableRecordingStatus;
+	elapsedSeconds: number;
+	startRecording: () => Promise<void>;
+	togglePause: () => void;
+	cancelRecording: () => void;
+	finishRecording: () => void;
+};
 
 function getStageIndex(stage: TopicStage): number {
 	return STAGES.findIndex((item) => item.stage === stage);
@@ -456,6 +488,38 @@ function hasTopicScriptTableContent(project: TopicProject): boolean {
 			hasScriptTableRowContent,
 		)
 	);
+}
+
+function buildScriptTableReadAloudText({
+	rows,
+}: {
+	rows: TopicScriptTableRow[];
+}): string {
+	return rows
+		.map((row, index) => {
+			const copy = row.copy.trim();
+			if (!copy) return null;
+			return `#${index + 1}\n${copy}`;
+		})
+		.filter((line): line is string => line !== null)
+		.join("\n\n");
+}
+
+function getScriptTableRecordingStatusLabel(
+	status: ScriptTableRecordingStatus,
+): string {
+	switch (status) {
+		case "requesting":
+			return "请求麦克风";
+		case "recording":
+			return "录音中";
+		case "paused":
+			return "已暂停";
+		case "saving":
+			return "同步到时间线";
+		default:
+			return "准备录音";
+	}
 }
 
 function buildDirectScriptCutPrompt(project: TopicProject): string {
@@ -1182,6 +1246,279 @@ function useTopicScriptTableMediaUpload({
 	);
 }
 
+function useScriptTableAudioRecording(): ScriptTableRecordingControls {
+	const editor = useEditor();
+	const [status, setStatus] = useState<ScriptTableRecordingStatus>("idle");
+	const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+	const recorderRef = useRef<MediaRecorder | null>(null);
+	const streamRef = useRef<MediaStream | null>(null);
+	const chunksRef = useRef<Blob[]>([]);
+	const shouldSaveRef = useRef(false);
+	const elapsedBaseMsRef = useRef(0);
+	const startedAtRef = useRef(0);
+	const elapsedTimerRef = useRef<number | null>(null);
+	const stopElapsedSecondsRef = useRef<number | null>(null);
+	const requestIdRef = useRef(0);
+
+	const readElapsedSeconds = useCallback(() => {
+		const recorder = recorderRef.current;
+		const activeMs =
+			recorder?.state === "recording"
+				? performance.now() - startedAtRef.current
+				: 0;
+		return Math.max(0, (elapsedBaseMsRef.current + activeMs) / 1000);
+	}, []);
+
+	const clearElapsedTimer = useCallback(() => {
+		if (elapsedTimerRef.current === null) return;
+		window.clearInterval(elapsedTimerRef.current);
+		elapsedTimerRef.current = null;
+	}, []);
+
+	const startElapsedTimer = useCallback(() => {
+		clearElapsedTimer();
+		elapsedTimerRef.current = window.setInterval(() => {
+			setElapsedSeconds(readElapsedSeconds());
+		}, 250);
+	}, [clearElapsedTimer, readElapsedSeconds]);
+
+	const stopStream = useCallback(() => {
+		streamRef.current?.getTracks().forEach((track) => track.stop());
+		streamRef.current = null;
+	}, []);
+
+	const clearSession = useCallback(() => {
+		clearElapsedTimer();
+		stopStream();
+		recorderRef.current = null;
+		chunksRef.current = [];
+		shouldSaveRef.current = false;
+		elapsedBaseMsRef.current = 0;
+		startedAtRef.current = 0;
+		stopElapsedSecondsRef.current = null;
+	}, [clearElapsedTimer, stopStream]);
+
+	const importAudioRecording = useCallback(
+		async ({
+			blob,
+			fallbackSeconds,
+		}: {
+			blob: Blob;
+			fallbackSeconds: number;
+		}) => {
+			const activeProject = editor.project.getActiveOrNull();
+			if (!activeProject) {
+				throw new Error("当前没有打开的项目");
+			}
+
+			const file = createAudioRecordingFile({ blob });
+			const processedAssets = await processMediaAssets({ files: [file] });
+			const asset = processedAssets[0];
+			if (!asset || asset.type !== "audio") {
+				throw new Error("录音文件无法作为音频素材导入");
+			}
+
+			const mediaType: TimelineMediaType = "audio";
+			const addMediaCommand = new AddMediaAssetCommand({
+				projectId: activeProject.metadata.id,
+				asset,
+			});
+			const assetId = addMediaCommand.getAssetId();
+			const duration =
+				asset.duration && Number.isFinite(asset.duration)
+					? mediaTimeFromSeconds({ seconds: asset.duration })
+					: fallbackSeconds > 0
+						? mediaTimeFromSeconds({ seconds: fallbackSeconds })
+						: DEFAULT_NEW_ELEMENT_DURATION;
+			const element = buildElementFromMedia({
+				mediaId: assetId,
+				mediaType,
+				name: asset.name,
+				duration,
+				startTime: editor.playback.getCurrentTime(),
+			});
+			const insertCommand = new InsertElementCommand({
+				element,
+				placement: { mode: "auto", trackType: "audio" },
+			});
+			editor.command.execute({
+				command: new BatchCommand([addMediaCommand, insertCommand]),
+			});
+		},
+		[editor],
+	);
+
+	const handleRecorderStop = useCallback(
+		async (mimeType: string) => {
+			const chunks = [...chunksRef.current];
+			const shouldSave = shouldSaveRef.current;
+			const elapsed = stopElapsedSecondsRef.current ?? readElapsedSeconds();
+			clearSession();
+
+			if (!shouldSave) {
+				setElapsedSeconds(0);
+				setStatus("idle");
+				return;
+			}
+
+			if (chunks.length === 0) {
+				setElapsedSeconds(0);
+				setStatus("idle");
+				toast.error("没有捕获到录音内容");
+				return;
+			}
+
+			setStatus("saving");
+			try {
+				const blob = new Blob(chunks, {
+					type: mimeType || chunks[0]?.type || "audio/webm",
+				});
+				await importAudioRecording({
+					blob,
+					fallbackSeconds: elapsed,
+				});
+				toast.success("录音已同步到时间线");
+			} catch (error) {
+				toast.error(error instanceof Error ? error.message : "录音保存失败");
+			} finally {
+				setElapsedSeconds(0);
+				setStatus("idle");
+			}
+		},
+		[clearSession, importAudioRecording, readElapsedSeconds],
+	);
+
+	const cancelRecording = useCallback(() => {
+		requestIdRef.current += 1;
+		const recorder = recorderRef.current;
+		shouldSaveRef.current = false;
+		stopElapsedSecondsRef.current = readElapsedSeconds();
+		clearElapsedTimer();
+
+		if (recorder && recorder.state !== "inactive") {
+			recorder.stop();
+			return;
+		}
+
+		clearSession();
+		setElapsedSeconds(0);
+		setStatus("idle");
+	}, [clearElapsedTimer, clearSession, readElapsedSeconds]);
+
+	useEffect(() => {
+		return () => {
+			cancelRecording();
+		};
+	}, [cancelRecording]);
+
+	const startRecording = useCallback(async () => {
+		if (status !== "idle") return;
+		if (
+			typeof navigator === "undefined" ||
+			!navigator.mediaDevices?.getUserMedia ||
+			typeof MediaRecorder === "undefined"
+		) {
+			toast.error("当前环境不支持麦克风录音");
+			return;
+		}
+
+		const requestId = requestIdRef.current + 1;
+		requestIdRef.current = requestId;
+		setElapsedSeconds(0);
+		setStatus("requesting");
+
+		try {
+			const stream = await navigator.mediaDevices.getUserMedia(
+				buildAudioRecordingConstraints({}),
+			);
+			if (requestIdRef.current !== requestId) {
+				stream.getTracks().forEach((track) => track.stop());
+				return;
+			}
+
+			const mimeType = getSupportedAudioRecordingMimeType();
+			const recorder = new MediaRecorder(
+				stream,
+				mimeType ? { mimeType } : undefined,
+			);
+
+			streamRef.current = stream;
+			recorderRef.current = recorder;
+			chunksRef.current = [];
+			shouldSaveRef.current = true;
+			elapsedBaseMsRef.current = 0;
+			startedAtRef.current = performance.now();
+			stopElapsedSecondsRef.current = null;
+
+			recorder.ondataavailable = (event) => {
+				if (event.data.size > 0) {
+					chunksRef.current.push(event.data);
+				}
+			};
+			recorder.onerror = () => {
+				toast.error("录音异常停止");
+			};
+			recorder.onstop = () => {
+				void handleRecorderStop(recorder.mimeType || mimeType);
+			};
+			recorder.start(1_000);
+			setStatus("recording");
+			startElapsedTimer();
+		} catch (error) {
+			clearSession();
+			setElapsedSeconds(0);
+			setStatus("idle");
+			toast.error(
+				error instanceof Error ? error.message : "无法开始麦克风录音",
+			);
+		}
+	}, [clearSession, handleRecorderStop, startElapsedTimer, status]);
+
+	const togglePause = useCallback(() => {
+		const recorder = recorderRef.current;
+		if (!recorder) return;
+
+		if (recorder.state === "recording") {
+			elapsedBaseMsRef.current += performance.now() - startedAtRef.current;
+			stopElapsedSecondsRef.current = elapsedBaseMsRef.current / 1000;
+			recorder.pause();
+			clearElapsedTimer();
+			setElapsedSeconds(elapsedBaseMsRef.current / 1000);
+			setStatus("paused");
+			return;
+		}
+
+		if (recorder.state === "paused") {
+			startedAtRef.current = performance.now();
+			stopElapsedSecondsRef.current = null;
+			recorder.resume();
+			setStatus("recording");
+			startElapsedTimer();
+		}
+	}, [clearElapsedTimer, startElapsedTimer]);
+
+	const finishRecording = useCallback(() => {
+		const recorder = recorderRef.current;
+		if (!recorder || recorder.state === "inactive") return;
+		shouldSaveRef.current = true;
+		stopElapsedSecondsRef.current = readElapsedSeconds();
+		clearElapsedTimer();
+		setElapsedSeconds(stopElapsedSecondsRef.current);
+		setStatus("saving");
+		recorder.stop();
+	}, [clearElapsedTimer, readElapsedSeconds]);
+
+	return {
+		status,
+		elapsedSeconds,
+		startRecording,
+		togglePause,
+		cancelRecording,
+		finishRecording,
+	};
+}
+
 type ScriptTablePreviewAsset = {
 	asset: TopicScriptTableAsset;
 	mediaAsset?: MediaAsset;
@@ -1299,6 +1636,11 @@ function ScriptTableWorkspace({
 		[mediaAssets],
 	);
 	const canExportMarkdown = hasTopicScriptTableContent(project);
+	const recording = useScriptTableAudioRecording();
+	const readAloudText = useMemo(
+		() => buildScriptTableReadAloudText({ rows }),
+		[rows],
+	);
 
 	const handleUploadRowFiles = async ({
 		rowId,
@@ -1344,6 +1686,8 @@ function ScriptTableWorkspace({
 				onPreviewAsset={setPreviewAsset}
 				canExportMarkdown={canExportMarkdown}
 				onExportMarkdown={() => downloadTopicScriptTableMarkdown(project)}
+				recording={recording}
+				readAloudText={readAloudText}
 			/>
 			<div className="overflow-x-auto">
 				<div className="min-w-[860px]">
@@ -1432,6 +1776,8 @@ function ScriptTableMetadataPanel({
 	onPreviewAsset,
 	canExportMarkdown,
 	onExportMarkdown,
+	recording,
+	readAloudText,
 }: {
 	metadata: TopicProject["scriptTableMetadata"];
 	mediaAssetsById: Map<string, MediaAsset>;
@@ -1444,6 +1790,8 @@ function ScriptTableMetadataPanel({
 	onPreviewAsset: (previewAsset: ScriptTablePreviewAsset) => void;
 	canExportMarkdown: boolean;
 	onExportMarkdown: () => void;
+	recording: ScriptTableRecordingControls;
+	readAloudText: string;
 }) {
 	const [isUploadingCover, setUploadingCover] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1468,6 +1816,8 @@ function ScriptTableMetadataPanel({
 			mediaAsset: coverMediaAsset,
 		});
 	};
+	const isRecordingActive = recording.status !== "idle";
+	const isRecordingButtonDisabled = isRecordingActive;
 
 	return (
 		<div className="border-b border-border/75 bg-muted/[0.08] p-3">
@@ -1476,23 +1826,51 @@ function ScriptTableMetadataPanel({
 					<FileText size={14} />
 					视频信息
 				</div>
-				<Button
-					type="button"
-					size="sm"
-					variant="outline"
-					className="h-8 rounded-sm"
-					onClick={onExportMarkdown}
-					disabled={!canExportMarkdown}
-					title={
-						canExportMarkdown
-							? "导出脚本表格 Markdown 文档"
-							: "先填写脚本信息或脚本表格"
-					}
-				>
-					<Download size={14} />
-					导出 Markdown
-				</Button>
+				<div className="flex flex-wrap items-center gap-2">
+					<Button
+						type="button"
+						size="sm"
+						variant="default"
+						className="h-8 rounded-sm"
+						onClick={() => void recording.startRecording()}
+						disabled={isRecordingButtonDisabled}
+						title={
+							isRecordingButtonDisabled
+								? "当前正在录音"
+								: "现在开始朗读脚本并录音"
+						}
+					>
+						{recording.status === "requesting" ? (
+							<Loader2 size={14} className="animate-spin" />
+						) : (
+							<Mic size={14} />
+						)}
+						现在录音
+					</Button>
+					<Button
+						type="button"
+						size="sm"
+						variant="outline"
+						className="h-8 rounded-sm"
+						onClick={onExportMarkdown}
+						disabled={!canExportMarkdown}
+						title={
+							canExportMarkdown
+								? "导出脚本表格 Markdown 文档"
+								: "先填写脚本信息或脚本表格"
+						}
+					>
+						<Download size={14} />
+						导出 Markdown
+					</Button>
+				</div>
 			</div>
+			{isRecordingActive ? (
+				<ScriptTableRecordingPanel
+					recording={recording}
+					readAloudText={readAloudText}
+				/>
+			) : null}
 			<div className="grid auto-rows-fr items-stretch gap-3 [grid-template-columns:minmax(11rem,0.8fr)_minmax(13rem,0.85fr)_minmax(14rem,1fr)] max-[980px]:grid-cols-1">
 				<ScriptTableMetadataField
 					label="标题"
@@ -1597,6 +1975,105 @@ function ScriptTableMetadataPanel({
 						aria-label="脚本简介"
 					/>
 				</ScriptTableMetadataField>
+			</div>
+		</div>
+	);
+}
+
+function ScriptTableRecordingPanel({
+	recording,
+	readAloudText,
+}: {
+	recording: ScriptTableRecordingControls;
+	readAloudText: string;
+}) {
+	const isPaused = recording.status === "paused";
+	const isSaving = recording.status === "saving";
+	const canControl =
+		recording.status === "recording" || recording.status === "paused";
+	const statusLabel = getScriptTableRecordingStatusLabel(recording.status);
+
+	return (
+		<div
+			data-testid="script-table-recording-panel"
+			className="mb-3 rounded-sm border border-red-500/20 bg-red-500/[0.045] p-3 dark:bg-red-400/[0.06]"
+		>
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<div className="flex min-w-0 items-center gap-2">
+					<span
+						className={cn(
+							"flex size-8 shrink-0 items-center justify-center rounded-sm border",
+							recording.status === "recording"
+								? "border-red-500/25 bg-red-500/10 text-red-600 dark:text-red-300"
+								: "border-border/70 bg-background text-muted-foreground",
+						)}
+					>
+						{isSaving ? (
+							<Loader2 size={15} className="animate-spin" />
+						) : (
+							<Mic size={15} />
+						)}
+					</span>
+					<div className="min-w-0">
+						<div className="text-sm font-semibold text-foreground">
+							{statusLabel}
+						</div>
+						<div className="text-xs text-muted-foreground">
+							{isPaused ? "进度已停在当前位置" : "从当前播放头位置插入时间线"}
+						</div>
+					</div>
+				</div>
+				<div className="rounded-sm border border-border/70 bg-background px-3 py-1.5 font-mono text-base font-semibold tabular-nums text-foreground">
+					{formatRecordingDuration(recording.elapsedSeconds)}
+				</div>
+			</div>
+			<div
+				data-testid="script-table-recording-copy"
+				className="mt-3 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-sm border border-border/70 bg-background px-3 py-2 text-sm leading-6 text-foreground"
+			>
+				{readAloudText ||
+					"脚本表格还没有逐字文案；可以先补文案，也可以直接录音。"}
+			</div>
+			<div className="mt-3 flex flex-wrap items-center gap-2">
+				<Button
+					type="button"
+					size="sm"
+					variant="secondary"
+					className="h-8 rounded-sm"
+					onClick={recording.togglePause}
+					disabled={!canControl}
+					title={isPaused ? "继续录音" : "暂停录音"}
+				>
+					{isPaused ? <Play size={14} /> : <Pause size={14} />}
+					{isPaused ? "继续" : "暂停"}
+				</Button>
+				<Button
+					type="button"
+					size="sm"
+					variant="outline"
+					className="h-8 rounded-sm"
+					onClick={recording.cancelRecording}
+					disabled={isSaving}
+					title="取消并删除本次录音"
+				>
+					<X size={14} />
+					取消
+				</Button>
+				<Button
+					type="button"
+					size="sm"
+					className="h-8 rounded-sm"
+					onClick={recording.finishRecording}
+					disabled={!canControl || isSaving}
+					title="结束录音并同步到时间线"
+				>
+					{isSaving ? (
+						<Loader2 size={14} className="animate-spin" />
+					) : (
+						<Check size={14} />
+					)}
+					完成
+				</Button>
 			</div>
 		</div>
 	);
