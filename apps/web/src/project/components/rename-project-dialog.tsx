@@ -3,6 +3,7 @@ import {
 	Dialog,
 	DialogBody,
 	DialogContent,
+	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
@@ -36,6 +37,9 @@ export function RenameProjectDialog({
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>Rename project</DialogTitle>
+					<DialogDescription>
+						Enter a new name for this project.
+					</DialogDescription>
 				</DialogHeader>
 
 				<DialogBody className="gap-3">

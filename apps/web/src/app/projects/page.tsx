@@ -71,6 +71,7 @@ import {
 	Dialog,
 	DialogBody,
 	DialogContent,
+	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
@@ -644,6 +645,9 @@ function ProjectNoteDialog({
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>{note ? "编辑备注" : "添加备注"}</DialogTitle>
+					<DialogDescription>
+						备注会显示在项目标题下方，便于回顾这个项目的创作思路。
+					</DialogDescription>
 				</DialogHeader>
 				<DialogBody className="gap-3">
 					<Label className="line-clamp-1 text-muted-foreground">

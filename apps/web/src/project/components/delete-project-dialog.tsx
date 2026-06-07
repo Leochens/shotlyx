@@ -3,6 +3,7 @@ import {
 	Dialog,
 	DialogBody,
 	DialogContent,
+	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
@@ -48,6 +49,10 @@ export function DeleteProjectDialog({
 							`Delete ${count} projects?`
 						)}
 					</DialogTitle>
+					<DialogDescription>
+						This action permanently removes the selected project data and
+						associated media files.
+					</DialogDescription>
 				</DialogHeader>
 				<DialogBody>
 					<Alert variant="destructive">
@@ -60,7 +65,7 @@ export function DeleteProjectDialog({
 					</Alert>
 					<div className="flex flex-col gap-3">
 						<Label className="text-xs font-semibold text-slate-500">
-							Type "DELETE" to confirm
+							Type DELETE to confirm
 						</Label>
 						<Input
 							type="text"

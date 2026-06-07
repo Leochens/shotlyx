@@ -2,6 +2,7 @@ import {
 	Dialog,
 	DialogBody,
 	DialogContent,
+	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
@@ -38,8 +39,11 @@ export function ProjectInfoDialog({
 	const durationSeconds = mediaTimeToSeconds({ time: project.duration });
 	const durationFormatted =
 		project.duration > 0
-		? (formatTimecode({ time: project.duration, format: durationSeconds >= 3600 ? "HH:MM:SS" : "MM:SS" }) ?? "")
-		: "0:00";
+			? (formatTimecode({
+					time: project.duration,
+					format: durationSeconds >= 3600 ? "HH:MM:SS" : "MM:SS",
+				}) ?? "")
+			: "0:00";
 
 	return (
 		<Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -48,6 +52,9 @@ export function ProjectInfoDialog({
 					<DialogTitle className="truncate max-w-[350px]">
 						{project.name}
 					</DialogTitle>
+					<DialogDescription>
+						View project duration, timestamps, and identifier.
+					</DialogDescription>
 				</DialogHeader>
 
 				<DialogBody className="flex flex-col">

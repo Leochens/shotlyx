@@ -27,14 +27,18 @@ const LOCAL_PROTOCOL = "app";
 const LOCAL_PROTOCOL_HOST = "shotlyx";
 const LOCAL_RENDERER_URL = "app://shotlyx/desktop";
 const RENDERER_EXIT_TIMEOUT_MS = 8_000;
+const RENDERER_CRASH_RELOAD_WINDOW_MS = 60_000;
+const RENDERER_CRASH_AUTO_RELOAD_LIMIT = 1;
 let apiHandlerPromise = null;
 let isQuitting = false;
+let rendererCrashTimestamps = [];
+
+function isHardwareAccelerationDisabled() {
+	return process.env.SHOTLYX_DISABLE_HARDWARE_ACCELERATION === "1";
+}
 
 function configureRenderingMode() {
-	const shouldDisableHardwareAcceleration =
-		process.env.SHOTLYX_DISABLE_HARDWARE_ACCELERATION === "1";
-
-	if (!shouldDisableHardwareAcceleration) return;
+	if (!isHardwareAccelerationDisabled()) return;
 
 	app.disableHardwareAcceleration();
 	console.warn(
@@ -299,6 +303,52 @@ function syncWindowState(win) {
 		});
 }
 
+function pruneRendererCrashTimestamps({ now }) {
+	rendererCrashTimestamps = rendererCrashTimestamps.filter(
+		(timestamp) => now - timestamp < RENDERER_CRASH_RELOAD_WINDOW_MS,
+	);
+}
+
+function recordRendererCrash() {
+	const now = Date.now();
+	pruneRendererCrashTimestamps({ now });
+	rendererCrashTimestamps.push(now);
+	return rendererCrashTimestamps.length;
+}
+
+function getRendererSafeModeHint() {
+	if (isHardwareAccelerationDisabled()) {
+		return "Hardware acceleration is already disabled for this run.";
+	}
+	return "If this repeats, restart with `bun run dev:client:safe` or set SHOTLYX_DISABLE_HARDWARE_ACCELERATION=1.";
+}
+
+function shouldRecoverRenderer({ reason }) {
+	return reason === "crashed" || reason === "oom" || reason === "killed";
+}
+
+function recoverRendererAfterCrash({ win, details, crashCount }) {
+	if (isQuitting || win.isDestroyed()) return;
+	if (!shouldRecoverRenderer({ reason: details.reason })) return;
+
+	if (crashCount > RENDERER_CRASH_AUTO_RELOAD_LIMIT) {
+		console.warn(
+			`Shotlyx renderer crashed repeatedly; automatic reload is paused. ${getRendererSafeModeHint()}`,
+		);
+		return;
+	}
+
+	console.warn(
+		`Shotlyx renderer crashed; reloading the window once. ${getRendererSafeModeHint()}`,
+	);
+	setTimeout(() => {
+		if (isQuitting || win.isDestroyed() || win.webContents.isDestroyed()) {
+			return;
+		}
+		win.webContents.reload();
+	}, 1_000);
+}
+
 function installRendererDiagnostics(win) {
 	win.webContents.on(
 		"did-fail-load",
@@ -311,9 +361,15 @@ function installRendererDiagnostics(win) {
 	);
 
 	win.webContents.on("render-process-gone", (_event, details) => {
+		const crashCount = recordRendererCrash();
+		const currentUrl = win.webContents.isDestroyed()
+			? "destroyed"
+			: win.webContents.getURL();
+		const gpuStatus = app.getGPUFeatureStatus();
 		console.error(
-			`Shotlyx renderer process gone: ${details.reason} (${details.exitCode})`,
+			`Shotlyx renderer process gone: ${details.reason} (${details.exitCode}); url=${currentUrl}; crashCount=${crashCount}; gpu=${JSON.stringify(gpuStatus)}`,
 		);
+		recoverRendererAfterCrash({ win, details, crashCount });
 	});
 
 	win.webContents.on("unresponsive", () => {
