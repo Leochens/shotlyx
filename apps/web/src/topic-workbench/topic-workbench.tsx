@@ -26,6 +26,7 @@ import {
 	ChevronDown,
 	ChevronRight,
 	Clapperboard,
+	Download,
 	Eye,
 	EyeOff,
 	ExternalLink,
@@ -391,6 +392,52 @@ function buildTopicScriptTableContext(project: TopicProject): string {
 	const markdownContext = buildTopicScriptTableMarkdownContext(project);
 	if (!markdownContext) return "";
 	return `\n\n${markdownContext}`;
+}
+
+function buildTopicScriptTableMarkdownDocument(project: TopicProject): string {
+	const metadata = ensureTopicScriptTableMetadata({
+		metadata: project.scriptTableMetadata,
+	});
+	const title = metadata.title.trim() || project.title.trim() || "脚本表格";
+	const body =
+		buildTopicScriptTableMarkdownContext(project) ||
+		[
+			"## 脚本表格",
+			"",
+			"| 时间 | 文案 | 画面内容 | 选择素材 |",
+			"| --- | --- | --- | --- |",
+		].join("\n");
+	return [`# ${title}`, "", body].join("\n").trimEnd() + "\n";
+}
+
+function sanitizeMarkdownFileName(value: string): string {
+	const fileName = value
+		.trim()
+		.replace(/[\\/:*?"<>|]/g, "-")
+		.replace(/\s+/g, " ")
+		.slice(0, 80);
+	return fileName || "脚本表格";
+}
+
+function downloadTopicScriptTableMarkdown(project: TopicProject) {
+	if (typeof document === "undefined") return;
+	const metadata = ensureTopicScriptTableMetadata({
+		metadata: project.scriptTableMetadata,
+	});
+	const fileName = sanitizeMarkdownFileName(
+		metadata.title.trim() || project.title.trim() || "脚本表格",
+	);
+	const blob = new Blob([buildTopicScriptTableMarkdownDocument(project)], {
+		type: "text/markdown;charset=utf-8",
+	});
+	const url = URL.createObjectURL(blob);
+	const anchor = document.createElement("a");
+	anchor.href = url;
+	anchor.download = `${fileName}.md`;
+	document.body.append(anchor);
+	anchor.click();
+	anchor.remove();
+	URL.revokeObjectURL(url);
 }
 
 function hasScriptTableMetadataContent(project: TopicProject): boolean {
@@ -1251,6 +1298,7 @@ function ScriptTableWorkspace({
 		() => new Map(mediaAssets.map((asset) => [asset.id, asset])),
 		[mediaAssets],
 	);
+	const canExportMarkdown = hasTopicScriptTableContent(project);
 
 	const handleUploadRowFiles = async ({
 		rowId,
@@ -1294,6 +1342,8 @@ function ScriptTableWorkspace({
 				onUpdate={(patch) => updateScriptTableMetadata({ patch })}
 				onUploadCoverFiles={handleUploadCoverFiles}
 				onPreviewAsset={setPreviewAsset}
+				canExportMarkdown={canExportMarkdown}
+				onExportMarkdown={() => downloadTopicScriptTableMarkdown(project)}
 			/>
 			<div className="overflow-x-auto">
 				<div className="min-w-[860px]">
@@ -1380,6 +1430,8 @@ function ScriptTableMetadataPanel({
 	onUpdate,
 	onUploadCoverFiles,
 	onPreviewAsset,
+	canExportMarkdown,
+	onExportMarkdown,
 }: {
 	metadata: TopicProject["scriptTableMetadata"];
 	mediaAssetsById: Map<string, MediaAsset>;
@@ -1390,6 +1442,8 @@ function ScriptTableMetadataPanel({
 	}) => void;
 	onUploadCoverFiles: (files: File[]) => Promise<void>;
 	onPreviewAsset: (previewAsset: ScriptTablePreviewAsset) => void;
+	canExportMarkdown: boolean;
+	onExportMarkdown: () => void;
 }) {
 	const [isUploadingCover, setUploadingCover] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1417,9 +1471,27 @@ function ScriptTableMetadataPanel({
 
 	return (
 		<div className="border-b border-border/75 bg-muted/[0.08] p-3">
-			<div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-				<FileText size={14} />
-				视频信息
+			<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+				<div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+					<FileText size={14} />
+					视频信息
+				</div>
+				<Button
+					type="button"
+					size="sm"
+					variant="outline"
+					className="h-8 rounded-sm"
+					onClick={onExportMarkdown}
+					disabled={!canExportMarkdown}
+					title={
+						canExportMarkdown
+							? "导出脚本表格 Markdown 文档"
+							: "先填写脚本信息或脚本表格"
+					}
+				>
+					<Download size={14} />
+					导出 Markdown
+				</Button>
 			</div>
 			<div className="grid auto-rows-fr items-stretch gap-3 [grid-template-columns:minmax(11rem,0.8fr)_minmax(13rem,0.85fr)_minmax(14rem,1fr)] max-[980px]:grid-cols-1">
 				<ScriptTableMetadataField

@@ -303,9 +303,7 @@ export function ensureTopicScriptTableRows({
 	now?: number;
 }): TopicScriptTableRow[] {
 	if (!rows || rows.length === 0) return createDefaultScriptTableRows({ now });
-	return rows.map((row, index) =>
-		normalizeScriptTableRow({ row, index, now }),
-	);
+	return rows.map((row, index) => normalizeScriptTableRow({ row, index, now }));
 }
 
 export function updateTopicScriptTableMetadata({
@@ -1317,6 +1315,24 @@ export function createTopicProjectFromDraft({
 		activePackageVersionId: null,
 		productionPlans: [],
 		activeProductionPlanId: null,
+	};
+}
+
+export function duplicateTopicProjectForEditorProject({
+	project,
+	editorProjectId,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	editorProjectId: string;
+	now?: number;
+}): TopicProject {
+	return {
+		...structuredClone(project),
+		id: createId("topic-project"),
+		editorProjectId,
+		createdAt: now,
+		updatedAt: now,
 	};
 }
 

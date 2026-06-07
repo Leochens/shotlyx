@@ -13,6 +13,7 @@ import {
 	createProductionPlan as createProductionPlanModel,
 	createResearchSources,
 	createStructureOptions,
+	duplicateTopicProjectForEditorProject,
 	createTopicProjectFromDraft,
 	createTopicProjectFromPrompt,
 	getTopicProjectMode,
@@ -111,6 +112,14 @@ interface TopicWorkbenchState extends PersistedTopicWorkbenchState {
 		draft: string;
 	}) => void;
 	promoteBrainstormToWorkflow: () => void;
+	duplicateEditorProjectTopicState: ({
+		pairs,
+	}: {
+		pairs: Array<{
+			sourceEditorProjectId: string;
+			targetEditorProjectId: string;
+		}>;
+	}) => void;
 	replaceCandidates: ({
 		editorProjectId,
 		prompt,
@@ -651,6 +660,92 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 				);
 			},
 
+			duplicateEditorProjectTopicState: ({ pairs }) => {
+				const normalizedPairs = pairs
+					.map((pair) => ({
+						sourceEditorProjectId:
+							pair.sourceEditorProjectId || DEFAULT_EDITOR_PROJECT_ID,
+						targetEditorProjectId:
+							pair.targetEditorProjectId || DEFAULT_EDITOR_PROJECT_ID,
+					}))
+					.filter(
+						(pair) => pair.sourceEditorProjectId !== pair.targetEditorProjectId,
+					);
+				if (normalizedPairs.length === 0) return;
+
+				set((state) => {
+					const targetEditorProjectIds = new Set(
+						normalizedPairs.map((pair) => pair.targetEditorProjectId),
+					);
+					const nextActiveTopicProjectIdByEditorProject = {
+						...state.activeTopicProjectIdByEditorProject,
+					};
+					const nextPendingInputMaterialsByEditorProject = {
+						...(state.pendingInputMaterialsByEditorProject ?? {}),
+					};
+					const duplicatedTopicProjects: TopicProject[] = [];
+					const now = Date.now();
+
+					for (const pair of normalizedPairs) {
+						const sourceProjects = state.topicProjects.filter(
+							(project) =>
+								project.editorProjectId === pair.sourceEditorProjectId,
+						);
+						const projectIdMap = new Map<string, string>();
+
+						for (const sourceProject of sourceProjects) {
+							const duplicatedProject = duplicateTopicProjectForEditorProject({
+								project: sourceProject,
+								editorProjectId: pair.targetEditorProjectId,
+								now,
+							});
+							projectIdMap.set(sourceProject.id, duplicatedProject.id);
+							duplicatedTopicProjects.push(duplicatedProject);
+						}
+
+						const sourceActiveTopicProjectId =
+							state.activeTopicProjectIdByEditorProject[
+								pair.sourceEditorProjectId
+							];
+						const targetActiveTopicProjectId = sourceActiveTopicProjectId
+							? projectIdMap.get(sourceActiveTopicProjectId)
+							: duplicatedTopicProjects.find(
+									(project) =>
+										project.editorProjectId === pair.targetEditorProjectId,
+								)?.id;
+						if (targetActiveTopicProjectId) {
+							nextActiveTopicProjectIdByEditorProject[
+								pair.targetEditorProjectId
+							] = targetActiveTopicProjectId;
+						}
+
+						const pendingMaterials =
+							(state.pendingInputMaterialsByEditorProject ?? {})[
+								pair.sourceEditorProjectId
+							];
+						if (pendingMaterials?.length) {
+							nextPendingInputMaterialsByEditorProject[
+								pair.targetEditorProjectId
+							] = structuredClone(pendingMaterials);
+						}
+					}
+
+					return {
+						activeTopicProjectIdByEditorProject:
+							nextActiveTopicProjectIdByEditorProject,
+						pendingInputMaterialsByEditorProject:
+							nextPendingInputMaterialsByEditorProject,
+						topicProjects: [
+							...state.topicProjects.filter(
+								(project) =>
+									!targetEditorProjectIds.has(project.editorProjectId),
+							),
+							...duplicatedTopicProjects,
+						],
+					};
+				});
+			},
+
 			replaceCandidates: ({
 				editorProjectId,
 				prompt,
@@ -833,8 +928,7 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 				set((state) =>
 					updateActiveProject({
 						state,
-						updater: (project) =>
-							removeTopicScriptTableRow({ project, rowId }),
+						updater: (project) => removeTopicScriptTableRow({ project, rowId }),
 					}),
 				),
 

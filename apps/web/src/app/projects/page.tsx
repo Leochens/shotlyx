@@ -74,6 +74,7 @@ import { cn } from "@/utils/ui";
 import { ChangelogNotification } from "@/changelog/components/changelog-notification";
 import { PRODUCT_NAME } from "@/site/brand";
 import { ShotlyxLogo } from "@/components/brand-logo";
+import { useTopicWorkbenchStore } from "@/topic-workbench/store";
 const formatProjectDuration = ({
 	duration,
 }: {
@@ -397,7 +398,17 @@ async function duplicateProjects({
 	editor: EditorCore;
 	ids: string[];
 }) {
-	await editor.project.duplicateProjects({ ids });
+	const sourceProjectIds = Array.from(new Set(ids));
+	const duplicatedProjectIds = await editor.project.duplicateProjects({
+		ids: sourceProjectIds,
+	});
+	useTopicWorkbenchStore.getState().duplicateEditorProjectTopicState({
+		pairs: sourceProjectIds.flatMap((sourceEditorProjectId, index) => {
+			const targetEditorProjectId = duplicatedProjectIds[index];
+			if (!targetEditorProjectId) return [];
+			return [{ sourceEditorProjectId, targetEditorProjectId }];
+		}),
+	});
 }
 
 async function renameProject({

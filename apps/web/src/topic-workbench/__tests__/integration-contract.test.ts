@@ -14,6 +14,11 @@ const editorPageSource = readFileSync(
 	"utf8",
 );
 
+const projectsPageSource = readFileSync(
+	fileURLToPath(new URL("../../app/projects/page.tsx", import.meta.url)),
+	"utf8",
+);
+
 const projectManagerSource = readFileSync(
 	fileURLToPath(
 		new URL("../../core/managers/project-manager.ts", import.meta.url),
@@ -282,6 +287,24 @@ describe("topic workbench integration contract", () => {
 		expect(chatPanelSource).toContain("topicBrainstormDraft: undefined");
 		expect(agentChatRouteSource).toContain("topicScriptTableContext");
 		expect(agentChatRouteSource).toContain("Current script table reference");
+	});
+
+	test("copies topic drafts with duplicated editor projects and exports scripts as Markdown", () => {
+		expect(projectsPageSource).toContain("useTopicWorkbenchStore");
+		expect(projectsPageSource).toContain("sourceProjectIds");
+		expect(projectsPageSource).toContain("duplicatedProjectIds");
+		expect(projectsPageSource).toContain("duplicateEditorProjectTopicState");
+		expect(topicWorkbenchSource).toContain(
+			"buildTopicScriptTableMarkdownDocument",
+		);
+		expect(topicWorkbenchSource).toContain("downloadTopicScriptTableMarkdown");
+		expect(topicWorkbenchSource).toContain("sanitizeMarkdownFileName");
+		expect(topicWorkbenchSource).toContain("text/markdown;charset=utf-8");
+		expect(topicWorkbenchSource).toContain(
+			"anchor.download = `${fileName}.md`",
+		);
+		expect(topicWorkbenchSource).toContain("导出 Markdown");
+		expect(topicWorkbenchSource).toContain("canExportMarkdown");
 	});
 
 	test("skips automatic thumbnail rendering when the editor is degraded", () => {
