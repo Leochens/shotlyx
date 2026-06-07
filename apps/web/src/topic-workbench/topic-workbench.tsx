@@ -259,10 +259,11 @@ const SCRIPT_TABLE_GRID_CLASS =
 	"[grid-template-columns:7.5rem_minmax(13rem,0.86fr)_minmax(14rem,0.94fr)_minmax(13rem,0.84fr)_2.75rem]";
 const SCRIPT_TABLE_RECORDING_COUNTDOWN_SECONDS = 3;
 const SCRIPT_TABLE_RECORDING_WAVEFORM_BAR_COUNT = 36;
+const SCRIPT_TABLE_RECORDING_WAVEFORM_MIN_LEVEL = 0.08;
 const SCRIPT_TABLE_DEFAULT_MICROPHONE_DEVICE_ID = "__default_microphone__";
 const SCRIPT_TABLE_DEFAULT_WAVEFORM_LEVELS = Array.from(
 	{ length: SCRIPT_TABLE_RECORDING_WAVEFORM_BAR_COUNT },
-	() => 0.06,
+	() => SCRIPT_TABLE_RECORDING_WAVEFORM_MIN_LEVEL,
 );
 
 type ScriptTableRecordingStatus =
@@ -559,25 +560,43 @@ function getScriptTableMicrophoneLabel({
 
 function buildWaveformLevelsFromTimeDomain({
 	data,
+	previousLevels = SCRIPT_TABLE_DEFAULT_WAVEFORM_LEVELS,
 	barCount = SCRIPT_TABLE_RECORDING_WAVEFORM_BAR_COUNT,
 }: {
 	data: Uint8Array;
+	previousLevels?: number[];
 	barCount?: number;
 }): number[] {
-	const groupSize = Math.max(1, Math.floor(data.length / barCount));
-	const levels: number[] = [];
+	let peak = 0;
+	let sumSquares = 0;
 
-	for (let index = 0; index < barCount; index += 1) {
-		const start = index * groupSize;
-		const end = Math.min(data.length, start + groupSize);
-		let peak = 0;
-		for (let cursor = start; cursor < end; cursor += 1) {
-			peak = Math.max(peak, Math.abs((data[cursor] ?? 128) - 128));
-		}
-		levels.push(Math.min(1, Math.max(0.06, peak / 92)));
+	for (let cursor = 0; cursor < data.length; cursor += 1) {
+		const amplitude = Math.abs(((data[cursor] ?? 128) - 128) / 128);
+		peak = Math.max(peak, amplitude);
+		sumSquares += amplitude * amplitude;
 	}
 
-	return levels;
+	const rms = Math.sqrt(sumSquares / Math.max(1, data.length));
+	const signalLevel = Math.min(
+		1,
+		Math.max(SCRIPT_TABLE_RECORDING_WAVEFORM_MIN_LEVEL, peak * 5.5, rms * 18),
+	);
+	const normalizedPrevious =
+		previousLevels.length === barCount
+			? previousLevels
+			: SCRIPT_TABLE_DEFAULT_WAVEFORM_LEVELS;
+	const previousTail =
+		normalizedPrevious[normalizedPrevious.length - 1] ??
+		SCRIPT_TABLE_RECORDING_WAVEFORM_MIN_LEVEL;
+	const nextLevel = Math.min(
+		1,
+		Math.max(
+			SCRIPT_TABLE_RECORDING_WAVEFORM_MIN_LEVEL,
+			previousTail * 0.35 + signalLevel * 0.65,
+		),
+	);
+
+	return [...normalizedPrevious.slice(1), nextLevel];
 }
 
 function buildDirectScriptCutPrompt(project: TopicProject): string {
@@ -1335,6 +1354,9 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 	const requestIdRef = useRef(0);
 	const waveformFrameRef = useRef<number | null>(null);
 	const waveformAudioContextRef = useRef<AudioContext | null>(null);
+	const waveformSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+	const waveformAnalyserRef = useRef<AnalyserNode | null>(null);
+	const waveformLevelsRef = useRef(SCRIPT_TABLE_DEFAULT_WAVEFORM_LEVELS);
 
 	const readElapsedSeconds = useCallback(() => {
 		const recorder = recorderRef.current;
@@ -1399,15 +1421,21 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 		}
 		const audioContext = waveformAudioContextRef.current;
 		waveformAudioContextRef.current = null;
+		waveformSourceRef.current?.disconnect();
+		waveformSourceRef.current = null;
+		waveformAnalyserRef.current?.disconnect();
+		waveformAnalyserRef.current = null;
 		if (audioContext && audioContext.state !== "closed") {
 			void audioContext.close().catch(() => undefined);
 		}
+		waveformLevelsRef.current = SCRIPT_TABLE_DEFAULT_WAVEFORM_LEVELS;
 		setWaveformLevels(SCRIPT_TABLE_DEFAULT_WAVEFORM_LEVELS);
 	}, []);
 
 	const startWaveform = useCallback(
 		(stream: MediaStream) => {
 			stopWaveform();
+			if (stream.getAudioTracks().length === 0) return;
 			const AudioContextConstructor =
 				window.AudioContext ??
 				(
@@ -1420,15 +1448,27 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 			const audioContext = new AudioContextConstructor();
 			const analyser = audioContext.createAnalyser();
 			analyser.fftSize = 1024;
-			analyser.smoothingTimeConstant = 0.72;
+			analyser.smoothingTimeConstant = 0.38;
 			const source = audioContext.createMediaStreamSource(stream);
 			source.connect(analyser);
 			waveformAudioContextRef.current = audioContext;
+			waveformSourceRef.current = source;
+			waveformAnalyserRef.current = analyser;
+			waveformLevelsRef.current = SCRIPT_TABLE_DEFAULT_WAVEFORM_LEVELS;
+			void audioContext.resume().catch(() => undefined);
 			const data = new Uint8Array(analyser.fftSize);
 
 			const draw = () => {
+				if (audioContext.state === "suspended") {
+					void audioContext.resume().catch(() => undefined);
+				}
 				analyser.getByteTimeDomainData(data);
-				setWaveformLevels(buildWaveformLevelsFromTimeDomain({ data }));
+				const nextLevels = buildWaveformLevelsFromTimeDomain({
+					data,
+					previousLevels: waveformLevelsRef.current,
+				});
+				waveformLevelsRef.current = nextLevels;
+				setWaveformLevels(nextLevels);
 				waveformFrameRef.current = window.requestAnimationFrame(draw);
 			};
 			draw();

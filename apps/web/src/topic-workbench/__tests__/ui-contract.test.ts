@@ -59,6 +59,9 @@ describe("topic workbench UI contract", () => {
 		expect(topicWorkbenchSource).toContain(
 			'data-testid="script-table-recording-waveform"',
 		);
+		expect(topicWorkbenchSource).toContain("audioContext.resume()");
+		expect(topicWorkbenchSource).toContain("previousLevels");
+		expect(topicWorkbenchSource).toContain("waveformLevelsRef.current");
 		expect(topicWorkbenchSource).toContain("min-h-60");
 		expect(topicWorkbenchSource).toContain("是否自动剪辑气口");
 		expect(topicWorkbenchSource).toContain("analyzeSilenceForElements");
