@@ -16,6 +16,7 @@ import type {
 	TProjectMetadata,
 	TProjectSortKey,
 	TProjectSortOption,
+	TProjectStage,
 	TProjectSettings,
 	TTimelineViewState,
 } from "@/project/types";
@@ -61,6 +62,65 @@ import {
 } from "@/brand-kit/global-store";
 import { buildMotionGraphicProgressAnimation } from "@/motion-graphics/project-assets";
 import type { ProjectMotionGraphicAsset } from "@/motion-graphics/types";
+
+type ProjectOverviewMetadataUpdates = Partial<
+	Pick<TProjectMetadata, "stage" | "note" | "tags">
+>;
+
+const PROJECT_STAGES = new Set<TProjectStage>([
+	"topic",
+	"production",
+	"review",
+	"published",
+]);
+
+function normalizeProjectTags({
+	tags,
+}: {
+	tags: string[] | undefined;
+}): string[] {
+	return Array.from(
+		new Set((tags ?? []).map((tag) => tag.trim()).filter(Boolean)),
+	).slice(0, 8);
+}
+
+function applyProjectOverviewMetadataUpdates({
+	metadata,
+	updates,
+}: {
+	metadata: TProjectMetadata;
+	updates: ProjectOverviewMetadataUpdates;
+}): TProjectMetadata {
+	const nextMetadata: TProjectMetadata = { ...metadata };
+
+	if ("stage" in updates) {
+		if (updates.stage && PROJECT_STAGES.has(updates.stage)) {
+			nextMetadata.stage = updates.stage;
+		} else {
+			delete nextMetadata.stage;
+		}
+	}
+
+	if ("note" in updates) {
+		const note = updates.note?.trim();
+		if (note) {
+			nextMetadata.note = note;
+		} else {
+			delete nextMetadata.note;
+		}
+	}
+
+	if ("tags" in updates) {
+		const tags = normalizeProjectTags({ tags: updates.tags });
+		if (tags.length > 0) {
+			nextMetadata.tags = tags;
+		} else {
+			delete nextMetadata.tags;
+		}
+	}
+
+	return nextMetadata;
+}
 
 export interface MigrationState {
 	isMigrating: boolean;
@@ -120,6 +180,7 @@ export class ProjectManager {
 				duration: getProjectDurationFromScenes({ scenes: [mainScene] }),
 				createdAt: new Date(),
 				updatedAt: new Date(),
+				stage: "topic",
 			},
 			scenes: [mainScene],
 			currentSceneId: mainScene.id,
@@ -431,6 +492,50 @@ export class ProjectManager {
 		} catch (error) {
 			console.error("Failed to rename project:", error);
 			toast.error("Failed to rename project", {
+				description:
+					error instanceof Error ? error.message : "Please try again",
+			});
+		}
+	}
+
+	async updateProjectOverviewMetadata({
+		id,
+		updates,
+	}: {
+		id: string;
+		updates: ProjectOverviewMetadataUpdates;
+	}): Promise<void> {
+		try {
+			const result = await storageService.loadProject({ id });
+			if (!result) {
+				toast.error("Project not found", {
+					description: "Please try again",
+				});
+				return;
+			}
+
+			const updatedProject: TProject = {
+				...result.project,
+				metadata: {
+					...applyProjectOverviewMetadataUpdates({
+						metadata: result.project.metadata,
+						updates,
+					}),
+					updatedAt: new Date(),
+				},
+			};
+
+			await storageService.saveProject({ project: updatedProject });
+
+			if (this.active?.metadata.id === id) {
+				this.active = updatedProject;
+				this.notify();
+			}
+
+			this.updateMetadata(updatedProject);
+		} catch (error) {
+			console.error("Failed to update project overview metadata:", error);
+			toast.error("Failed to update project", {
 				description:
 					error instanceof Error ? error.message : "Please try again",
 			});

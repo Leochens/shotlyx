@@ -4,7 +4,7 @@ import Image from "@/platform/image";
 import Link from "@/platform/link";
 import { useRouter } from "@/platform/router";
 import type { KeyboardEvent, MouseEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useSession } from "@/auth/client";
 import type { EditorCore } from "@/core";
@@ -14,20 +14,28 @@ import {
 	AccountCreditBadge,
 	AccountMenu,
 } from "@/components/auth/account-menu";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { useEditor } from "@/editor/use-editor";
 import { useProjectsStore } from "./store";
 import type {
 	TProjectMetadata,
 	TProjectSortKey,
 	TProjectSortOption,
+	TProjectStage,
 } from "@/project/types";
 import { formatTimecode, mediaTimeToSeconds } from "opencut-wasm";
-import { formatDate } from "@/utils/date";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	Breadcrumb,
@@ -39,8 +47,6 @@ import {
 } from "@/components/ui/breadcrumb";
 import {
 	Calendar04Icon,
-	GridViewIcon,
-	LeftToRightListDashIcon,
 	PlusSignIcon,
 	Search01Icon,
 	Video01Icon,
@@ -50,6 +56,7 @@ import {
 	Edit03Icon,
 	ArrowDown02Icon,
 	InformationCircleIcon,
+	Cancel01Icon,
 } from "@hugeicons/core-free-icons";
 import { OcVideoIcon } from "@/components/icons";
 import { Label } from "@/components/ui/label";
@@ -60,6 +67,14 @@ import {
 	ContextMenuSeparator,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+	Dialog,
+	DialogBody,
+	DialogContent,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
@@ -89,13 +104,38 @@ const formatProjectDuration = ({
 	return formatTimecode({ time: duration, format }) ?? "";
 };
 
-const VIEW_MODE_OPTIONS = [
-	{ mode: "grid" as const, icon: GridViewIcon, label: "Grid view" },
-	{ mode: "list" as const, icon: LeftToRightListDashIcon, label: "List view" },
-];
+const PROJECT_STAGE_OPTIONS = [
+	{ value: "topic", label: "选题中" },
+	{ value: "production", label: "制作中" },
+	{ value: "review", label: "待发布" },
+	{ value: "published", label: "已发布" },
+] satisfies Array<{ value: TProjectStage; label: string }>;
+
+const PROJECT_STAGE_STYLES: Record<TProjectStage, string> = {
+	topic:
+		"border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200",
+	production:
+		"border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200",
+	review:
+		"border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-200",
+	published:
+		"border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200",
+};
+
+const projectCreatedAtFormatter = new Intl.DateTimeFormat("zh-CN", {
+	year: "numeric",
+	month: "2-digit",
+	day: "2-digit",
+	hour: "2-digit",
+	minute: "2-digit",
+});
+
+function formatProjectCreatedAt({ date }: { date: Date }): string {
+	return projectCreatedAtFormatter.format(date).replace(/\//g, "-");
+}
 
 export default function ProjectsPage() {
-	const { searchQuery, sortKey, sortOrder, viewMode } = useProjectsStore();
+	const { searchQuery, sortKey, sortOrder } = useProjectsStore();
 	const editor = useEditor();
 	const sortOption: TProjectSortOption = `${sortKey}-${sortOrder}`;
 
@@ -118,19 +158,13 @@ export default function ProjectsPage() {
 			<ChangelogNotification />
 			<ProjectsHeader />
 			<ProjectsToolbar projectIds={projectsToDisplay.map((p) => p.id)} />
-			<main className="mx-auto px-4 pt-2 pb-6 flex flex-col gap-4">
+			<main className="mx-auto flex w-full max-w-[1560px] flex-col gap-4 px-6 pt-5 pb-8">
 				{isLoading || !isInitialized ? (
 					<ProjectsSkeleton />
 				) : projectsToDisplay.length === 0 ? (
 					<EmptyState />
 				) : (
-					<div
-						className={
-							viewMode === "grid"
-								? "xs:grid-cols-2 grid grid-cols-1 gap-6 sm:grid-cols-3 lg:grid-cols-4 px-4"
-								: "flex flex-col"
-						}
-					>
+					<div className="overflow-hidden bg-background">
 						{projectsToDisplay.map((project) => (
 							<ProjectItem
 								key={project.id}
@@ -146,12 +180,11 @@ export default function ProjectsPage() {
 }
 
 function ProjectsHeader() {
-	const { viewMode, isHydrated, setViewMode } = useProjectsStore();
 	const session = useSession();
 
 	return (
-		<header className="electron-drag-region sticky top-0 z-20 flex flex-col gap-2 bg-background px-8">
-			<div className="flex items-center justify-between h-16 pt-2">
+		<header className="electron-drag-region sticky top-0 z-20 flex flex-col gap-2 border-b bg-background px-8">
+			<div className="mx-auto flex h-16 w-full max-w-[1560px] items-center justify-between pt-2">
 				<div className="flex items-center gap-5">
 					<Breadcrumb>
 						<BreadcrumbList>
@@ -173,30 +206,11 @@ function ProjectsHeader() {
 							<BreadcrumbSeparator />
 							<BreadcrumbItem>
 								<BreadcrumbPage className="text-sm sm:text-base font-medium">
-									All projects
+									项目管理
 								</BreadcrumbPage>
 							</BreadcrumbItem>
 						</BreadcrumbList>
 					</Breadcrumb>
-
-					<div className="hidden md:flex items-center rounded-md border p-1 px-1.5 h-10">
-						{VIEW_MODE_OPTIONS.map(({ mode, icon, label }) => (
-							<Button
-								key={mode}
-								variant="ghost"
-								size="icon"
-								className={cn(
-									"rounded-sm hover:bg-background",
-									isHydrated && viewMode === mode && "!bg-accent",
-								)}
-								onClick={() => setViewMode({ viewMode: mode })}
-								aria-label={label}
-								aria-pressed={isHydrated && viewMode === mode}
-							>
-								<HugeiconsIcon icon={icon} className="size-4" />
-							</Button>
-						))}
-					</div>
 				</div>
 
 				<div className="flex items-center gap-3 md:gap-4">
@@ -210,16 +224,16 @@ function ProjectsHeader() {
 					) : null}
 				</div>
 			</div>
-			<SearchBar className="block md:hidden mb-4" />
+			<SearchBar className="mx-auto mb-4 block w-full max-w-[1560px] md:hidden" />
 		</header>
 	);
 }
 
 const SORT_LABELS: Record<TProjectSortKey, string> = {
-	createdAt: "Created",
-	updatedAt: "Modified",
-	name: "Name",
-	duration: "Duration",
+	createdAt: "创建时间",
+	updatedAt: "更新时间",
+	name: "项目名",
+	duration: "时长",
 };
 
 function ProjectsToolbar({ projectIds }: { projectIds: string[] }) {
@@ -230,8 +244,6 @@ function ProjectsToolbar({ projectIds }: { projectIds: string[] }) {
 		setSortOrder,
 		setSelectedProjects,
 		clearSelectedProjects,
-		viewMode,
-		setViewMode,
 	} = useProjectsStore();
 
 	const selectedProjectCount = selectedProjectIds.length;
@@ -249,78 +261,63 @@ function ProjectsToolbar({ projectIds }: { projectIds: string[] }) {
 	};
 
 	return (
-		<div className="sticky top-16 z-10 flex items-center justify-between px-6 h-14 pt-2 bg-background">
-			<div className="flex items-center gap-2">
-				<Label
-					className="flex items-center gap-3 cursor-pointer px-2"
-					htmlFor="select-all-projects"
-				>
-					<Checkbox
-						className="size-5"
-						id="select-all-projects"
-						checked={
-							isAllSelected ? true : hasSomeSelected ? "indeterminate" : false
-						}
-						onCheckedChange={(checked) =>
-							handleSelectAll({ checked: checked === true })
-						}
-					/>
-					<span className="text-muted-foreground hidden md:block">
-						Select all
-					</span>
-				</Label>
+		<div className="bg-background/95">
+			<div className="mx-auto flex h-14 w-full max-w-[1560px] items-center justify-between px-6">
+				<div className="flex items-center gap-2">
+					<Label
+						className="flex items-center gap-3 cursor-pointer px-2"
+						htmlFor="select-all-projects"
+					>
+						<Checkbox
+							className="size-5"
+							id="select-all-projects"
+							checked={
+								isAllSelected ? true : hasSomeSelected ? "indeterminate" : false
+							}
+							onCheckedChange={(checked) =>
+								handleSelectAll({ checked: checked === true })
+							}
+						/>
+						<span className="text-muted-foreground hidden md:block">全选</span>
+					</Label>
 
-				<div className="h-4 w-px bg-border/50" />
+					<div className="h-4 w-px bg-border/50" />
 
-				<SortDropdown>
-					<Button variant="text" className="text-muted-foreground pl-2">
-						{SORT_LABELS[sortKey]}
-					</Button>
-				</SortDropdown>
-				<Button
-					variant="text"
-					className="text-muted-foreground"
-					onClick={() =>
-						setSortOrder({
-							sortOrder: sortOrder === "asc" ? "desc" : "asc",
-						})
-					}
-					onKeyDown={(event) => {
-						if (event.key === "Enter" || event.key === " ") {
+					<SortDropdown>
+						<Button variant="text" className="text-muted-foreground pl-2">
+							{SORT_LABELS[sortKey]}
+						</Button>
+					</SortDropdown>
+					<Button
+						variant="text"
+						className="text-muted-foreground"
+						onClick={() =>
 							setSortOrder({
 								sortOrder: sortOrder === "asc" ? "desc" : "asc",
-							});
+							})
 						}
-					}}
-					aria-label={`Sort ${sortOrder === "asc" ? "ascending" : "descending"}`}
-				>
-					<HugeiconsIcon
-						icon={ArrowDown02Icon}
-						className={sortOrder === "asc" ? "rotate-180" : ""}
-					/>
-				</Button>
-
-				<div className="h-4 w-px bg-border/50 block md:hidden" />
-
-				<div className="flex md:hidden items-center gap-4">
-					{VIEW_MODE_OPTIONS.map(({ mode, icon, label }) => (
-						<Button
-							key={mode}
-							variant="text"
-							onClick={() => setViewMode({ viewMode: mode })}
-							aria-label={label}
-						>
-							<HugeiconsIcon
-								icon={icon}
-								className={cn(
-									viewMode === mode ? "text-primary" : "text-muted-foreground",
-								)}
-							/>
-						</Button>
-					))}
+						onKeyDown={(event) => {
+							if (event.key === "Enter" || event.key === " ") {
+								setSortOrder({
+									sortOrder: sortOrder === "asc" ? "desc" : "asc",
+								});
+							}
+						}}
+						aria-label={`${SORT_LABELS[sortKey]}${
+							sortOrder === "asc" ? "升序" : "降序"
+						}`}
+					>
+						<HugeiconsIcon
+							icon={ArrowDown02Icon}
+							className={sortOrder === "asc" ? "rotate-180" : ""}
+						/>
+					</Button>
+					<span className="text-muted-foreground hidden text-sm md:block">
+						共 {projectIds.length} 个项目
+					</span>
 				</div>
+				{selectedProjectCount > 0 ? <ProjectActions /> : null}
 			</div>
-			{selectedProjectCount > 0 ? <ProjectActions /> : null}
 		</div>
 	);
 }
@@ -354,7 +351,7 @@ function SearchBar({
 						aria-hidden="true"
 					/>
 					<Input
-						placeholder="Search..."
+						placeholder="搜索项目"
 						value={searchQuery}
 						onChange={(event) => setSearchQuery({ query: event.target.value })}
 						size="lg"
@@ -369,13 +366,13 @@ function SearchBar({
 const PROJECT_ACTIONS = [
 	{
 		id: "duplicate",
-		label: "Duplicate",
+		label: "复制",
 		icon: Copy01Icon,
 		variant: "outline" as const,
 	},
 	{
 		id: "delete",
-		label: "Delete",
+		label: "删除",
 		icon: Delete02Icon,
 		variant: "destructive-foreground" as const,
 	},
@@ -512,25 +509,25 @@ function SortDropdown({ children }: { children: React.ReactNode }) {
 					checked={sortKey === "createdAt"}
 					onCheckedChange={() => setSortKey({ sortKey: "createdAt" })}
 				>
-					Created
+					创建时间
 				</DropdownMenuCheckboxItem>
 				<DropdownMenuCheckboxItem
 					checked={sortKey === "updatedAt"}
 					onCheckedChange={() => setSortKey({ sortKey: "updatedAt" })}
 				>
-					Modified
+					更新时间
 				</DropdownMenuCheckboxItem>
 				<DropdownMenuCheckboxItem
 					checked={sortKey === "name"}
 					onCheckedChange={() => setSortKey({ sortKey: "name" })}
 				>
-					Name
+					项目名
 				</DropdownMenuCheckboxItem>
 				<DropdownMenuCheckboxItem
 					checked={sortKey === "duration"}
 					onCheckedChange={() => setSortKey({ sortKey: "duration" })}
 				>
-					Duration
+					时长
 				</DropdownMenuCheckboxItem>
 			</DropdownMenuContent>
 		</DropdownMenu>
@@ -543,7 +540,7 @@ function NewProjectButton() {
 
 	const handleCreateProject = async () => {
 		const projectId = await editor.project.createNewProject({
-			name: "New project",
+			name: "新项目",
 		});
 		router.push(`/editor/${projectId}`);
 	};
@@ -551,12 +548,232 @@ function NewProjectButton() {
 	return (
 		<Button
 			size="lg"
-			className="flex px-5 md:px-6"
+			className="flex gap-2 px-5 md:px-6"
 			onClick={handleCreateProject}
 		>
-			<span className="text-sm font-medium hidden md:block">New project</span>
-			<span className="text-sm font-medium block md:hidden">New</span>
+			<HugeiconsIcon icon={PlusSignIcon} className="size-4" />
+			<span className="text-sm font-medium hidden md:block">新建项目</span>
+			<span className="text-sm font-medium block md:hidden">新建</span>
 		</Button>
+	);
+}
+
+type ProjectOverviewMetadataUpdates = Partial<
+	Pick<TProjectMetadata, "stage" | "note" | "tags">
+>;
+
+const EMPTY_PROJECT_ASSET_SUMMARY = {
+	videoCount: 0,
+	imageCount: 0,
+	subtitleCount: 0,
+};
+
+function isProjectStage(value: string): value is TProjectStage {
+	return PROJECT_STAGE_OPTIONS.some((option) => option.value === value);
+}
+
+function normalizeTagList({ tags }: { tags: string[] }): string[] {
+	return Array.from(
+		new Set(tags.map((tag) => tag.trim()).filter(Boolean)),
+	).slice(0, 8);
+}
+
+function ProjectStatusSelect({
+	stage,
+	onStageChange,
+	className,
+}: {
+	stage: TProjectStage;
+	onStageChange: (stage: TProjectStage) => void;
+	className?: string;
+}) {
+	return (
+		<Select
+			value={stage}
+			onValueChange={(value) => {
+				if (isProjectStage(value)) {
+					onStageChange(value);
+				}
+			}}
+		>
+			<SelectTrigger
+				variant="outline"
+				className={cn(
+					"h-8 w-full min-w-0 justify-between border px-2 text-xs font-medium",
+					PROJECT_STAGE_STYLES[stage],
+					className,
+				)}
+			>
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent align="start">
+				{PROJECT_STAGE_OPTIONS.map((option) => (
+					<SelectItem key={option.value} value={option.value}>
+						{option.label}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	);
+}
+
+function ProjectNoteDialog({
+	isOpen,
+	onOpenChange,
+	projectName,
+	note,
+	onConfirm,
+}: {
+	isOpen: boolean;
+	onOpenChange: (open: boolean) => void;
+	projectName: string;
+	note?: string;
+	onConfirm: (note: string) => void;
+}) {
+	const [draft, setDraft] = useState(note ?? "");
+
+	const handleOpenChange = (open: boolean) => {
+		if (open) {
+			setDraft(note ?? "");
+		}
+		onOpenChange(open);
+	};
+
+	return (
+		<Dialog open={isOpen} onOpenChange={handleOpenChange}>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>{note ? "编辑备注" : "添加备注"}</DialogTitle>
+				</DialogHeader>
+				<DialogBody className="gap-3">
+					<Label className="line-clamp-1 text-muted-foreground">
+						{projectName}
+					</Label>
+					<Textarea
+						value={draft}
+						onChange={(event) => setDraft(event.target.value)}
+						placeholder="暂无简介"
+						className="min-h-28 bg-background"
+					/>
+				</DialogBody>
+				<DialogFooter>
+					<Button variant="outline" onClick={() => onOpenChange(false)}>
+						取消
+					</Button>
+					<Button onClick={() => onConfirm(draft)}>保存备注</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function ProjectTagsEditor({
+	project,
+	onUpdate,
+}: {
+	project: TProjectMetadata;
+	onUpdate: (updates: ProjectOverviewMetadataUpdates) => Promise<void>;
+}) {
+	const tags = project.tags ?? [];
+	const [tagInput, setTagInput] = useState("");
+	const [isAddingTag, setIsAddingTag] = useState(false);
+	const tagInputRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		if (isAddingTag) {
+			tagInputRef.current?.focus();
+		}
+	}, [isAddingTag]);
+
+	const addTag = async () => {
+		const tag = tagInput.trim();
+		if (!tag) return;
+		const nextTags = normalizeTagList({ tags: [...tags, tag] });
+		setTagInput("");
+		setIsAddingTag(false);
+		if (
+			nextTags.length === tags.length &&
+			nextTags.every((nextTag, index) => nextTag === tags[index])
+		) {
+			return;
+		}
+		await onUpdate({ tags: nextTags });
+	};
+
+	const removeTag = async ({ tag }: { tag: string }) => {
+		await onUpdate({ tags: tags.filter((item) => item !== tag) });
+	};
+
+	return (
+		<div className="flex min-w-0 flex-wrap items-center gap-1.5">
+			{tags.map((tag) => (
+				<Badge
+					key={tag}
+					variant="outline"
+					className="group/tag relative max-w-full rounded-sm bg-muted/35 px-2 py-1 font-medium"
+					onContextMenu={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						void removeTag({ tag });
+					}}
+				>
+					<span className="truncate">{tag}</span>
+					<button
+						type="button"
+						className="absolute -right-1 -top-1 hidden size-4 items-center justify-center rounded-full bg-background text-muted-foreground shadow-sm ring-1 ring-border hover:text-foreground group-hover/tag:flex"
+						aria-label={`移除标签 ${tag}`}
+						onClick={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+							void removeTag({ tag });
+						}}
+					>
+						<HugeiconsIcon icon={Cancel01Icon} className="size-2.5" />
+					</button>
+				</Badge>
+			))}
+			{isAddingTag ? (
+				<Input
+					ref={tagInputRef}
+					value={tagInput}
+					onChange={(event) => setTagInput(event.target.value)}
+					onKeyDown={(event) => {
+						event.stopPropagation();
+						if (event.key === "Enter") {
+							event.preventDefault();
+							void addTag();
+						}
+						if (event.key === "Escape") {
+							setTagInput("");
+							setIsAddingTag(false);
+						}
+					}}
+					onBlur={() => {
+						if (!tagInput.trim()) {
+							setIsAddingTag(false);
+						}
+					}}
+					placeholder="标签"
+					size="xs"
+					variant="outline"
+					className="h-7 w-28 bg-background"
+				/>
+			) : (
+				<Button
+					size="icon"
+					variant="outline"
+					className="size-7 shrink-0 rounded-sm bg-muted/20"
+					aria-label="添加标签"
+					onClick={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						setIsAddingTag(true);
+					}}
+				>
+					<HugeiconsIcon icon={PlusSignIcon} className="size-3.5" />
+				</Button>
+			)}
+		</div>
 	);
 }
 
@@ -567,12 +784,8 @@ function ProjectItem({
 	project: TProjectMetadata;
 	allProjectIds: string[];
 }) {
-	const {
-		selectedProjectIds,
-		viewMode,
-		setProjectSelected,
-		selectProjectRange,
-	} = useProjectsStore();
+	const { selectedProjectIds, setProjectSelected, selectProjectRange } =
+		useProjectsStore();
 	const selectedProjectIdSet = new Set(selectedProjectIds);
 	const isSelected = selectedProjectIdSet.has(project.id);
 	const selectedProjectCount = selectedProjectIds.length;
@@ -580,10 +793,21 @@ function ProjectItem({
 	const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
 	const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 	const [isInfoDialogOpen, setIsInfoDialogOpen] = useState(false);
+	const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
 	const editor = useEditor();
 	const durationLabel = formatProjectDuration({ duration: project.duration });
 	const isMultiSelect = selectedProjectCount > 1;
-	const isGridView = viewMode === "grid";
+	const stage = project.stage ?? "topic";
+	const assetSummary = project.assetSummary ?? EMPTY_PROJECT_ASSET_SUMMARY;
+
+	const updateOverviewMetadata = async (
+		updates: ProjectOverviewMetadataUpdates,
+	) => {
+		await editor.project.updateProjectOverviewMetadata({
+			id: project.id,
+			updates,
+		});
+	};
 
 	const handleRename = () => setIsRenameDialogOpen(true);
 	const handleDuplicate = async () => {
@@ -591,6 +815,7 @@ function ProjectItem({
 	};
 	const handleDeleteClick = () => setIsDeleteDialogOpen(true);
 	const handleInfoClick = () => setIsInfoDialogOpen(true);
+	const handleNoteClick = () => setIsNoteDialogOpen(true);
 	const handleDeleteConfirm = async () => {
 		await deleteProjects({ editor, ids: [project.id] });
 		setIsDeleteDialogOpen(false);
@@ -610,153 +835,118 @@ function ProjectItem({
 		setProjectSelected({ projectId: project.id, isSelected: checked });
 	};
 
-	const gridContent = (
-		<Card className="bg-background overflow-hidden border-none p-0">
-			<div className="bg-muted relative aspect-video">
-				<div className="absolute inset-0">
-					{project.thumbnail ? (
-						<Image
-							src={project.thumbnail}
-							alt="Project thumbnail"
-							fill
-							className="object-cover"
-						/>
-					) : (
-						<div className="flex size-full items-center justify-center">
-							<OcVideoIcon className="text-muted-foreground size-12 shrink-0" />
-						</div>
-					)}
-				</div>
-
-				{durationLabel && (
-					<div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs font-semibold px-2 py-1 rounded-sm">
-						{durationLabel}
-					</div>
-				)}
-			</div>
-
-			<CardContent className="flex flex-col gap-2 px-0 pt-4">
-				<h3 className="group-hover:text-foreground/90 line-clamp-2 text-sm leading-snug font-medium">
-					{project.name}
-				</h3>
-				<div className="text-muted-foreground flex items-center gap-1.5 text-sm">
-					<HugeiconsIcon icon={Calendar04Icon} className="size-4" />
-					<span>Created {formatDate({ date: project.createdAt })}</span>
-				</div>
-			</CardContent>
-		</Card>
-	);
-
-	const listRowContent = (
-		<div className="flex items-center gap-3 flex-1 min-w-0">
-			<div className="bg-muted relative size-10 rounded overflow-hidden shrink-0">
-				{project.thumbnail ? (
-					<Image
-						src={project.thumbnail}
-						alt="Project thumbnail"
-						fill
-						className="object-cover"
-					/>
-				) : (
-					<div className="flex size-full items-center justify-center">
-						<OcVideoIcon className="text-muted-foreground size-5 shrink-0" />
-					</div>
-				)}
-			</div>
-
-			<h3 className="group-hover:text-foreground/90 text-sm font-medium truncate flex-1 min-w-0">
-				{project.name}
-			</h3>
-
-			<span className="text-muted-foreground text-sm shrink-0 hidden sm:block">
-				{durationLabel ?? "—"}
-			</span>
-
-			<span className="text-muted-foreground text-sm shrink-0 w-auto pl-8 text-right hidden xs:block">
-				{formatDate({ date: project.createdAt })}
-			</span>
-		</div>
-	);
-
-	const listContent = (
-		<div
-			className={`flex items-center gap-4 py-2 px-4 border-b border-border/50 ${
-				isSelected ? "bg-primary/5" : ""
-			}`}
-		>
-			<Checkbox
-				checked={isSelected}
-				onMouseDown={(event) => event.preventDefault()}
-				onClick={(event) => {
-					handleCheckboxChange({
-						checked: !isSelected,
-						shiftKey: event.shiftKey,
-					});
-				}}
-				onCheckedChange={() => {}}
-				className="size-5 shrink-0"
-			/>
-
-			<Link href={`/editor/${project.id}`} className="flex-1 min-w-0">
-				{listRowContent}
-			</Link>
-
-			{!isMultiSelect && (
-				<ProjectMenu
-					isOpen={isDropdownOpen}
-					onOpenChange={setIsDropdownOpen}
-					variant="list"
-					onRenameClick={handleRename}
-					onDuplicateClick={handleDuplicate}
-					onDeleteClick={handleDeleteClick}
-					onInfoClick={handleInfoClick}
-				/>
-			)}
-		</div>
-	);
-
 	return (
 		<>
 			<ContextMenu>
 				<ContextMenuTrigger asChild>
-					<div className="group relative">
-						{isGridView ? (
-							<>
-								<Link href={`/editor/${project.id}`} className="block">
-									{gridContent}
+					<div
+						className={cn(
+							"group flex gap-3 border-b border-border/60 px-1 py-5 transition-colors last:border-b-0 hover:bg-muted/15",
+							isSelected && "bg-primary/5",
+						)}
+					>
+						<Checkbox
+							checked={isSelected}
+							onMouseDown={(event) => event.preventDefault()}
+							onClick={(event) => {
+								handleCheckboxChange({
+									checked: !isSelected,
+									shiftKey: event.shiftKey,
+								});
+							}}
+							onCheckedChange={() => {}}
+							className="mt-1 size-5 shrink-0 sm:mt-[52px]"
+						/>
+
+						<div className="flex min-w-0 flex-1 gap-4">
+							<Link
+								href={`/editor/${project.id}`}
+								className="relative hidden h-[124px] w-[220px] shrink-0 overflow-hidden rounded-sm bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:block"
+							>
+								{project.thumbnail ? (
+									<Image
+										src={project.thumbnail}
+										alt="Project thumbnail"
+										fill
+										className="object-cover"
+									/>
+								) : (
+									<div className="flex size-full items-center justify-center">
+										<OcVideoIcon className="size-12 shrink-0 text-muted-foreground" />
+									</div>
+								)}
+								<div className="absolute right-1.5 bottom-1.5 rounded-sm bg-black/70 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+									{durationLabel ?? "00:00"}
+								</div>
+							</Link>
+
+							<div className="flex min-w-0 flex-1 flex-col self-stretch py-1">
+								<Link
+									href={`/editor/${project.id}`}
+									className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+								>
+									<h3 className="line-clamp-2 text-base leading-snug font-medium text-foreground group-hover:text-foreground/90">
+										{project.name}
+									</h3>
 								</Link>
 
-								<Checkbox
-									checked={isSelected}
-									onMouseDown={(event) => event.preventDefault()}
-									onClick={(event) => {
-										handleCheckboxChange({
-											checked: !isSelected,
-											shiftKey: event.shiftKey,
-										});
-									}}
-									onCheckedChange={() => {}}
-									className={`absolute z-10 size-5 top-3 left-3 ${
-										isSelected || isDropdownOpen
-											? "opacity-100"
-											: "opacity-0 group-hover:opacity-100"
-									}`}
-								/>
+								<p
+									className={cn(
+										"mt-2 line-clamp-2 max-w-3xl text-sm leading-6",
+										project.note
+											? "text-muted-foreground"
+											: "text-muted-foreground/70",
+									)}
+								>
+									{project.note || "暂无简介"}
+								</p>
 
-								{!isMultiSelect && (
-									<ProjectMenu
-										isOpen={isDropdownOpen}
-										onOpenChange={setIsDropdownOpen}
-										onRenameClick={handleRename}
-										onDuplicateClick={handleDuplicate}
-										onDeleteClick={handleDeleteClick}
-										onInfoClick={handleInfoClick}
+								<div className="mt-auto flex min-w-0 flex-wrap items-center gap-2 pt-3">
+									<span className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-sm bg-muted/35 px-2.5 text-xs font-medium text-muted-foreground">
+										<span className="sm:hidden">
+											{durationLabel ?? "00:00"}
+										</span>
+										<HugeiconsIcon
+											icon={Calendar04Icon}
+											className="size-3.5 shrink-0"
+										/>
+										<span className="truncate text-foreground">
+											{formatProjectCreatedAt({ date: project.createdAt })}
+										</span>
+									</span>
+									<span className="inline-flex h-7 items-center rounded-sm bg-muted/35 px-2.5 text-xs font-medium">
+										素材数量 {assetSummary.videoCount + assetSummary.imageCount}
+									</span>
+									<ProjectStatusSelect
+										stage={stage}
+										className="h-7 w-[5.8rem]"
+										onStageChange={(nextStage) => {
+											void updateOverviewMetadata({ stage: nextStage });
+										}}
 									/>
-								)}
-							</>
-						) : (
-							listContent
-						)}
+									<ProjectTagsEditor
+										project={project}
+										onUpdate={updateOverviewMetadata}
+									/>
+								</div>
+							</div>
+						</div>
+
+						<div className="flex items-start justify-end">
+							{!isMultiSelect && (
+								<ProjectMenu
+									isOpen={isDropdownOpen}
+									onOpenChange={setIsDropdownOpen}
+									variant="list"
+									onRenameClick={handleRename}
+									onDuplicateClick={handleDuplicate}
+									onDeleteClick={handleDeleteClick}
+									onInfoClick={handleInfoClick}
+									onNoteClick={handleNoteClick}
+									hasNote={Boolean(project.note)}
+								/>
+							)}
+						</div>
 					</div>
 				</ContextMenuTrigger>
 				<ProjectContextMenuContent
@@ -789,6 +979,17 @@ function ProjectItem({
 				onOpenChange={setIsInfoDialogOpen}
 				project={project}
 			/>
+
+			<ProjectNoteDialog
+				isOpen={isNoteDialogOpen}
+				onOpenChange={setIsNoteDialogOpen}
+				projectName={project.name}
+				note={project.note}
+				onConfirm={(nextNote) => {
+					void updateOverviewMetadata({ note: nextNote });
+					setIsNoteDialogOpen(false);
+				}}
+			/>
 		</>
 	);
 }
@@ -810,19 +1011,19 @@ function ProjectContextMenuContent({
 				icon={<HugeiconsIcon icon={Edit03Icon} />}
 				onClick={onRenameClick}
 			>
-				Rename
+				重命名
 			</ContextMenuItem>
 			<ContextMenuItem
 				icon={<HugeiconsIcon icon={Copy01Icon} />}
 				onClick={onDuplicateClick}
 			>
-				Duplicate
+				复制
 			</ContextMenuItem>
 			<ContextMenuItem
 				icon={<HugeiconsIcon icon={InformationCircleIcon} />}
 				onClick={onInfoClick}
 			>
-				Info
+				详情
 			</ContextMenuItem>
 			<ContextMenuSeparator />
 			<ContextMenuItem
@@ -830,7 +1031,7 @@ function ProjectContextMenuContent({
 				icon={<HugeiconsIcon icon={Delete02Icon} />}
 				onClick={onDeleteClick}
 			>
-				Delete
+				删除
 			</ContextMenuItem>
 		</ContextMenuContent>
 	);
@@ -844,6 +1045,8 @@ function ProjectMenu({
 	onDuplicateClick,
 	onDeleteClick,
 	onInfoClick,
+	onNoteClick,
+	hasNote,
 }: {
 	isOpen: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -852,6 +1055,8 @@ function ProjectMenu({
 	onDuplicateClick: () => void;
 	onDeleteClick: () => void;
 	onInfoClick: () => void;
+	onNoteClick: () => void;
+	hasNote: boolean;
 }) {
 	const handleMenuClick = (event: MouseEvent<HTMLButtonElement>) => {
 		event.preventDefault();
@@ -886,6 +1091,11 @@ function ProjectMenu({
 		onOpenChange(false);
 	};
 
+	const handleNoteClick = () => {
+		onNoteClick();
+		onOpenChange(false);
+	};
+
 	const isGrid = variant === "grid";
 
 	return (
@@ -899,7 +1109,7 @@ function ProjectMenu({
 							: "!bg-transparent !shadow-none"
 					}
 					size="icon"
-					aria-label="Project menu"
+					aria-label="项目菜单"
 					onClick={handleMenuClick}
 					onMouseDown={(event) => event.stopPropagation()}
 					onKeyDown={handleMenuKeyDown}
@@ -914,19 +1124,23 @@ function ProjectMenu({
 			<DropdownMenuContent className="w-48" align="end">
 				<DropdownMenuItem onClick={handleRename}>
 					<HugeiconsIcon icon={Edit03Icon} />
-					Rename
+					重命名
 				</DropdownMenuItem>
 				<DropdownMenuItem onClick={handleDuplicate}>
 					<HugeiconsIcon icon={Copy01Icon} />
-					Duplicate
+					复制
 				</DropdownMenuItem>
 				<DropdownMenuItem onClick={handleInfoClick}>
 					<HugeiconsIcon icon={InformationCircleIcon} />
-					Info
+					详情
+				</DropdownMenuItem>
+				<DropdownMenuItem onClick={handleNoteClick}>
+					<HugeiconsIcon icon={Edit03Icon} />
+					{hasNote ? "编辑备注" : "添加备注"}
 				</DropdownMenuItem>
 				<DropdownMenuItem variant="destructive" onClick={handleDeleteClick}>
 					<HugeiconsIcon icon={Delete02Icon} />
-					Delete
+					删除
 				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>
@@ -935,30 +1149,35 @@ function ProjectMenu({
 
 function ProjectsSkeleton() {
 	const skeletonIds = Array.from(
-		{ length: 24 },
+		{ length: 8 },
 		(_, index) => `skeleton-${index}`,
 	);
 
 	return (
-		<div className="px-4 xs:grid-cols-2 grid grid-cols-1 gap-6 sm:grid-cols-3 lg:grid-cols-4">
+		<div className="overflow-hidden bg-background">
 			{skeletonIds.map((skeletonId) => (
-				<Card
+				<div
 					key={skeletonId}
-					className="bg-background overflow-hidden border-none p-0"
+					className="flex gap-3 border-b border-border/60 px-1 py-5 last:border-b-0"
 				>
-					<div className="bg-muted relative aspect-video">
-						<div className="absolute inset-0">
-							<Skeleton className="bg-muted/50 size-full" />
+					<div className="flex min-w-0 flex-1 items-start gap-3">
+						<Skeleton className="mt-1 size-5 shrink-0 sm:mt-[52px]" />
+						<Skeleton className="hidden h-[124px] w-[220px] shrink-0 rounded-sm sm:block" />
+						<div className="flex min-w-0 flex-1 flex-col gap-3 py-1">
+							<Skeleton className="h-5 w-3/4" />
+							<Skeleton className="h-8 w-full max-w-3xl" />
+							<div className="mt-auto flex flex-wrap gap-2 pt-3">
+								<Skeleton className="h-7 w-36" />
+								<Skeleton className="h-7 w-16" />
+								<Skeleton className="h-7 w-16" />
+								<Skeleton className="h-7 w-16" />
+								<Skeleton className="h-7 w-24" />
+								<Skeleton className="h-7 w-24" />
+							</div>
 						</div>
 					</div>
-					<CardContent className="flex flex-col gap-2 px-0 pt-4">
-						<Skeleton className="bg-muted/50 h-4 w-3/4" />
-						<div className="text-muted-foreground flex items-center gap-1.5">
-							<Skeleton className="bg-muted/50 size-4" />
-							<Skeleton className="bg-muted/50 h-4 w-24" />
-						</div>
-					</CardContent>
-				</Card>
+					<Skeleton className="hidden size-8 shrink-0 lg:block" />
+				</div>
 			))}
 		</div>
 	);
@@ -973,13 +1192,12 @@ function EmptyState() {
 	const handleCreateProject = async () => {
 		try {
 			const projectId = await editor.project.createNewProject({
-				name: "New project",
+				name: "新项目",
 			});
 			router.push(`/editor/${projectId}`);
 		} catch (error) {
-			toast.error("Failed to create project", {
-				description:
-					error instanceof Error ? error.message : "Please try again",
+			toast.error("新建项目失败", {
+				description: error instanceof Error ? error.message : "请稍后重试",
 			});
 		}
 	};
@@ -993,10 +1211,9 @@ function EmptyState() {
 						className="text-muted-foreground size-16 bg-accent/35 border rounded-md p-4"
 					/>
 					<div className="flex flex-col items-center gap-3">
-						<h3 className="text-lg font-medium">No results found</h3>
+						<h3 className="text-lg font-medium">没有找到项目</h3>
 						<p className="text-muted-foreground max-w-md">
-							Your search for &quot;{searchQuery}&quot; did not return any
-							results.
+							当前搜索“{searchQuery}”没有匹配结果。
 						</p>
 					</div>
 				</div>
@@ -1005,7 +1222,7 @@ function EmptyState() {
 					variant="outline"
 					size="lg"
 				>
-					Clear search
+					清空搜索
 				</Button>
 			</div>
 		);
@@ -1020,15 +1237,12 @@ function EmptyState() {
 						className="text-muted-foreground size-8"
 					/>
 				</div>
-				<h3 className="text-lg font-medium">No projects yet</h3>
-				<p className="text-muted-foreground max-w-md">
-					Start creating your first project. Import media, edit, and export your
-					videos. All privately.
-				</p>
+				<h3 className="text-lg font-medium">还没有项目</h3>
+				<p className="text-muted-foreground max-w-md">开始整理你的创作项目。</p>
 			</div>
 			<Button size="lg" className="gap-2" onClick={handleCreateProject}>
 				<HugeiconsIcon icon={PlusSignIcon} />
-				Create your first project
+				创建第一个项目
 			</Button>
 		</div>
 	);

@@ -1,4 +1,9 @@
-import type { TProject, TProjectMetadata } from "@/project/types";
+import type {
+	TProject,
+	TProjectAssetSummary,
+	TProjectMetadata,
+	TProjectStage,
+} from "@/project/types";
 import { getProjectDurationFromScenes } from "@/timeline/scenes";
 import type { MediaAsset } from "@/media/types";
 import { IndexedDBAdapter } from "./indexeddb-adapter";
@@ -77,6 +82,118 @@ function normalizeBookmarks({ raw }: { raw: unknown }): Bookmark[] {
 			};
 		})
 		.filter((b): b is Bookmark => b !== null);
+}
+
+function isProjectStage(value: unknown): value is TProjectStage {
+	return (
+		value === "topic" ||
+		value === "production" ||
+		value === "review" ||
+		value === "published"
+	);
+}
+
+function normalizeProjectStage({
+	value,
+}: {
+	value: unknown;
+}): TProjectStage | undefined {
+	return isProjectStage(value) ? value : undefined;
+}
+
+function normalizeProjectNote({
+	value,
+}: {
+	value: unknown;
+}): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const note = value.trim();
+	return note.length > 0 ? note : undefined;
+}
+
+function normalizeProjectTags({
+	value,
+}: {
+	value: unknown;
+}): string[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+
+	const tags = Array.from(
+		new Set(
+			value
+				.filter((item): item is string => typeof item === "string")
+				.map((item) => item.trim())
+				.filter(Boolean),
+		),
+	).slice(0, 8);
+
+	return tags.length > 0 ? tags : undefined;
+}
+
+function normalizeProjectAssetSummary({
+	value,
+}: {
+	value: unknown;
+}): TProjectAssetSummary | undefined {
+	if (!isRecord(value)) return undefined;
+
+	return {
+		videoCount:
+			typeof value.videoCount === "number"
+				? Math.max(0, Math.floor(value.videoCount))
+				: 0,
+		imageCount:
+			typeof value.imageCount === "number"
+				? Math.max(0, Math.floor(value.imageCount))
+				: 0,
+		subtitleCount:
+			typeof value.subtitleCount === "number"
+				? Math.max(0, Math.floor(value.subtitleCount))
+				: 0,
+	};
+}
+
+function getProjectSubtitleLayerCount({
+	scenes,
+}: {
+	scenes: TScene[];
+}): number {
+	return scenes.reduce((count, scene) => {
+		const tracks = [
+			...scene.tracks.overlay,
+			scene.tracks.main,
+			...scene.tracks.audio,
+		];
+
+		return (
+			count +
+			tracks.reduce(
+				(trackCount, track) =>
+					trackCount +
+					track.elements.filter((element) => element.type === "subtitle")
+						.length,
+				0,
+			)
+		);
+	}, 0);
+}
+
+function buildProjectAssetSummary({
+	mediaMetadata,
+	scenes,
+}: {
+	mediaMetadata: MediaAssetData[];
+	scenes: TScene[];
+}): TProjectAssetSummary {
+	const timelineSubtitleCount = getProjectSubtitleLayerCount({ scenes });
+
+	return {
+		videoCount: mediaMetadata.filter((asset) => asset.type === "video").length,
+		imageCount: mediaMetadata.filter((asset) => asset.type === "image").length,
+		subtitleCount:
+			mediaMetadata.filter((asset) => asset.type === "subtitle").length +
+			timelineSubtitleCount,
+	};
 }
 
 function normalizeTracks({ raw }: { raw: unknown }): SceneTracks {
@@ -255,6 +372,10 @@ class StorageService {
 				duration,
 				createdAt: project.metadata.createdAt.toISOString(),
 				updatedAt: project.metadata.updatedAt.toISOString(),
+				stage: project.metadata.stage,
+				note: project.metadata.note,
+				tags: project.metadata.tags,
+				assetSummary: project.metadata.assetSummary,
 			},
 			scenes: serializedScenes,
 			currentSceneId: project.currentSceneId,
@@ -319,6 +440,18 @@ class StorageService {
 				}),
 				createdAt: new Date(serializedProject.metadata.createdAt),
 				updatedAt: new Date(serializedProject.metadata.updatedAt),
+				stage: normalizeProjectStage({
+					value: serializedProject.metadata.stage,
+				}),
+				note: normalizeProjectNote({
+					value: serializedProject.metadata.note,
+				}),
+				tags: normalizeProjectTags({
+					value: serializedProject.metadata.tags,
+				}),
+				assetSummary: normalizeProjectAssetSummary({
+					value: serializedProject.metadata.assetSummary,
+				}),
 			},
 			scenes,
 			currentSceneId: serializedProject.currentSceneId || "",
@@ -348,6 +481,35 @@ class StorageService {
 		return projects.sort(
 			(a, b) => b.metadata.updatedAt.getTime() - a.metadata.updatedAt.getTime(),
 		);
+	}
+
+	async loadProjectAssetSummary({
+		projectId,
+		scenes,
+		fallback,
+	}: {
+		projectId: string;
+		scenes: TScene[];
+		fallback?: TProjectAssetSummary;
+	}): Promise<TProjectAssetSummary> {
+		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({
+			projectId,
+		});
+
+		try {
+			const mediaMetadata = await mediaMetadataAdapter.getAll();
+			return buildProjectAssetSummary({ mediaMetadata, scenes });
+		} catch (error) {
+			console.warn("Failed to load project media summary:", error);
+			return {
+				videoCount: fallback?.videoCount ?? 0,
+				imageCount: fallback?.imageCount ?? 0,
+				subtitleCount: Math.max(
+					fallback?.subtitleCount ?? 0,
+					getProjectSubtitleLayerCount({ scenes }),
+				),
+			};
+		}
 	}
 
 	async loadAllProjectsMetadata(): Promise<TProjectMetadata[]> {
@@ -391,6 +553,22 @@ class StorageService {
 				}),
 				createdAt: new Date(serializedProject.metadata.createdAt),
 				updatedAt: new Date(serializedProject.metadata.updatedAt),
+				stage: normalizeProjectStage({
+					value: serializedProject.metadata.stage,
+				}),
+				note: normalizeProjectNote({
+					value: serializedProject.metadata.note,
+				}),
+				tags: normalizeProjectTags({
+					value: serializedProject.metadata.tags,
+				}),
+				assetSummary: await this.loadProjectAssetSummary({
+					projectId: serializedProject.metadata.id,
+					scenes: normalizedScenes,
+					fallback: normalizeProjectAssetSummary({
+						value: serializedProject.metadata.assetSummary,
+					}),
+				}),
 			});
 		}
 
@@ -468,7 +646,9 @@ class StorageService {
 		const metadata = await mediaMetadataAdapter.get(id);
 		let file = await mediaAssetsAdapter.get(id);
 		if (!file && metadata && this.usesDesktopMediaLibrary()) {
-			const legacyAdapter = this.getLegacyProjectMediaFilesAdapter({ projectId });
+			const legacyAdapter = this.getLegacyProjectMediaFilesAdapter({
+				projectId,
+			});
 			const legacyFile = await legacyAdapter.get(id).catch(() => null);
 			if (legacyFile) {
 				file = legacyFile;

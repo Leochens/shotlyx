@@ -65,6 +65,14 @@ export type TProjectCover =
 			};
 	  };
 
+export type TProjectStage = "topic" | "production" | "review" | "published";
+
+export interface TProjectAssetSummary {
+	videoCount: number;
+	imageCount: number;
+	subtitleCount: number;
+}
+
 export interface TProjectMetadata {
 	id: string;
 	name: string;
@@ -72,6 +80,10 @@ export interface TProjectMetadata {
 	duration: MediaTime;
 	createdAt: Date;
 	updatedAt: Date;
+	stage?: TProjectStage;
+	note?: string;
+	tags?: string[];
+	assetSummary?: TProjectAssetSummary;
 }
 
 export interface TProjectSettings {
