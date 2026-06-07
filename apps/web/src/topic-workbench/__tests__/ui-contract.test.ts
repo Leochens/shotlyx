@@ -47,4 +47,21 @@ describe("topic workbench UI contract", () => {
 		expect(topicWorkbenchSource).toContain("topic_get_active_package");
 		expect(topicWorkbenchSource).not.toContain("时间段、内容与素材建议：");
 	});
+
+	test("keeps script-table recording inline with countdown, mic selection, waveform, and optional silence cleanup", () => {
+		expect(topicWorkbenchSource).toContain(
+			"const SCRIPT_TABLE_RECORDING_COUNTDOWN_SECONDS = 3",
+		);
+		expect(topicWorkbenchSource).toContain('"countdown"');
+		expect(topicWorkbenchSource).toContain(
+			'data-testid="script-table-recording-microphone"',
+		);
+		expect(topicWorkbenchSource).toContain(
+			'data-testid="script-table-recording-waveform"',
+		);
+		expect(topicWorkbenchSource).toContain("min-h-60");
+		expect(topicWorkbenchSource).toContain("是否自动剪辑气口");
+		expect(topicWorkbenchSource).toContain("analyzeSilenceForElements");
+		expect(topicWorkbenchSource).toContain("applySilenceCutPlan");
+	});
 });

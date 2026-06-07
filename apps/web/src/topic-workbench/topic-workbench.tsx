@@ -79,6 +79,10 @@ import { processMediaAssets } from "@/media/processing";
 import { showMediaUploadToast } from "@/media/upload-toast";
 import type { MediaAsset, TimelineMediaType } from "@/media/types";
 import {
+	analyzeSilenceForElements,
+	DEFAULT_SILENCE_DETECTION_OPTIONS,
+} from "@/silence";
+import {
 	AlertDialog,
 	AlertDialogAction,
 	AlertDialogCancel,
@@ -91,7 +95,8 @@ import {
 import { cn } from "@/utils/ui";
 import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
 import { buildElementFromMedia } from "@/timeline/element-utils";
-import { mediaTimeFromSeconds } from "@/wasm";
+import type { ElementRef } from "@/timeline/types";
+import { mediaTimeFromSeconds, mediaTimeToSeconds } from "@/wasm";
 import { toast } from "sonner";
 import { CreatorProfileDialogTrigger } from "./creator-profile-dialog";
 import {
@@ -252,10 +257,18 @@ const INPUT_MATERIAL_KIND_LABELS: Record<
 const SCRIPT_TABLE_AUTO_TIME_LABEL = "由 Agent 自动估算时间";
 const SCRIPT_TABLE_GRID_CLASS =
 	"[grid-template-columns:7.5rem_minmax(13rem,0.86fr)_minmax(14rem,0.94fr)_minmax(13rem,0.84fr)_2.75rem]";
+const SCRIPT_TABLE_RECORDING_COUNTDOWN_SECONDS = 3;
+const SCRIPT_TABLE_RECORDING_WAVEFORM_BAR_COUNT = 36;
+const SCRIPT_TABLE_DEFAULT_MICROPHONE_DEVICE_ID = "__default_microphone__";
+const SCRIPT_TABLE_DEFAULT_WAVEFORM_LEVELS = Array.from(
+	{ length: SCRIPT_TABLE_RECORDING_WAVEFORM_BAR_COUNT },
+	() => 0.06,
+);
 
 type ScriptTableRecordingStatus =
 	| "idle"
 	| "requesting"
+	| "countdown"
 	| "recording"
 	| "paused"
 	| "saving";
@@ -263,10 +276,20 @@ type ScriptTableRecordingStatus =
 type ScriptTableRecordingControls = {
 	status: ScriptTableRecordingStatus;
 	elapsedSeconds: number;
+	countdownRemaining: number;
+	audioDevices: MediaDeviceInfo[];
+	selectedAudioDeviceId: string;
+	waveformLevels: number[];
+	pendingAutoCutElement: ElementRef | null;
+	isAutoCutting: boolean;
 	startRecording: () => Promise<void>;
+	refreshAudioDevices: () => Promise<void>;
+	setSelectedAudioDeviceId: (deviceId: string) => void;
 	togglePause: () => void;
 	cancelRecording: () => void;
 	finishRecording: () => void;
+	dismissAutoCutPrompt: () => void;
+	applyAutoCutPrompt: () => Promise<void>;
 };
 
 function getStageIndex(stage: TopicStage): number {
@@ -511,6 +534,8 @@ function getScriptTableRecordingStatusLabel(
 	switch (status) {
 		case "requesting":
 			return "请求麦克风";
+		case "countdown":
+			return "准备开始";
 		case "recording":
 			return "录音中";
 		case "paused":
@@ -520,6 +545,39 @@ function getScriptTableRecordingStatusLabel(
 		default:
 			return "准备录音";
 	}
+}
+
+function getScriptTableMicrophoneLabel({
+	device,
+	index,
+}: {
+	device: MediaDeviceInfo;
+	index: number;
+}): string {
+	return device.label || `麦克风 ${index + 1}`;
+}
+
+function buildWaveformLevelsFromTimeDomain({
+	data,
+	barCount = SCRIPT_TABLE_RECORDING_WAVEFORM_BAR_COUNT,
+}: {
+	data: Uint8Array;
+	barCount?: number;
+}): number[] {
+	const groupSize = Math.max(1, Math.floor(data.length / barCount));
+	const levels: number[] = [];
+
+	for (let index = 0; index < barCount; index += 1) {
+		const start = index * groupSize;
+		const end = Math.min(data.length, start + groupSize);
+		let peak = 0;
+		for (let cursor = start; cursor < end; cursor += 1) {
+			peak = Math.max(peak, Math.abs((data[cursor] ?? 128) - 128));
+		}
+		levels.push(Math.min(1, Math.max(0.06, peak / 92)));
+	}
+
+	return levels;
 }
 
 function buildDirectScriptCutPrompt(project: TopicProject): string {
@@ -1250,6 +1308,17 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 	const editor = useEditor();
 	const [status, setStatus] = useState<ScriptTableRecordingStatus>("idle");
 	const [elapsedSeconds, setElapsedSeconds] = useState(0);
+	const [countdownRemaining, setCountdownRemaining] = useState(0);
+	const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+	const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState(
+		SCRIPT_TABLE_DEFAULT_MICROPHONE_DEVICE_ID,
+	);
+	const [waveformLevels, setWaveformLevels] = useState(
+		SCRIPT_TABLE_DEFAULT_WAVEFORM_LEVELS,
+	);
+	const [pendingAutoCutElement, setPendingAutoCutElement] =
+		useState<ElementRef | null>(null);
+	const [isAutoCutting, setAutoCutting] = useState(false);
 
 	const recorderRef = useRef<MediaRecorder | null>(null);
 	const streamRef = useRef<MediaStream | null>(null);
@@ -1258,8 +1327,14 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 	const elapsedBaseMsRef = useRef(0);
 	const startedAtRef = useRef(0);
 	const elapsedTimerRef = useRef<number | null>(null);
+	const countdownTimerRef = useRef<number | null>(null);
+	const countdownResolveRef = useRef<((completed: boolean) => void) | null>(
+		null,
+	);
 	const stopElapsedSecondsRef = useRef<number | null>(null);
 	const requestIdRef = useRef(0);
+	const waveformFrameRef = useRef<number | null>(null);
+	const waveformAudioContextRef = useRef<AudioContext | null>(null);
 
 	const readElapsedSeconds = useCallback(() => {
 		const recorder = recorderRef.current;
@@ -1276,12 +1351,90 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 		elapsedTimerRef.current = null;
 	}, []);
 
+	const clearCountdown = useCallback(() => {
+		if (countdownTimerRef.current !== null) {
+			window.clearInterval(countdownTimerRef.current);
+			countdownTimerRef.current = null;
+		}
+		countdownResolveRef.current?.(false);
+		countdownResolveRef.current = null;
+		setCountdownRemaining(0);
+	}, []);
+
+	const runCountdown = useCallback(() => {
+		setStatus("countdown");
+		setCountdownRemaining(SCRIPT_TABLE_RECORDING_COUNTDOWN_SECONDS);
+
+		return new Promise<boolean>((resolve) => {
+			let remaining = SCRIPT_TABLE_RECORDING_COUNTDOWN_SECONDS;
+			countdownResolveRef.current = resolve;
+			countdownTimerRef.current = window.setInterval(() => {
+				remaining -= 1;
+				if (remaining <= 0) {
+					if (countdownTimerRef.current !== null) {
+						window.clearInterval(countdownTimerRef.current);
+						countdownTimerRef.current = null;
+					}
+					countdownResolveRef.current = null;
+					setCountdownRemaining(0);
+					resolve(true);
+					return;
+				}
+				setCountdownRemaining(remaining);
+			}, 1_000);
+		});
+	}, []);
+
 	const startElapsedTimer = useCallback(() => {
 		clearElapsedTimer();
 		elapsedTimerRef.current = window.setInterval(() => {
 			setElapsedSeconds(readElapsedSeconds());
 		}, 250);
 	}, [clearElapsedTimer, readElapsedSeconds]);
+
+	const stopWaveform = useCallback(() => {
+		if (waveformFrameRef.current !== null) {
+			window.cancelAnimationFrame(waveformFrameRef.current);
+			waveformFrameRef.current = null;
+		}
+		const audioContext = waveformAudioContextRef.current;
+		waveformAudioContextRef.current = null;
+		if (audioContext && audioContext.state !== "closed") {
+			void audioContext.close().catch(() => undefined);
+		}
+		setWaveformLevels(SCRIPT_TABLE_DEFAULT_WAVEFORM_LEVELS);
+	}, []);
+
+	const startWaveform = useCallback(
+		(stream: MediaStream) => {
+			stopWaveform();
+			const AudioContextConstructor =
+				window.AudioContext ??
+				(
+					window as typeof window & {
+						webkitAudioContext?: typeof AudioContext;
+					}
+				).webkitAudioContext;
+			if (!AudioContextConstructor) return;
+
+			const audioContext = new AudioContextConstructor();
+			const analyser = audioContext.createAnalyser();
+			analyser.fftSize = 1024;
+			analyser.smoothingTimeConstant = 0.72;
+			const source = audioContext.createMediaStreamSource(stream);
+			source.connect(analyser);
+			waveformAudioContextRef.current = audioContext;
+			const data = new Uint8Array(analyser.fftSize);
+
+			const draw = () => {
+				analyser.getByteTimeDomainData(data);
+				setWaveformLevels(buildWaveformLevelsFromTimeDomain({ data }));
+				waveformFrameRef.current = window.requestAnimationFrame(draw);
+			};
+			draw();
+		},
+		[stopWaveform],
+	);
 
 	const stopStream = useCallback(() => {
 		streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -1290,6 +1443,8 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 
 	const clearSession = useCallback(() => {
 		clearElapsedTimer();
+		clearCountdown();
+		stopWaveform();
 		stopStream();
 		recorderRef.current = null;
 		chunksRef.current = [];
@@ -1297,7 +1452,25 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 		elapsedBaseMsRef.current = 0;
 		startedAtRef.current = 0;
 		stopElapsedSecondsRef.current = null;
-	}, [clearElapsedTimer, stopStream]);
+	}, [clearCountdown, clearElapsedTimer, stopStream, stopWaveform]);
+
+	const refreshAudioDevices = useCallback(async () => {
+		if (!navigator.mediaDevices?.enumerateDevices) {
+			setAudioDevices([]);
+			return;
+		}
+		const mediaDevices = await navigator.mediaDevices.enumerateDevices();
+		const nextAudioDevices = mediaDevices.filter(
+			(device) => device.kind === "audioinput",
+		);
+		setAudioDevices(nextAudioDevices);
+		setSelectedAudioDeviceId((current) =>
+			current === SCRIPT_TABLE_DEFAULT_MICROPHONE_DEVICE_ID ||
+			nextAudioDevices.some((device) => device.deviceId === current)
+				? current
+				: SCRIPT_TABLE_DEFAULT_MICROPHONE_DEVICE_ID,
+		);
+	}, []);
 
 	const importAudioRecording = useCallback(
 		async ({
@@ -1306,7 +1479,7 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 		}: {
 			blob: Blob;
 			fallbackSeconds: number;
-		}) => {
+		}): Promise<ElementRef | null> => {
 			const activeProject = editor.project.getActiveOrNull();
 			if (!activeProject) {
 				throw new Error("当前没有打开的项目");
@@ -1345,6 +1518,12 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 			editor.command.execute({
 				command: new BatchCommand([addMediaCommand, insertCommand]),
 			});
+			const targetTrackId = insertCommand.getTrackId();
+			if (!targetTrackId) return null;
+			return {
+				trackId: targetTrackId,
+				elementId: insertCommand.getElementId(),
+			};
 		},
 		[editor],
 	);
@@ -1374,11 +1553,14 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 				const blob = new Blob(chunks, {
 					type: mimeType || chunks[0]?.type || "audio/webm",
 				});
-				await importAudioRecording({
+				const insertedElement = await importAudioRecording({
 					blob,
 					fallbackSeconds: elapsed,
 				});
 				toast.success("录音已同步到时间线");
+				if (insertedElement) {
+					setPendingAutoCutElement(insertedElement);
+				}
 			} catch (error) {
 				toast.error(error instanceof Error ? error.message : "录音保存失败");
 			} finally {
@@ -1395,6 +1577,7 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 		shouldSaveRef.current = false;
 		stopElapsedSecondsRef.current = readElapsedSeconds();
 		clearElapsedTimer();
+		clearCountdown();
 
 		if (recorder && recorder.state !== "inactive") {
 			recorder.stop();
@@ -1404,7 +1587,7 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 		clearSession();
 		setElapsedSeconds(0);
 		setStatus("idle");
-	}, [clearElapsedTimer, clearSession, readElapsedSeconds]);
+	}, [clearCountdown, clearElapsedTimer, clearSession, readElapsedSeconds]);
 
 	useEffect(() => {
 		return () => {
@@ -1429,11 +1612,26 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 		setStatus("requesting");
 
 		try {
+			const deviceId =
+				selectedAudioDeviceId === SCRIPT_TABLE_DEFAULT_MICROPHONE_DEVICE_ID
+					? undefined
+					: selectedAudioDeviceId;
 			const stream = await navigator.mediaDevices.getUserMedia(
-				buildAudioRecordingConstraints({}),
+				buildAudioRecordingConstraints({ deviceId }),
 			);
 			if (requestIdRef.current !== requestId) {
 				stream.getTracks().forEach((track) => track.stop());
+				return;
+			}
+
+			streamRef.current = stream;
+			startWaveform(stream);
+			void refreshAudioDevices().catch(() => undefined);
+			const didFinishCountdown = await runCountdown();
+			if (requestIdRef.current !== requestId || !didFinishCountdown) {
+				clearSession();
+				setElapsedSeconds(0);
+				setStatus("idle");
 				return;
 			}
 
@@ -1443,7 +1641,6 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 				mimeType ? { mimeType } : undefined,
 			);
 
-			streamRef.current = stream;
 			recorderRef.current = recorder;
 			chunksRef.current = [];
 			shouldSaveRef.current = true;
@@ -1473,7 +1670,16 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 				error instanceof Error ? error.message : "无法开始麦克风录音",
 			);
 		}
-	}, [clearSession, handleRecorderStop, startElapsedTimer, status]);
+	}, [
+		clearSession,
+		handleRecorderStop,
+		refreshAudioDevices,
+		runCountdown,
+		selectedAudioDeviceId,
+		startElapsedTimer,
+		startWaveform,
+		status,
+	]);
 
 	const togglePause = useCallback(() => {
 		const recorder = recorderRef.current;
@@ -1509,13 +1715,87 @@ function useScriptTableAudioRecording(): ScriptTableRecordingControls {
 		recorder.stop();
 	}, [clearElapsedTimer, readElapsedSeconds]);
 
+	const dismissAutoCutPrompt = useCallback(() => {
+		if (isAutoCutting) return;
+		setPendingAutoCutElement(null);
+	}, [isAutoCutting]);
+
+	const applyAutoCutPrompt = useCallback(async () => {
+		const target = pendingAutoCutElement;
+		if (!target || isAutoCutting) return;
+
+		const elements = editor.timeline.getElementsWithTracks({
+			elements: [target],
+		});
+		if (elements.length === 0) {
+			setPendingAutoCutElement(null);
+			toast.error("找不到刚刚插入的录音片段");
+			return;
+		}
+
+		setAutoCutting(true);
+		try {
+			const analysis = await analyzeSilenceForElements({
+				elements,
+				mediaAssets: editor.media.getAssets(),
+				options: DEFAULT_SILENCE_DETECTION_OPTIONS,
+			});
+			const segmentCount = analysis.targets.reduce(
+				(count, item) => count + item.segments.length,
+				0,
+			);
+			if (segmentCount === 0) {
+				toast.info("没有检测到可剪辑的气口");
+				setPendingAutoCutElement(null);
+				return;
+			}
+
+			const didApply = editor.timeline.applySilenceCutPlan({
+				targets: analysis.targets.map((item) => ({
+					trackId: item.trackId,
+					elementId: item.elementId,
+					ranges: item.segments.map((segment) => ({
+						startTime: segment.startTime,
+						endTime: segment.endTime,
+					})),
+				})),
+			});
+			if (!didApply) {
+				toast.info("没有应用气口剪辑");
+				return;
+			}
+
+			const removedSeconds = mediaTimeToSeconds({
+				time: analysis.totalSilenceDuration,
+			});
+			toast.success(
+				`已自动剪辑 ${segmentCount} 段气口，收紧约 ${removedSeconds.toFixed(1)} 秒`,
+			);
+			setPendingAutoCutElement(null);
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "自动剪辑气口失败");
+		} finally {
+			setAutoCutting(false);
+		}
+	}, [editor, isAutoCutting, pendingAutoCutElement]);
+
 	return {
 		status,
 		elapsedSeconds,
+		countdownRemaining,
+		audioDevices,
+		selectedAudioDeviceId,
+		waveformLevels,
+		pendingAutoCutElement,
+		isAutoCutting,
 		startRecording,
+		refreshAudioDevices,
+		setSelectedAudioDeviceId,
 		togglePause,
 		cancelRecording,
 		finishRecording,
+		dismissAutoCutPrompt,
+		applyAutoCutPrompt,
 	};
 }
 
@@ -1827,6 +2107,7 @@ function ScriptTableMetadataPanel({
 					视频信息
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
+					<ScriptTableMicrophoneSelect recording={recording} />
 					<Button
 						type="button"
 						size="sm"
@@ -1871,6 +2152,7 @@ function ScriptTableMetadataPanel({
 					readAloudText={readAloudText}
 				/>
 			) : null}
+			<ScriptTableAutoCutDialog recording={recording} />
 			<div className="grid auto-rows-fr items-stretch gap-3 [grid-template-columns:minmax(11rem,0.8fr)_minmax(13rem,0.85fr)_minmax(14rem,1fr)] max-[980px]:grid-cols-1">
 				<ScriptTableMetadataField
 					label="标题"
@@ -1980,6 +2262,90 @@ function ScriptTableMetadataPanel({
 	);
 }
 
+function ScriptTableMicrophoneSelect({
+	recording,
+}: {
+	recording: ScriptTableRecordingControls;
+}) {
+	const isLocked = recording.status !== "idle";
+
+	return (
+		<label className="flex h-8 items-center gap-1.5 rounded-sm border border-border/70 bg-background px-2 text-xs text-muted-foreground">
+			<Mic size={13} />
+			<span className="shrink-0">当前麦克风</span>
+			<select
+				data-testid="script-table-recording-microphone"
+				value={recording.selectedAudioDeviceId}
+				onFocus={() => void recording.refreshAudioDevices()}
+				onPointerDown={() => void recording.refreshAudioDevices()}
+				onChange={(event) =>
+					recording.setSelectedAudioDeviceId(event.target.value)
+				}
+				disabled={isLocked}
+				className="h-6 min-w-36 max-w-52 bg-transparent text-xs font-medium text-foreground outline-none disabled:cursor-not-allowed disabled:text-muted-foreground"
+				aria-label="当前使用哪个麦克风"
+				title={isLocked ? "录音过程中不能切换麦克风" : "选择录音麦克风"}
+			>
+				<option value={SCRIPT_TABLE_DEFAULT_MICROPHONE_DEVICE_ID}>
+					系统默认麦克风
+				</option>
+				{recording.audioDevices.map((device, index) => (
+					<option key={device.deviceId} value={device.deviceId}>
+						{getScriptTableMicrophoneLabel({ device, index })}
+					</option>
+				))}
+			</select>
+		</label>
+	);
+}
+
+function ScriptTableAutoCutDialog({
+	recording,
+}: {
+	recording: ScriptTableRecordingControls;
+}) {
+	return (
+		<AlertDialog
+			open={Boolean(recording.pendingAutoCutElement)}
+			onOpenChange={(open) => {
+				if (!open) recording.dismissAutoCutPrompt();
+			}}
+		>
+			<AlertDialogContent className="rounded-sm">
+				<AlertDialogHeader>
+					<AlertDialogTitle>是否自动剪辑气口？</AlertDialogTitle>
+					<AlertDialogDescription className="leading-6">
+						可以自动分析这段录音里的静音和停顿，并把后面的内容左移收紧。
+						这一步只会处理刚刚完成的录音片段。
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<Button
+						type="button"
+						variant="ghost"
+						onClick={recording.dismissAutoCutPrompt}
+						disabled={recording.isAutoCutting}
+					>
+						暂不处理
+					</Button>
+					<Button
+						type="button"
+						onClick={() => void recording.applyAutoCutPrompt()}
+						disabled={recording.isAutoCutting}
+					>
+						{recording.isAutoCutting ? (
+							<Loader2 size={14} className="animate-spin" />
+						) : (
+							<Check size={14} />
+						)}
+						自动剪辑气口
+					</Button>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
+	);
+}
+
 function ScriptTableRecordingPanel({
 	recording,
 	readAloudText,
@@ -1988,6 +2354,7 @@ function ScriptTableRecordingPanel({
 	readAloudText: string;
 }) {
 	const isPaused = recording.status === "paused";
+	const isCountdown = recording.status === "countdown";
 	const isSaving = recording.status === "saving";
 	const canControl =
 		recording.status === "recording" || recording.status === "paused";
@@ -2019,17 +2386,27 @@ function ScriptTableRecordingPanel({
 							{statusLabel}
 						</div>
 						<div className="text-xs text-muted-foreground">
-							{isPaused ? "进度已停在当前位置" : "从当前播放头位置插入时间线"}
+							{isCountdown
+								? `${recording.countdownRemaining} 秒后开始录音`
+								: isPaused
+									? "进度已停在当前位置"
+									: "从当前播放头位置插入时间线"}
 						</div>
 					</div>
 				</div>
 				<div className="rounded-sm border border-border/70 bg-background px-3 py-1.5 font-mono text-base font-semibold tabular-nums text-foreground">
-					{formatRecordingDuration(recording.elapsedSeconds)}
+					{isCountdown
+						? `${recording.countdownRemaining}`
+						: formatRecordingDuration(recording.elapsedSeconds)}
 				</div>
 			</div>
+			<ScriptTableRecordingWaveform
+				levels={recording.waveformLevels}
+				active={recording.status === "recording" || isCountdown}
+			/>
 			<div
 				data-testid="script-table-recording-copy"
-				className="mt-3 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-sm border border-border/70 bg-background px-3 py-2 text-sm leading-6 text-foreground"
+				className="mt-3 min-h-60 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-sm border border-border/70 bg-background px-3 py-2 text-sm leading-6 text-foreground"
 			>
 				{readAloudText ||
 					"脚本表格还没有逐字文案；可以先补文案，也可以直接录音。"}
@@ -2075,6 +2452,37 @@ function ScriptTableRecordingPanel({
 					完成
 				</Button>
 			</div>
+		</div>
+	);
+}
+
+function ScriptTableRecordingWaveform({
+	levels,
+	active,
+}: {
+	levels: number[];
+	active: boolean;
+}) {
+	return (
+		<div
+			data-testid="script-table-recording-waveform"
+			className="mt-3 flex h-14 items-center gap-1 rounded-sm border border-border/70 bg-background px-2"
+			aria-label="实时音波图"
+		>
+			{levels.map((level, index) => (
+				<div
+					key={index}
+					className={cn(
+						"min-h-1 flex-1 rounded-full transition-[height,background-color] duration-75",
+						active
+							? "bg-red-500/70 dark:bg-red-300/70"
+							: "bg-muted-foreground/25",
+					)}
+					style={{
+						height: `${Math.max(8, Math.round(level * 44))}px`,
+					}}
+				/>
+			))}
 		</div>
 	);
 }
