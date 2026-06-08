@@ -90,7 +90,7 @@ async function readRouteEvents(response: Response) {
 						sessionId,
 						callId: data.callId,
 						result:
-							tool === "vision_analyze_media"
+							tool === "vision_analyze_video"
 								? {
 										status: "success",
 										data: {
@@ -154,7 +154,9 @@ describe("/api/agent/chat local CLI runtime", () => {
 		expect(events.map((event) => event.event)).toContain("token-usage");
 		expect(events.map((event) => event.event)).toContain("text-delta");
 		expect(events.at(-1)?.event).toBe("done");
-		expect(events.find((event) => event.event === "token-usage")?.data).toMatchObject({
+		expect(
+			events.find((event) => event.event === "token-usage")?.data,
+		).toMatchObject({
 			source: "local-cli",
 			usage: {
 				approximate: true,
@@ -174,7 +176,7 @@ if [[ "$prompt" == *"Tool Result Continuation"* ]]; then
   echo '{"type":"final","text":"工具返回后继续处理：需要你选择切分分析还是上传小视频。"}'
 else
   echo '{"type":"reasoning","text":"先调用视觉工具。"}'
-  echo '{"type":"tool_call","tool":"vision_analyze_media","params":{"mediaAssetId":"media-1","analysisType":"visual_summary"}}'
+  echo '{"type":"tool_call","tool":"vision_analyze_video","params":{"mediaAssetId":"media-1","analysisType":"quality_check"}}'
 fi
 `,
 			"utf8",
@@ -188,7 +190,7 @@ fi
 				mode: "auto",
 				toolSchemas: [
 					{
-						name: "vision_analyze_media",
+						name: "vision_analyze_video",
 						description: "Analyze video content.",
 						parameters: {
 							type: "object",
@@ -311,8 +313,9 @@ echo '{"type":"final","text":"执行完成：标题已经添加。"}'
 		const events = await readRouteEvents(response);
 
 		expect(events.map((event) => event.event)).toContain("tool-call");
-		expect(events.find((event) => event.event === "text-delta")?.data)
-			.toMatchObject({ text: "执行完成：标题已经添加。" });
+		expect(
+			events.find((event) => event.event === "text-delta")?.data,
+		).toMatchObject({ text: "执行完成：标题已经添加。" });
 		expect(events.at(-1)?.event).toBe("done");
 	});
 });

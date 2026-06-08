@@ -279,7 +279,8 @@ const TOPIC_SUPPORT_TOOL_NAMES = new Set([
 	"media_read_text_asset",
 	"video_semantic_index_analyze",
 	"video_semantic_index_get",
-	"vision_analyze_media",
+	"vision_analyze_image",
+	"vision_analyze_video",
 ]);
 
 type TopicStarter = {

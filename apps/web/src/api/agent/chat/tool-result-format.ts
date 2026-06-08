@@ -19,6 +19,23 @@ function formatChoiceOptions(options: unknown): string {
 		.join("\n");
 }
 
+const VISION_ANALYSIS_TOOL_NAMES = new Set([
+	"vision_analyze_image",
+	"vision_analyze_video",
+	"vision_analyze_media",
+]);
+
+function isVisionAnalysisTool(toolName: string): boolean {
+	return VISION_ANALYSIS_TOOL_NAMES.has(toolName);
+}
+
+function buildVisionRetryInstruction(toolName: string): string {
+	if (toolName === "vision_analyze_image") {
+		return "Ask the user whether to retry with lower detail or a smaller image before trying again.";
+	}
+	return "Ask the user whether to keep waiting, retry with lower detail/fps, or split/compress the video before trying again.";
+}
+
 export function formatToolResultForModel({
 	toolName,
 	result,
@@ -44,10 +61,10 @@ export function formatToolResultForModel({
 		if (typeof r.suggestion === "string") {
 			parts.push(`Suggestion: ${r.suggestion}`);
 		}
-		if (toolName === "vision_analyze_media") {
+		if (isVisionAnalysisTool(toolName)) {
 			parts.push(
-				"Do not call vision_analyze_media again automatically.",
-				"Ask the user whether to keep waiting, retry with lower detail/fps, or split/compress the video before trying again.",
+				`Do not call ${toolName} again automatically.`,
+				buildVisionRetryInstruction(toolName),
 			);
 			return parts.join("\n");
 		}
@@ -59,7 +76,7 @@ export function formatToolResultForModel({
 
 	const data = "data" in r ? r.data : modelResult;
 	if (
-		toolName === "vision_analyze_media" &&
+		isVisionAnalysisTool(toolName) &&
 		isRecord(data) &&
 		data.requiresUserChoice === true
 	) {
@@ -79,7 +96,7 @@ export function formatToolResultForModel({
 	}
 
 	if (
-		toolName === "vision_analyze_media" &&
+		isVisionAnalysisTool(toolName) &&
 		isRecord(data) &&
 		data.analysisMissing === true
 	) {
@@ -88,7 +105,7 @@ export function formatToolResultForModel({
 			typeof data.message === "string"
 				? data.message
 				: "视觉分析没有返回可用内容。",
-			"Do not claim the video has been analyzed. Do not call vision_analyze_media again automatically. Ask the user whether to keep waiting, retry with lower detail/fps, or split/compress/upload a smaller clip.",
+			`Do not claim the media has been analyzed. Do not call ${toolName} again automatically. ${buildVisionRetryInstruction(toolName)}`,
 		].join("\n");
 	}
 

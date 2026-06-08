@@ -26,6 +26,12 @@ function buildVisionAnalysisDedupeKey(params: Record<string, unknown>): string {
 	});
 }
 
+const VISION_ANALYSIS_TOOL_NAMES = new Set([
+	"vision_analyze_image",
+	"vision_analyze_video",
+	"vision_analyze_media",
+]);
+
 export function shouldSuppressDuplicateToolCall({
 	seen,
 	toolName,
@@ -35,8 +41,8 @@ export function shouldSuppressDuplicateToolCall({
 	toolName: string;
 	params: Record<string, unknown>;
 }): boolean {
-	if (toolName !== "vision_analyze_media") return false;
-	const key = buildVisionAnalysisDedupeKey(params);
+	if (!VISION_ANALYSIS_TOOL_NAMES.has(toolName)) return false;
+	const key = `${toolName}:${buildVisionAnalysisDedupeKey(params)}`;
 	if (seen.has(key)) return true;
 	seen.add(key);
 	return false;

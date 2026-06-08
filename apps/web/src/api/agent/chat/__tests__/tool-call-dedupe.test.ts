@@ -15,14 +15,14 @@ describe("agent chat tool call dedupe", () => {
 		expect(
 			shouldSuppressDuplicateToolCall({
 				seen,
-				toolName: "vision_analyze_media",
+				toolName: "vision_analyze_video",
 				params,
 			}),
 		).toBe(false);
 		expect(
 			shouldSuppressDuplicateToolCall({
 				seen,
-				toolName: "vision_analyze_media",
+				toolName: "vision_analyze_video",
 				params,
 			}),
 		).toBe(true);
@@ -48,15 +48,22 @@ describe("agent chat tool call dedupe", () => {
 		expect(
 			shouldSuppressDuplicateToolCall({
 				seen,
-				toolName: "vision_analyze_media",
+				toolName: "vision_analyze_image",
 				params: { mediaAssetId: "media-1", analysisType: "visual_summary" },
 			}),
 		).toBe(false);
 		expect(
 			shouldSuppressDuplicateToolCall({
 				seen,
-				toolName: "vision_analyze_media",
+				toolName: "vision_analyze_image",
 				params: { mediaAssetId: "media-2", analysisType: "visual_summary" },
+			}),
+		).toBe(false);
+		expect(
+			shouldSuppressDuplicateToolCall({
+				seen,
+				toolName: "vision_analyze_video",
+				params: { mediaAssetId: "media-1", analysisType: "visual_summary" },
 			}),
 		).toBe(false);
 	});

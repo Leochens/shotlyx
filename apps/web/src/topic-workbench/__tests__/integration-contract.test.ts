@@ -77,7 +77,8 @@ describe("topic workbench integration contract", () => {
 		expect(chatPanelSource).toContain("TOPIC_SUPPORT_TOOL_NAMES");
 		expect(chatPanelSource).toContain("video_semantic_index_analyze");
 		expect(chatPanelSource).toContain("video_semantic_index_get");
-		expect(chatPanelSource).toContain("vision_analyze_media");
+		expect(chatPanelSource).toContain("vision_analyze_image");
+		expect(chatPanelSource).toContain("vision_analyze_video");
 		expect(chatPanelSource).toContain("media_get_all");
 		expect(chatPanelSource).toContain("media_read_text_asset");
 	});

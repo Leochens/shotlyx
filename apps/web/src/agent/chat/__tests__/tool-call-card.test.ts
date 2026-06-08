@@ -171,7 +171,7 @@ describe("tool call card display helpers", () => {
 
 	test("shows streaming vision analysis details while the tool is pending", () => {
 		const toolCall: ToolCallRecord = {
-			tool: "vision_analyze_media",
+			tool: "vision_analyze_image",
 			params: { mediaAssetId: "media-1" },
 			progress: [
 				{
@@ -191,7 +191,7 @@ describe("tool call card display helpers", () => {
 
 	test("shows large video choice prompts instead of completed vision analysis", () => {
 		const toolCall: ToolCallRecord = {
-			tool: "vision_analyze_media",
+			tool: "vision_analyze_video",
 			params: { mediaAssetId: "media-1" },
 			result: {
 				status: "success",
@@ -211,7 +211,7 @@ describe("tool call card display helpers", () => {
 
 	test("shows a useful message when completed vision analysis is empty", () => {
 		const toolCall: ToolCallRecord = {
-			tool: "vision_analyze_media",
+			tool: "vision_analyze_video",
 			params: { mediaAssetId: "media-1" },
 			result: {
 				status: "success",

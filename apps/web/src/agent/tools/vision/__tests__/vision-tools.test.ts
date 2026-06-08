@@ -41,7 +41,9 @@ function getHeaderValue({
 	return new Headers(headers).get(key);
 }
 
-function getBinaryVisionPayload(input: RequestInfo | URL): Record<string, unknown> {
+function getBinaryVisionPayload(
+	input: RequestInfo | URL,
+): Record<string, unknown> {
 	const url = new URL(String(input), "http://localhost");
 	expect(url.pathname).toBe("/api/agent/vision/analyze");
 	const payload = url.searchParams.get("payload");
@@ -49,7 +51,9 @@ function getBinaryVisionPayload(input: RequestInfo | URL): Record<string, unknow
 	return JSON.parse(payload ?? "{}");
 }
 
-function getJsonVisionPayload(init: RequestInit | undefined): Record<string, unknown> {
+function getJsonVisionPayload(
+	init: RequestInit | undefined,
+): Record<string, unknown> {
 	expect(getHeaderValue({ headers: init?.headers, key: "Content-Type" })).toBe(
 		"application/json",
 	);
@@ -64,8 +68,21 @@ function expectBinaryVideoBody(init: RequestInit | undefined): File {
 	return init.body;
 }
 
+function getToolByName({
+	name,
+	tools,
+}: {
+	name: "vision_analyze_image" | "vision_analyze_video";
+	tools: ReturnType<typeof buildVisionTools>;
+}) {
+	const tool = tools.find((item) => item.name === name);
+	expect(tool).toBeDefined();
+	if (!tool) throw new Error(`Expected ${name} tool`);
+	return tool;
+}
+
 describe("vision analysis tools", () => {
-	test("builds a video understanding tool for Agent visual analysis", () => {
+	test("builds separate image and video vision tools", () => {
 		const tools = buildVisionTools({
 			editor: createEditorWithAssets([]),
 			deps: {
@@ -76,34 +93,49 @@ describe("vision analysis tools", () => {
 			},
 		});
 
-		const tool = tools.find((item) => item.name === "vision_analyze_media");
+		const names = tools.map((tool) => tool.name);
+		const imageTool = getToolByName({
+			tools,
+			name: "vision_analyze_image",
+		});
+		const videoTool = getToolByName({
+			tools,
+			name: "vision_analyze_video",
+		});
 
-		expect(tool).toBeDefined();
-		expect(tool?.description).toContain("视频内容");
-		expect(tool?.parameters.mediaAssetId).toBeDefined();
+		expect(names).toContain("vision_analyze_image");
+		expect(names).toContain("vision_analyze_video");
+		expect(names).not.toContain("vision_analyze_media");
+		expect(imageTool.description).toContain("只接受图片素材");
+		expect(imageTool.parameters.fps).toBeUndefined();
+		expect(videoTool.description).toContain("只接受视频素材");
+		expect(videoTool.parameters.fps).toBeDefined();
 	});
 
 	test("rejects generic video understanding so the semantic index is reused", async () => {
 		const file = new File(["demo"], "demo.mp4", { type: "video/mp4" });
 		const fetchFn = mock(() => Promise.resolve(Response.json({})));
-		const [tool] = buildVisionTools({
-			editor: createEditorWithAssets([
-				{
-					id: "media-1",
-					name: "demo.mp4",
-					type: "video",
-					duration: 12,
-					width: 1920,
-					height: 1080,
-					file,
+		const tool = getToolByName({
+			tools: buildVisionTools({
+				editor: createEditorWithAssets([
+					{
+						id: "media-1",
+						name: "demo.mp4",
+						type: "video",
+						duration: 12,
+						width: 1920,
+						height: 1080,
+						file,
+					},
+				]),
+				deps: {
+					fetchFn,
+					readFileAsDataUrl: mock(() =>
+						Promise.resolve("data:video/mp4;base64,AA=="),
+					),
 				},
-			]),
-			deps: {
-				fetchFn,
-				readFileAsDataUrl: mock(() =>
-					Promise.resolve("data:video/mp4;base64,AA=="),
-				),
-			},
+			}),
+			name: "vision_analyze_video",
 		});
 
 		await expect(
@@ -115,6 +147,55 @@ describe("vision analysis tools", () => {
 		).rejects.toThrow(
 			"视频素材的内容理解和剪辑建议请使用 video_semantic_index_analyze 或 video_semantic_index_get",
 		);
+		expect(fetchFn).not.toHaveBeenCalled();
+	});
+
+	test("keeps image and video tools type-strict", async () => {
+		const imageFile = new File(["image"], "cover.png", { type: "image/png" });
+		const videoFile = new File(["video"], "demo.mp4", { type: "video/mp4" });
+		const fetchFn = mock(() => Promise.resolve(Response.json({})));
+		const tools = buildVisionTools({
+			editor: createEditorWithAssets([
+				{
+					id: "image-1",
+					name: "cover.png",
+					type: "image",
+					width: 1080,
+					height: 1080,
+					file: imageFile,
+				},
+				{
+					id: "video-1",
+					name: "demo.mp4",
+					type: "video",
+					duration: 12,
+					width: 1920,
+					height: 1080,
+					file: videoFile,
+				},
+			]),
+			deps: {
+				fetchFn,
+				readFileAsDataUrl: mock(() =>
+					Promise.resolve("data:image/png;base64,AA=="),
+				),
+			},
+		});
+		const imageTool = getToolByName({
+			tools,
+			name: "vision_analyze_image",
+		});
+		const videoTool = getToolByName({
+			tools,
+			name: "vision_analyze_video",
+		});
+
+		await expect(
+			imageTool.handler({ mediaAssetId: "video-1" }),
+		).rejects.toThrow("图片视觉分析只支持图片素材");
+		await expect(
+			videoTool.handler({ mediaAssetId: "image-1" }),
+		).rejects.toThrow("视频视觉分析只支持视频素材");
 		expect(fetchFn).not.toHaveBeenCalled();
 	});
 
@@ -137,8 +218,9 @@ describe("vision analysis tools", () => {
 				expect(uploadedFile.name).toBe("demo.mp4");
 				expect(uploadedFile.type).toBe("video/mp4");
 				expect(uploadedFile.size).toBe(file.size);
-				expect(getHeaderValue({ headers: init?.headers, key: "Content-Type" }))
-					.toBe("video/mp4");
+				expect(
+					getHeaderValue({ headers: init?.headers, key: "Content-Type" }),
+				).toBe("video/mp4");
 				const body = getBinaryVisionPayload(input);
 				expect(body.stream).toBe(false);
 				expect(body).toMatchObject({
@@ -160,14 +242,17 @@ describe("vision analysis tools", () => {
 				});
 			},
 		);
-		const [tool] = buildVisionTools({
-			editor,
-			deps: {
-				fetchFn,
-				readFileAsDataUrl: mock(() => {
-					throw new Error("video files should not be converted to data URLs");
-				}),
-			},
+		const tool = getToolByName({
+			tools: buildVisionTools({
+				editor,
+				deps: {
+					fetchFn,
+					readFileAsDataUrl: mock(() => {
+						throw new Error("video files should not be converted to data URLs");
+					}),
+				},
+			}),
+			name: "vision_analyze_video",
 		});
 
 		const result = await tool.handler({
@@ -203,8 +288,9 @@ describe("vision analysis tools", () => {
 			async (input: RequestInfo | URL, init?: RequestInit) => {
 				const uploadedFile = expectBinaryVideoBody(init);
 				expect(uploadedFile.name).toBe("demo.mp4");
-				expect(getHeaderValue({ headers: init?.headers, key: "Content-Type" }))
-					.toBe("video/mp4");
+				expect(
+					getHeaderValue({ headers: init?.headers, key: "Content-Type" }),
+				).toBe("video/mp4");
 				const body = getBinaryVisionPayload(input);
 				expect(body.media).toMatchObject({
 					mimeType: "video/mp4",
@@ -216,14 +302,17 @@ describe("vision analysis tools", () => {
 				});
 			},
 		);
-		const [tool] = buildVisionTools({
-			editor,
-			deps: {
-				fetchFn,
-				readFileAsDataUrl: mock(() => {
-					throw new Error("video files should not be converted to data URLs");
-				}),
-			},
+		const tool = getToolByName({
+			tools: buildVisionTools({
+				editor,
+				deps: {
+					fetchFn,
+					readFileAsDataUrl: mock(() => {
+						throw new Error("video files should not be converted to data URLs");
+					}),
+				},
+			}),
+			name: "vision_analyze_video",
 		});
 
 		await tool.handler({
@@ -274,14 +363,17 @@ describe("vision analysis tools", () => {
 			label: string;
 			status: string;
 		}> = [];
-		const [tool] = buildVisionTools({
-			editor,
-			deps: {
-				fetchFn,
-				readFileAsDataUrl: mock(() => {
-					throw new Error("should not read oversized video as data URL");
-				}),
-			},
+		const tool = getToolByName({
+			tools: buildVisionTools({
+				editor,
+				deps: {
+					fetchFn,
+					readFileAsDataUrl: mock(() => {
+						throw new Error("should not read oversized video as data URL");
+					}),
+				},
+			}),
+			name: "vision_analyze_video",
 		});
 
 		const result = await tool.handler(
@@ -297,7 +389,7 @@ describe("vision analysis tools", () => {
 		expect(progressEvents).toContainEqual(
 			expect.objectContaining({
 				stage: "vision-provider",
-				label: "正在请求 MiniMax M3 视觉分析",
+				label: "正在请求 MiniMax M3 视频视觉分析",
 				status: "running",
 			}),
 		);
@@ -324,21 +416,24 @@ describe("vision analysis tools", () => {
 			current?: number;
 			total?: number;
 		}> = [];
-		const [tool] = buildVisionTools({
-			editor,
-			deps: {
-				fetchFn: mock(() =>
-					Promise.resolve(
-						Response.json({
-							model: "MiniMax-M3",
-							analysis: "画面主体清楚，建议剪短中段停顿。",
-						}),
+		const tool = getToolByName({
+			tools: buildVisionTools({
+				editor,
+				deps: {
+					fetchFn: mock(() =>
+						Promise.resolve(
+							Response.json({
+								model: "MiniMax-M3",
+								analysis: "画面主体清楚，建议剪短中段停顿。",
+							}),
+						),
 					),
-				),
-				readFileAsDataUrl: mock(() =>
-					Promise.resolve("data:video/mp4;base64,AA=="),
-				),
-			},
+					readFileAsDataUrl: mock(() =>
+						Promise.resolve("data:video/mp4;base64,AA=="),
+					),
+				},
+			}),
+			name: "vision_analyze_video",
 		});
 
 		await tool.handler(
@@ -349,14 +444,14 @@ describe("vision analysis tools", () => {
 		expect(progressEvents).toEqual([
 			{
 				stage: "vision-prepare",
-				label: "正在读取媒体文件",
+				label: "正在读取视频文件",
 				status: "running",
 				current: 1,
 				total: 4,
 			},
 			{
 				stage: "vision-provider",
-				label: "正在请求 MiniMax M3 视觉分析",
+				label: "正在请求 MiniMax M3 视频视觉分析",
 				status: "running",
 				current: 2,
 				total: 4,
@@ -418,14 +513,17 @@ describe("vision analysis tools", () => {
 				]);
 			},
 		);
-		const [tool] = buildVisionTools({
-			editor,
-			deps: {
-				fetchFn,
-				readFileAsDataUrl: mock(() =>
-					Promise.resolve("data:image/png;base64,AA=="),
-				),
-			},
+		const tool = getToolByName({
+			tools: buildVisionTools({
+				editor,
+				deps: {
+					fetchFn,
+					readFileAsDataUrl: mock(() =>
+						Promise.resolve("data:image/png;base64,AA=="),
+					),
+				},
+			}),
+			name: "vision_analyze_image",
 		});
 
 		const result = await tool.handler(

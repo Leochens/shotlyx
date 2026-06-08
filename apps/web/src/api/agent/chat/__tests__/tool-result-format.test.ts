@@ -4,7 +4,7 @@ import { formatToolResultForModel } from "../tool-result-format";
 describe("formatToolResultForModel", () => {
 	test("does not invite automatic retries for failed vision analysis", () => {
 		const result = formatToolResultForModel({
-			toolName: "vision_analyze_media",
+			toolName: "vision_analyze_video",
 			result: {
 				status: "error",
 				error:
@@ -13,15 +13,17 @@ describe("formatToolResultForModel", () => {
 			},
 		});
 
-		expect(result).toContain("Tool \"vision_analyze_media\" failed");
-		expect(result).toContain("Do not call vision_analyze_media again automatically");
+		expect(result).toContain('Tool "vision_analyze_video" failed');
+		expect(result).toContain(
+			"Do not call vision_analyze_video again automatically",
+		);
 		expect(result).toContain("Ask the user");
 		expect(result).not.toContain("You may retry");
 	});
 
 	test("turns large vision video choices into an explicit user-question instruction", () => {
 		const result = formatToolResultForModel({
-			toolName: "vision_analyze_media",
+			toolName: "vision_analyze_video",
 			result: {
 				status: "success",
 				data: {
@@ -30,8 +32,7 @@ describe("formatToolResultForModel", () => {
 					mediaType: "video",
 					requiresUserChoice: true,
 					reason: "media_size_exceeds_minimax_limit",
-					message:
-						"这个视频约 86.3MiB，超过 MiniMax M3 单次媒体 50MiB 限制。",
+					message: "这个视频约 86.3MiB，超过 MiniMax M3 单次媒体 50MiB 限制。",
 					options: [
 						{
 							id: "split_video",
@@ -59,7 +60,7 @@ describe("formatToolResultForModel", () => {
 
 	test("preserves large vision choices when the result was already sanitized once", () => {
 		const result = formatToolResultForModel({
-			toolName: "vision_analyze_media",
+			toolName: "vision_analyze_video",
 			result: {
 				status: "success",
 				data: {
@@ -68,8 +69,7 @@ describe("formatToolResultForModel", () => {
 					mediaType: "video",
 					requiresUserChoice: true,
 					reason: "media_size_exceeds_minimax_limit",
-					message:
-						"这个视频约 86.3MiB，超过 MiniMax M3 单次媒体 50MiB 限制。",
+					message: "这个视频约 86.3MiB，超过 MiniMax M3 单次媒体 50MiB 限制。",
 					options: [
 						{
 							id: "split_video",
@@ -90,7 +90,7 @@ describe("formatToolResultForModel", () => {
 
 	test("tells the model to ask before retrying when vision analysis content is missing", () => {
 		const result = formatToolResultForModel({
-			toolName: "vision_analyze_media",
+			toolName: "vision_analyze_video",
 			result: {
 				status: "success",
 				data: {
@@ -102,7 +102,9 @@ describe("formatToolResultForModel", () => {
 		});
 
 		expect(result).toContain("did not return usable visual analysis content");
-		expect(result).toContain("Do not call vision_analyze_media again automatically");
+		expect(result).toContain(
+			"Do not call vision_analyze_video again automatically",
+		);
 		expect(result).toContain("Ask the user");
 		expect(result).not.toContain("Use this visual analysis as evidence");
 	});

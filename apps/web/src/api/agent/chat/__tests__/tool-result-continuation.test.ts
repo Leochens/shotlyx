@@ -11,7 +11,7 @@ describe("tool result continuation", () => {
 				assistantText: "",
 				toolCallCount: 1,
 				formattedToolResults: [
-					'Tool "vision_analyze_media" failed: provider_error',
+					'Tool "vision_analyze_video" failed: provider_error',
 				],
 				continuationDepth: 0,
 			}),
@@ -44,8 +44,8 @@ describe("tool result continuation", () => {
 				toolCallCount: 1,
 				formattedToolResults: [
 					[
-						'Tool "vision_analyze_media" failed: provider_error',
-						"Do not call vision_analyze_media again automatically.",
+						'Tool "vision_analyze_video" failed: provider_error',
+						"Do not call vision_analyze_video again automatically.",
 					].join("\n"),
 				],
 				continuationDepth: 0,
@@ -58,7 +58,7 @@ describe("tool result continuation", () => {
 			messages: [{ role: "user", content: "分析一下视频内容" }],
 			formattedToolResults: [
 				[
-					'Tool "vision_analyze_media" cannot continue automatically because this video exceeds MiniMax M3\'s per-media size limit.',
+					'Tool "vision_analyze_video" cannot continue automatically because this video exceeds MiniMax M3\'s per-media size limit.',
 					"这个视频约 86.3MiB，超过 MiniMax M3 单次媒体 50MiB 限制。",
 					"Do not claim the video has been analyzed. Ask the user to choose one option before continuing:",
 					"- 切分视频分析: 分段传给 MiniMax 后汇总结果。",
@@ -81,8 +81,8 @@ describe("tool result continuation", () => {
 			messages: [{ role: "user", content: "分析一下视频内容" }],
 			formattedToolResults: [
 				[
-					'Tool "vision_analyze_media" failed: provider_error',
-					"Do not call vision_analyze_media again automatically.",
+					'Tool "vision_analyze_video" failed: provider_error',
+					"Do not call vision_analyze_video again automatically.",
 					"Ask the user whether to wait, retry with lighter settings, or split the video.",
 				].join("\n"),
 			],

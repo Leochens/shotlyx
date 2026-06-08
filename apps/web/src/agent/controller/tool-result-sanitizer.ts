@@ -144,7 +144,9 @@ function compactWebFetchForModel(data: unknown): Record<string, unknown> {
 	};
 }
 
-function compactSilenceAnalysisForModel(data: unknown): Record<string, unknown> {
+function compactSilenceAnalysisForModel(
+	data: unknown,
+): Record<string, unknown> {
 	if (!isRecord(data)) return {};
 	return {
 		planId: data.planId,
@@ -203,7 +205,7 @@ function compactVisionAnalysisForModel(data: unknown): Record<string, unknown> {
 			analysisMissing: true,
 			message: "视觉分析没有返回可用内容。",
 			instruction:
-				"Do not claim visual analysis is complete. Do not call vision_analyze_media again automatically. Ask the user whether to keep waiting, retry with lower detail/fps, or split/compress the video.",
+				"Do not claim visual analysis is complete. Do not call the same vision analysis tool again automatically. Ask the user whether to keep waiting, retry with lower detail, or provide a smaller/simpler media asset.",
 		};
 	}
 	const media = isRecord(data.media) ? data.media : {};
@@ -224,6 +226,16 @@ function compactVisionAnalysisForModel(data: unknown): Record<string, unknown> {
 		instruction:
 			"Use this visual analysis as evidence for editing suggestions, visual QA, or content verification. Do not ask the user to describe the same media again unless the result is ambiguous.",
 	};
+}
+
+const VISION_ANALYSIS_TOOL_NAMES = new Set([
+	"vision_analyze_image",
+	"vision_analyze_video",
+	"vision_analyze_media",
+]);
+
+function isVisionAnalysisTool(toolName: string): boolean {
+	return VISION_ANALYSIS_TOOL_NAMES.has(toolName);
 }
 
 export function sanitizeToolResultForModel({
@@ -280,9 +292,7 @@ export function sanitizeToolResultForModel({
 						value: data.answer,
 						maxLength: MAX_WEB_SEARCH_SNIPPET_LENGTH,
 					}),
-					results: results.map((item) =>
-						compactWebSearchResultForModel(item),
-					),
+					results: results.map((item) => compactWebSearchResultForModel(item)),
 					message: data.message,
 					instruction:
 						"Use web_fetch on promising result URLs before relying on exact page details.",
@@ -313,7 +323,7 @@ export function sanitizeToolResultForModel({
 				data: compactRoughCutReviewForModel(data),
 			};
 		}
-		if (toolName === "vision_analyze_media") {
+		if (isVisionAnalysisTool(toolName)) {
 			const data = isRecord(result.data) ? result.data : {};
 			return {
 				status,

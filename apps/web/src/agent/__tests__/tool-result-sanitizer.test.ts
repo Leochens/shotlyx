@@ -153,7 +153,7 @@ describe("sanitizeToolResultForModel", () => {
 		expect(serialized).toContain("silence-plan-1");
 		expect(serialized).toContain("silence_apply_cut_plan");
 		expect(serialized).toContain("segmentCount");
-		expect(serialized).not.toContain("\"startSeconds\":29");
+		expect(serialized).not.toContain('"startSeconds":29');
 	});
 
 	test("keeps rough cut review id without sending full transcript to the model", () => {
@@ -184,7 +184,7 @@ describe("sanitizeToolResultForModel", () => {
 
 	test("keeps large video choice options for vision tool follow-up", () => {
 		const result = sanitizeToolResultForModel({
-			toolName: "vision_analyze_media",
+			toolName: "vision_analyze_video",
 			result: {
 				status: "success",
 				data: {
@@ -195,8 +195,7 @@ describe("sanitizeToolResultForModel", () => {
 					reason: "media_size_exceeds_minimax_limit",
 					fileSizeBytes: 52_428_801,
 					limitBytes: 52_428_800,
-					message:
-						"这个视频约 50.0MiB，超过 MiniMax M3 单次媒体 50MiB 限制。",
+					message: "这个视频约 50.0MiB，超过 MiniMax M3 单次媒体 50MiB 限制。",
 					options: [
 						{
 							id: "split_video",
@@ -224,8 +223,7 @@ describe("sanitizeToolResultForModel", () => {
 				reason: "media_size_exceeds_minimax_limit",
 				fileSizeBytes: 52_428_801,
 				limitBytes: 52_428_800,
-				message:
-					"这个视频约 50.0MiB，超过 MiniMax M3 单次媒体 50MiB 限制。",
+				message: "这个视频约 50.0MiB，超过 MiniMax M3 单次媒体 50MiB 限制。",
 				options: [
 					{
 						id: "split_video",
@@ -246,7 +244,7 @@ describe("sanitizeToolResultForModel", () => {
 
 	test("does not describe missing vision analysis as usable evidence", () => {
 		const result = sanitizeToolResultForModel({
-			toolName: "vision_analyze_media",
+			toolName: "vision_analyze_video",
 			result: {
 				status: "success",
 				data: {
@@ -264,11 +262,11 @@ describe("sanitizeToolResultForModel", () => {
 				mediaAssetId: "media-1",
 				mediaName: "compressed.mp4",
 				mediaType: "video",
-					analysisMissing: true,
-					message: "视觉分析没有返回可用内容。",
-					instruction:
-						"Do not claim visual analysis is complete. Do not call vision_analyze_media again automatically. Ask the user whether to keep waiting, retry with lower detail/fps, or split/compress the video.",
-				},
-			});
+				analysisMissing: true,
+				message: "视觉分析没有返回可用内容。",
+				instruction:
+					"Do not claim visual analysis is complete. Do not call the same vision analysis tool again automatically. Ask the user whether to keep waiting, retry with lower detail, or provide a smaller/simpler media asset.",
+			},
 		});
+	});
 });

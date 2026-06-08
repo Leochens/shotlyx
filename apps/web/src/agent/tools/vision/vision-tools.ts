@@ -5,7 +5,10 @@ import {
 	optionalStringParam,
 } from "@/agent/mcp/validation";
 
-type VisualMediaAsset = MediaAsset & { type: "image" | "video" };
+type VisionMediaType = "image" | "video";
+type ImageMediaAsset = MediaAsset & { type: "image" };
+type VideoMediaAsset = MediaAsset & { type: "video" };
+type VisualMediaAsset = ImageMediaAsset | VideoMediaAsset;
 type VisionElementRef = { trackId: string; elementId: string };
 type VisionToolEditor = {
 	media: {
@@ -65,7 +68,7 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
 };
 interface PreparedVisionMedia {
 	name: string;
-	type: "image" | "video";
+	type: VisionMediaType;
 	mimeType: string;
 	dataUrl?: string;
 	file?: File;
@@ -73,6 +76,11 @@ interface PreparedVisionMedia {
 	width?: number;
 	height?: number;
 }
+
+const VISION_MEDIA_LABELS: Record<VisionMediaType, string> = {
+	image: "图片",
+	video: "视频",
+};
 
 function isVisionAnalysisType(value: string): value is VisionAnalysisType {
 	return ANALYSIS_TYPES.some((item) => item === value);
@@ -82,8 +90,14 @@ function isVisionDetail(value: string): value is VisionDetail {
 	return DETAILS.some((item) => item === value);
 }
 
-function normalizeAnalysisType(value: string | undefined): VisionAnalysisType {
-	if (!value) return "editing_suggestions";
+function normalizeAnalysisType({
+	defaultValue,
+	value,
+}: {
+	defaultValue: VisionAnalysisType;
+	value: string | undefined;
+}): VisionAnalysisType {
+	if (!value) return defaultValue;
 	if (!isVisionAnalysisType(value)) {
 		throw new Error(
 			`类型不匹配："analysisType" 必须为以下之一：${ANALYSIS_TYPES.join(", ")}`,
@@ -136,8 +150,14 @@ function shouldRouteVideoAnalysisToSemanticIndex({
 	);
 }
 
-function isVisualMediaAsset(asset: MediaAsset): asset is VisualMediaAsset {
-	return asset.type === "video" || asset.type === "image";
+function isVisualMediaAssetOfType({
+	asset,
+	mediaType,
+}: {
+	asset: MediaAsset;
+	mediaType: VisionMediaType;
+}): asset is VisualMediaAsset {
+	return asset.type === mediaType;
 }
 
 function resolveSelectedMediaAssetId(editor: VisionToolEditor): string | null {
@@ -152,24 +172,41 @@ function resolveSelectedMediaAssetId(editor: VisionToolEditor): string | null {
 
 function resolveTargetAsset({
 	editor,
+	mediaType,
 	mediaAssetId,
 }: {
 	editor: VisionToolEditor;
+	mediaType: VisionMediaType;
 	mediaAssetId?: string;
 }): VisualMediaAsset {
 	const assets = editor.media.getAssets().filter((asset) => !asset.ephemeral);
-	const resolvedId = mediaAssetId ?? resolveSelectedMediaAssetId(editor);
+	const selectedId = resolveSelectedMediaAssetId(editor);
+	const resolvedId = mediaAssetId ?? selectedId ?? undefined;
 	const asset = resolvedId
 		? assets.find((item) => item.id === resolvedId)
-		: assets.filter(isVisualMediaAsset)[0];
+		: assets.find((item) =>
+				isVisualMediaAssetOfType({ asset: item, mediaType }),
+			);
+	const mediaLabel = VISION_MEDIA_LABELS[mediaType];
 
 	if (!asset) {
+		if (mediaAssetId) {
+			throw new Error(`未找到媒体资源：${mediaAssetId}`);
+		}
 		throw new Error(
-			"未找到可分析的图片或视频资源。请先导入或选择一个视觉素材。",
+			`未找到可分析的${mediaLabel}素材。请先导入或选择${mediaLabel}。`,
 		);
 	}
-	if (!isVisualMediaAsset(asset)) {
-		throw new Error("类型不匹配：视觉分析只支持图片或视频资源");
+	if (!isVisualMediaAssetOfType({ asset, mediaType })) {
+		const actualLabel =
+			asset.type === "image"
+				? VISION_MEDIA_LABELS.image
+				: asset.type === "video"
+					? VISION_MEDIA_LABELS.video
+					: asset.type;
+		throw new Error(
+			`类型不匹配：${mediaLabel}视觉分析只支持${mediaLabel}素材，当前资源为${actualLabel}`,
+		);
 	}
 	return asset;
 }
@@ -324,10 +361,12 @@ function splitSseFrames(input: string): { frames: string[]; rest: string } {
 async function readVisionStream({
 	response,
 	context,
+	analysisType,
 	mediaType,
 }: {
 	response: Response;
 	context: Parameters<Tool["handler"]>[1];
+	analysisType: VisionAnalysisType;
 	mediaType: VisualMediaAsset["type"];
 }): Promise<Record<string, unknown>> {
 	const reader = response.body?.getReader();
@@ -410,12 +449,199 @@ async function readVisionStream({
 	if (analysis) {
 		return {
 			provider: "minimax",
-			analysisType: "editing_suggestions",
+			analysisType,
 			analysis,
 			media: { type: mediaType },
 		};
 	}
 	throw new Error("provider_error: vision stream finished without analysis");
+}
+
+async function runVisionAnalysis({
+	asset,
+	context,
+	fetchFn,
+	params,
+	readDataUrl,
+}: {
+	asset: VisualMediaAsset;
+	context: Parameters<Tool["handler"]>[1];
+	fetchFn: typeof fetch;
+	params: Record<string, unknown>;
+	readDataUrl: VisionToolDeps["readFileAsDataUrl"];
+}): Promise<Record<string, unknown>> {
+	const analysisType = normalizeAnalysisType({
+		defaultValue: asset.type === "image" ? "visual_summary" : "quality_check",
+		value: optionalStringParam(params, "analysisType"),
+	});
+	if (shouldRouteVideoAnalysisToSemanticIndex({ analysisType, asset })) {
+		throw new Error(
+			"视频素材的内容理解和剪辑建议请使用 video_semantic_index_analyze 或 video_semantic_index_get。vision_analyze_video 仅用于视频质量检查或与 prompt 的窄范围验证。",
+		);
+	}
+	const prompt = optionalStringParam(params, "prompt");
+	const detail = normalizeDetail(optionalStringParam(params, "detail"));
+	const fps =
+		asset.type === "video"
+			? normalizeFps(optionalNumberParam(params, "fps"))
+			: undefined;
+	const maxLongSidePixel = normalizeMaxLongSidePixel(
+		optionalNumberParam(params, "maxLongSidePixel"),
+	);
+	const mediaLabel = VISION_MEDIA_LABELS[asset.type];
+
+	emitVisionProgress({
+		context,
+		stage: "vision-prepare",
+		label: `正在读取${mediaLabel}文件`,
+		status: "running",
+		current: 1,
+	});
+	let preparedMedia: PreparedVisionMedia;
+	if (asset.type === "video") {
+		const mimeType = mimeTypeForAsset(asset);
+		preparedMedia = {
+			name: asset.name,
+			type: asset.type,
+			mimeType,
+			file: asset.file,
+			durationSeconds: asset.duration,
+			width: asset.width,
+			height: asset.height,
+		};
+	} else {
+		preparedMedia = {
+			name: asset.name,
+			type: asset.type,
+			mimeType: mimeTypeForAsset(asset),
+			durationSeconds: asset.duration,
+			width: asset.width,
+			height: asset.height,
+		};
+		let dataUrl: string;
+		try {
+			dataUrl = await readDataUrl(asset.file);
+		} catch (error) {
+			emitVisionProgress({
+				context,
+				stage: "vision-prepare",
+				label: "读取媒体文件失败",
+				status: "error",
+				current: 1,
+			});
+			throw error;
+		}
+		preparedMedia.dataUrl = rewriteDataUrlMimeType({
+			dataUrl,
+			mimeType: preparedMedia.mimeType,
+		});
+	}
+
+	emitVisionProgress({
+		context,
+		stage: "vision-provider",
+		label: `正在请求 MiniMax M3 ${mediaLabel}视觉分析`,
+		status: "running",
+		current: 2,
+	});
+	const payload = {
+		analysisType,
+		prompt,
+		detail,
+		...(fps === undefined ? {} : { fps }),
+		maxLongSidePixel,
+		stream: preparedMedia.type === "image",
+		media: {
+			mediaAssetId: asset.id,
+			name: preparedMedia.name,
+			type: preparedMedia.type,
+			mimeType: preparedMedia.mimeType,
+			...(preparedMedia.dataUrl ? { dataUrl: preparedMedia.dataUrl } : {}),
+			durationSeconds: preparedMedia.durationSeconds,
+			width: preparedMedia.width,
+			height: preparedMedia.height,
+		},
+	};
+	const requestTarget =
+		preparedMedia.type === "video"
+			? `/api/agent/vision/analyze?payload=${encodeURIComponent(
+					JSON.stringify(payload),
+				)}`
+			: "/api/agent/vision/analyze";
+	const requestInit: RequestInit =
+		preparedMedia.type === "video"
+			? (() => {
+					const file = preparedMedia.file;
+					if (!file) {
+						throw new Error("读取媒体文件失败：缺少视频文件");
+					}
+					return {
+						method: "POST",
+						headers: { "Content-Type": preparedMedia.mimeType },
+						body: file,
+						signal: context?.signal,
+					};
+				})()
+			: {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(payload),
+					signal: context?.signal,
+				};
+	const responsePromise = fetchFn(requestTarget, requestInit);
+	emitVisionProgress({
+		context,
+		stage: "vision-provider",
+		label: `MiniMax M3 正在理解${mediaLabel}画面`,
+		status: "running",
+		current: 3,
+	});
+
+	let response: Response;
+	try {
+		response = await responsePromise;
+	} catch (error) {
+		emitVisionProgress({
+			context,
+			stage: "vision-provider",
+			label: "视觉分析请求失败",
+			status: "error",
+			current: 3,
+		});
+		throw error;
+	}
+	if (!response.ok) {
+		const message = await parseAgentApiError(response);
+		emitVisionProgress({
+			context,
+			stage: "vision-provider",
+			label: "视觉分析失败",
+			status: "error",
+			current: 3,
+		});
+		throw new Error(message);
+	}
+	const result = isStreamingResponse(response)
+		? await readVisionStream({
+				response,
+				context,
+				analysisType,
+				mediaType: asset.type,
+			})
+		: await response.json();
+	emitVisionProgress({
+		context,
+		stage: "vision-provider",
+		label: "视觉分析已完成",
+		status: "success",
+		current: 4,
+	});
+	return {
+		...(getRecord(result) ?? {}),
+		mediaAssetId: asset.id,
+		mediaName: asset.name,
+		mediaType: asset.type,
+	};
 }
 
 export function buildVisionTools({
@@ -427,26 +653,78 @@ export function buildVisionTools({
 
 	return [
 		{
-			name: "vision_analyze_media",
+			name: "vision_analyze_image",
 			description:
-				"分析项目中的图片，或对视频做窄范围视觉 QA/生成结果验证。普通视频内容理解、找亮点、剪辑建议请优先使用 video_semantic_index_analyze/get。",
+				"理解或分析项目中的单张图片。只接受图片素材；不要用于视频素材、视频内容理解或视频剪辑建议。",
 			parameters: {
 				mediaAssetId: {
 					type: "string",
 					description:
-						"要分析的媒体资源 ID。可来自 media_get_all、media_search 或 Agent References；留空时优先分析当前选中的视觉片段，否则使用资源库中的第一个图片/视频。",
+						"图片媒体资源 ID。可来自 media_get_all、media_search 或 Agent References；留空时优先分析当前选中的图片，否则使用资源库中的第一张图片。",
 					optional: true,
 				},
 				analysisType: {
 					type: "string",
 					description:
-						"分析类型：editing_suggestions、visual_summary、quality_check 或 content_verification。默认 editing_suggestions。",
+						"分析类型：editing_suggestions、visual_summary、quality_check 或 content_verification。默认 visual_summary。",
 					optional: true,
 				},
 				prompt: {
 					type: "string",
 					description:
-						"给视觉模型的具体问题。例如：分析视频内容并给出剪辑建议、检查画面是否有遮挡、确认生成视频是否符合脚本。",
+						"给图片视觉模型的具体问题。例如：总结图片内容、识别画面文字、检查构图质量、确认图片是否符合脚本或封面需求。",
+					optional: true,
+				},
+				detail: {
+					type: "string",
+					description:
+						"MiniMax M3 视觉 detail：low、default 或 high。默认 default。",
+					optional: true,
+				},
+				maxLongSidePixel: {
+					type: "number",
+					description:
+						"可选最长边像素上限，128 到 4096。用于控制图片视觉 token 成本。",
+					optional: true,
+				},
+			},
+			// eslint-disable-next-line shotlyx/prefer-object-params
+			handler: async (params, context) => {
+				const asset = resolveTargetAsset({
+					editor,
+					mediaType: "image",
+					mediaAssetId: optionalStringParam(params, "mediaAssetId"),
+				});
+				return runVisionAnalysis({
+					asset,
+					context,
+					fetchFn,
+					params,
+					readDataUrl,
+				});
+			},
+		},
+		{
+			name: "vision_analyze_video",
+			description:
+				"对项目中的视频做窄范围视觉 QA、生成视频验证或画面细节检查。只接受视频素材；普通视频内容理解、找亮点、剪辑建议请优先使用 video_semantic_index_analyze/get。",
+			parameters: {
+				mediaAssetId: {
+					type: "string",
+					description:
+						"视频媒体资源 ID。可来自 media_get_all、media_search 或 Agent References；留空时优先分析当前选中的视频，否则使用资源库中的第一个视频。",
+					optional: true,
+				},
+				analysisType: {
+					type: "string",
+					description:
+						"分析类型：editing_suggestions、visual_summary、quality_check 或 content_verification。默认 quality_check。",
+					optional: true,
+				},
+				prompt: {
+					type: "string",
+					description:
+						"给视频视觉模型的具体问题。例如：检查画面是否有遮挡、确认生成视频是否符合脚本、分析某个时间段的画面细节。",
 					optional: true,
 				},
 				detail: {
@@ -472,182 +750,16 @@ export function buildVisionTools({
 			handler: async (params, context) => {
 				const asset = resolveTargetAsset({
 					editor,
+					mediaType: "video",
 					mediaAssetId: optionalStringParam(params, "mediaAssetId"),
 				});
-				const analysisType = normalizeAnalysisType(
-					optionalStringParam(params, "analysisType"),
-				);
-				if (shouldRouteVideoAnalysisToSemanticIndex({ analysisType, asset })) {
-					throw new Error(
-						"视频素材的内容理解和剪辑建议请使用 video_semantic_index_analyze 或 video_semantic_index_get。vision_analyze_media 仅用于视频质量检查或与 prompt 的窄范围验证。",
-					);
-				}
-				const prompt = optionalStringParam(params, "prompt");
-				const detail = normalizeDetail(optionalStringParam(params, "detail"));
-				const fps = normalizeFps(optionalNumberParam(params, "fps"));
-				const maxLongSidePixel = normalizeMaxLongSidePixel(
-					optionalNumberParam(params, "maxLongSidePixel"),
-				);
-
-				emitVisionProgress({
+				return runVisionAnalysis({
+					asset,
 					context,
-					stage: "vision-prepare",
-					label: "正在读取媒体文件",
-					status: "running",
-					current: 1,
+					fetchFn,
+					params,
+					readDataUrl,
 				});
-				let preparedMedia: PreparedVisionMedia;
-				if (asset.type === "video") {
-					const mimeType = mimeTypeForAsset(asset);
-					preparedMedia = {
-						name: asset.name,
-						type: asset.type,
-						mimeType,
-						file: asset.file,
-						durationSeconds: asset.duration,
-						width: asset.width,
-						height: asset.height,
-					};
-				} else {
-					preparedMedia = {
-						name: asset.name,
-						type: asset.type,
-						mimeType: mimeTypeForAsset(asset),
-						durationSeconds: asset.duration,
-						width: asset.width,
-						height: asset.height,
-					};
-					let dataUrl: string;
-					try {
-						dataUrl = await readDataUrl(asset.file);
-					} catch (error) {
-						emitVisionProgress({
-							context,
-							stage: "vision-prepare",
-							label: "读取媒体文件失败",
-							status: "error",
-							current: 1,
-						});
-						throw error;
-					}
-					preparedMedia.dataUrl = rewriteDataUrlMimeType({
-						dataUrl,
-						mimeType: preparedMedia.mimeType,
-					});
-				}
-
-				emitVisionProgress({
-					context,
-					stage: "vision-provider",
-					label: "正在请求 MiniMax M3 视觉分析",
-					status: "running",
-					current: 2,
-				});
-				const payload = {
-					analysisType,
-					prompt,
-					detail,
-					fps,
-					maxLongSidePixel,
-					stream: preparedMedia.type !== "video",
-					media: {
-						mediaAssetId: asset.id,
-						name: preparedMedia.name,
-						type: preparedMedia.type,
-						mimeType: preparedMedia.mimeType,
-						...(preparedMedia.dataUrl
-							? { dataUrl: preparedMedia.dataUrl }
-							: {}),
-						durationSeconds: preparedMedia.durationSeconds,
-						width: preparedMedia.width,
-						height: preparedMedia.height,
-					},
-				};
-				const requestTarget =
-					preparedMedia.type === "video"
-						? `/api/agent/vision/analyze?payload=${encodeURIComponent(
-								JSON.stringify(payload),
-							)}`
-						: "/api/agent/vision/analyze";
-				const requestInit: RequestInit =
-					preparedMedia.type === "video"
-						? (() => {
-								const file = preparedMedia.file;
-								if (!file) {
-									throw new Error("读取媒体文件失败：缺少视频文件");
-								}
-								return {
-									method: "POST",
-									headers: { "Content-Type": preparedMedia.mimeType },
-									body: file,
-									signal: context?.signal,
-								};
-							})()
-						: {
-								method: "POST",
-								headers: { "Content-Type": "application/json" },
-								body: JSON.stringify(payload),
-								signal: context?.signal,
-							};
-				const responsePromise = fetchFn(
-					requestTarget,
-					requestInit,
-				);
-				emitVisionProgress({
-					context,
-					stage: "vision-provider",
-					label:
-						asset.type === "video"
-							? "MiniMax M3 正在理解视频画面"
-							: "MiniMax M3 正在理解图片画面",
-					status: "running",
-					current: 3,
-				});
-
-				let response: Response;
-				try {
-					response = await responsePromise;
-				} catch (error) {
-					emitVisionProgress({
-						context,
-						stage: "vision-provider",
-						label: "视觉分析请求失败",
-						status: "error",
-						current: 3,
-					});
-					throw error;
-				}
-				if (!response.ok) {
-					const message = await parseAgentApiError(response);
-					emitVisionProgress({
-						context,
-						stage: "vision-provider",
-						label: "视觉分析失败",
-						status: "error",
-						current: 3,
-					});
-					throw new Error(message);
-				}
-				const result = isStreamingResponse(response)
-					? await readVisionStream({
-							response,
-							context,
-							mediaType: asset.type,
-						})
-					: await response.json();
-				emitVisionProgress({
-					context,
-					stage: "vision-provider",
-					label: "视觉分析已完成",
-					status: "success",
-					current: 4,
-				});
-				return {
-					...result,
-					mediaAssetId: asset.id,
-					mediaName: asset.name,
-					mediaType: asset.type,
-				};
 			},
 		},
 	];

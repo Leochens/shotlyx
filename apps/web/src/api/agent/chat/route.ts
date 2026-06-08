@@ -53,6 +53,16 @@ import { getToolResultTimeoutMs } from "./tool-timeouts";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const VISION_ANALYSIS_TOOL_NAMES = new Set([
+	"vision_analyze_image",
+	"vision_analyze_video",
+	"vision_analyze_media",
+]);
+
+function isVisionAnalysisTool(toolName: string): boolean {
+	return VISION_ANALYSIS_TOOL_NAMES.has(toolName);
+}
+
 const messageSchema = z.object({
 	role: z.string(),
 	content: z.string(),
@@ -671,8 +681,8 @@ export async function POST(request: ApiRequest) {
 					});
 					return [
 						`Tool "${toolName}" was already called with the same media and analysis parameters in this assistant turn.`,
-						"Do not call vision_analyze_media again automatically.",
-						"Ask the user whether to keep waiting for the existing analysis, retry with lower detail/fps, or split/compress the video.",
+						`Do not call ${toolName} again automatically.`,
+						"Ask the user whether to keep waiting for the existing analysis, retry with lower detail, or provide a smaller/simpler media asset.",
 					].join("\n");
 				}
 				console.log(`[agent] tool-call: ${toolName} callId=${callId}`);
@@ -707,11 +717,11 @@ export async function POST(request: ApiRequest) {
 						return;
 					}
 					console.log(`[agent] tool-timeout: ${toolName} callId=${callId}`);
-					if (toolName === "vision_analyze_media") {
+					if (isVisionAnalysisTool(toolName)) {
 						return [
 							`Tool "${toolName}" timed out while waiting for the visual analysis result.`,
-							"Do not call vision_analyze_media again automatically.",
-							"The current visual analysis may still be running in the tool panel. Ask the user to keep waiting, retry with lower detail/fps, or split the video.",
+							`Do not call ${toolName} again automatically.`,
+							"The current visual analysis may still be running in the tool panel. Ask the user to keep waiting, retry with lower detail, or provide a smaller/simpler media asset.",
 							`Error: ${err instanceof Error ? err.message : "Tool execution failed"}`,
 						].join("\n");
 					}

@@ -11,10 +11,16 @@ function formatContinuationToolResult(result: unknown): string {
 	}
 }
 
+const NO_AUTOMATIC_VISION_RETRY_MARKERS = [
+	"Do not call vision_analyze_image again automatically.",
+	"Do not call vision_analyze_video again automatically.",
+	"Do not call vision_analyze_media again automatically.",
+];
+
 function hasNoAutomaticRetryToolResult(results: unknown[]): boolean {
 	return results.some((result) =>
-		formatContinuationToolResult(result).includes(
-			"Do not call vision_analyze_media again automatically.",
+		NO_AUTOMATIC_VISION_RETRY_MARKERS.some((marker) =>
+			formatContinuationToolResult(result).includes(marker),
 		),
 	);
 }
@@ -31,11 +37,11 @@ export function shouldRunToolResultContinuation({
 	continuationDepth: number;
 }): boolean {
 	return (
-			continuationDepth < MAX_TOOL_RESULT_CONTINUATION_DEPTH &&
-			toolCallCount > 0 &&
-			formattedToolResults.length > 0 &&
-			assistantText.trim().length === 0 &&
-			!hasNoAutomaticRetryToolResult(formattedToolResults)
+		continuationDepth < MAX_TOOL_RESULT_CONTINUATION_DEPTH &&
+		toolCallCount > 0 &&
+		formattedToolResults.length > 0 &&
+		assistantText.trim().length === 0 &&
+		!hasNoAutomaticRetryToolResult(formattedToolResults)
 	);
 }
 

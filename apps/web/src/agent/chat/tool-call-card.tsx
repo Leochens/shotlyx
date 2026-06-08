@@ -154,13 +154,23 @@ export function getToolStatus(toolCall: ToolCallRecord): ToolStatus {
 	return toolCall.result?.status ?? "pending";
 }
 
+const VISION_ANALYSIS_TOOL_NAMES = new Set([
+	"vision_analyze_image",
+	"vision_analyze_video",
+	"vision_analyze_media",
+]);
+
+function isVisionAnalysisTool(tool: string): boolean {
+	return VISION_ANALYSIS_TOOL_NAMES.has(tool);
+}
+
 export function getToolOutputDisplay(
 	toolCall: ToolCallRecord,
 ): ToolOutputDisplay {
 	const status = getToolStatus(toolCall);
 	const latestProgress = getLatestProgress(toolCall);
 	if (!toolCall.result) {
-		if (toolCall.tool === "vision_analyze_media" && latestProgress?.detail) {
+		if (isVisionAnalysisTool(toolCall.tool) && latestProgress?.detail) {
 			return {
 				tone: "pending",
 				text: latestProgress.detail,
@@ -178,7 +188,7 @@ export function getToolOutputDisplay(
 		};
 	}
 	if (status === "success") {
-		if (toolCall.tool === "vision_analyze_media") {
+		if (isVisionAnalysisTool(toolCall.tool)) {
 			const data = toolCall.result.data;
 			if (
 				isRecord(data) &&
@@ -190,15 +200,15 @@ export function getToolOutputDisplay(
 					text: Reflect.get(data, "message"),
 				};
 			}
-			if (
-				isRecord(data) &&
-				typeof Reflect.get(data, "analysis") === "string"
-			) {
+			if (isRecord(data) && typeof Reflect.get(data, "analysis") === "string") {
 				const analysis = Reflect.get(data, "analysis").trim();
 				if (!analysis) {
 					return {
 						tone: "pending",
-						text: "视觉分析没有返回可用内容。请重试，或降低 detail/fps 后再分析。",
+						text:
+							toolCall.tool === "vision_analyze_image"
+								? "视觉分析没有返回可用内容。请重试，或降低 detail / 换用更小图片后再分析。"
+								: "视觉分析没有返回可用内容。请重试，或降低 detail/fps 后再分析。",
 					};
 				}
 				return {
@@ -220,7 +230,7 @@ export function getToolOutputDisplay(
 								? "粗剪审核单已生成，请在弹窗里确认后再剪辑。"
 								: toolCall.tool === "rough_cut_apply_review"
 									? "已按审核结果完成粗剪。"
-									: toolCall.tool === "vision_analyze_media"
+									: isVisionAnalysisTool(toolCall.tool)
 										? "视觉分析已完成。"
 										: stringifyCompact(toolCall.result.data),
 		};

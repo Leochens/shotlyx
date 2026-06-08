@@ -81,6 +81,7 @@ function buildInstruction({
 }: Pick<VisionAnalyzeData, "prompt" | "media"> & {
 	analysisType: z.infer<typeof analysisTypeSchema>;
 }): string {
+	const isImage = media.type === "image";
 	const mediaFacts = [
 		`name: ${media.name}`,
 		`type: ${media.type}`,
@@ -93,16 +94,26 @@ function buildInstruction({
 		.join("\n");
 	const typeInstruction =
 		analysisType === "visual_summary"
-			? "Summarize what is visually happening, including subjects, actions, setting, key moments, and any readable text."
+			? isImage
+				? "Summarize what is visible in this still image, including subjects, composition, setting, visual hierarchy, and any readable text."
+				: "Summarize what is visually happening, including subjects, actions, setting, key moments, and any readable text."
 			: analysisType === "quality_check"
-				? "Evaluate visual quality, framing, lighting, focus, motion, artifacts, occlusion, and risks that could hurt the final edit."
+				? isImage
+					? "Evaluate image quality, framing, lighting, focus, artifacts, occlusion, readability, and risks that could hurt the final edit or cover."
+					: "Evaluate visual quality, framing, lighting, focus, motion, artifacts, occlusion, and risks that could hurt the final edit."
 				: analysisType === "content_verification"
 					? "Verify whether the visual content matches the user's stated intent. Call out mismatches, uncertainty, and concrete evidence from the media."
-					: "Act as a senior video editor. Analyze the footage and give concrete editing suggestions: strongest moments, weak/repetitive parts, pacing, suggested cuts, B-roll/MG/subtitle opportunities, and any visual issues.";
+					: isImage
+						? "Act as a senior visual editor. Analyze this still image and give concrete editing suggestions: strongest visual elements, weak or distracting areas, crop/layout opportunities, cover/B-roll/MG usage, readable text, and any visual issues."
+						: "Act as a senior video editor. Analyze the footage and give concrete editing suggestions: strongest moments, weak/repetitive parts, pacing, suggested cuts, B-roll/MG/subtitle opportunities, and any visual issues.";
 
 	return `${typeInstruction}
 
-Return concise, actionable output in the same language as the user's prompt when possible. Use timestamps only when you can infer them from the video confidently; otherwise describe moments by visible action.
+Return concise, actionable output in the same language as the user's prompt when possible. ${
+		isImage
+			? "Do not invent timestamps for a still image."
+			: "Use timestamps only when you can infer them from the video confidently; otherwise describe moments by visible action."
+	}
 
 Media metadata:
 ${mediaFacts}
