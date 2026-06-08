@@ -1,5 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
 import {
+	buildStaticGroupSnapPoints,
 	buildMoveGroup,
 	resolveGroupMove,
 	snapGroupEdges,
@@ -116,6 +117,7 @@ interface DragProgress {
 	currentMouseY: number;
 	groupMoveResult: GroupMoveResult | null;
 	dropTarget: DropTarget | null;
+	staticSnapPoints: readonly SnapPoint[] | null;
 }
 
 type Session =
@@ -320,8 +322,24 @@ export class ElementInteractionController {
 		if (this.session.kind !== "dragging") return IDLE_VIEW;
 		const { mousedown, drag } = this.session;
 		const memberTimeOffsets = new Map<string, MediaTime>();
+		const pinnedElementIdsByTrackId = new Map<string, Set<string>>();
+		const pinElement = ({
+			trackId,
+			elementId,
+		}: {
+			trackId: string;
+			elementId: string;
+		}) => {
+			const trackElementIds = pinnedElementIdsByTrackId.get(trackId);
+			if (trackElementIds) {
+				trackElementIds.add(elementId);
+				return;
+			}
+			pinnedElementIdsByTrackId.set(trackId, new Set([elementId]));
+		};
 		for (const member of drag.moveGroup.members) {
 			memberTimeOffsets.set(member.elementId, member.timeOffset);
+			pinElement({ trackId: member.trackId, elementId: member.elementId });
 		}
 		for (const move of drag.groupMoveResult?.moves ?? []) {
 			if (memberTimeOffsets.has(move.elementId)) continue;
@@ -329,12 +347,14 @@ export class ElementInteractionController {
 				move.elementId,
 				subMediaTime({ a: move.newStartTime, b: drag.currentTime }),
 			);
+			pinElement({ trackId: move.sourceTrackId, elementId: move.elementId });
 		}
 		return {
 			kind: "dragging",
 			anchorElementId: mousedown.elementId,
 			trackId: mousedown.trackId,
 			memberTimeOffsets,
+			pinnedElementIdsByTrackId,
 			startMouseX: mousedown.origin.x,
 			startMouseY: mousedown.origin.y,
 			startElementTime: mousedown.startElementTime,
@@ -469,9 +489,11 @@ export class ElementInteractionController {
 	private snapResult({
 		frameSnappedTime,
 		group,
+		staticSnapPoints,
 	}: {
 		frameSnappedTime: MediaTime;
 		group: MoveGroup;
+		staticSnapPoints?: readonly SnapPoint[] | null;
 	}): { snappedTime: MediaTime; snapPoint: SnapPoint | null } {
 		const { snap, input, scene, viewport, playback } = this.deps;
 
@@ -485,6 +507,7 @@ export class ElementInteractionController {
 			tracks: scene.getTracks(),
 			playheadTime: playback.getCurrentTime(),
 			zoomLevel: viewport.getZoomLevel(),
+			staticSnapPoints,
 		});
 
 		return {
@@ -591,6 +614,7 @@ export class ElementInteractionController {
 
 		const fps = this.deps.scene.getActiveFps();
 		if (!fps) return;
+		const tracks = this.deps.scene.getTracks();
 
 		const moveGroup = buildMoveGroup({
 			anchorRef: {
@@ -598,9 +622,12 @@ export class ElementInteractionController {
 				elementId: mousedown.elementId,
 			},
 			selectedElements: [...mousedown.selectedElements],
-			tracks: this.deps.scene.getTracks(),
+			tracks,
 		});
 		if (!moveGroup) return;
+		const staticSnapPoints = this.deps.snap.isEnabled()
+			? buildStaticGroupSnapPoints({ group: moveGroup, tracks })
+			: null;
 
 		const zoomLevel = this.deps.viewport.getZoomLevel();
 		const frameSnappedTime = frameSnappedMouseTime({
@@ -613,6 +640,7 @@ export class ElementInteractionController {
 		const { snappedTime, snapPoint } = this.snapResult({
 			frameSnappedTime,
 			group: moveGroup,
+			staticSnapPoints,
 		});
 
 		// Ensure the anchor is selected before we render the drag — covers the
@@ -634,6 +662,7 @@ export class ElementInteractionController {
 			currentMouseY: clientY,
 			groupMoveResult: null,
 			dropTarget: null,
+			staticSnapPoints,
 		};
 
 		this.session = { kind: "dragging", mousedown, drag };
@@ -677,6 +706,7 @@ export class ElementInteractionController {
 		const { snappedTime, snapPoint } = this.snapResult({
 			frameSnappedTime,
 			group: drag.moveGroup,
+			staticSnapPoints: drag.staticSnapPoints,
 		});
 
 		drag.currentTime = snappedTime;

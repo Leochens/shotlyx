@@ -19,7 +19,7 @@ export function isTimelineElementVisible({
 	viewportWidth: number;
 	timeToPixels: (time: number) => number;
 	overscanPx?: number;
-	pinnedElementIds?: { has: (elementId: string) => boolean } | null;
+	pinnedElementIds?: ReadonlySet<string> | null;
 }): boolean {
 	if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) {
 		return true;
@@ -53,7 +53,7 @@ export function getVisibleTimelineElements<
 	viewportWidth: number;
 	timeToPixels: (time: number) => number;
 	overscanPx?: number;
-	pinnedElementIds?: { has: (elementId: string) => boolean } | null;
+	pinnedElementIds?: ReadonlySet<string> | null;
 	assumeSortedByStartTime?: boolean;
 }): readonly TElement[] {
 	if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) {
@@ -62,17 +62,26 @@ export function getVisibleTimelineElements<
 
 	const windowStartPx = Math.max(0, scrollLeft - overscanPx);
 	const windowEndPx = scrollLeft + viewportWidth + overscanPx;
-	const canStopAtWindowEnd = assumeSortedByStartTime && !pinnedElementIds;
+	const canStopAtWindowEnd = assumeSortedByStartTime;
+	const remainingPinnedElementIds =
+		pinnedElementIds && pinnedElementIds.size > 0
+			? new Set(pinnedElementIds)
+			: null;
 	const visibleElements: TElement[] = [];
 
 	for (const element of elements) {
 		if (pinnedElementIds?.has(element.id)) {
 			visibleElements.push(element);
+			remainingPinnedElementIds?.delete(element.id);
 			continue;
 		}
 
 		const elementStartPx = timeToPixels(element.startTime);
-		if (canStopAtWindowEnd && elementStartPx > windowEndPx) {
+		if (
+			canStopAtWindowEnd &&
+			elementStartPx > windowEndPx &&
+			(!remainingPinnedElementIds || remainingPinnedElementIds.size === 0)
+		) {
 			break;
 		}
 

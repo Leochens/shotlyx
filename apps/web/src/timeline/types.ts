@@ -279,6 +279,10 @@ export type ElementDragView =
 			readonly anchorElementId: string;
 			readonly trackId: string;
 			readonly memberTimeOffsets: ReadonlyMap<string, MediaTime>;
+			readonly pinnedElementIdsByTrackId: ReadonlyMap<
+				string,
+				ReadonlySet<string>
+			>;
 			readonly startMouseX: number;
 			readonly startMouseY: number;
 			readonly startElementTime: MediaTime;

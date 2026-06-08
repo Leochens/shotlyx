@@ -842,30 +842,26 @@ function TimelineTrackRows({
 		[tracks, expandedElementIds],
 	);
 
-	const draggingElementIds = useMemo(
+	const pinnedElementIdsByTrackId = useMemo(
 		() =>
 			dragView.kind === "dragging"
-				? dragView.memberTimeOffsets
-				: (null as ReadonlyMap<string, MediaTime> | null),
+				? dragView.pinnedElementIdsByTrackId
+				: (null as ReadonlyMap<string, ReadonlySet<string>> | null),
 		[dragView],
 	);
 	const sortedTracks = useMemo(() => {
-		if (!draggingElementIds)
+		if (!pinnedElementIdsByTrackId)
 			return tracks.map((track, index) => ({ track, index }));
 		return [...tracks]
 			.map((track, index) => ({ track, index }))
 			.sort((a, b) => {
-				const aHasDragged = a.track.elements.some((element) =>
-					draggingElementIds.has(element.id),
-				);
-				const bHasDragged = b.track.elements.some((element) =>
-					draggingElementIds.has(element.id),
-				);
+				const aHasDragged = pinnedElementIdsByTrackId.has(a.track.id);
+				const bHasDragged = pinnedElementIdsByTrackId.has(b.track.id);
 				if (aHasDragged) return 1;
 				if (bHasDragged) return -1;
 				return 0;
 			});
-	}, [tracks, draggingElementIds]);
+	}, [tracks, pinnedElementIdsByTrackId]);
 
 	return (
 		<>

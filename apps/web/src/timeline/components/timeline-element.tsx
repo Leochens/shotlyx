@@ -80,7 +80,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { uppercase } from "@/utils/string";
-import { useMemo, type ComponentProps, type ReactNode } from "react";
+import { memo, useMemo, type ComponentProps, type ReactNode } from "react";
 import type { SelectedKeyframeRef, ElementKeyframe } from "@/animation/types";
 import { cn } from "@/utils/ui";
 import { usePropertiesStore } from "@/components/editor/panels/properties/stores/properties-store";
@@ -223,7 +223,7 @@ interface TimelineElementProps {
 	isDropTarget?: boolean;
 }
 
-export function TimelineElement({
+function TimelineElementComponent({
 	element,
 	track,
 	zoomLevel,
@@ -514,6 +514,51 @@ export function TimelineElement({
 		</PixelsPerSecondContext.Provider>
 	);
 }
+
+function isElementDrivenByDragView({
+	dragView,
+	elementId,
+}: {
+	dragView: ElementDragView;
+	elementId: string;
+}): boolean {
+	return (
+		dragView.kind === "dragging" && dragView.memberTimeOffsets.has(elementId)
+	);
+}
+
+// eslint-disable-next-line shotlyx/prefer-object-params -- React.memo comparators receive previous and next props as positional parameters.
+function areTimelineElementPropsEqual(
+	previous: TimelineElementProps,
+	next: TimelineElementProps,
+): boolean {
+	if (
+		previous.element !== next.element ||
+		previous.track !== next.track ||
+		previous.zoomLevel !== next.zoomLevel ||
+		previous.isSelected !== next.isSelected ||
+		previous.isDropTarget !== next.isDropTarget
+	) {
+		return false;
+	}
+
+	const wasDragDriven = isElementDrivenByDragView({
+		dragView: previous.dragView,
+		elementId: previous.element.id,
+	});
+	const isDragDriven = isElementDrivenByDragView({
+		dragView: next.dragView,
+		elementId: next.element.id,
+	});
+
+	return !wasDragDriven && !isDragDriven;
+}
+
+export const TimelineElement = memo(
+	TimelineElementComponent,
+	areTimelineElementPropsEqual,
+);
+TimelineElement.displayName = "TimelineElement";
 
 function ElementInner({
 	element,

@@ -62,10 +62,12 @@ export function TimelineTrackContent({
 	const editor = useEditor();
 	const { pointSelectEnabled, addReference } = useAgentContextStore();
 	const pinnedElementIds =
-		dragView.kind === "dragging" ? dragView.memberTimeOffsets : null;
+		dragView.kind === "dragging"
+			? (dragView.pinnedElementIdsByTrackId.get(track.id) ?? null)
+			: null;
 	const visibleElements = useMemo(
 		() =>
-			getVisibleTimelineElements({
+			getVisibleTimelineElements<TimelineElementType>({
 				elements: track.elements,
 				scrollLeft,
 				viewportWidth,
