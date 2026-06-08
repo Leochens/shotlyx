@@ -74,6 +74,7 @@ type VisionAnalyzeData = Omit<VisionAnalyzeRequest, "media"> & {
 	};
 };
 type MiniMaxThinkingType = "adaptive" | "disabled";
+type VisionProviderFlavor = "minimax" | "moonshot" | "deepseek";
 
 function buildInstruction({
 	analysisType,
@@ -454,6 +455,56 @@ async function uploadMiniMaxVideo({
 	return `mm_file://${extractUploadedFileId(data)}`;
 }
 
+function extractMoonshotFileId(data: unknown): string {
+	const record = getRecord(data);
+	const id = record?.id;
+	if (typeof id === "string" && id.trim()) return id.trim();
+	if (typeof id === "number" && Number.isFinite(id)) return String(id);
+	throw new Error("provider_error: Moonshot file upload did not return id");
+}
+
+async function uploadMoonshotVisionFile({
+	host,
+	apiKey,
+	media,
+}: {
+	host: string;
+	apiKey: string;
+	media: VisionAnalyzeData["media"];
+}): Promise<string> {
+	const file =
+		media.file ??
+		(media.dataUrl
+			? blobFromDataUrl({
+					dataUrl: media.dataUrl,
+					mimeType: media.mimeType,
+				})
+			: null);
+	if (!file) {
+		throw new Error("provider_error: missing media file for Moonshot upload");
+	}
+
+	const formData = new FormData();
+	formData.set("purpose", media.type);
+	formData.set("file", file, media.name);
+
+	const response = await fetch(`${host.replace(/\/+$/, "")}/files`, {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${apiKey}`,
+		},
+		body: formData,
+	});
+	if (!response.ok) {
+		const errorText = await response.text();
+		throw new Error(
+			`provider_error: Moonshot vision upload failed with ${response.status}: ${errorText.slice(0, 500)}`,
+		);
+	}
+	const data: unknown = await response.json();
+	return `ms://${extractMoonshotFileId(data)}`;
+}
+
 function buildMediaPart({
 	media,
 	url,
@@ -461,6 +512,7 @@ function buildMediaPart({
 	fps,
 	maxLongSidePixel,
 	includeVideoOptions = true,
+	providerFlavor,
 }: {
 	media: VisionAnalyzeData["media"];
 	url: string;
@@ -468,7 +520,21 @@ function buildMediaPart({
 	fps: number;
 	maxLongSidePixel?: number;
 	includeVideoOptions?: boolean;
+	providerFlavor: Exclude<VisionProviderFlavor, "deepseek">;
 }) {
+	if (providerFlavor === "moonshot") {
+		if (media.type === "video") {
+			return {
+				type: "video_url",
+				video_url: { url },
+			};
+		}
+		return {
+			type: "image_url",
+			image_url: { url },
+		};
+	}
+
 	const providerMaxLongSidePixel =
 		media.type === "video"
 			? Math.min(
@@ -502,6 +568,7 @@ function buildProviderRequestBody({
 	mediaPart,
 	stream,
 	thinkingType = "adaptive",
+	providerFlavor,
 }: {
 	data: VisionAnalyzeData;
 	model: string;
@@ -509,8 +576,45 @@ function buildProviderRequestBody({
 	mediaPart: ReturnType<typeof buildMediaPart>;
 	stream: boolean;
 	thinkingType?: MiniMaxThinkingType;
+	providerFlavor: Exclude<VisionProviderFlavor, "deepseek">;
 }) {
 	const isVideoRequest = mediaPart.type === "video_url";
+	const messages = [
+		{
+			role: "system",
+			content:
+				"You are Shotlyx's visual analysis agent for a video editor. Focus on observable visual evidence and practical editing decisions.",
+		},
+		{
+			role: "user",
+			content: [
+				{
+					type: "text",
+					text: buildInstruction({
+						analysisType,
+						prompt: data.prompt,
+						media: data.media,
+					}),
+				},
+				mediaPart,
+			],
+		},
+	];
+	if (providerFlavor === "moonshot") {
+		return {
+			model,
+			thinking: { type: "disabled" },
+			max_tokens: data.maxCompletionTokens ?? 2000,
+			...(stream
+				? {
+						stream: true,
+						stream_options: { include_usage: true },
+					}
+				: {}),
+			messages,
+		};
+	}
+
 	return {
 		model,
 		thinking: { type: thinkingType },
@@ -523,27 +627,7 @@ function buildProviderRequestBody({
 					stream_options: { include_usage: true },
 				}
 			: {}),
-		messages: [
-			{
-				role: "system",
-				content:
-					"You are Shotlyx's visual analysis agent for a video editor. Focus on observable visual evidence and practical editing decisions.",
-			},
-			{
-				role: "user",
-				content: [
-					{
-						type: "text",
-						text: buildInstruction({
-							analysisType,
-							prompt: data.prompt,
-							media: data.media,
-						}),
-					},
-					mediaPart,
-				],
-			},
-		],
+		messages,
 	};
 }
 
@@ -752,19 +836,23 @@ function createStreamResponse({
 
 function extractMessageContent(data: unknown): string {
 	if (typeof data !== "object" || data === null || Array.isArray(data)) {
-		throw new Error("provider_error: MiniMax response must be an object");
+		throw new Error("provider_error: vision provider response must be an object");
 	}
 	const choices = Reflect.get(data, "choices");
 	if (!Array.isArray(choices) || choices.length === 0) {
-		throw new Error("provider_error: MiniMax response did not include choices");
+		throw new Error(
+			"provider_error: vision provider response did not include choices",
+		);
 	}
 	const first = choices[0];
 	if (typeof first !== "object" || first === null) {
-		throw new Error("provider_error: MiniMax choice must be an object");
+		throw new Error("provider_error: vision provider choice must be an object");
 	}
 	const message = Reflect.get(first, "message");
 	if (typeof message !== "object" || message === null) {
-		throw new Error("provider_error: MiniMax choice did not include a message");
+		throw new Error(
+			"provider_error: vision provider choice did not include a message",
+		);
 	}
 	const content = Reflect.get(message, "content");
 	if (typeof content === "string") return assertNonEmptyAnalysis(content);
@@ -785,7 +873,7 @@ function extractMessageContent(data: unknown): string {
 				.join(""),
 		);
 	}
-	throw new Error("provider_error: MiniMax message content was empty");
+	throw new Error("provider_error: vision provider message content was empty");
 }
 
 function formatMiniMaxVisionRequestError({
@@ -796,6 +884,47 @@ function formatMiniMaxVisionRequestError({
 	errorText: string;
 }): string {
 	return `provider_error: MiniMax M3 vision request failed with ${status}: ${errorText.slice(0, 500)}`;
+}
+
+function formatVisionRequestError({
+	errorText,
+	providerFlavor,
+	status,
+}: {
+	errorText: string;
+	providerFlavor: Exclude<VisionProviderFlavor, "deepseek">;
+	status: number;
+}): string {
+	if (providerFlavor === "minimax") {
+		return formatMiniMaxVisionRequestError({ status, errorText });
+	}
+	return `provider_error: Moonshot/Kimi vision request failed with ${status}: ${errorText.slice(0, 500)}`;
+}
+
+function getVisionProviderFlavor({
+	host,
+	model,
+}: {
+	host: string;
+	model: string;
+}): VisionProviderFlavor {
+	const normalizedHost = host.toLowerCase();
+	const normalizedModel = model.toLowerCase();
+	if (
+		normalizedHost.includes("deepseek.com") ||
+		normalizedModel.startsWith("deepseek")
+	) {
+		return "deepseek";
+	}
+	if (
+		normalizedHost.includes("moonshot.") ||
+		normalizedHost.includes("kimi.") ||
+		normalizedModel.startsWith("kimi-") ||
+		normalizedModel.startsWith("moonshot-v1")
+	) {
+		return "moonshot";
+	}
+	return "minimax";
 }
 
 function shouldRetryWithMinimalVideoRequest({
@@ -839,7 +968,7 @@ export async function POST(request: ApiRequest) {
 		}
 		if (visionConfig.provider !== "openai-compatible") {
 			throw new Error(
-				"configuration_error: AGENT_VISION_PROVIDER must be openai-compatible for MiniMax M3",
+				"configuration_error: AGENT_VISION_PROVIDER must be openai-compatible for visual understanding",
 			);
 		}
 
@@ -851,13 +980,28 @@ export async function POST(request: ApiRequest) {
 		const analysisType = requestData.analysisType ?? "editing_suggestions";
 		const fps = requestData.fps ?? 1;
 		const host = visionConfig.host.replace(/\/+$/, "");
+		const providerFlavor = getVisionProviderFlavor({
+			host,
+			model: visionConfig.model,
+		});
+		if (providerFlavor === "deepseek") {
+			throw new Error(
+				"configuration_error: DeepSeek V4 API does not expose image or video input for visual understanding. Use Kimi K2.6/Moonshot or another vision-capable provider.",
+			);
+		}
 		const mediaUrl =
 			requestData.media.type === "video"
-				? await uploadMiniMaxVideo({
-						host,
-						apiKey: visionConfig.apiKey,
-						media: requestData.media,
-					})
+				? providerFlavor === "moonshot"
+					? await uploadMoonshotVisionFile({
+							host,
+							apiKey: visionConfig.apiKey,
+							media: requestData.media,
+						})
+					: await uploadMiniMaxVideo({
+							host,
+							apiKey: visionConfig.apiKey,
+							media: requestData.media,
+						})
 				: requestData.media.dataUrl;
 		if (!mediaUrl) {
 			throw new Error("provider_error: missing media URL for vision analysis");
@@ -868,10 +1012,13 @@ export async function POST(request: ApiRequest) {
 			detail,
 			fps,
 			maxLongSidePixel: requestData.maxLongSidePixel,
+			providerFlavor,
 		});
 		const url = `${host}/chat/completions`;
 		const shouldUseProviderStream =
-			Boolean(requestData.stream) && requestData.media.type !== "video";
+			providerFlavor === "minimax" &&
+			Boolean(requestData.stream) &&
+			requestData.media.type !== "video";
 		let responseUsesProviderStream = shouldUseProviderStream;
 		const buildFetchInit = ({
 			mediaPart,
@@ -895,6 +1042,7 @@ export async function POST(request: ApiRequest) {
 					mediaPart,
 					stream,
 					thinkingType,
+					providerFlavor,
 				}),
 			),
 		});
@@ -936,6 +1084,7 @@ export async function POST(request: ApiRequest) {
 					);
 				}
 			} else if (
+				providerFlavor === "minimax" &&
 				shouldRetryWithMinimalVideoRequest({
 					errorText,
 					media: requestData.media,
@@ -949,6 +1098,7 @@ export async function POST(request: ApiRequest) {
 					fps,
 					maxLongSidePixel: requestData.maxLongSidePixel,
 					includeVideoOptions: false,
+					providerFlavor,
 				});
 				response = await fetch(
 					url,
@@ -969,9 +1119,10 @@ export async function POST(request: ApiRequest) {
 				}
 			} else {
 				throw new Error(
-					formatMiniMaxVisionRequestError({
+					formatVisionRequestError({
 						status: response.status,
 						errorText,
+						providerFlavor,
 					}),
 				);
 			}
@@ -988,7 +1139,7 @@ export async function POST(request: ApiRequest) {
 
 		const data: unknown = await response.json();
 		return ApiResponse.json({
-			provider: "minimax",
+			provider: providerFlavor,
 			model: visionConfig.model,
 			analysisType,
 			analysis: extractMessageContent(data),

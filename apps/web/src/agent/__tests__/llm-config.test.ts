@@ -75,7 +75,7 @@ describe("loadLLMConfigFromEnv", () => {
 		});
 	});
 
-	test("Vision config defaults to MiniMax M3 without reusing the Agent LLM endpoint", () => {
+	test("Vision config defaults to Kimi K2.6 without reusing the Agent LLM endpoint", () => {
 		process.env.AGENT_LLM_HOST = "https://llm.example.com/v1";
 		process.env.AGENT_LLM_KEY = "agent-key";
 		process.env.AGENT_LLM_MODEL = "agent-model";
@@ -90,9 +90,9 @@ describe("loadLLMConfigFromEnv", () => {
 		expect(config.vision).toEqual({
 			name: "vision",
 			provider: "openai-compatible",
-			host: "https://api.minimaxi.com/v1",
+			host: "https://api.moonshot.cn/v1",
 			apiKey: "",
-			model: "MiniMax-M3",
+			model: "kimi-k2.6",
 			structuredOutputMode: undefined,
 		});
 	});

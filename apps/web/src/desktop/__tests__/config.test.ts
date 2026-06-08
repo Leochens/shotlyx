@@ -69,25 +69,25 @@ test("desktop config applies provider defaults and runtime env overrides", () =>
 		AGENT_LLM_MODEL: "gpt-4o",
 		IMAGE_GENERATION_BASE_URL: "https://api.openai.com/v1",
 		AGENT_VISION_PROVIDER: "openai-compatible",
-		AGENT_VISION_HOST: "https://api.minimaxi.com/v1",
-		AGENT_VISION_MODEL: "MiniMax-M3",
+		AGENT_VISION_HOST: "https://api.moonshot.cn/v1",
+		AGENT_VISION_MODEL: "kimi-k2.6",
 	});
 	expect(getRuntimeEnv().AGENT_LLM_KEY).toBe("agent-key");
 });
 
 test("desktop config stores and masks the dedicated Vision API key", () => {
 	const config = writeDesktopApiConfig({
-		AGENT_VISION_KEY: "minimax-key",
-		AGENT_VISION_MODEL: "MiniMax-M3",
+		AGENT_VISION_KEY: "moonshot-key",
+		AGENT_VISION_MODEL: "kimi-k2.6",
 	});
 
 	expect(readDesktopApiConfig().values).toMatchObject({
-		AGENT_VISION_KEY: "minimax-key",
-		AGENT_VISION_MODEL: "MiniMax-M3",
+		AGENT_VISION_KEY: "moonshot-key",
+		AGENT_VISION_MODEL: "kimi-k2.6",
 	});
 	expect(getPublicDesktopApiValues(config.values)).toMatchObject({
 		AGENT_VISION_KEY: "",
-		AGENT_VISION_MODEL: "MiniMax-M3",
+		AGENT_VISION_MODEL: "kimi-k2.6",
 	});
 	expect(
 		getDesktopConfigStatus(config.values).find(

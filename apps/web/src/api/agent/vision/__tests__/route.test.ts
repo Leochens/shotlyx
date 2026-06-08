@@ -69,12 +69,49 @@ function miniMaxUploadResponse({
 	});
 }
 
+function useMiniMaxVisionEnv() {
+	process.env.AGENT_VISION_PROVIDER = "openai-compatible";
+	process.env.AGENT_VISION_KEY = "minimax-key";
+	process.env.AGENT_VISION_HOST = "https://api.minimaxi.com/v1";
+	process.env.AGENT_VISION_MODEL = "MiniMax-M3";
+	delete process.env.AGENT_VISION_STRUCTURED_OUTPUT_MODE;
+}
+
+function expectMoonshotVisionUpload({
+	init,
+	fileName = "demo.mp4",
+	mimeType = "video/mp4",
+	purpose = "video",
+}: {
+	init: RequestInit | undefined;
+	fileName?: string;
+	mimeType?: string;
+	purpose?: "image" | "video";
+}) {
+	expect(init?.headers).toMatchObject({
+		Authorization: "Bearer moonshot-key",
+	});
+	expect(
+		getHeaderValue({ headers: init?.headers, key: "Content-Type" }),
+	).toBeNull();
+	expect(init?.body).toBeInstanceOf(FormData);
+	if (!(init?.body instanceof FormData)) {
+		throw new Error("Expected Moonshot upload body to be FormData");
+	}
+	const formData = init.body;
+	expect(formData.get("purpose")).toBe(purpose);
+	const file = formData.get("file");
+	expect(file).toBeInstanceOf(File);
+	if (!(file instanceof File)) {
+		throw new Error("Expected Moonshot upload file to be a File");
+	}
+	expect(file.name).toBe(fileName);
+	expect(file.type).toBe(mimeType);
+}
+
 describe("vision analysis route", () => {
 	test("uploads video files to MiniMax before sending video content parts to M3", async () => {
-		process.env.AGENT_VISION_KEY = "minimax-key";
-		delete process.env.AGENT_VISION_PROVIDER;
-		delete process.env.AGENT_VISION_HOST;
-		delete process.env.AGENT_VISION_MODEL;
+		useMiniMaxVisionEnv();
 		const calls: string[] = [];
 		const fetchFn: typeof fetch = mock(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -169,11 +206,110 @@ describe("vision analysis route", () => {
 		]);
 	});
 
+	test("uploads videos to Moonshot and references them with ms file URLs for Kimi vision", async () => {
+		process.env.AGENT_VISION_PROVIDER = "openai-compatible";
+		process.env.AGENT_VISION_KEY = "moonshot-key";
+		process.env.AGENT_VISION_HOST = "https://api.moonshot.cn/v1";
+		process.env.AGENT_VISION_MODEL = "kimi-k2.6";
+		const calls: string[] = [];
+		const fetchFn: typeof fetch = mock(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				calls.push(String(input));
+				if (String(input).endsWith("/files")) {
+					expectMoonshotVisionUpload({ init });
+					return Response.json({
+						id: "moon-file-1",
+						object: "file",
+						bytes: 4,
+						filename: "demo.mp4",
+						purpose: "video",
+						status: "ready",
+					});
+				}
+				expect(String(input)).toBe(
+					"https://api.moonshot.cn/v1/chat/completions",
+				);
+				const body = JSON.parse(String(init?.body));
+				expect(body).toMatchObject({
+					model: "kimi-k2.6",
+					thinking: { type: "disabled" },
+					max_tokens: 2000,
+					messages: [
+						{ role: "system" },
+						{
+							role: "user",
+							content: [
+								{ type: "text" },
+								{
+									type: "video_url",
+									video_url: {
+										url: "ms://moon-file-1",
+									},
+								},
+							],
+						},
+					],
+				});
+				expect(body).not.toHaveProperty("temperature");
+				expect(body).not.toHaveProperty("max_completion_tokens");
+				expect(body.messages[1].content[1].video_url).not.toHaveProperty(
+					"detail",
+				);
+				expect(body.messages[1].content[1].video_url).not.toHaveProperty(
+					"fps",
+				);
+				return Response.json({
+					choices: [{ message: { content: "Kimi 已完成视频理解。" } }],
+					usage: { prompt_tokens: 20, completion_tokens: 8 },
+				});
+			},
+		);
+		globalThis.fetch = fetchFn;
+
+		const formData = new FormData();
+		formData.set(
+			"payload",
+			JSON.stringify({
+				analysisType: "visual_summary",
+				prompt: "描述视频",
+				media: {
+					mediaAssetId: "media-1",
+					name: "demo.mp4",
+					type: "video",
+					mimeType: "video/mp4",
+					durationSeconds: 12,
+					width: 1920,
+					height: 1080,
+				},
+			}),
+		);
+		formData.set("file", new File(["demo"], "demo.mp4", { type: "video/mp4" }));
+
+		const response = await POST(
+			new ApiRequest("http://localhost/api/agent/vision/analyze", {
+				method: "POST",
+				body: formData,
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			provider: "moonshot",
+			model: "kimi-k2.6",
+			analysis: "Kimi 已完成视频理解。",
+			media: {
+				mediaAssetId: "media-1",
+				type: "video",
+			},
+		});
+		expect(calls).toEqual([
+			"https://api.moonshot.cn/v1/files",
+			"https://api.moonshot.cn/v1/chat/completions",
+		]);
+	});
+
 	test("accepts binary video bodies with payload query instead of parsing JSON", async () => {
-		process.env.AGENT_VISION_KEY = "minimax-key";
-		delete process.env.AGENT_VISION_PROVIDER;
-		delete process.env.AGENT_VISION_HOST;
-		delete process.env.AGENT_VISION_MODEL;
+		useMiniMaxVisionEnv();
 		const fetchFn: typeof fetch = mock(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
 				if (String(input).endsWith("/files/upload")) {
@@ -233,10 +369,7 @@ describe("vision analysis route", () => {
 	});
 
 	test("rejects empty MiniMax video analysis content instead of returning a blank success", async () => {
-		process.env.AGENT_VISION_KEY = "minimax-key";
-		delete process.env.AGENT_VISION_PROVIDER;
-		delete process.env.AGENT_VISION_HOST;
-		delete process.env.AGENT_VISION_MODEL;
+		useMiniMaxVisionEnv();
 		const fetchFn: typeof fetch = mock(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
 				if (String(input).endsWith("/files/upload")) {
@@ -282,10 +415,7 @@ describe("vision analysis route", () => {
 	});
 
 	test("streams MiniMax M3 reasoning and content chunks for image requests", async () => {
-		process.env.AGENT_VISION_KEY = "minimax-key";
-		delete process.env.AGENT_VISION_PROVIDER;
-		delete process.env.AGENT_VISION_HOST;
-		delete process.env.AGENT_VISION_MODEL;
+		useMiniMaxVisionEnv();
 		const upstream = [
 			'data: {"choices":[{"delta":{"reasoning_details":[{"text":"先看主体"}]}}]}',
 			'data: {"choices":[{"delta":{"content":"建议保留开场"}}]}',
@@ -343,11 +473,74 @@ describe("vision analysis route", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
+	test("sends Kimi image analysis as a non-streaming image_url request", async () => {
+		process.env.AGENT_VISION_PROVIDER = "openai-compatible";
+		process.env.AGENT_VISION_KEY = "moonshot-key";
+		process.env.AGENT_VISION_HOST = "https://api.moonshot.cn/v1";
+		process.env.AGENT_VISION_MODEL = "kimi-k2.6";
+		const fetchFn: typeof fetch = mock(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe(
+					"https://api.moonshot.cn/v1/chat/completions",
+				);
+				const body = JSON.parse(String(init?.body));
+				expect(body).toMatchObject({
+					model: "kimi-k2.6",
+					thinking: { type: "disabled" },
+					max_tokens: 2000,
+				});
+				expect(body).not.toHaveProperty("stream");
+				expect(body).not.toHaveProperty("reasoning_split");
+				expect(body).not.toHaveProperty("temperature");
+				expect(body.messages[1].content[1]).toMatchObject({
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,AA==" },
+				});
+				expect(body.messages[1].content[1].image_url).not.toHaveProperty(
+					"detail",
+				);
+				return Response.json({
+					choices: [{ message: { content: "Kimi 已完成图片理解。" } }],
+				});
+			},
+		);
+		globalThis.fetch = fetchFn;
+
+		const response = await POST(
+			new ApiRequest("http://localhost/api/agent/vision/analyze", {
+				method: "POST",
+				body: JSON.stringify({
+					analysisType: "visual_summary",
+					stream: true,
+					media: {
+						mediaAssetId: "media-1",
+						name: "demo.png",
+						type: "image",
+						mimeType: "image/png",
+						dataUrl: "data:image/png;base64,AA==",
+					},
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Content-Type")).not.toContain(
+			"text/event-stream",
+		);
+		expect(await response.json()).toMatchObject({
+			provider: "moonshot",
+			model: "kimi-k2.6",
+			analysis: "Kimi 已完成图片理解。",
+			media: {
+				mediaAssetId: "media-1",
+				type: "image",
+			},
+		});
+		expect(fetchFn).toHaveBeenCalledTimes(1);
+	});
+
 	test("retries MiniMax image analysis without streaming when provider returns a 500", async () => {
-		process.env.AGENT_VISION_KEY = "minimax-key";
-		delete process.env.AGENT_VISION_PROVIDER;
-		delete process.env.AGENT_VISION_HOST;
-		delete process.env.AGENT_VISION_MODEL;
+		useMiniMaxVisionEnv();
 		const chatBodies: unknown[] = [];
 		const fetchFn: typeof fetch = mock(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -432,11 +625,42 @@ describe("vision analysis route", () => {
 		expect(chatBodies).toHaveLength(2);
 	});
 
+	test("rejects DeepSeek as a visual understanding provider because it has no image or video input API", async () => {
+		process.env.AGENT_VISION_PROVIDER = "openai-compatible";
+		process.env.AGENT_VISION_KEY = "deepseek-key";
+		process.env.AGENT_VISION_HOST = "https://api.deepseek.com";
+		process.env.AGENT_VISION_MODEL = "deepseek-v4-pro";
+		const fetchFn: typeof fetch = mock(async () =>
+			Response.json({ unreachable: true }),
+		);
+		globalThis.fetch = fetchFn;
+
+		const response = await POST(
+			new ApiRequest("http://localhost/api/agent/vision/analyze", {
+				method: "POST",
+				body: JSON.stringify({
+					analysisType: "visual_summary",
+					media: {
+						mediaAssetId: "media-1",
+						name: "demo.png",
+						type: "image",
+						mimeType: "image/png",
+						dataUrl: "data:image/png;base64,AA==",
+					},
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(500);
+		expect(await response.json()).toMatchObject({
+			error:
+				"configuration_error: DeepSeek V4 API does not expose image or video input for visual understanding. Use Kimi K2.6/Moonshot or another vision-capable provider.",
+		});
+		expect(fetchFn).not.toHaveBeenCalled();
+	});
+
 	test("does not request provider streaming for video even when progress stream is requested", async () => {
-		process.env.AGENT_VISION_KEY = "minimax-key";
-		delete process.env.AGENT_VISION_PROVIDER;
-		delete process.env.AGENT_VISION_HOST;
-		delete process.env.AGENT_VISION_MODEL;
+		useMiniMaxVisionEnv();
 		const fetchFn: typeof fetch = mock(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
 				if (String(input).endsWith("/files/upload")) {
@@ -485,10 +709,7 @@ describe("vision analysis route", () => {
 	});
 
 	test("normalizes octet-stream video data URLs before sending to MiniMax", async () => {
-		process.env.AGENT_VISION_KEY = "minimax-key";
-		delete process.env.AGENT_VISION_PROVIDER;
-		delete process.env.AGENT_VISION_HOST;
-		delete process.env.AGENT_VISION_MODEL;
+		useMiniMaxVisionEnv();
 		const fetchFn: typeof fetch = mock(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
 				if (String(input).endsWith("/files/upload")) {
@@ -536,10 +757,7 @@ describe("vision analysis route", () => {
 	});
 
 	test("surfaces MiniMax upload base_resp errors from 200 responses", async () => {
-		process.env.AGENT_VISION_KEY = "minimax-key";
-		delete process.env.AGENT_VISION_PROVIDER;
-		delete process.env.AGENT_VISION_HOST;
-		delete process.env.AGENT_VISION_MODEL;
+		useMiniMaxVisionEnv();
 		const fetchFn: typeof fetch = mock(async () =>
 			Response.json({
 				base_resp: { status_code: 2049, status_msg: "invalid api key" },
@@ -571,10 +789,7 @@ describe("vision analysis route", () => {
 	});
 
 	test("retries MiniMax video analysis with the documented minimal video request on provider 500", async () => {
-		process.env.AGENT_VISION_KEY = "minimax-key";
-		delete process.env.AGENT_VISION_PROVIDER;
-		delete process.env.AGENT_VISION_HOST;
-		delete process.env.AGENT_VISION_MODEL;
+		useMiniMaxVisionEnv();
 		const chatBodies: unknown[] = [];
 		const fetchFn: typeof fetch = mock(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -689,10 +904,7 @@ describe("vision analysis route", () => {
 	});
 
 	test("retries MiniMax video analysis with the minimal request on provider invalid params", async () => {
-		process.env.AGENT_VISION_KEY = "minimax-key";
-		delete process.env.AGENT_VISION_PROVIDER;
-		delete process.env.AGENT_VISION_HOST;
-		delete process.env.AGENT_VISION_MODEL;
+		useMiniMaxVisionEnv();
 		const chatBodies: unknown[] = [];
 		const fetchFn: typeof fetch = mock(
 			async (input: RequestInfo | URL, init?: RequestInit) => {

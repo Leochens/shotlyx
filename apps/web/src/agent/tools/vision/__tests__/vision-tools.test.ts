@@ -389,14 +389,14 @@ describe("vision analysis tools", () => {
 		expect(progressEvents).toContainEqual(
 			expect.objectContaining({
 				stage: "vision-provider",
-				label: "正在请求 MiniMax M3 视频视觉分析",
+				label: "正在请求视觉模型进行视频分析",
 				status: "running",
 			}),
 		);
 		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
-	test("emits progress while preparing and waiting for MiniMax M3 analysis", async () => {
+	test("emits progress while preparing and waiting for vision analysis", async () => {
 		const file = new File(["demo"], "demo.mp4", { type: "video/mp4" });
 		const editor = createEditorWithAssets([
 			{
@@ -451,14 +451,14 @@ describe("vision analysis tools", () => {
 			},
 			{
 				stage: "vision-provider",
-				label: "正在请求 MiniMax M3 视频视觉分析",
+				label: "正在请求视觉模型进行视频分析",
 				status: "running",
 				current: 2,
 				total: 4,
 			},
 			{
 				stage: "vision-provider",
-				label: "MiniMax M3 正在理解视频画面",
+				label: "视觉模型正在理解视频画面",
 				status: "running",
 				current: 3,
 				total: 4,
@@ -473,7 +473,7 @@ describe("vision analysis tools", () => {
 		]);
 	});
 
-	test("streams MiniMax M3 reasoning and content into progress details for images", async () => {
+	test("streams vision reasoning and content into progress details for images", async () => {
 		const file = new File(["demo"], "demo.png", { type: "image/png" });
 		const editor = createEditorWithAssets([
 			{
@@ -537,7 +537,7 @@ describe("vision analysis tools", () => {
 		});
 		expect(progressEvents).toContainEqual({
 			stage: "vision-reasoning",
-			label: "MiniMax M3 正在思考画面内容",
+			label: "视觉模型正在思考画面内容",
 			status: "running",
 			detail: "先看画面主体。",
 			current: 3,
@@ -545,7 +545,7 @@ describe("vision analysis tools", () => {
 		});
 		expect(progressEvents).toContainEqual({
 			stage: "vision-output",
-			label: "MiniMax M3 正在输出分析结果",
+			label: "视觉模型正在输出分析结果",
 			status: "running",
 			detail: "建议保留开场动作，删除中段停顿。",
 			current: 3,

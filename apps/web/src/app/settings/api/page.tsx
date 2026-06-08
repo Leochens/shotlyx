@@ -387,9 +387,9 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 			"visual-understanding": {
 				title: "视觉理解",
 				purpose:
-					"使用 MiniMax M3 分析图片或视频内容，用于视觉验证、视频理解和剪辑建议。",
+					"使用 Kimi K2.6 分析图片或视频内容，用于视觉验证、视频理解和剪辑建议。",
 				requiredFor: "视觉分析、视觉验证和视频剪辑建议",
-				recommendedProvider: "MiniMax M3",
+				recommendedProvider: "Kimi K2.6 / Moonshot",
 			},
 			"video-generation": {
 				title: "视频生成",
@@ -487,12 +487,12 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 			},
 			AGENT_VISION_PROVIDER: {
 				label: "服务商",
-				help: "MiniMax M3 使用 OpenAI 兼容的 chat completions 格式。",
+				help: "视觉理解服务使用 OpenAI 兼容的 chat completions 格式；推荐 Kimi K2.6。",
 			},
 			AGENT_VISION_KEY: {
-				label: "MiniMax M3 API 密钥",
-				placeholder: "sk-cp-...",
-				help: "用于视觉分析和视频理解的 MiniMax Token Plan 订阅 Key。",
+				label: "Kimi / Moonshot API 密钥",
+				placeholder: "sk-...",
+				help: "用于图片和视频视觉理解的 Moonshot API Key。",
 			},
 			AGENT_VISION_MODEL: {
 				label: "视觉模型",
@@ -500,7 +500,7 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 			},
 			AGENT_VISION_HOST: {
 				label: "视觉 Base URL",
-				help: "MiniMax Token Plan 的 OpenAI 兼容 API 基础地址。",
+				help: "推荐使用 Moonshot API 基础地址：https://api.moonshot.cn/v1。",
 			},
 			VOLCENGINE_ARK_API_KEY: {
 				label: "Ark API 密钥",
@@ -705,8 +705,8 @@ const AGENT_PROVIDER_PRESETS: AgentProviderPreset[] = [
 		label: "Moonshot - OpenAI",
 		provider: "openai-compatible",
 		baseUrl: "https://api.moonshot.cn/v1",
-		models: ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
-		defaultModel: "moonshot-v1-8k",
+		models: ["kimi-k2.6", "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
+		defaultModel: "kimi-k2.6",
 		keyUrl: "https://platform.moonshot.cn/console/api-keys",
 	},
 	{

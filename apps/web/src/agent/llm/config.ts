@@ -6,6 +6,7 @@ type LLMConfigName = "default" | "mg" | "asr" | "vision";
 
 const MINIMAX_TOKEN_PLAN_HOST = "https://api.minimaxi.com/v1";
 const MINIMAX_LEGACY_GLOBAL_HOST = "https://api.minimax.io/v1";
+const MOONSHOT_VISION_HOST = "https://api.moonshot.cn/v1";
 
 function normalizeProvider(
 	value: string | undefined,
@@ -133,13 +134,13 @@ function defaultHostForName({
 	name: LLMConfigName;
 	provider: LLMProviderId;
 }): string {
-	if (name === "vision") return MINIMAX_TOKEN_PLAN_HOST;
+	if (name === "vision") return MOONSHOT_VISION_HOST;
 	return defaultHostForProvider(provider);
 }
 
 function defaultModelForName(name: LLMConfigName): string {
 	if (name === "asr") return "gpt-4o-mini";
-	if (name === "vision") return "MiniMax-M3";
+	if (name === "vision") return "kimi-k2.6";
 	return "gpt-4o";
 }
 

@@ -33,11 +33,11 @@ if (!isRunningUnderBunTest) {
 		).toBeVisible();
 
 		await expect(page.getByText("Ark API key")).not.toBeVisible();
-		await expect(page.getByText("MiniMax M3 API key")).not.toBeVisible();
+		await expect(page.getByText("Kimi / Moonshot API key")).not.toBeVisible();
 		await page.getByRole("button", { name: /Video generation/ }).click();
 		await expect(page.getByText("Ark API key")).toBeVisible();
 		await page.getByRole("button", { name: /Visual understanding/ }).click();
-		await expect(page.getByText("MiniMax M3 API key")).toBeVisible();
+		await expect(page.getByText("Kimi / Moonshot API key")).toBeVisible();
 	});
 
 	test("desktop launch skips setup when Agent LLM API config exists", async ({

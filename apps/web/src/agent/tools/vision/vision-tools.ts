@@ -397,7 +397,7 @@ async function readVisionStream({
 			emitVisionProgress({
 				context,
 				stage: "vision-reasoning",
-				label: "MiniMax M3 正在思考画面内容",
+				label: "视觉模型正在思考画面内容",
 				status: "running",
 				current: 3,
 				detail: truncateProgressDetail(reasoning),
@@ -409,7 +409,7 @@ async function readVisionStream({
 			emitVisionProgress({
 				context,
 				stage: "vision-output",
-				label: "MiniMax M3 正在输出分析结果",
+				label: "视觉模型正在输出分析结果",
 				status: "running",
 				current: 3,
 				detail: truncateProgressDetail(analysis),
@@ -540,7 +540,7 @@ async function runVisionAnalysis({
 	emitVisionProgress({
 		context,
 		stage: "vision-provider",
-		label: `正在请求 MiniMax M3 ${mediaLabel}视觉分析`,
+		label: `正在请求视觉模型进行${mediaLabel}分析`,
 		status: "running",
 		current: 2,
 	});
@@ -592,7 +592,7 @@ async function runVisionAnalysis({
 	emitVisionProgress({
 		context,
 		stage: "vision-provider",
-		label: `MiniMax M3 正在理解${mediaLabel}画面`,
+		label: `视觉模型正在理解${mediaLabel}画面`,
 		status: "running",
 		current: 3,
 	});
@@ -678,7 +678,7 @@ export function buildVisionTools({
 				detail: {
 					type: "string",
 					description:
-						"MiniMax M3 视觉 detail：low、default 或 high。默认 default。",
+						"视觉 detail：low、default 或 high。默认 default。",
 					optional: true,
 				},
 				maxLongSidePixel: {
@@ -730,7 +730,7 @@ export function buildVisionTools({
 				detail: {
 					type: "string",
 					description:
-						"MiniMax M3 视觉 detail：low、default 或 high。默认 default。",
+						"视觉 detail：low、default 或 high。默认 default。",
 					optional: true,
 				},
 				fps: {
@@ -742,7 +742,7 @@ export function buildVisionTools({
 				maxLongSidePixel: {
 					type: "number",
 					description:
-						"可选最长边像素上限，128 到 4096。用于控制视觉 token 成本；视频请求会在服务端自动限制到 MiniMax M3 更稳定的 672 长边。",
+						"可选最长边像素上限，128 到 4096。用于控制视觉 token 成本；MiniMax 视频请求会在服务端自动限制到更稳定的 672 长边。",
 					optional: true,
 				},
 			},
