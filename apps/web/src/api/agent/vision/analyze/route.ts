@@ -73,6 +73,7 @@ type VisionAnalyzeData = Omit<VisionAnalyzeRequest, "media"> & {
 		file?: Blob;
 	};
 };
+type MiniMaxThinkingType = "adaptive" | "disabled";
 
 function buildInstruction({
 	analysisType,
@@ -500,17 +501,19 @@ function buildProviderRequestBody({
 	analysisType,
 	mediaPart,
 	stream,
+	thinkingType = "adaptive",
 }: {
 	data: VisionAnalyzeData;
 	model: string;
 	analysisType: z.infer<typeof analysisTypeSchema>;
 	mediaPart: ReturnType<typeof buildMediaPart>;
 	stream: boolean;
+	thinkingType?: MiniMaxThinkingType;
 }) {
 	const isVideoRequest = mediaPart.type === "video_url";
 	return {
 		model,
-		thinking: { type: "adaptive" },
+		thinking: { type: thinkingType },
 		max_completion_tokens: data.maxCompletionTokens ?? 2000,
 		...(isVideoRequest ? {} : { temperature: 0.3 }),
 		...(stream
@@ -809,6 +812,22 @@ function shouldRetryWithMinimalVideoRequest({
 	return status === 400 && /invalid\s+params?/i.test(errorText);
 }
 
+function shouldRetryWithNonStreamingImageRequest({
+	errorText,
+	media,
+	status,
+	stream,
+}: {
+	errorText: string;
+	media: VisionAnalyzeData["media"];
+	status: number;
+	stream: boolean;
+}): boolean {
+	if (media.type !== "image" || !stream) return false;
+	if (status >= 500) return true;
+	return status === 400 && /invalid\s+params?/i.test(errorText);
+}
+
 export async function POST(request: ApiRequest) {
 	const parsed = await parseRequestData(request);
 	if (isParseError(parsed)) return parsed.error;
@@ -853,12 +872,15 @@ export async function POST(request: ApiRequest) {
 		const url = `${host}/chat/completions`;
 		const shouldUseProviderStream =
 			Boolean(requestData.stream) && requestData.media.type !== "video";
+		let responseUsesProviderStream = shouldUseProviderStream;
 		const buildFetchInit = ({
 			mediaPart,
 			stream,
+			thinkingType,
 		}: {
 			mediaPart: ReturnType<typeof buildMediaPart>;
 			stream: boolean;
+			thinkingType?: MiniMaxThinkingType;
 		}): RequestInit => ({
 			method: "POST",
 			headers: {
@@ -872,6 +894,7 @@ export async function POST(request: ApiRequest) {
 					analysisType,
 					mediaPart,
 					stream,
+					thinkingType,
 				}),
 			),
 		});
@@ -887,6 +910,32 @@ export async function POST(request: ApiRequest) {
 		if (!response.ok) {
 			const errorText = await response.text();
 			if (
+				shouldRetryWithNonStreamingImageRequest({
+					errorText,
+					media: requestData.media,
+					status: response.status,
+					stream: shouldUseProviderStream,
+				})
+			) {
+				response = await fetch(
+					url,
+					buildFetchInit({
+						mediaPart,
+						stream: false,
+						thinkingType: "disabled",
+					}),
+				);
+				responseUsesProviderStream = false;
+				if (!response.ok) {
+					const fallbackErrorText = await response.text();
+					throw new Error(
+						`${formatMiniMaxVisionRequestError({
+							status: response.status,
+							errorText: fallbackErrorText,
+						})}; first streaming attempt failed with ${errorText.slice(0, 500)}`,
+					);
+				}
+			} else if (
 				shouldRetryWithMinimalVideoRequest({
 					errorText,
 					media: requestData.media,
@@ -908,6 +957,7 @@ export async function POST(request: ApiRequest) {
 						stream: false,
 					}),
 				);
+				responseUsesProviderStream = false;
 				if (!response.ok) {
 					const fallbackErrorText = await response.text();
 					throw new Error(
@@ -927,7 +977,7 @@ export async function POST(request: ApiRequest) {
 			}
 		}
 
-		if (shouldUseProviderStream) {
+		if (responseUsesProviderStream) {
 			return createStreamResponse({
 				upstream: response,
 				model: visionConfig.model,

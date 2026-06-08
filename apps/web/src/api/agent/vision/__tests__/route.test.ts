@@ -343,6 +343,95 @@ describe("vision analysis route", () => {
 		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
+	test("retries MiniMax image analysis without streaming when provider returns a 500", async () => {
+		process.env.AGENT_VISION_KEY = "minimax-key";
+		delete process.env.AGENT_VISION_PROVIDER;
+		delete process.env.AGENT_VISION_HOST;
+		delete process.env.AGENT_VISION_MODEL;
+		const chatBodies: unknown[] = [];
+		const fetchFn: typeof fetch = mock(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe(
+					"https://api.minimaxi.com/v1/chat/completions",
+				);
+				const body = JSON.parse(String(init?.body));
+				chatBodies.push(body);
+				if (chatBodies.length === 1) {
+					expect(body).toMatchObject({
+						model: "MiniMax-M3",
+						thinking: { type: "adaptive" },
+						stream: true,
+						reasoning_split: true,
+						stream_options: { include_usage: true },
+					});
+					expect(body.messages[1].content[1]).toMatchObject({
+						type: "image_url",
+						image_url: { url: "data:image/png;base64,AA==" },
+					});
+					return Response.json(
+						{
+							type: "error",
+							error: {
+								type: "server_error",
+								message: "unknown error, 500 (1000)",
+								http_code: "500",
+							},
+							request_id: "06759bd12d3c181c1ffbd55827453bb6",
+						},
+						{ status: 500 },
+					);
+				}
+				expect(body).toMatchObject({
+					model: "MiniMax-M3",
+					thinking: { type: "disabled" },
+				});
+				expect(body).not.toHaveProperty("stream");
+				expect(body).not.toHaveProperty("reasoning_split");
+				expect(body).not.toHaveProperty("stream_options");
+				expect(body.messages[1].content[1]).toMatchObject({
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,AA==" },
+				});
+				return Response.json({
+					choices: [{ message: { content: "图片分析已稳定返回。" } }],
+					usage: { prompt_tokens: 10, completion_tokens: 6 },
+				});
+			},
+		);
+		globalThis.fetch = fetchFn;
+
+		const response = await POST(
+			new ApiRequest("http://localhost/api/agent/vision/analyze", {
+				method: "POST",
+				body: JSON.stringify({
+					analysisType: "visual_summary",
+					stream: true,
+					media: {
+						mediaAssetId: "media-1",
+						name: "demo.png",
+						type: "image",
+						mimeType: "image/png",
+						dataUrl: "data:image/png;base64,AA==",
+					},
+				}),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Content-Type")).not.toContain(
+			"text/event-stream",
+		);
+		expect(await response.json()).toMatchObject({
+			analysis: "图片分析已稳定返回。",
+			media: {
+				mediaAssetId: "media-1",
+				type: "image",
+			},
+		});
+		expect(fetchFn).toHaveBeenCalledTimes(2);
+		expect(chatBodies).toHaveLength(2);
+	});
+
 	test("does not request provider streaming for video even when progress stream is requested", async () => {
 		process.env.AGENT_VISION_KEY = "minimax-key";
 		delete process.env.AGENT_VISION_PROVIDER;
