@@ -31,6 +31,7 @@ export function createDesktopEnv(runtime = getDesktopRuntime()) {
 			process.env.SHOTLYX_RENDERER_ORIGIN ?? runtime.origin,
 		VITE_SHOTLYX_API_ORIGIN:
 			process.env.VITE_SHOTLYX_API_ORIGIN ?? "app://shotlyx",
+		VITE_SHOTLYX_SERVER_URL: process.env.VITE_SHOTLYX_SERVER_URL ?? "",
 		VITE_SHOTLYX_DESKTOP: "1",
 		VITE_SITE_URL: process.env.VITE_SITE_URL ?? runtime.origin,
 		VITE_MARBLE_API_URL:

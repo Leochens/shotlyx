@@ -84,6 +84,14 @@ function configureAppIdentity() {
 	}
 }
 
+function configureDesktopServerDataPath() {
+	if (process.env.SHOTLYX_DESKTOP_SERVER_DATA_PATH) return;
+	process.env.SHOTLYX_DESKTOP_SERVER_DATA_PATH = path.join(
+		app.getPath("userData"),
+		"server-store.json",
+	);
+}
+
 function migrateLegacyStorageIfNeeded() {
 	try {
 		const targetOriginPrefix = getStorageOriginPrefix(getStartUrl());
@@ -486,6 +494,7 @@ if (!hasSingleInstanceLock) {
 		}
 
 		migrateLegacyStorageIfNeeded();
+		configureDesktopServerDataPath();
 		createWindow();
 		configureAutoUpdater();
 

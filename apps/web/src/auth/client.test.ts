@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	clearAuthSession,
 	createCreditTopUpPayment,
 	getCreditLedgerEntries,
 	loginWithEmail,
@@ -8,6 +9,69 @@ import {
 } from "./client";
 
 describe("auth client errors", () => {
+	test("keeps auth requests relative when a desktop API origin is configured", async () => {
+		const storage = new Map<string, string>();
+		const previousWindow = globalThis.window;
+		const previousFetch = globalThis.fetch;
+		const previousApiOrigin = process.env.VITE_SHOTLYX_API_ORIGIN;
+		const previousServerUrl = process.env.VITE_SHOTLYX_SERVER_URL;
+		process.env.VITE_SHOTLYX_API_ORIGIN = "app://shotlyx";
+		process.env.VITE_SHOTLYX_SERVER_URL = "http://127.0.0.1:8787";
+		Object.defineProperty(globalThis, "window", {
+			configurable: true,
+			value: {
+				localStorage: {
+					getItem: (key: string) => storage.get(key) ?? null,
+					removeItem: (key: string) => storage.delete(key),
+					setItem: (key: string, value: string) => storage.set(key, value),
+				},
+			},
+		});
+		const requests: string[] = [];
+		globalThis.fetch = async (input) => {
+			requests.push(String(input));
+			return new Response(
+				JSON.stringify({
+					user: { id: "user-1", email: "user@example.com", name: "User" },
+					session: {
+						token: "shotlyx_session_desktop",
+						userId: "user-1",
+						createdAt: "2026-06-20T00:00:00.000Z",
+						expiresAt: "2026-07-20T00:00:00.000Z",
+					},
+					newApiKey: null,
+				}),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			);
+		};
+
+		try {
+			await loginWithEmail({
+				email: "user@example.com",
+				password: "123456",
+			});
+
+			expect(requests).toEqual(["/api/auth/login"]);
+		} finally {
+			clearAuthSession();
+			if (previousApiOrigin === undefined) {
+				delete process.env.VITE_SHOTLYX_API_ORIGIN;
+			} else {
+				process.env.VITE_SHOTLYX_API_ORIGIN = previousApiOrigin;
+			}
+			if (previousServerUrl === undefined) {
+				delete process.env.VITE_SHOTLYX_SERVER_URL;
+			} else {
+				process.env.VITE_SHOTLYX_SERVER_URL = previousServerUrl;
+			}
+			globalThis.fetch = previousFetch;
+			Object.defineProperty(globalThis, "window", {
+				configurable: true,
+				value: previousWindow,
+			});
+		}
+	});
+
 	test("maps server error codes to readable messages", () => {
 		expect(mapAuthErrorMessage("password_too_short")).toBe("密码至少需要 6 位");
 		expect(mapAuthErrorMessage("invalid_email_or_password")).toBe(

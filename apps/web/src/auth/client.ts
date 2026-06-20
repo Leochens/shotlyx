@@ -4,7 +4,15 @@ function isHttpUrl(value: string | undefined): value is string {
 	return value?.startsWith("http://") || value?.startsWith("https://") || false;
 }
 
+function hasApiOrigin(value: string | undefined): boolean {
+	return Boolean(value?.trim());
+}
+
 function getAuthBaseUrl() {
+	if (hasApiOrigin(process.env.VITE_SHOTLYX_API_ORIGIN)) {
+		return "";
+	}
+
 	const configuredUrl = process.env.VITE_SHOTLYX_SERVER_URL;
 	if (isHttpUrl(configuredUrl)) {
 		return configuredUrl.replace(/\/+$/, "");

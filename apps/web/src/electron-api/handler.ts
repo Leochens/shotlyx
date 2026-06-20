@@ -37,6 +37,8 @@ import * as healthRoute from "@/api/health/route";
 import * as soundsBuiltinRoute from "@/api/sounds/builtin/route";
 import * as soundsSearchRoute from "@/api/sounds/search/route";
 import { ApiRequest } from "@/platform/http";
+import { FileShotlyxStore } from "../../../../server/src/file-store";
+import { createServerApp } from "../../../../server/src/http";
 
 type RouteModule = Partial<
 	Record<
@@ -56,6 +58,35 @@ type MatchedRoute = {
 	module: RouteModule;
 	params?: Record<string, string>;
 };
+
+let accountServerApp: ReturnType<typeof createServerApp> | null = null;
+
+function getAccountServerApp() {
+	if (!accountServerApp) {
+		accountServerApp = createServerApp({
+			store: new FileShotlyxStore(
+				process.env.SHOTLYX_DESKTOP_SERVER_DATA_PATH ??
+					"/tmp/shotlyx-desktop-server-store.json",
+			),
+			storeMode: "custom",
+			adminToken: process.env.SHOTLYX_ADMIN_TOKEN ?? "shotlyx-desktop-admin",
+		});
+	}
+	return accountServerApp;
+}
+
+function shouldUseAccountServer(pathname: string): boolean {
+	return (
+		pathname === "/admin" ||
+		pathname.startsWith("/admin/") ||
+		pathname === "/api/health" ||
+		pathname.startsWith("/api/account/") ||
+		pathname.startsWith("/api/admin/") ||
+		pathname.startsWith("/api/callbacks/") ||
+		pathname === "/api/auth/login" ||
+		pathname === "/api/auth/register"
+	);
+}
 
 const staticRoutes = new Map<string, RouteModule>([
 	["/api/agent/chat", agentChatRoute],
@@ -179,6 +210,10 @@ export async function handleElectronApiRequest(request: Request) {
 			console.info(`[shotlyx-mg-export] desktop API preflight ${url.pathname}`);
 		}
 		return withCors(new Response(null, { status: 204 }));
+	}
+
+	if (shouldUseAccountServer(url.pathname)) {
+		return withCors(await getAccountServerApp().fetch(request));
 	}
 
 	if (shouldLogMGRender) {
