@@ -224,6 +224,7 @@ export interface TopicWorkbenchAgentEvent {
 		| "candidate-edit"
 		| "candidate-confirm"
 		| "handoff-video"
+		| "script-segment-edit"
 		| "stage-forward"
 		| "stage-reset";
 }

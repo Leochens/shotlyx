@@ -122,6 +122,7 @@ describe("topic workbench tools", () => {
 			"topic_set_research",
 			"topic_set_structures",
 			"topic_create_package",
+			"topic_update_script_segment",
 			"topic_create_production_plan",
 			"topic_reset_to_stage",
 			"topic_get_active_package",
@@ -179,6 +180,112 @@ describe("topic workbench tools", () => {
 		expect(segment?.content).toContain("大家好，今天我们不先罗列工具");
 		expect(segment?.content).not.toContain("开场：先讲为什么今天值得看");
 		expect(segment?.materialSuggestion).toBe("使用工作台录屏和标题字卡开场。");
+	});
+
+	test("updates one package script segment without recreating the package", () => {
+		writeCandidates();
+		executeTopicWorkbenchTool({
+			toolName: "topic_select_candidate",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: { candidateIndex: 1 },
+		});
+		executeTopicWorkbenchTool({
+			toolName: "topic_set_structures",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: {
+				structures: [
+					{
+						name: "两段式解释",
+						bestFor: "先讲痛点，再讲方案。",
+						flow: [
+							{ label: "痛点", description: "创作者卡在选题和脚本衔接。" },
+							{ label: "方案", description: "用工作台把每一步沉淀下来。" },
+						],
+					},
+				],
+			},
+		});
+		executeTopicWorkbenchTool({
+			toolName: "topic_create_package",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: {
+				scriptSegments: [
+					{
+						timeRange: "0:00 - 0:45",
+						content:
+							"你是不是也遇到过这种情况：灵感来的时候很兴奋，可是一打开剪辑软件，就发现选题、资料和脚本全都散在不同地方，根本接不上。你明明已经想清楚要讲什么，却还要重新组织素材、重写结构，效率一下就掉下来了。",
+						materialSuggestion: "展示零散草稿、聊天记录和剪辑时间线的对比画面。",
+					},
+					{
+						timeRange: "0:45 - 1:30",
+						content:
+							"更麻烦的是，AI 给你的回答往往停在文字层面，没有真正进入你的项目。你还要自己复制、整理、改格式，最后又回到手工流程。所以真正需要的不是一段漂亮回复，而是一个能理解当前选题包并且能回写结果的工作流。",
+						materialSuggestion: "展示复制粘贴、整理表格和切换窗口的录屏。",
+					},
+				],
+			},
+		});
+		const beforeProject = useTopicWorkbenchStore
+			.getState()
+			.getActiveTopicProject();
+		const activeVersionId = beforeProject?.activePackageVersionId;
+		const firstSegmentBefore =
+			beforeProject?.packageVersions[0]?.scriptSegments[0]?.content;
+
+		const result = executeTopicWorkbenchTool({
+			toolName: "topic_update_script_segment",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: {
+				segmentIndex: 2,
+				content:
+					"真正要解决的不是让 AI 多说几句，而是让它知道你当前的选题包、前后段落和素材状态。这样你说“这段重写得更直接一点”，它就能只改这一段，并且把对应画面建议一起补齐。",
+				materialSuggestion:
+					"展示右侧第 2 段被高亮，左侧 Agent 读取完整选题包后回写逐字稿和素材建议。",
+			},
+		});
+		const updatedProject = useTopicWorkbenchStore
+			.getState()
+			.getActiveTopicProject();
+		const updatedVersion = updatedProject?.packageVersions[0];
+
+		expect(result.status).toBe("success");
+		expect(updatedProject?.packageVersions).toHaveLength(1);
+		expect(updatedVersion?.id).toBe(activeVersionId);
+		expect(updatedVersion?.scriptSegments[0]?.content).toBe(firstSegmentBefore);
+		expect(updatedVersion?.scriptSegments[1]?.content).toContain(
+			"真正要解决的不是让 AI 多说几句",
+		);
+		expect(updatedVersion?.scriptSegments[1]?.materialSuggestion).toContain(
+			"回写逐字稿和素材建议",
+		);
+	});
+
+	test("rejects outline-like single segment rewrites before mutating state", () => {
+		moveToPackage();
+		const beforeProject = useTopicWorkbenchStore
+			.getState()
+			.getActiveTopicProject();
+		const originalContent =
+			beforeProject?.packageVersions[0]?.scriptSegments[0]?.content;
+
+		const result = executeTopicWorkbenchTool({
+			toolName: "topic_update_script_segment",
+			editorProjectId: EDITOR_PROJECT_ID,
+			params: {
+				segmentIndex: 1,
+				content: "开场 hook：先提出痛点，再展示工作台的核心能力。",
+				materialSuggestion: "展示一个高冲击标题字卡。",
+			},
+		});
+		const updatedProject = useTopicWorkbenchStore
+			.getState()
+			.getActiveTopicProject();
+
+		expect(result.status).toBe("error");
+		expect(result.error).toContain("逐字稿");
+		expect(updatedProject?.packageVersions[0]?.scriptSegments[0]?.content).toBe(
+			originalContent,
+		);
 	});
 
 	test("rejects outline-like package script segments before storing them", () => {

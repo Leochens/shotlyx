@@ -285,6 +285,20 @@ describe("topic workbench integration contract", () => {
 		expect(scriptSegmentViewSource).not.toContain("resize-y");
 	});
 
+	test("routes one package script segment into the left Agent for targeted rewrites", () => {
+		expect(topicWorkbenchSource).toContain("buildScriptSegmentRevisionPrompt");
+		expect(scriptSegmentViewSource).toContain("添加到左侧");
+		expect(scriptSegmentViewSource).toContain(
+			'source: "script-segment-edit"',
+		);
+		expect(topicWorkbenchSource).toContain("topic_get_active_package");
+		expect(topicWorkbenchSource).toContain("topic_update_script_segment");
+		expect(agentChatRouteSource).toContain("topic_update_script_segment");
+		expect(agentChatRouteSource).toContain(
+			"Do not recreate the whole package unless the user explicitly asks.",
+		);
+	});
+
 	test("keeps script table visible and connected after entering topic workflow", () => {
 		const workflowScriptTableIndex = topicWorkbenchSource.indexOf(
 			"<WorkflowScriptTableSection",

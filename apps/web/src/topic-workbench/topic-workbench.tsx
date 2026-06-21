@@ -765,6 +765,37 @@ function buildVideoProductionHandoffPrompt({
 读取资源后，先给出可执行制作方案，再等我确认是否真正生成时间线或素材。`;
 }
 
+function buildScriptSegmentRevisionPrompt({
+	project,
+	topicPackage,
+	segment,
+	index,
+}: {
+	project: TopicProject;
+	topicPackage: TopicPackageVersion;
+	segment: TopicPackageVersion["scriptSegments"][number];
+	index: number;
+}): string {
+	const segmentNumber = index + 1;
+	return `请修改右侧选题包里的第 ${segmentNumber} 个时间段逐字稿，并同步更新这一段素材建议。
+
+你需要先调用 topic_get_active_package 读取完整选题包，参考全局主题、结构、调研资料、所有时间段上下文和用户提供素材；修改完成后只调用 topic_update_script_segment 回写这一段。不要调用 topic_create_package 重建整个选题包，也不要改其它时间段，除非我明确要求。
+
+项目：${project.title}
+选题包：${topicPackage.title}
+版本 ID：${topicPackage.id}
+segmentIndex：${segmentNumber}
+时间段：${segment.timeRange}
+
+当前逐字稿：
+${segment.content || "（空）"}
+
+当前素材建议：
+${segment.materialSuggestion || "（空）"}
+
+我接下来会补充具体修改要求。`;
+}
+
 export function TopicWorkbench({
 	editorProjectId,
 }: {
@@ -4656,6 +4687,8 @@ function PackageSection({
 					{activePackage.scriptSegments.map((segment, index) => (
 						<ScriptSegmentViewRow
 							key={`${activePackage.id}-${index}`}
+							project={project}
+							topicPackage={activePackage}
 							versionId={activePackage.id}
 							index={index}
 							segment={segment}
@@ -4800,10 +4833,14 @@ function ProductionPlanSection({
 }
 
 function ScriptSegmentViewRow({
+	project,
+	topicPackage,
 	segment,
 	index,
 	versionId,
 }: {
+	project: TopicProject;
+	topicPackage: TopicPackageVersion;
 	segment: TopicPackageVersion["scriptSegments"][number];
 	index: number;
 	versionId: string;
@@ -4811,6 +4848,23 @@ function ScriptSegmentViewRow({
 	const updateScriptSegment = useTopicWorkbenchStore(
 		(state) => state.updateScriptSegment,
 	);
+	const emitAgentEvent = useTopicWorkbenchStore(
+		(state) => state.emitAgentEvent,
+	);
+	const handleAddToAgent = () => {
+		emitAgentEvent({
+			editorProjectId: project.editorProjectId,
+			autoRun: false,
+			source: "script-segment-edit",
+			content: buildScriptSegmentRevisionPrompt({
+				project,
+				topicPackage,
+				segment,
+				index,
+			}),
+		});
+	};
+
 	return (
 		<div className="grid gap-2 rounded-sm border border-border/70 bg-background px-3 py-2 [grid-template-columns:8rem_minmax(0,1.1fr)_minmax(0,0.9fr)] max-[940px]:grid-cols-1">
 			<div>
@@ -4865,6 +4919,17 @@ function ScriptSegmentViewRow({
 					className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/40"
 					aria-label={`素材建议 ${index + 1}`}
 				/>
+			</div>
+			<div className="col-span-full flex justify-end border-t border-border/60 pt-2">
+				<Button
+					size="sm"
+					variant="outline"
+					onClick={handleAddToAgent}
+					title="把这一段添加到左侧 Agent 对话"
+				>
+					<Plus size={14} />
+					添加到左侧
+				</Button>
 			</div>
 		</div>
 	);

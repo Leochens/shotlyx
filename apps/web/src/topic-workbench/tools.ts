@@ -24,6 +24,7 @@ export const TOPIC_WORKBENCH_TOOL_NAMES = new Set([
 	"topic_set_research",
 	"topic_set_structures",
 	"topic_create_package",
+	"topic_update_script_segment",
 	"topic_create_production_plan",
 	"topic_reset_to_stage",
 	"topic_workbench_set_candidates",
@@ -236,6 +237,40 @@ export function getTopicWriteToolSchemas(): FunctionSchema[] {
 							"Optional nested package draft using the same fields as above.",
 						optional: true,
 					},
+				},
+			},
+		},
+		{
+			name: "topic_update_script_segment",
+			description:
+				"Update exactly one script segment in the active topic package after revising it with global package context. Use this when the user asks to rewrite a specific time-range transcript. First read topic_get_active_package, then provide the rewritten verbatim spoken script and the matching updated materialSuggestion. Do not call topic_create_package for single-segment revisions.",
+			parameters: {
+				type: "object",
+				required: ["segmentIndex", "content", "materialSuggestion"],
+				properties: {
+					segmentIndex: {
+						type: "number",
+						description:
+							"One-based segment number shown in the workbench. Zero is also accepted for the first segment.",
+					},
+					versionId: stringParam({
+						description:
+							"Optional exact package version id. Omit to update the active package version.",
+						optional: true,
+					}),
+					timeRange: stringParam({
+						description:
+							"Optional revised time range for this segment. Omit to keep the existing time range.",
+						optional: true,
+					}),
+					content: stringParam({
+						description:
+							"The full rewritten verbatim spoken script or voiceover copy for this segment. It must be complete sentences the user can read aloud directly.",
+					}),
+					materialSuggestion: stringParam({
+						description:
+							"The updated visual/material suggestion for this same segment, aligned with the rewritten script and global package context.",
+					}),
 				},
 			},
 		},
@@ -569,21 +604,36 @@ function getMinimumVerbatimScriptCharacters(timeRange?: string): number {
 	return 160;
 }
 
-function findOutlineLikeScriptSegmentIssue(
-	scriptSegments?: TopicPackageDraft["scriptSegments"],
-): string | null {
+function findOutlineLikeScriptSegmentIssue({
+	scriptSegments,
+	displayIndexOffset = 0,
+	fieldName = "scriptSegments.content",
+}: {
+	scriptSegments?: TopicPackageDraft["scriptSegments"];
+	displayIndexOffset?: number;
+	fieldName?: string;
+}): string | null {
 	for (const [index, segment] of (scriptSegments ?? []).entries()) {
 		const content = segment.content?.trim() ?? "";
 		if (!content) continue;
+		const displayIndex = displayIndexOffset + index + 1;
 		if (OUTLINE_LIKE_SCRIPT_SEGMENT_PATTERN.test(content)) {
-			return `第 ${index + 1} 段 scriptSegments.content 看起来仍是内容概述或段落标题，请改成用户可直接口播/配音的逐字稿。`;
+			return `第 ${displayIndex} 段 ${fieldName} 看起来仍是内容概述或段落标题，请改成用户可直接口播/配音的逐字稿。`;
 		}
 		const minCharacters = getMinimumVerbatimScriptCharacters(segment.timeRange);
 		if (countScriptCharacters(content) < minCharacters) {
-			return `第 ${index + 1} 段 scriptSegments.content 对当前时间段来说太短，不像可直接口播/配音的逐字稿。`;
+			return `第 ${displayIndex} 段 ${fieldName} 对当前时间段来说太短，不像可直接口播/配音的逐字稿。`;
 		}
 	}
 	return null;
+}
+
+function normalizeSegmentIndex(value: unknown): number | null {
+	const rawIndex = readNumber(value);
+	if (typeof rawIndex !== "number") return null;
+	const segmentIndex = Math.trunc(rawIndex);
+	if (segmentIndex < 0) return null;
+	return segmentIndex > 0 ? segmentIndex - 1 : segmentIndex;
 }
 
 function parsePackagePlatformRecommendationDrafts(
@@ -885,7 +935,7 @@ export function executeTopicWorkbenchTool({
 		const before = store.getActiveTopicProject();
 		const draft = parseTopicPackageDraft(params);
 		const scriptSegmentIssue = findOutlineLikeScriptSegmentIssue(
-			draft?.scriptSegments,
+			{ scriptSegments: draft?.scriptSegments },
 		);
 		if (scriptSegmentIssue) {
 			return paramError(
@@ -902,6 +952,74 @@ export function executeTopicWorkbenchTool({
 			stage: project.stage,
 			activePackageVersionId: activePackageId,
 			packageVersionCount: project.packageVersions.length,
+		});
+	}
+
+	if (normalizedToolName === "topic_update_script_segment") {
+		const project = store.getActiveTopicProject();
+		if (!project) {
+			return paramError("当前没有可修改的选题项目。");
+		}
+		const requestedVersionId = readString(params.versionId);
+		const activePackageId =
+			requestedVersionId ??
+			project.activePackageVersionId ??
+			(project.stage === "package" ||
+			project.stage === "production" ||
+			project.stage === "timeline"
+				? project.packageVersions.at(-1)?.id
+				: null) ??
+			null;
+		const activePackage = activePackageId
+			? project.packageVersions.find((version) => version.id === activePackageId)
+			: null;
+		if (!activePackage) {
+			return paramError("修改逐字稿前需要先生成并激活一个选题包。");
+		}
+		const segmentIndex = normalizeSegmentIndex(params.segmentIndex);
+		if (
+			segmentIndex === null ||
+			segmentIndex >= activePackage.scriptSegments.length
+		) {
+			return paramError("没有找到要修改的时间段逐字稿。");
+		}
+		const currentSegment = activePackage.scriptSegments[segmentIndex];
+		const content = readString(params.content);
+		const materialSuggestion = readString(params.materialSuggestion);
+		if (!content || !materialSuggestion) {
+			return paramError("必须同时提供新的逐字稿 content 和素材建议 materialSuggestion。");
+		}
+		const timeRange = readString(params.timeRange) ?? currentSegment.timeRange;
+		const scriptSegmentIssue = findOutlineLikeScriptSegmentIssue({
+			scriptSegments: [{ timeRange, content, materialSuggestion }],
+			displayIndexOffset: segmentIndex,
+			fieldName: "content",
+		});
+		if (scriptSegmentIssue) {
+			return paramError(
+				`${scriptSegmentIssue} 请重新调用 topic_update_script_segment：content 必须写成完整逐字稿；画面说明和素材建议请放到 materialSuggestion。`,
+			);
+		}
+		store.updateScriptSegment({
+			versionId: activePackage.id,
+			segmentIndex,
+			patch: {
+				timeRange,
+				content,
+				materialSuggestion,
+			},
+		});
+		const updatedProject = store.getActiveTopicProject();
+		const updatedPackage = updatedProject?.packageVersions.find(
+			(version) => version.id === activePackage.id,
+		);
+		return success({
+			message: `第 ${segmentIndex + 1} 段逐字稿和素材建议已更新。`,
+			stage: updatedProject?.stage,
+			activePackageVersionId: activePackage.id,
+			segmentIndex: segmentIndex + 1,
+			segmentZeroBasedIndex: segmentIndex,
+			segment: updatedPackage?.scriptSegments[segmentIndex],
 		});
 	}
 
