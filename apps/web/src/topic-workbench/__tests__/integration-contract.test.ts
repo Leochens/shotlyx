@@ -72,6 +72,14 @@ const directScriptCutSource = (() => {
 		: "";
 })();
 
+const scriptSegmentViewSource = (() => {
+	const start = topicWorkbenchSource.indexOf("function ScriptSegmentViewRow");
+	const end = topicWorkbenchSource.indexOf("function Metric", start);
+	return start >= 0 && end > start
+		? topicWorkbenchSource.slice(start, end)
+		: "";
+})();
+
 describe("topic workbench integration contract", () => {
 	test("lets topic agents understand uploaded media before generating topics", () => {
 		expect(chatPanelSource).toContain("TOPIC_SUPPORT_TOOL_NAMES");
@@ -256,6 +264,25 @@ describe("topic workbench integration contract", () => {
 		expect(topicWorkbenchSource).toContain("预览素材");
 		expect(topicWorkbenchSource).toContain("<video");
 		expect(topicWorkbenchSource).toContain("<img");
+	});
+
+	test("keeps package transcript editing stable and auto-sized", () => {
+		expect(topicWorkbenchSource).toContain(
+			"const activeProjectStage = activeProject?.stage ?? null",
+		);
+		expect(topicWorkbenchSource).toContain(
+			"[activeProjectId, activeProjectStage, stageSectionRefs]",
+		);
+		expect(topicWorkbenchSource).toContain("useLayoutEffect(() =>");
+		expect(scriptSegmentViewSource).toContain("<AutoResizeTextarea");
+		expect(scriptSegmentViewSource).toContain("minRows={3}");
+		expect(scriptSegmentViewSource).toContain(
+			"aria-label={`逐字稿 ${index + 1}`}",
+		);
+		expect(scriptSegmentViewSource).toContain(
+			"aria-label={`素材建议 ${index + 1}`}",
+		);
+		expect(scriptSegmentViewSource).not.toContain("resize-y");
 	});
 
 	test("keeps script table visible and connected after entering topic workflow", () => {

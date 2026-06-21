@@ -4,6 +4,7 @@ import {
 	Fragment,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -772,6 +773,8 @@ export function TopicWorkbench({
 	const activeProject = useTopicWorkbenchStore((state) =>
 		state.getActiveTopicProject(),
 	);
+	const activeProjectId = activeProject?.id ?? null;
+	const activeProjectStage = activeProject?.stage ?? null;
 	const [pendingResetStage, setPendingResetStage] = useState<TopicStage | null>(
 		null,
 	);
@@ -808,16 +811,16 @@ export function TopicWorkbench({
 	}, [editorProjectId, setActiveEditorProject]);
 
 	useEffect(() => {
-		if (!activeProject) return;
+		if (!activeProjectId || !activeProjectStage) return;
 		const stage =
-			activeProject.stage === "timeline" ? "production" : activeProject.stage;
+			activeProjectStage === "timeline" ? "production" : activeProjectStage;
 		const section = stageSectionRefs[stage].current;
 		if (!section) return;
 		const frameId = requestAnimationFrame(() => {
 			section.scrollIntoView({ behavior: "smooth", block: "start" });
 		});
 		return () => cancelAnimationFrame(frameId);
-	}, [activeProject, stageSectionRefs]);
+	}, [activeProjectId, activeProjectStage, stageSectionRefs]);
 
 	useEffect(() => {
 		const activePackageId = activeProject?.activePackageVersionId ?? null;
@@ -1883,7 +1886,7 @@ function AutoResizeTextarea({
 		minHeight,
 	};
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		resizeAutoTextareaToContent({ textarea: textareaRef.current });
 	}, [minRows, value]);
 
@@ -4831,7 +4834,7 @@ function ScriptSegmentViewRow({
 				<div className="text-[0.68rem] font-semibold text-muted-foreground">
 					逐字稿
 				</div>
-				<textarea
+				<AutoResizeTextarea
 					value={segment.content}
 					onChange={(event) =>
 						updateScriptSegment({
@@ -4840,8 +4843,8 @@ function ScriptSegmentViewRow({
 							patch: { content: event.target.value },
 						})
 					}
-					rows={3}
-					className="mt-1 w-full resize-y rounded-sm border border-border bg-background px-2 py-1.5 text-sm leading-5 text-foreground outline-none focus:border-primary/40"
+					minRows={3}
+					className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-sm leading-5 text-foreground outline-none focus:border-primary/40"
 					aria-label={`逐字稿 ${index + 1}`}
 				/>
 			</div>
@@ -4849,7 +4852,7 @@ function ScriptSegmentViewRow({
 				<div className="text-[0.68rem] font-semibold text-muted-foreground">
 					素材建议
 				</div>
-				<textarea
+				<AutoResizeTextarea
 					value={segment.materialSuggestion}
 					onChange={(event) =>
 						updateScriptSegment({
@@ -4858,8 +4861,8 @@ function ScriptSegmentViewRow({
 							patch: { materialSuggestion: event.target.value },
 						})
 					}
-					rows={3}
-					className="mt-1 w-full resize-y rounded-sm border border-border bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/40"
+					minRows={3}
+					className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/40"
 					aria-label={`素材建议 ${index + 1}`}
 				/>
 			</div>
