@@ -7,6 +7,13 @@ const chatPanelSource = readFileSync(
 	"utf8",
 );
 
+const bottomToolbarSource = readFileSync(
+	fileURLToPath(
+		new URL("../../agent/chat/bottom-toolbar.tsx", import.meta.url),
+	),
+	"utf8",
+);
+
 const editorPageSource = readFileSync(
 	fileURLToPath(
 		new URL("../../app/editor/[project_id]/page.tsx", import.meta.url),
@@ -64,7 +71,10 @@ const scriptTableWorkspaceSource = (() => {
 
 const packageSectionSource = (() => {
 	const start = topicWorkbenchSource.indexOf("function PackageSection");
-	const end = topicWorkbenchSource.indexOf("function ProductionPlanSection", start);
+	const end = topicWorkbenchSource.indexOf(
+		"function ProductionPlanSection",
+		start,
+	);
 	return start >= 0 && end > start
 		? topicWorkbenchSource.slice(start, end)
 		: "";
@@ -293,15 +303,23 @@ describe("topic workbench integration contract", () => {
 		expect(topicWorkbenchSource).toContain("buildScriptTableRowRevisionPrompt");
 		expect(scriptTableWorkspaceSource).toContain("onAddRowToAgent");
 		expect(topicWorkbenchSource).toContain("添加到左侧 Agent 对话");
-		expect(packageSectionSource).toContain(
-			'source: "script-segment-edit"',
-		);
+		expect(packageSectionSource).toContain('source: "script-segment-edit"');
 		expect(topicWorkbenchSource).toContain("topic_get_active_package");
 		expect(topicWorkbenchSource).toContain("topic_update_script_segment");
 		expect(agentChatRouteSource).toContain("topic_update_script_segment");
 		expect(agentChatRouteSource).toContain(
 			"Do not recreate the whole package unless the user explicitly asks.",
 		);
+		expect(chatPanelSource).toContain("createTopicWorkbenchReference");
+		expect(chatPanelSource).toContain(
+			"createTopicWorkbenchDraftReference({ event: pendingTopicAgentEvent })",
+		);
+		expect(chatPanelSource).toContain("addReference(");
+		expect(chatPanelSource).not.toContain(
+			"[选题工作台]\\n${pendingTopicAgentEvent.content}",
+		);
+		expect(bottomToolbarSource).toContain("draftReferences.length > 0");
+		expect(bottomToolbarSource).toContain("disabled={!canSubmit}");
 	});
 
 	test("keeps script table visible and connected after entering topic workflow", () => {

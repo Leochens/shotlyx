@@ -207,7 +207,11 @@ export function BottomToolbar({
 		topicSourceMaterialOpen ?? internalSourceMaterialOpen;
 	const setSourceMaterialOpen =
 		onTopicSourceMaterialOpenChange ?? setInternalSourceMaterialOpen;
-	const canSubmit = allowEmptySubmit || input.trim().length > 0;
+	const hasTextInput = input.trim().length > 0;
+	const canSubmit =
+		allowEmptySubmit ||
+		hasTextInput ||
+		(!isMediaMode && !isMGMode && draftReferences.length > 0);
 	const modeControls = (
 		<ChatModeControls
 			selectedAgent={selectedAgent}
@@ -798,7 +802,7 @@ export function BottomToolbar({
 								<Button
 									type="submit"
 									data-testid="chat-send-button"
-									disabled={!input.trim()}
+									disabled={!canSubmit}
 									className="size-10 rounded-sm bg-primary p-0 text-primary-foreground hover:bg-primary/90"
 									aria-label={
 										runningSubmitMode === "guide"

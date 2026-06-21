@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
 	compactReferenceForModel,
 	compactReferencesForModel,
+	isAgentContextReference,
 } from "@/agent/context/reference-format";
 import type {
 	AgentContextReference,
 	AgentMediaAssetReference,
+	AgentTopicWorkbenchReference,
 } from "@/agent/context/types";
 
 function mediaReference(): AgentContextReference {
@@ -98,5 +100,32 @@ describe("agent reference formatting", () => {
 		});
 		expect(serialized).toContain("这是脚本正文。".repeat(80));
 		expect(serialized).not.toContain("[hidden data url]");
+	});
+
+	test("keeps topic workbench task content for deferred agent instructions", () => {
+		const payload = {
+			eventId: "event-script-4",
+			eventSource: "script-segment-edit",
+			name: "选题工作台：第 4 段逐字稿",
+			summary: "修改第 4 段逐字稿。",
+			content: "请修改右侧选题包里的第 4 个时间段逐字稿。",
+		} satisfies AgentTopicWorkbenchReference;
+		const reference: AgentContextReference = {
+			id: "ref_topic_workbench",
+			kind: "topic-workbench",
+			label: payload.name,
+			source: "topic-workbench",
+			createdAt: 4,
+			payload,
+		};
+
+		expect(isAgentContextReference(reference)).toBe(true);
+		expect(compactReferenceForModel(reference)).toMatchObject({
+			id: "ref_topic_workbench",
+			kind: "topic-workbench",
+			eventId: "event-script-4",
+			eventSource: "script-segment-edit",
+			content: payload.content,
+		});
 	});
 });

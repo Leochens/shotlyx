@@ -20,7 +20,7 @@ export function buildTopicInputMaterialsFromReferences({
 }: {
 	references: AgentContextReference[];
 }): TopicInputMaterialDraft[] {
-	return references.flatMap((reference) => {
+	return references.flatMap<TopicInputMaterialDraft>((reference) => {
 		if (reference.kind === "media-asset") {
 			return [
 				{

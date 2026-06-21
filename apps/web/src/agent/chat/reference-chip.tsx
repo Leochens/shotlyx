@@ -4,6 +4,7 @@ import {
 	Clapperboard,
 	Image,
 	Layers3,
+	MessageSquare,
 	Music,
 	Palette,
 	Sparkles,
@@ -18,6 +19,7 @@ function ReferenceIcon({ reference }: { reference: AgentContextReference }) {
 	if (reference.kind === "brand-kit") return <Palette size={14} />;
 	if (reference.kind === "timeline-track") return <Layers3 size={14} />;
 	if (reference.kind === "timeline-element") return <Sparkles size={14} />;
+	if (reference.kind === "topic-workbench") return <MessageSquare size={14} />;
 	if (reference.kind === "media-asset") {
 		const type = reference.payload.type;
 		if (type === "image") return <Image size={14} />;

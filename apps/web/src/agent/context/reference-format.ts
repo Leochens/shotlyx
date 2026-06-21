@@ -5,6 +5,7 @@ import type {
 	AgentSourceMaterialReference,
 	AgentTimelineElementReference,
 	AgentTimelineTrackReference,
+	AgentTopicWorkbenchReference,
 	CompactAgentReferences,
 } from "./types";
 
@@ -19,6 +20,7 @@ const BLOCKED_KEYS = new Set([
 	"sourceUrl",
 ]);
 const MAX_SOURCE_MATERIAL_CONTENT_LENGTH = 6000;
+const MAX_TOPIC_WORKBENCH_CONTENT_LENGTH = 8000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -56,6 +58,12 @@ export function isAgentContextReference(
 	}
 	if (value.kind === "source-material") {
 		return typeof value.payload.materialId === "string";
+	}
+	if (value.kind === "topic-workbench") {
+		return (
+			typeof value.payload.eventId === "string" &&
+			typeof value.payload.content === "string"
+		);
 	}
 	return false;
 }
@@ -147,6 +155,20 @@ function compactSourceMaterial(payload: AgentSourceMaterialReference) {
 	};
 }
 
+function compactTopicWorkbench(payload: AgentTopicWorkbenchReference) {
+	const content = payload.content.trim();
+	return {
+		eventId: payload.eventId,
+		eventSource: payload.eventSource,
+		name: payload.name,
+		summary: payload.summary,
+		content:
+			content.length > MAX_TOPIC_WORKBENCH_CONTENT_LENGTH
+				? `${content.slice(0, MAX_TOPIC_WORKBENCH_CONTENT_LENGTH)}... [truncated ${content.length} chars]`
+				: content,
+	};
+}
+
 function compactPayload(reference: AgentContextReference) {
 	if (reference.kind === "media-asset") {
 		return compactMediaAsset(reference.payload);
@@ -159,6 +181,9 @@ function compactPayload(reference: AgentContextReference) {
 	}
 	if (reference.kind === "source-material") {
 		return compactSourceMaterial(reference.payload);
+	}
+	if (reference.kind === "topic-workbench") {
+		return compactTopicWorkbench(reference.payload);
 	}
 	return compactBrandKit(reference.payload);
 }
@@ -178,6 +203,9 @@ export function getReferenceTargetKey(
 	if (reference.kind === "source-material") {
 		return `source-material:${reference.payload.materialId}`;
 	}
+	if (reference.kind === "topic-workbench") {
+		return `topic-workbench:${reference.payload.eventId}`;
+	}
 	return `brand-kit:${reference.payload.brandKitId}`;
 }
 
@@ -188,6 +216,7 @@ export function formatReferenceForChip(
 	if (reference.kind === "timeline-element") return reference.label;
 	if (reference.kind === "timeline-track") return reference.label;
 	if (reference.kind === "source-material") return reference.label;
+	if (reference.kind === "topic-workbench") return reference.label;
 	return reference.label || "品牌套件";
 }
 
@@ -211,6 +240,13 @@ export function compactReferenceForModel(
 		compact.content = payload.content.startsWith("data:")
 			? "[hidden data url]"
 			: payload.content;
+	}
+	if (
+		reference.kind === "topic-workbench" &&
+		isRecord(payload) &&
+		typeof payload.content === "string"
+	) {
+		compact.content = payload.content;
 	}
 	return compact;
 }

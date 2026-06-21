@@ -182,3 +182,33 @@ export function createSourceMaterialReference({
 		},
 	};
 }
+
+export function createTopicWorkbenchReference({
+	eventId,
+	eventSource,
+	name,
+	summary,
+	content,
+}: {
+	eventId: string;
+	eventSource: string;
+	name: string;
+	summary?: string;
+	content: string;
+}): AgentContextReference {
+	const trimmedName = name.trim() || "选题工作台引用";
+	return {
+		id: createReferenceId(),
+		kind: "topic-workbench",
+		label: trimmedName,
+		source: "topic-workbench",
+		createdAt: Date.now(),
+		payload: {
+			eventId,
+			eventSource,
+			name: trimmedName,
+			summary: summary?.trim() || undefined,
+			content: content.trim(),
+		},
+	};
+}

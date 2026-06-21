@@ -70,6 +70,7 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain("If token timing exists");
 		expect(prompt).toContain("If only line timing exists");
 		expect(prompt).toContain("source-material items");
+		expect(prompt).toContain("topic-workbench items");
 		expect(prompt).toContain("根据素材/脚本/录屏");
 		expect(prompt).toContain(
 			"call topic_set_candidates with candidates and inputMaterials",

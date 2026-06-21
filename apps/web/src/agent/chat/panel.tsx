@@ -35,6 +35,7 @@ import { sanitizeToolResultForModel } from "@/agent/controller/tool-result-sanit
 import {
 	createMediaAssetReference,
 	createSourceMaterialReference,
+	createTopicWorkbenchReference,
 } from "@/agent/context/resolve-references";
 import { useAgentContextStore } from "@/agent/context/store";
 import type { AgentContextReference } from "@/agent/context/types";
@@ -62,6 +63,7 @@ import type {
 	TopicInputMaterial,
 	TopicProject,
 	TopicScriptTableAsset,
+	TopicWorkbenchAgentEvent,
 } from "@/topic-workbench/types";
 import { WorkbenchSwitcher } from "@/topic-workbench/workbench-switcher";
 import { CreatorProfileDialogTrigger } from "@/topic-workbench/creator-profile-dialog";
@@ -1870,7 +1872,42 @@ type QueuedPrompt = {
 	content: string;
 	mode: RunningSubmitMode;
 	sessionId: string | null;
+	references: AgentContextReference[];
 };
+
+const REFERENCE_ONLY_PROMPT = "请根据我添加的引用继续处理。";
+const TOPIC_WORKBENCH_SEGMENT_INDEX_PATTERN = /segmentIndex[:：]\s*(\d+)/;
+const TOPIC_WORKBENCH_TIME_RANGE_PATTERN = /时间段[:：]\s*([^\n]+)/;
+
+function createTopicWorkbenchDraftReference({
+	event,
+}: {
+	event: TopicWorkbenchAgentEvent;
+}): AgentContextReference {
+	const segmentIndex = event.content.match(
+		TOPIC_WORKBENCH_SEGMENT_INDEX_PATTERN,
+	)?.[1];
+	const timeRange = event.content
+		.match(TOPIC_WORKBENCH_TIME_RANGE_PATTERN)?.[1]
+		?.trim();
+	const isScriptSegmentEdit = event.source === "script-segment-edit";
+	const name =
+		isScriptSegmentEdit && segmentIndex
+			? `选题工作台：第 ${segmentIndex} 段逐字稿`
+			: "选题工作台引用";
+	const summary =
+		isScriptSegmentEdit && timeRange
+			? `右侧选题工作台加入的逐字稿修改引用，时间段 ${timeRange}。发送时会和用户补充要求一起交给 Agent。`
+			: "右侧选题工作台加入的待处理引用。发送时会和用户补充要求一起交给 Agent。";
+
+	return createTopicWorkbenchReference({
+		eventId: event.id,
+		eventSource: event.source,
+		name,
+		summary,
+		content: event.content,
+	});
+}
 
 export function ChatPanel() {
 	const { copy, locale } = useAppLocale();
@@ -3058,7 +3095,8 @@ export function ChatPanel() {
 		prompt: string;
 		references?: AgentContextReference[];
 	}) => {
-		const trimmed = prompt.trim();
+		const trimmed =
+			prompt.trim() || (references.length > 0 ? REFERENCE_ONLY_PROMPT : "");
 		const chatSessionId = activeSessionId;
 		if (!trimmed || isLoading || !editor || !chatSessionId) return;
 		recordReferencesAsTopicMaterials({ references });
@@ -3108,9 +3146,14 @@ export function ChatPanel() {
 				nextPrompt.mode === "guide"
 					? `[引导当前任务]\n${nextPrompt.content}`
 					: nextPrompt.content;
-			void submitPromptRef.current({ prompt, references: [] }).finally(() => {
-				isSendingQueuedPromptRef.current = false;
-			});
+			void submitPromptRef
+				.current({
+					prompt,
+					references: nextPrompt.references,
+				})
+				.finally(() => {
+					isSendingQueuedPromptRef.current = false;
+				});
 		}, 0);
 		return () => window.clearTimeout(timeoutId);
 	}, [activeSessionId, editor, isLoading, queuedPrompts]);
@@ -3139,20 +3182,13 @@ export function ChatPanel() {
 			return;
 		}
 
-		addMessage(
-			{
-				id: `topic-workbench-event-${getClientNow()}`,
-				role: "user",
-				content: `[选题工作台]\n${pendingTopicAgentEvent.content}`,
-				timestamp: getClientNow(),
-			},
-			activeSessionId ?? undefined,
+		addReference(
+			createTopicWorkbenchDraftReference({ event: pendingTopicAgentEvent }),
 		);
 	}, [
 		activeWorkbench,
 		activeChatSession?.projectId,
-		activeSessionId,
-		addMessage,
+		addReference,
 		chatProjectId,
 		consumeTopicAgentEvent,
 		editor,
@@ -3166,15 +3202,18 @@ export function ChatPanel() {
 			return;
 		}
 		const trimmed = input.trim();
-		if (!trimmed) return;
+		if (!trimmed && draftReferences.length === 0) return;
 		if (isLoading) {
+			const queuedReferences = draftReferences;
 			setInput("");
+			clearDraftReferences();
 			setQueuedPrompts((items) => {
 				const queuedPrompt: QueuedPrompt = {
-					id: `queued-${items.length}-${trimmed.slice(0, 24)}`,
-					content: trimmed,
+					id: `queued-${items.length}-${(trimmed || REFERENCE_ONLY_PROMPT).slice(0, 24)}`,
+					content: trimmed || REFERENCE_ONLY_PROMPT,
 					mode: runningSubmitMode,
 					sessionId: activeSessionId,
+					references: queuedReferences,
 				};
 				return runningSubmitMode === "guide"
 					? [queuedPrompt, ...items]
