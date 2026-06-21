@@ -10,31 +10,10 @@ import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
 import { mediaTimeFromSeconds } from "@/wasm";
 import { isTypableDOMElement } from "@/utils/browser";
 import { isTimelineMediaType } from "@/media/media-utils";
-import type { TimelineMediaType } from "@/media/types";
-
-const MEDIA_MIME_PREFIXES: TimelineMediaType[] = ["image", "video", "audio"];
-
-function isMediaMimeType({ type }: { type: string }): boolean {
-	return MEDIA_MIME_PREFIXES.some((prefix) => type.startsWith(`${prefix}/`));
-}
-
-function extractMediaFilesFromClipboard({
-	clipboardData,
-}: {
-	clipboardData: DataTransfer | null;
-}): File[] {
-	if (!clipboardData?.items) return [];
-
-	const files: File[] = [];
-	for (const item of clipboardData.items) {
-		if (item.kind !== "file") continue;
-		if (!isMediaMimeType({ type: item.type })) continue;
-
-		const file = item.getAsFile();
-		if (file) files.push(file);
-	}
-	return files;
-}
+import {
+	extractMediaFilesFromClipboard,
+	shouldPasteInternalClipboardFromPasteEvent,
+} from "@/media/clipboard-media";
 
 export function usePasteMedia() {
 	const editor = useEditor();
@@ -53,11 +32,19 @@ export function usePasteMedia() {
 			const files = extractMediaFilesFromClipboard({
 				clipboardData: event.clipboardData,
 			});
-			if (files.length === 0) {
+			if (
+				shouldPasteInternalClipboardFromPasteEvent({
+					mediaFilesCount: files.length,
+					hasInternalClipboardEntry: editor.clipboard.hasEntry(),
+					shouldPreferInternalClipboard:
+						editor.clipboard.shouldPreferInternalClipboard(),
+				})
+			) {
 				event.preventDefault();
 				editor.clipboard.paste();
 				return;
 			}
+			if (files.length === 0) return;
 
 			event.preventDefault();
 
@@ -115,7 +102,15 @@ export function usePasteMedia() {
 			}
 		};
 
+		const handleWindowBlur = () => {
+			editor.clipboard.markExternalClipboardMayHaveChanged();
+		};
+
 		window.addEventListener("paste", handlePaste);
-		return () => window.removeEventListener("paste", handlePaste);
+		window.addEventListener("blur", handleWindowBlur);
+		return () => {
+			window.removeEventListener("paste", handlePaste);
+			window.removeEventListener("blur", handleWindowBlur);
+		};
 	}, [editor]);
 }

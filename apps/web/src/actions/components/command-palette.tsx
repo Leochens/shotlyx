@@ -38,6 +38,7 @@ const QUICK_ACTIONS: TActionWithOptionalArgs[] = [
 	"split",
 	"merge-selected",
 	"duplicate-selected",
+	"create-still-frame",
 	"delete-selected",
 	"copy-selected",
 	"paste-copied",

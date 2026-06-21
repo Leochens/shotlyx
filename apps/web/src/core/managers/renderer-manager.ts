@@ -9,8 +9,12 @@ import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { SceneExporter } from "@/services/renderer/scene-exporter";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { createTimelineAudioBuffer } from "@/media/audio";
+import type { MediaTime } from "@/wasm";
 import { formatTimecode } from "opencut-wasm";
 import { downloadBlob } from "@/utils/browser";
+import type { MediaAsset } from "@/media/types";
+import { renderThumbnailDataUrl } from "@/media/thumbnail";
+import { buildStillFrameAsset } from "@/media/still-frame";
 import {
 	prerenderShotlyxMGExportSegments,
 	type ShotlyxMGExportRenderMap,
@@ -18,7 +22,14 @@ import {
 import { buildProjectCoverExportPlan } from "@/project/cover";
 
 type SnapshotResult =
-	| { success: true; blob: Blob; filename: string }
+	| {
+			success: true;
+			blob: Blob;
+			filename: string;
+			width: number;
+			height: number;
+			thumbnailUrl: string;
+	  }
 	| { success: false; error: string };
 
 function isAbortError(error: unknown): boolean {
@@ -93,7 +104,39 @@ export class RendererManager {
 		}
 	}
 
-	private async createSnapshot(): Promise<SnapshotResult> {
+	async createStillFrameAsset({
+		name,
+		time,
+	}: {
+		name?: string;
+		time?: MediaTime;
+	} = {}): Promise<
+		| { success: true; asset: Omit<MediaAsset, "id"> }
+		| { success: false; error: string }
+	> {
+		const snapshot = await this.createSnapshot({ time });
+		if (!snapshot.success) {
+			return snapshot;
+		}
+
+		return {
+			success: true,
+			asset: buildStillFrameAsset({
+				blob: snapshot.blob,
+				filename: snapshot.filename,
+				width: snapshot.width,
+				height: snapshot.height,
+				thumbnailUrl: snapshot.thumbnailUrl,
+				name,
+			}),
+		};
+	}
+
+	private async createSnapshot({
+		time,
+	}: {
+		time?: MediaTime;
+	} = {}): Promise<SnapshotResult> {
 		try {
 			const renderTree = this.getRenderTree();
 			const activeProject = this.editor.project.getActive();
@@ -109,7 +152,7 @@ export class RendererManager {
 
 			const { canvasSize, fps } = activeProject.settings;
 			const renderTime = Math.min(
-				this.editor.playback.getCurrentTime(),
+				time ?? this.editor.playback.getCurrentTime(),
 				this.editor.timeline.getLastFrameTime(),
 			);
 
@@ -129,6 +172,13 @@ export class RendererManager {
 				time: renderTime,
 				targetCanvas: tempCanvas,
 			});
+			const thumbnailUrl = renderThumbnailDataUrl({
+				width: canvasSize.width,
+				height: canvasSize.height,
+				draw: ({ context, width, height }) => {
+					context.drawImage(tempCanvas, 0, 0, width, height);
+				},
+			});
 
 			const blob = await new Promise<Blob | null>((resolve) => {
 				tempCanvas.toBlob((result) => resolve(result), "image/png");
@@ -147,7 +197,14 @@ export class RendererManager {
 				"snapshot";
 			const filename = `${safeName}-${timecode}.png`;
 
-			return { success: true, blob, filename };
+			return {
+				success: true,
+				blob,
+				filename,
+				width: canvasSize.width,
+				height: canvasSize.height,
+				thumbnailUrl,
+			};
 		} catch (error) {
 			console.error("Snapshot capture failed:", error);
 			return {

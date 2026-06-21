@@ -10,6 +10,7 @@ import type { MediaTime } from "@/wasm";
 
 export class ClipboardManager {
 	private entry: ClipboardEntry | null = null;
+	private externalClipboardMayHaveChangedSinceCopy = true;
 	private listeners = new Set<() => void>();
 
 	constructor(private editor: EditorCore) {}
@@ -22,6 +23,19 @@ export class ClipboardManager {
 		return this.entry !== null;
 	}
 
+	shouldPreferInternalClipboard(): boolean {
+		return this.entry !== null && !this.externalClipboardMayHaveChangedSinceCopy;
+	}
+
+	markExternalClipboardMayHaveChanged(): void {
+		if (!this.entry || this.externalClipboardMayHaveChangedSinceCopy) {
+			return;
+		}
+
+		this.externalClipboardMayHaveChangedSinceCopy = true;
+		this.notify();
+	}
+
 	copy(): boolean {
 		const entry = copyClipboardEntry({
 			context: this.getCopyContext(),
@@ -31,6 +45,7 @@ export class ClipboardManager {
 		}
 
 		this.entry = entry;
+		this.externalClipboardMayHaveChangedSinceCopy = false;
 		this.notify();
 		return true;
 	}

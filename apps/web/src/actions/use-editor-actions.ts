@@ -6,6 +6,11 @@ import { useActionHandler } from "@/actions/use-action-handler";
 import { useEditor } from "@/editor/use-editor";
 import { useElementSelection } from "@/timeline/hooks/element/use-element-selection";
 import {
+	AddMediaAssetCommand,
+	BatchCommand,
+	InsertElementCommand,
+} from "@/commands";
+import {
 	addMediaTime,
 	maxMediaTime,
 	mediaTime,
@@ -16,7 +21,12 @@ import {
 	ZERO_MEDIA_TIME,
 } from "@/wasm";
 import { useKeyframeSelection } from "@/timeline/hooks/element/use-keyframe-selection";
-import { getElementsAtTime, hasMediaId } from "@/timeline";
+import {
+	buildElementFromMedia,
+	getElementsAtTime,
+	hasMediaId,
+} from "@/timeline";
+import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
 import { cancelInteraction } from "@/editor/cancel-interaction";
 import { invokeAction } from "@/actions";
 import { canToggleSourceAudio } from "@/timeline/audio-separation";
@@ -26,6 +36,7 @@ import {
 	type ScopeEntry,
 } from "@/selection/scope";
 import { useCommittedRef } from "@/hooks/use-committed-ref";
+import { toast } from "sonner";
 
 export function useEditorActions() {
 	const editor = useEditor();
@@ -469,6 +480,54 @@ export function useEditorActions() {
 		"paste-copied",
 		() => {
 			editor.clipboard.paste();
+		},
+		undefined,
+	);
+
+	useActionHandler(
+		"create-still-frame",
+		() => {
+			void (async () => {
+				const activeProject = editor.project.getActiveOrNull();
+				if (!activeProject) {
+					toast.error("Failed to create still frame", {
+						description: "No active project",
+					});
+					return;
+				}
+
+				const startTime = editor.playback.getCurrentTime();
+				const snapshot = await editor.renderer.createStillFrameAsset({
+					time: startTime,
+				});
+				if (!snapshot.success) {
+					toast.error("Failed to create still frame", {
+						description: snapshot.error,
+					});
+					return;
+				}
+
+				const addMediaCmd = new AddMediaAssetCommand({
+					projectId: activeProject.metadata.id,
+					asset: snapshot.asset,
+				});
+				const assetId = addMediaCmd.getAssetId();
+				const element = buildElementFromMedia({
+					mediaId: assetId,
+					mediaType: "image",
+					name: snapshot.asset.name,
+					duration: DEFAULT_NEW_ELEMENT_DURATION,
+					startTime,
+				});
+				const insertCmd = new InsertElementCommand({
+					element,
+					placement: { mode: "auto", trackType: "video" },
+				});
+
+				editor.command.execute({
+					command: new BatchCommand([addMediaCmd, insertCmd]),
+				});
+			})();
 		},
 		undefined,
 	);

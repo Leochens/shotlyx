@@ -3,6 +3,7 @@ import { invokeAction } from "@/actions";
 import { useEditor } from "@/editor/use-editor";
 import { useKeybindingsStore } from "@/actions/keybindings-store";
 import { isTypableDOMElement } from "@/utils/browser";
+import { shouldDeferToNativePasteEvent } from "@/actions/paste-shortcut";
 
 function hasNativeTextSelection(): boolean {
 	const selection = window.getSelection();
@@ -51,6 +52,17 @@ export function useKeybindingsListener() {
 
 			if (isTextInput) return;
 			if (boundAction === "copy-selected" && hasNativeTextSelection()) return;
+
+			if (
+				shouldDeferToNativePasteEvent({
+					binding,
+					boundAction,
+					shouldPreferInternalClipboard:
+						editor.clipboard.shouldPreferInternalClipboard(),
+				})
+			) {
+				return;
+			}
 
 			if (boundAction === "paste-copied") {
 				if (!editor.clipboard.hasEntry()) return;

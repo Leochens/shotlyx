@@ -129,6 +129,9 @@ function ToolbarLeftSection({ mode }: { mode: TimelineMode }) {
 	const canMergeSelectedElements = editor.timeline.canMergeElements({
 		elements: selectedElements,
 	});
+	const canCreateStillFrame =
+		editor.project.getActiveOrNull() !== null &&
+		editor.timeline.getTotalDuration() > 0;
 	const selectedMediaAsset = (() => {
 		if (!selectedElement) {
 			return null;
@@ -238,10 +241,12 @@ function ToolbarLeftSection({ mode }: { mode: TimelineMode }) {
 
 				<ToolbarButton
 					icon={<HugeiconsIcon icon={SnowIcon} />}
-					tooltip="Freeze frame (coming soon)"
-					disabled={true}
+					tooltip="Freeze frame"
+					disabled={!canCreateStillFrame}
 					hidden={mode === "simple"}
-					onClick={({ event: _event }) => {}}
+					onClick={({ event }) =>
+						handleAction({ action: "create-still-frame", event })
+					}
 				/>
 
 				<ToolbarButton

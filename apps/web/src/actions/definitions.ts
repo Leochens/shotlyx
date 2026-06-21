@@ -106,6 +106,10 @@ export const ACTIONS = {
 		description: "Extract or recover source audio",
 		category: "editing",
 	},
+	"create-still-frame": {
+		description: "Create still frame at playhead",
+		category: "editing",
+	},
 	"select-all": {
 		description: "Select all elements",
 		category: "selection",
