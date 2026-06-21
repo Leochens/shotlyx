@@ -41,6 +41,7 @@ import {
 	List,
 	ListOrdered,
 	Loader2,
+	MessageSquarePlus,
 	Mic,
 	Pause,
 	Pencil,
@@ -257,7 +258,7 @@ const INPUT_MATERIAL_KIND_LABELS: Record<
 
 const SCRIPT_TABLE_AUTO_TIME_LABEL = "由 Agent 自动估算时间";
 const SCRIPT_TABLE_GRID_CLASS =
-	"[grid-template-columns:7.5rem_minmax(13rem,0.86fr)_minmax(14rem,0.94fr)_minmax(13rem,0.84fr)_2.75rem]";
+	"[grid-template-columns:7.5rem_minmax(13rem,0.86fr)_minmax(14rem,0.94fr)_minmax(13rem,0.84fr)_3.25rem]";
 const SCRIPT_TABLE_RECORDING_COUNTDOWN_SECONDS = 3;
 const SCRIPT_TABLE_RECORDING_WAVEFORM_BAR_COUNT = 36;
 const SCRIPT_TABLE_RECORDING_WAVEFORM_MIN_LEVEL = 0.08;
@@ -765,15 +766,15 @@ function buildVideoProductionHandoffPrompt({
 读取资源后，先给出可执行制作方案，再等我确认是否真正生成时间线或素材。`;
 }
 
-function buildScriptSegmentRevisionPrompt({
+function buildScriptTableRowRevisionPrompt({
 	project,
 	topicPackage,
-	segment,
+	row,
 	index,
 }: {
 	project: TopicProject;
 	topicPackage: TopicPackageVersion;
-	segment: TopicPackageVersion["scriptSegments"][number];
+	row: TopicScriptTableRow;
 	index: number;
 }): string {
 	const segmentNumber = index + 1;
@@ -785,13 +786,13 @@ function buildScriptSegmentRevisionPrompt({
 选题包：${topicPackage.title}
 版本 ID：${topicPackage.id}
 segmentIndex：${segmentNumber}
-时间段：${segment.timeRange}
+时间段：${row.timeRange || SCRIPT_TABLE_AUTO_TIME_LABEL}
 
 当前逐字稿：
-${segment.content || "（空）"}
+${row.copy || "（空）"}
 
 当前素材建议：
-${segment.materialSuggestion || "（空）"}
+${row.visualContent || "（空）"}
 
 我接下来会补充具体修改要求。`;
 }
@@ -1943,6 +1944,7 @@ function ScriptTableWorkspace({
 	project,
 	mediaAssets,
 	onUploadFiles,
+	onAddRowToAgent,
 }: {
 	project: TopicProject;
 	mediaAssets: MediaAsset[];
@@ -1953,6 +1955,13 @@ function ScriptTableWorkspace({
 		files: File[];
 		inputMaterialSummary: string;
 	}) => Promise<MediaAsset[]>;
+	onAddRowToAgent?: ({
+		row,
+		index,
+	}: {
+		row: TopicScriptTableRow;
+		index: number;
+	}) => void;
 }) {
 	const rows = useMemo(
 		() => ensureTopicScriptTableRows({ rows: project.scriptTableRows }),
@@ -2092,6 +2101,11 @@ function ScriptTableWorkspace({
 									})
 								}
 								onPreviewAsset={setPreviewAsset}
+								onAddToAgent={
+									onAddRowToAgent
+										? () => onAddRowToAgent({ row, index })
+										: undefined
+								}
 							/>
 							{index < rows.length - 1 ? (
 								<ScriptTableRowInsertHandle
@@ -2621,6 +2635,7 @@ function ScriptTableRowEditor({
 	onRemoveRow,
 	onRemoveAsset,
 	onPreviewAsset,
+	onAddToAgent,
 }: {
 	row: TopicScriptTableRow;
 	index: number;
@@ -2635,6 +2650,7 @@ function ScriptTableRowEditor({
 	onRemoveRow: () => void;
 	onRemoveAsset: (mediaAssetId: string) => void;
 	onPreviewAsset: (previewAsset: ScriptTablePreviewAsset) => void;
+	onAddToAgent?: () => void;
 }) {
 	const [isUploading, setUploading] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2741,7 +2757,19 @@ function ScriptTableRowEditor({
 					)}
 				</div>
 			</div>
-			<div className="flex border-l border-border/65 px-1.5 py-3">
+			<div className="flex flex-col items-center gap-1 border-l border-border/65 px-1.5 py-3">
+				{onAddToAgent ? (
+					<Button
+						size="icon"
+						variant="ghost"
+						className="size-8 rounded-sm text-muted-foreground hover:bg-primary/10 hover:text-primary"
+						onClick={onAddToAgent}
+						title="添加到左侧 Agent 对话"
+						aria-label={`把第 ${index + 1} 行添加到左侧 Agent 对话`}
+					>
+						<MessageSquarePlus size={14} />
+					</Button>
+				) : null}
 				<Button
 					size="icon"
 					variant="ghost"
@@ -3167,7 +3195,9 @@ function WorkflowScriptTableSection({
 		project,
 	});
 
-	if (!hasTopicScriptTableContent(project)) return null;
+	if (!hasTopicScriptTableContent(project) || getActivePackage(project)) {
+		return null;
+	}
 
 	return (
 		<CollapsibleSection
@@ -4461,8 +4491,37 @@ function PackageSection({
 	const updatePackageCoverIdea = useTopicWorkbenchStore(
 		(state) => state.updatePackageCoverIdea,
 	);
+	const emitAgentEvent = useTopicWorkbenchStore(
+		(state) => state.emitAgentEvent,
+	);
+	const mediaAssets = useEditor((currentEditor) =>
+		currentEditor.media.getAssets(),
+	);
+	const uploadTopicScriptTableMediaFiles = useTopicScriptTableMediaUpload({
+		project,
+	});
 	if (!activePackage) return null;
 	const activeProductionPlan = getActiveProductionPlan(project);
+
+	const handleAddScriptRowToAgent = ({
+		row,
+		index,
+	}: {
+		row: TopicScriptTableRow;
+		index: number;
+	}) => {
+		emitAgentEvent({
+			editorProjectId: project.editorProjectId,
+			autoRun: false,
+			source: "script-segment-edit",
+			content: buildScriptTableRowRevisionPrompt({
+				project,
+				topicPackage: activePackage,
+				row,
+				index,
+			}),
+		});
+	};
 
 	const handleCreateProductionPlan = () => {
 		executeTopicWorkbenchTool({
@@ -4679,21 +4738,21 @@ function PackageSection({
 					</div>
 				</div>
 			</div>
-			<div className="mt-3 rounded-sm border border-border/75 bg-muted/[0.18] p-3">
-				<div className="text-sm font-semibold text-foreground">
-					时间段逐字稿与素材建议
+			<div className="mt-3">
+				<div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+					<Table2 size={14} className="text-primary" />
+					脚本表格
 				</div>
-				<div className="mt-2 space-y-2">
-					{activePackage.scriptSegments.map((segment, index) => (
-						<ScriptSegmentViewRow
-							key={`${activePackage.id}-${index}`}
-							project={project}
-							topicPackage={activePackage}
-							versionId={activePackage.id}
-							index={index}
-							segment={segment}
-						/>
-					))}
+				<p className="mt-1 text-xs leading-5 text-muted-foreground">
+					选题包里的逐字稿和素材建议会进入同一张脚本表格；这里可以继续编辑、选素材、上传封面或直接录音。
+				</p>
+				<div className="mt-2">
+					<ScriptTableWorkspace
+						project={project}
+						mediaAssets={mediaAssets}
+						onUploadFiles={uploadTopicScriptTableMediaFiles}
+						onAddRowToAgent={handleAddScriptRowToAgent}
+					/>
 				</div>
 			</div>
 			<div className="mt-3 flex justify-end">
@@ -4829,109 +4888,6 @@ function ProductionPlanSection({
 				))}
 			</div>
 		</CollapsibleSection>
-	);
-}
-
-function ScriptSegmentViewRow({
-	project,
-	topicPackage,
-	segment,
-	index,
-	versionId,
-}: {
-	project: TopicProject;
-	topicPackage: TopicPackageVersion;
-	segment: TopicPackageVersion["scriptSegments"][number];
-	index: number;
-	versionId: string;
-}) {
-	const updateScriptSegment = useTopicWorkbenchStore(
-		(state) => state.updateScriptSegment,
-	);
-	const emitAgentEvent = useTopicWorkbenchStore(
-		(state) => state.emitAgentEvent,
-	);
-	const handleAddToAgent = () => {
-		emitAgentEvent({
-			editorProjectId: project.editorProjectId,
-			autoRun: false,
-			source: "script-segment-edit",
-			content: buildScriptSegmentRevisionPrompt({
-				project,
-				topicPackage,
-				segment,
-				index,
-			}),
-		});
-	};
-
-	return (
-		<div className="grid gap-2 rounded-sm border border-border/70 bg-background px-3 py-2 [grid-template-columns:8rem_minmax(0,1.1fr)_minmax(0,0.9fr)] max-[940px]:grid-cols-1">
-			<div>
-				<div className="text-[0.68rem] font-semibold text-muted-foreground">
-					时间段 {index + 1}
-				</div>
-				<input
-					value={segment.timeRange}
-					onChange={(event) =>
-						updateScriptSegment({
-							versionId,
-							segmentIndex: index,
-							patch: { timeRange: event.target.value },
-						})
-					}
-					className="mt-1 h-9 w-full rounded-sm border border-primary/20 bg-primary/[0.06] px-2 text-xs font-semibold text-primary outline-none focus:border-primary/50"
-					aria-label={`时间段 ${index + 1}`}
-				/>
-			</div>
-			<div>
-				<div className="text-[0.68rem] font-semibold text-muted-foreground">
-					逐字稿
-				</div>
-				<AutoResizeTextarea
-					value={segment.content}
-					onChange={(event) =>
-						updateScriptSegment({
-							versionId,
-							segmentIndex: index,
-							patch: { content: event.target.value },
-						})
-					}
-					minRows={3}
-					className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-sm leading-5 text-foreground outline-none focus:border-primary/40"
-					aria-label={`逐字稿 ${index + 1}`}
-				/>
-			</div>
-			<div>
-				<div className="text-[0.68rem] font-semibold text-muted-foreground">
-					素材建议
-				</div>
-				<AutoResizeTextarea
-					value={segment.materialSuggestion}
-					onChange={(event) =>
-						updateScriptSegment({
-							versionId,
-							segmentIndex: index,
-							patch: { materialSuggestion: event.target.value },
-						})
-					}
-					minRows={3}
-					className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none focus:border-primary/40"
-					aria-label={`素材建议 ${index + 1}`}
-				/>
-			</div>
-			<div className="col-span-full flex justify-end border-t border-border/60 pt-2">
-				<Button
-					size="sm"
-					variant="outline"
-					onClick={handleAddToAgent}
-					title="把这一段添加到左侧 Agent 对话"
-				>
-					<Plus size={14} />
-					添加到左侧
-				</Button>
-			</div>
-		</div>
 	);
 }
 

@@ -295,6 +295,188 @@ function normalizeScriptTableRow({
 	};
 }
 
+function hasMeaningfulScriptTableRow({
+	row,
+}: {
+	row: TopicScriptTableRow;
+}): boolean {
+	return Boolean(
+		row.timeRange.trim() ||
+			row.copy.trim() ||
+			row.visualContent.trim() ||
+			row.assets.length > 0,
+	);
+}
+
+function createScriptTableRowFromSegment({
+	segment,
+	existingRow,
+	now,
+}: {
+	segment: ScriptSegment;
+	existingRow?: TopicScriptTableRow;
+	now: number;
+}): TopicScriptTableRow {
+	return {
+		id: existingRow?.id || createId("script-row"),
+		timeRange: segment.timeRange.slice(0, 80),
+		copy: segment.content.slice(0, 6000),
+		visualContent: segment.materialSuggestion.slice(0, 6000),
+		assets: existingRow?.assets ?? [],
+		updatedAt: now,
+	};
+}
+
+function createScriptSegmentFromTableRow({
+	row,
+}: {
+	row: TopicScriptTableRow;
+}): ScriptSegment {
+	return {
+		timeRange: row.timeRange,
+		content: row.copy,
+		materialSuggestion: row.visualContent,
+	};
+}
+
+function syncScriptTableRowsFromPackageVersion({
+	project,
+	version,
+	now,
+}: {
+	project: TopicProject;
+	version: TopicPackageVersion;
+	now: number;
+}): TopicScriptTableRow[] {
+	const existingRows = ensureTopicScriptTableRows({
+		rows: project.scriptTableRows,
+		now,
+	});
+	const syncedRows = version.scriptSegments.map((segment, index) =>
+		createScriptTableRowFromSegment({
+			segment,
+			existingRow: existingRows[index],
+			now,
+		}),
+	);
+	const extraRows = existingRows
+		.slice(version.scriptSegments.length)
+		.filter((row) => hasMeaningfulScriptTableRow({ row }));
+	return [...syncedRows, ...extraRows];
+}
+
+function syncScriptTableMetadataFromPackageVersion({
+	project,
+	version,
+	now,
+}: {
+	project: TopicProject;
+	version: TopicPackageVersion;
+	now: number;
+}): TopicScriptTableMetadata {
+	const current = ensureTopicScriptTableMetadata({
+		metadata: project.scriptTableMetadata,
+		now,
+	});
+	return {
+		...current,
+		title: version.title.slice(0, 120),
+		description: version.summary.slice(0, 2000),
+		updatedAt: now,
+	};
+}
+
+export function syncScriptTableFromPackageVersion({
+	project,
+	version,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	version: TopicPackageVersion;
+	now?: number;
+}): TopicProject {
+	return {
+		...project,
+		scriptTableRows: syncScriptTableRowsFromPackageVersion({
+			project,
+			version,
+			now,
+		}),
+		scriptTableMetadata: syncScriptTableMetadataFromPackageVersion({
+			project,
+			version,
+			now,
+		}),
+		updatedAt: now,
+	};
+}
+
+function syncActivePackageSegmentsFromScriptTableRows({
+	project,
+	now,
+}: {
+	project: TopicProject;
+	now: number;
+}): TopicProject {
+	const targetVersionId = getEditablePackageVersionId({ project });
+	if (!targetVersionId) return project;
+	const rows = ensureTopicScriptTableRows({
+		rows: project.scriptTableRows,
+		now,
+	});
+	const scriptSegments = rows
+		.filter((row) => hasMeaningfulScriptTableRow({ row }))
+		.map((row) => createScriptSegmentFromTableRow({ row }));
+	return {
+		...project,
+		scriptTableRows: rows,
+		packageVersions: project.packageVersions.map((version) =>
+			version.id === targetVersionId
+				? {
+						...version,
+						scriptSegments,
+					}
+				: version,
+		),
+		updatedAt: now,
+	};
+}
+
+function syncActivePackageMetadataFromScriptTableMetadata({
+	project,
+	patch,
+	now,
+}: {
+	project: TopicProject;
+	patch: TopicScriptTableMetadataPatch;
+	now: number;
+}): TopicProject {
+	if (patch.title === undefined && patch.description === undefined) {
+		return project;
+	}
+	const targetVersionId = getEditablePackageVersionId({ project });
+	if (!targetVersionId) return project;
+	return {
+		...project,
+		packageVersions: project.packageVersions.map((version) =>
+			version.id === targetVersionId
+				? {
+						...version,
+						title:
+							patch.title !== undefined
+								? project.scriptTableMetadata.title
+								: version.title,
+						summary:
+							patch.description !== undefined
+								? project.scriptTableMetadata.description
+								: version.summary,
+					}
+				: version,
+		),
+		updatedAt: now,
+	};
+}
+
 export function ensureTopicScriptTableRows({
 	rows,
 	now = Date.now(),
@@ -325,7 +507,7 @@ export function updateTopicScriptTableMetadata({
 			: patch.coverAsset
 				? normalizeScriptTableAsset({ asset: patch.coverAsset, now })
 				: null;
-	return {
+	const nextProject = {
 		...project,
 		scriptTableMetadata: {
 			...current,
@@ -340,6 +522,11 @@ export function updateTopicScriptTableMetadata({
 		},
 		updatedAt: now,
 	};
+	return syncActivePackageMetadataFromScriptTableMetadata({
+		project: nextProject,
+		patch,
+		now,
+	});
 }
 
 export function getTopicProjectMode(project: TopicProject): TopicProjectMode {
@@ -464,7 +651,7 @@ export function updateTopicScriptTableRow({
 		rows: project.scriptTableRows,
 		now,
 	});
-	return {
+	const nextProject = {
 		...project,
 		scriptTableRows: rows.map((row) =>
 			row.id === rowId
@@ -486,6 +673,10 @@ export function updateTopicScriptTableRow({
 		),
 		updatedAt: now,
 	};
+	return syncActivePackageSegmentsFromScriptTableRows({
+		project: nextProject,
+		now,
+	});
 }
 
 export function addTopicScriptTableRow({
@@ -506,29 +697,38 @@ export function addTopicScriptTableRow({
 		id: createId("script-row"),
 	};
 	if (!afterRowId) {
-		return {
-			...project,
-			scriptTableRows: [...rows, nextRow],
-			updatedAt: now,
-		};
+		return syncActivePackageSegmentsFromScriptTableRows({
+			project: {
+				...project,
+				scriptTableRows: [...rows, nextRow],
+				updatedAt: now,
+			},
+			now,
+		});
 	}
 	const insertIndex = rows.findIndex((row) => row.id === afterRowId);
 	if (insertIndex < 0) {
-		return {
-			...project,
-			scriptTableRows: [...rows, nextRow],
-			updatedAt: now,
-		};
+		return syncActivePackageSegmentsFromScriptTableRows({
+			project: {
+				...project,
+				scriptTableRows: [...rows, nextRow],
+				updatedAt: now,
+			},
+			now,
+		});
 	}
-	return {
-		...project,
-		scriptTableRows: [
-			...rows.slice(0, insertIndex + 1),
-			nextRow,
-			...rows.slice(insertIndex + 1),
-		],
-		updatedAt: now,
-	};
+	return syncActivePackageSegmentsFromScriptTableRows({
+		project: {
+			...project,
+			scriptTableRows: [
+				...rows.slice(0, insertIndex + 1),
+				nextRow,
+				...rows.slice(insertIndex + 1),
+			],
+			updatedAt: now,
+		},
+		now,
+	});
 }
 
 export function removeTopicScriptTableRow({
@@ -544,12 +744,15 @@ export function removeTopicScriptTableRow({
 		rows: project.scriptTableRows,
 		now,
 	}).filter((row) => row.id !== rowId);
-	return {
-		...project,
-		scriptTableRows:
-			rows.length > 0 ? rows : createDefaultScriptTableRows({ now }),
-		updatedAt: now,
-	};
+	return syncActivePackageSegmentsFromScriptTableRows({
+		project: {
+			...project,
+			scriptTableRows:
+				rows.length > 0 ? rows : createDefaultScriptTableRows({ now }),
+			updatedAt: now,
+		},
+		now,
+	});
 }
 
 export function attachTopicScriptTableAssets({
@@ -2095,15 +2298,44 @@ export function addPackageVersion({
 			? cloneTopicPackageVersion({ project, version: activePackage, now })
 			: createTopicPackageVersion({ project, now });
 	if (!version) return project;
-	return {
-		...project,
-		stage: "package",
-		status: "ready-for-video",
-		packageVersions: [...project.packageVersions, version],
-		activePackageVersionId: version.id,
-		activeProductionPlanId: null,
-		updatedAt: now,
-	};
+	return syncScriptTableFromPackageVersion({
+		project: {
+			...project,
+			stage: "package",
+			status: "ready-for-video",
+			packageVersions: [...project.packageVersions, version],
+			activePackageVersionId: version.id,
+			activeProductionPlanId: null,
+			updatedAt: now,
+		},
+		version,
+		now,
+	});
+}
+
+export function setActiveTopicPackageVersion({
+	project,
+	versionId,
+	now = Date.now(),
+}: {
+	project: TopicProject;
+	versionId: string;
+	now?: number;
+}): TopicProject {
+	const version = project.packageVersions.find((item) => item.id === versionId);
+	if (!version) return project;
+	return syncScriptTableFromPackageVersion({
+		project: {
+			...project,
+			stage: "package",
+			status: "ready-for-video",
+			activePackageVersionId: versionId,
+			activeProductionPlanId: null,
+			updatedAt: now,
+		},
+		version,
+		now,
+	});
 }
 
 function getTargetPackageVersionId({
@@ -2121,6 +2353,22 @@ function getTargetPackageVersionId({
 	);
 }
 
+function getEditablePackageVersionId({
+	project,
+}: {
+	project: TopicProject;
+}): string | null {
+	if (project.activePackageVersionId) return project.activePackageVersionId;
+	if (
+		project.stage === "package" ||
+		project.stage === "production" ||
+		project.stage === "timeline"
+	) {
+		return project.packageVersions.at(-1)?.id ?? null;
+	}
+	return null;
+}
+
 export function updateTopicPackageVersion({
 	project,
 	versionId,
@@ -2134,7 +2382,7 @@ export function updateTopicPackageVersion({
 }): TopicProject {
 	const targetVersionId = getTargetPackageVersionId({ project, versionId });
 	if (!targetVersionId) return project;
-	return {
+	const nextProject = {
 		...project,
 		packageVersions: project.packageVersions.map((version) =>
 			version.id === targetVersionId
@@ -2166,6 +2414,22 @@ export function updateTopicPackageVersion({
 		),
 		updatedAt: now,
 	};
+	if (
+		targetVersionId !== project.activePackageVersionId ||
+		(patch.title === undefined && patch.summary === undefined)
+	) {
+		return nextProject;
+	}
+	const activeVersion = nextProject.packageVersions.find(
+		(version) => version.id === targetVersionId,
+	);
+	return activeVersion
+		? syncScriptTableFromPackageVersion({
+				project: nextProject,
+				version: activeVersion,
+				now,
+			})
+		: nextProject;
 }
 
 export function updateTopicPackageOutlineItem({
@@ -2289,7 +2553,7 @@ export function updateTopicPackageScriptSegment({
 }): TopicProject {
 	const targetVersionId = getTargetPackageVersionId({ project, versionId });
 	if (!targetVersionId || segmentIndex < 0) return project;
-	return {
+	const nextProject = {
 		...project,
 		packageVersions: project.packageVersions.map((version) =>
 			version.id === targetVersionId
@@ -2319,6 +2583,17 @@ export function updateTopicPackageScriptSegment({
 		),
 		updatedAt: now,
 	};
+	if (targetVersionId !== project.activePackageVersionId) return nextProject;
+	const activeVersion = nextProject.packageVersions.find(
+		(version) => version.id === targetVersionId,
+	);
+	return activeVersion
+		? syncScriptTableFromPackageVersion({
+				project: nextProject,
+				version: activeVersion,
+				now,
+			})
+		: nextProject;
 }
 
 function inferProductionVideoType(

@@ -258,6 +258,12 @@ describe("topic workbench tools", () => {
 		expect(updatedVersion?.scriptSegments[1]?.materialSuggestion).toContain(
 			"回写逐字稿和素材建议",
 		);
+		expect(updatedProject?.scriptTableRows[1]?.copy).toContain(
+			"真正要解决的不是让 AI 多说几句",
+		);
+		expect(updatedProject?.scriptTableRows[1]?.visualContent).toContain(
+			"回写逐字稿和素材建议",
+		);
 	});
 
 	test("rejects outline-like single segment rewrites before mutating state", () => {

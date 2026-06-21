@@ -62,19 +62,19 @@ const scriptTableWorkspaceSource = (() => {
 		: "";
 })();
 
-const directScriptCutSource = (() => {
-	const start = topicWorkbenchSource.indexOf(
-		"function buildDirectScriptCutPrompt",
-	);
-	const end = topicWorkbenchSource.indexOf("function getActivePackage", start);
+const packageSectionSource = (() => {
+	const start = topicWorkbenchSource.indexOf("function PackageSection");
+	const end = topicWorkbenchSource.indexOf("function ProductionPlanSection", start);
 	return start >= 0 && end > start
 		? topicWorkbenchSource.slice(start, end)
 		: "";
 })();
 
-const scriptSegmentViewSource = (() => {
-	const start = topicWorkbenchSource.indexOf("function ScriptSegmentViewRow");
-	const end = topicWorkbenchSource.indexOf("function Metric", start);
+const directScriptCutSource = (() => {
+	const start = topicWorkbenchSource.indexOf(
+		"function buildDirectScriptCutPrompt",
+	);
+	const end = topicWorkbenchSource.indexOf("function getActivePackage", start);
 	return start >= 0 && end > start
 		? topicWorkbenchSource.slice(start, end)
 		: "";
@@ -223,10 +223,14 @@ describe("topic workbench integration contract", () => {
 
 	test("keeps script row actions and video metadata visually aligned", () => {
 		expect(topicWorkbenchSource).toContain("SCRIPT_TABLE_GRID_CLASS");
-		expect(topicWorkbenchSource).toContain("_2.75rem]");
+		expect(topicWorkbenchSource).toContain("_3.25rem]");
 		expect(topicWorkbenchSource).toContain("操作");
 		expect(topicWorkbenchSource).toContain(
 			"aria-label={`删除第 ${index + 1} 行`}",
+		);
+		expect(topicWorkbenchSource).toContain("MessageSquarePlus");
+		expect(topicWorkbenchSource).toContain(
+			"aria-label={`把第 ${index + 1} 行添加到左侧 Agent 对话`}",
 		);
 		expect(topicWorkbenchSource).toContain("ScriptTableMetadataField");
 		expect(topicWorkbenchSource).toContain("min-h-28");
@@ -266,7 +270,7 @@ describe("topic workbench integration contract", () => {
 		expect(topicWorkbenchSource).toContain("<img");
 	});
 
-	test("keeps package transcript editing stable and auto-sized", () => {
+	test("reuses the script table for package transcript editing", () => {
 		expect(topicWorkbenchSource).toContain(
 			"const activeProjectStage = activeProject?.stage ?? null",
 		);
@@ -274,21 +278,22 @@ describe("topic workbench integration contract", () => {
 			"[activeProjectId, activeProjectStage, stageSectionRefs]",
 		);
 		expect(topicWorkbenchSource).toContain("useLayoutEffect(() =>");
-		expect(scriptSegmentViewSource).toContain("<AutoResizeTextarea");
-		expect(scriptSegmentViewSource).toContain("minRows={3}");
-		expect(scriptSegmentViewSource).toContain(
-			"aria-label={`逐字稿 ${index + 1}`}",
+		expect(packageSectionSource).toContain("<ScriptTableWorkspace");
+		expect(packageSectionSource).toContain(
+			"onUploadFiles={uploadTopicScriptTableMediaFiles}",
 		);
-		expect(scriptSegmentViewSource).toContain(
-			"aria-label={`素材建议 ${index + 1}`}",
+		expect(packageSectionSource).toContain(
+			"onAddRowToAgent={handleAddScriptRowToAgent}",
 		);
-		expect(scriptSegmentViewSource).not.toContain("resize-y");
+		expect(topicWorkbenchSource).not.toContain("function ScriptSegmentViewRow");
+		expect(topicWorkbenchSource).not.toContain("时间段逐字稿与素材建议");
 	});
 
 	test("routes one package script segment into the left Agent for targeted rewrites", () => {
-		expect(topicWorkbenchSource).toContain("buildScriptSegmentRevisionPrompt");
-		expect(scriptSegmentViewSource).toContain("添加到左侧");
-		expect(scriptSegmentViewSource).toContain(
+		expect(topicWorkbenchSource).toContain("buildScriptTableRowRevisionPrompt");
+		expect(scriptTableWorkspaceSource).toContain("onAddRowToAgent");
+		expect(topicWorkbenchSource).toContain("添加到左侧 Agent 对话");
+		expect(packageSectionSource).toContain(
 			'source: "script-segment-edit"',
 		);
 		expect(topicWorkbenchSource).toContain("topic_get_active_package");

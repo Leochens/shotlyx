@@ -23,7 +23,8 @@ describe("topic workbench UI contract", () => {
 		expect(topicWorkbenchSource).toContain("updateInputMaterial");
 		expect(topicWorkbenchSource).toContain("removeInputMaterial");
 		expect(topicWorkbenchSource).toContain("updatePackageVersion");
-		expect(topicWorkbenchSource).toContain("updateScriptSegment");
+		expect(topicWorkbenchSource).toContain("updateScriptTableRow");
+		expect(topicWorkbenchSource).toContain("ScriptTableWorkspace");
 		expect(topicWorkbenchSource).toContain("updatePackageOutlineItem");
 		expect(topicWorkbenchSource).toContain(
 			"updatePackagePlatformRecommendation",

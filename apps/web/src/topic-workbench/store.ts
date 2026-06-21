@@ -26,6 +26,7 @@ import {
 	resetTopicProjectToStage,
 	selectCandidate,
 	selectStructure,
+	setActiveTopicPackageVersion,
 	toggleResearchInsightHidden,
 	updateTopicScriptTableMetadata,
 	updateCandidate,
@@ -1080,20 +1081,8 @@ export const useTopicWorkbenchStore = create<TopicWorkbenchState>()(
 				set((state) =>
 					updateActiveProject({
 						state,
-						updater: (project) => {
-							const hasVersion = project.packageVersions.some(
-								(version) => version.id === versionId,
-							);
-							if (!hasVersion) return project;
-							return {
-								...project,
-								stage: "package",
-								status: "ready-for-video",
-								activePackageVersionId: versionId,
-								activeProductionPlanId: null,
-								updatedAt: Date.now(),
-							};
-						},
+						updater: (project) =>
+							setActiveTopicPackageVersion({ project, versionId }),
 					}),
 				),
 

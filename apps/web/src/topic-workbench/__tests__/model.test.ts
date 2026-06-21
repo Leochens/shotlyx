@@ -14,6 +14,8 @@ import {
 	resetTopicProjectToStage,
 	selectCandidate,
 	selectStructure,
+	updateTopicScriptTableMetadata,
+	updateTopicScriptTableRow,
 } from "@/topic-workbench/model";
 
 describe("topic workbench model", () => {
@@ -153,12 +155,86 @@ describe("topic workbench model", () => {
 		const firstStep = withStructure.structures[0]?.flow[0];
 		const firstSegment = packaged.packageVersions[0]?.scriptSegments[0];
 		if (!firstStep || !firstSegment) throw new Error("missing script segment");
+		expect(packaged.scriptTableMetadata.title).toBe(
+			packaged.packageVersions[0]?.title,
+		);
+		expect(packaged.scriptTableMetadata.description).toBe(
+			packaged.packageVersions[0]?.summary,
+		);
+		expect(packaged.scriptTableRows).toHaveLength(
+			packaged.packageVersions[0]?.scriptSegments.length ?? 0,
+		);
+		expect(packaged.scriptTableRows[0]?.timeRange).toBe(
+			firstSegment.timeRange,
+		);
+		expect(packaged.scriptTableRows[0]?.copy).toBe(firstSegment.content);
+		expect(packaged.scriptTableRows[0]?.visualContent).toBe(
+			firstSegment.materialSuggestion,
+		);
 		expect(firstSegment.content).not.toBe(
 			`${firstStep.label}：${firstStep.description}`,
 		);
 		expect(firstSegment.content).toContain("今天");
 		expect(firstSegment.content.length).toBeGreaterThan(
 			firstStep.description.length + 40,
+		);
+	});
+
+	test("keeps the active package script in sync with script table edits", () => {
+		const project = createTopicProjectFromPrompt({
+			editorProjectId: "project-1",
+			prompt: "做一个 Shotlyx 选题工作台的视频",
+			now: 1_000,
+		});
+		const candidateId = project.candidates[0]?.id;
+		if (!candidateId) throw new Error("missing candidate");
+		const confirmed = confirmSelectedCandidate({
+			project: selectCandidate({ project, candidateId }),
+		});
+		const structured = advanceToStructureStage({ project: confirmed });
+		const structureId = structured.structures[0]?.id;
+		if (!structureId) throw new Error("missing structure");
+		const packaged = addPackageVersion({
+			project: selectStructure({ project: structured, structureId }),
+			now: 4_000,
+		});
+		const row = packaged.scriptTableRows[0];
+		if (!row) throw new Error("missing script table row");
+
+		const edited = updateTopicScriptTableRow({
+			project: packaged,
+			rowId: row.id,
+			patch: {
+				copy: "这是一段用户直接在脚本表格里改好的逐字稿。",
+				visualContent: "同步使用脚本表格里的画面和素材建议。",
+			},
+			now: 5_000,
+		});
+
+		expect(edited.scriptTableRows[0]?.copy).toBe(
+			"这是一段用户直接在脚本表格里改好的逐字稿。",
+		);
+		expect(edited.packageVersions[0]?.scriptSegments[0]?.content).toBe(
+			"这是一段用户直接在脚本表格里改好的逐字稿。",
+		);
+		expect(
+			edited.packageVersions[0]?.scriptSegments[0]?.materialSuggestion,
+		).toBe("同步使用脚本表格里的画面和素材建议。");
+
+		const metadataEdited = updateTopicScriptTableMetadata({
+			project: edited,
+			patch: {
+				title: "脚本表格里改过的视频标题",
+				description: "脚本表格里改过的视频简介。",
+			},
+			now: 6_000,
+		});
+
+		expect(metadataEdited.packageVersions[0]?.title).toBe(
+			"脚本表格里改过的视频标题",
+		);
+		expect(metadataEdited.packageVersions[0]?.summary).toBe(
+			"脚本表格里改过的视频简介。",
 		);
 	});
 
