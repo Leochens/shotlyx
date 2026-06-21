@@ -7,11 +7,20 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { useReducer, useRef, useState } from "react";
+import { useMemo, useReducer, useRef, useState } from "react";
 import { useEditor } from "@/editor/use-editor";
+import { useElementSelection } from "@/timeline/hooks/element/use-element-selection";
 import { TRANSCRIPTION_DIAGNOSTICS_SCOPE } from "@/transcription/diagnostics";
 import { TRANSCRIPTION_LANGUAGES } from "@/transcription/supported-languages";
 import type { CaptionChunk, TranscriptionLanguage } from "@/transcription/types";
+import {
+	audioRangeToSeconds,
+	getTimelineAudioRange,
+	getTranscriptionAudioElementOptions,
+	resolveSelectedTranscriptionAudioRange,
+	type TranscriptionAudioRange,
+	type TranscriptionAudioElementOption,
+} from "@/transcription/audio-range";
 import {
 	CAPTION_TRANSCRIPTION_PROVIDER_OPTIONS,
 	DEFAULT_CAPTION_TRANSCRIPTION_PROVIDER,
@@ -60,6 +69,18 @@ const IDLE_STATE: ProcessingState = {
 	error: null,
 	warnings: [],
 };
+const AUTO_AUDIO_RANGE_CHOICE = "auto";
+const TIMELINE_AUDIO_RANGE_CHOICE = "timeline";
+
+type AudioRangeChoice = typeof AUTO_AUDIO_RANGE_CHOICE | string;
+
+function elementAudioRangeChoice({
+	option,
+}: {
+	option: TranscriptionAudioElementOption;
+}): string {
+	return `element:${option.elementRef.trackId}:${option.elementRef.elementId}`;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -101,15 +122,45 @@ export function Captions() {
 		useState<CaptionTranscriptionProvider>(
 			DEFAULT_CAPTION_TRANSCRIPTION_PROVIDER,
 		);
+	const [audioRangeChoice, setAudioRangeChoice] = useState<AudioRangeChoice>(
+		AUTO_AUDIO_RANGE_CHOICE,
+	);
 	const [processing, dispatch] = useReducer(processingReducer, IDLE_STATE);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const editor = useEditor();
+	const { selectedElements } = useElementSelection();
+	const mediaAssets = useEditor((e) => e.media.getAssets());
+	const sceneTracks = useEditor((e) => e.scenes.getActiveScene().tracks);
+	const totalDuration = useEditor((e) => e.timeline.getTotalDuration());
 
 	const isProcessing = processing.status === "processing";
 
 	const activeDiagnostics = useEditor((e) =>
 		e.diagnostics.getActive({ scope: TRANSCRIPTION_DIAGNOSTICS_SCOPE }),
+	);
+	const selectedAudioRange = useMemo(
+		() =>
+			resolveSelectedTranscriptionAudioRange({
+				selectedElements,
+				elementsWithTracks: editor.timeline.getElementsWithTracks({
+					elements: selectedElements,
+				}),
+				mediaAssets,
+			}),
+		[editor, mediaAssets, selectedElements],
+	);
+	const timelineAudioRange = useMemo(
+		() => getTimelineAudioRange({ totalDuration }),
+		[totalDuration],
+	);
+	const audioElementOptions = useMemo(
+		() =>
+			getTranscriptionAudioElementOptions({
+				tracks: sceneTracks,
+				mediaAssets,
+			}),
+		[mediaAssets, sceneTracks],
 	);
 
 	const insertCaptions = async ({
@@ -135,6 +186,37 @@ export function Captions() {
 		return true;
 	};
 
+	const getChosenAudioRange = (): TranscriptionAudioRange | null => {
+		if (audioRangeChoice === AUTO_AUDIO_RANGE_CHOICE) {
+			return selectedAudioRange;
+		}
+		if (audioRangeChoice === TIMELINE_AUDIO_RANGE_CHOICE) {
+			return timelineAudioRange;
+		}
+
+		return (
+			audioElementOptions.find(
+				(option) => elementAudioRangeChoice({ option }) === audioRangeChoice,
+			) ?? null
+		);
+	};
+
+	const getAudioRangeParams = ():
+		| {
+				audioRangeStartSeconds: number;
+				audioRangeDurationSeconds: number;
+		  }
+		| Record<string, never> => {
+		const range = getChosenAudioRange();
+		if (!range) return {};
+
+		const { startTimeSeconds, durationSeconds } = audioRangeToSeconds({ range });
+		return {
+			audioRangeStartSeconds: startTimeSeconds,
+			audioRangeDurationSeconds: durationSeconds,
+		};
+	};
+
 	const handleGenerateTranscript = async () => {
 		dispatch({
 			type: "start",
@@ -149,6 +231,7 @@ export function Captions() {
 					language: selectedLanguage,
 					style: "clean",
 					placement: "bottom",
+					...getAudioRangeParams(),
 				},
 				onProgress: (event) => {
 					if (event.status === "running") {
@@ -238,6 +321,7 @@ export function Captions() {
 					placement: "bottom",
 					revealMode: "line",
 					lineBreakMode: "page",
+					...getAudioRangeParams(),
 				},
 				onProgress: (event) => {
 					if (event.status === "running") {
@@ -449,6 +533,34 @@ export function Captions() {
 									{TRANSCRIPTION_LANGUAGES.map((language) => (
 										<SelectItem key={language.code} value={language.code}>
 											{language.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</SectionField>
+						<SectionField label="Audio Source">
+							<Select
+								value={audioRangeChoice}
+								onValueChange={(value) => setAudioRangeChoice(value)}
+							>
+								<SelectTrigger>
+									<SelectValue placeholder="Select audio source" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value={AUTO_AUDIO_RANGE_CHOICE}>
+										{selectedAudioRange
+											? `Auto: ${selectedAudioRange.label}`
+											: "Auto: Full timeline"}
+									</SelectItem>
+									<SelectItem value={TIMELINE_AUDIO_RANGE_CHOICE}>
+										Full timeline mixed audio
+									</SelectItem>
+									{audioElementOptions.map((option) => (
+										<SelectItem
+											key={`${option.elementRef.trackId}:${option.elementRef.elementId}`}
+											value={elementAudioRangeChoice({ option })}
+										>
+											{option.label}
 										</SelectItem>
 									))}
 								</SelectContent>

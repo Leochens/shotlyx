@@ -733,12 +733,14 @@ export async function createTimelineAudioBuffer({
 	tracks,
 	mediaAssets,
 	duration,
+	rangeStart = 0,
 	sampleRate = EXPORT_SAMPLE_RATE,
 	audioContext,
 }: {
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
 	duration: number;
+	rangeStart?: number;
 	sampleRate?: number;
 	audioContext?: AudioContext;
 }): Promise<AudioBuffer | null> {
@@ -754,6 +756,8 @@ export async function createTimelineAudioBuffer({
 
 	const outputChannels = 2;
 	const durationSeconds = duration / TICKS_PER_SECOND;
+	const rangeStartSeconds = rangeStart / TICKS_PER_SECOND;
+	const rangeEndSeconds = rangeStartSeconds + durationSeconds;
 	const outputLength = Math.ceil(durationSeconds * sampleRate);
 	const outputBuffer = context.createBuffer(
 		outputChannels,
@@ -763,6 +767,8 @@ export async function createTimelineAudioBuffer({
 
 	for (const element of audioElements) {
 		if (element.muted) continue;
+		if (element.startTime + element.duration <= rangeStartSeconds) continue;
+		if (element.startTime >= rangeEndSeconds) continue;
 
 		const renderedBuffer = shouldMaintainPitch({
 			rate: element.retime?.rate ?? 1,
@@ -785,6 +791,7 @@ export async function createTimelineAudioBuffer({
 			retime: renderedBuffer ? undefined : element.retime,
 			outputBuffer,
 			outputLength,
+			outputOffsetSeconds: rangeStartSeconds,
 			sampleRate,
 		});
 	}
@@ -925,6 +932,7 @@ function mixAudioChannels({
 	retime,
 	outputBuffer,
 	outputLength,
+	outputOffsetSeconds,
 	sampleRate,
 }: {
 	element: CollectedAudioElement;
@@ -933,11 +941,14 @@ function mixAudioChannels({
 	retime?: RetimeConfig;
 	outputBuffer: AudioBuffer;
 	outputLength: number;
+	outputOffsetSeconds: number;
 	sampleRate: number;
 }): void {
 	const { startTime, duration: elementDuration } = element;
 
-	const outputStartSample = Math.floor(startTime * sampleRate);
+	const outputStartSample = Math.floor(
+		(startTime - outputOffsetSeconds) * sampleRate,
+	);
 	const renderedLength = Math.ceil(elementDuration * sampleRate);
 
 	const outputChannels = 2;
@@ -948,6 +959,7 @@ function mixAudioChannels({
 
 		for (let i = 0; i < renderedLength; i++) {
 			const outputIndex = outputStartSample + i;
+			if (outputIndex < 0) continue;
 			if (outputIndex >= outputLength) break;
 
 			const clipTime = i / sampleRate;

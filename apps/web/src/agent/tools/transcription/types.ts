@@ -63,6 +63,8 @@ export interface GenerateSubtitlesFromVideoInput {
 	lineBreakMode?: string;
 	maxCharsPerLine?: number;
 	highlightColor?: string;
+	audioRangeStartSeconds?: number;
+	audioRangeDurationSeconds?: number;
 	saveAsset?: boolean;
 	abortSignal?: AbortSignal;
 	onProgress?: (event: ToolProgressEvent) => void;

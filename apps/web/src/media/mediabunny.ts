@@ -87,14 +87,25 @@ export const extractTimelineAudio = async ({
 	tracks,
 	mediaAssets,
 	totalDuration,
+	rangeStart = 0,
+	rangeDuration,
 	onProgress,
 }: {
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
 	totalDuration: number;
+	rangeStart?: number;
+	rangeDuration?: number;
 	onProgress?: (progress: number) => void;
 }): Promise<Blob> => {
-	if (totalDuration === 0) {
+	const normalizedRangeStart = Math.max(0, Math.min(rangeStart, totalDuration));
+	const maxRangeDuration = Math.max(0, totalDuration - normalizedRangeStart);
+	const normalizedRangeDuration = Math.max(
+		0,
+		Math.min(rangeDuration ?? maxRangeDuration, maxRangeDuration),
+	);
+
+	if (totalDuration === 0 || normalizedRangeDuration === 0) {
 		return createWavBlob({
 			samples: new Float32Array(
 				SAMPLE_RATE * EMPTY_TIMELINE_SILENT_DURATION_SECONDS,
@@ -107,14 +118,15 @@ export const extractTimelineAudio = async ({
 	const audioBuffer = await createTimelineAudioBuffer({
 		tracks,
 		mediaAssets,
-		duration: totalDuration,
+		duration: normalizedRangeDuration,
+		rangeStart: normalizedRangeStart,
 		sampleRate: SAMPLE_RATE,
 	});
 
 	if (!audioBuffer) {
 		const silentDurationSeconds = Math.max(
 			MIN_SILENT_DURATION_SECONDS,
-			totalDuration / TICKS_PER_SECOND,
+			normalizedRangeDuration / TICKS_PER_SECOND,
 		);
 		const silentSamples = new Float32Array(
 			Math.ceil(silentDurationSeconds * SAMPLE_RATE) * NUM_CHANNELS,

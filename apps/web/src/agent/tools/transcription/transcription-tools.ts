@@ -19,6 +19,13 @@ import type {
 } from "@/transcription/types";
 import type { SubtitleToken } from "@/subtitles/types";
 import { formatSrt } from "@/subtitles/srt";
+import {
+	audioRangeToSeconds,
+	getTimelineAudioRange,
+	resolveSelectedTranscriptionAudioRange,
+	type TranscriptionAudioRange,
+} from "@/transcription/audio-range";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
 const DEFAULT_TRANSCRIPTION_SOURCE = "timeline";
 const DEFAULT_TRANSCRIPTION_PROVIDER = "volcengine";
@@ -277,6 +284,34 @@ function sanitizeGeneratedTranscription({
 	};
 }
 
+function shiftGeneratedTranscription({
+	transcription,
+	offsetSeconds,
+}: {
+	transcription: TranscribeAudioResult;
+	offsetSeconds: number;
+}): TranscribeAudioResult {
+	if (offsetSeconds === 0) {
+		return transcription;
+	}
+
+	return {
+		...transcription,
+		cues: transcription.cues.map((cue) => ({
+			...cue,
+			startTimeSeconds: cue.startTimeSeconds + offsetSeconds,
+			...(cue.tokens
+				? {
+						tokens: cue.tokens.map((token) => ({
+							...token,
+							startTime: token.startTime + offsetSeconds,
+						})),
+					}
+				: {}),
+		})),
+	};
+}
+
 function buildTimelineAudioFile({ blob }: { blob: Blob }): File {
 	return new File([blob], "shotlyx-timeline-audio.wav", {
 		type: blob.type || "audio/wav",
@@ -339,6 +374,57 @@ async function saveTranscriptionSubtitleAsset({
 		subtitleAssetId: result.id,
 		subtitleAssetName: result.name,
 	};
+}
+
+function resolveRequestedAudioRange({
+	input,
+	editor,
+}: {
+	input: GenerateSubtitlesFromVideoInput;
+	editor: EditorCore;
+}): TranscriptionAudioRange {
+	const totalDuration = editor.timeline.getTotalDuration();
+	if (
+		typeof input.audioRangeStartSeconds === "number" &&
+		Number.isFinite(input.audioRangeStartSeconds) &&
+		typeof input.audioRangeDurationSeconds === "number" &&
+		Number.isFinite(input.audioRangeDurationSeconds) &&
+		input.audioRangeDurationSeconds > 0
+	) {
+		return {
+			kind: "element",
+			startTime: Math.round(
+				Math.max(0, input.audioRangeStartSeconds) *
+					MEDIA_TIME_TICKS_PER_SECOND,
+			),
+			duration: Math.round(
+				input.audioRangeDurationSeconds * MEDIA_TIME_TICKS_PER_SECOND,
+			),
+			label: "Selected range mixed audio",
+		};
+	}
+
+	let selectedElements: ReturnType<EditorCore["selection"]["getSelectedElements"]> =
+		[];
+	try {
+		selectedElements = editor.selection.getSelectedElements();
+	} catch {
+		selectedElements = [];
+	}
+	if (selectedElements.length > 0) {
+		const selectedRange = resolveSelectedTranscriptionAudioRange({
+			selectedElements,
+			elementsWithTracks: editor.timeline.getElementsWithTracks({
+				elements: selectedElements,
+			}),
+			mediaAssets: editor.media.getAssets(),
+		});
+		if (selectedRange) {
+			return selectedRange;
+		}
+	}
+
+	return getTimelineAudioRange({ totalDuration });
 }
 
 function normalizeLocalLanguage({
@@ -544,10 +630,16 @@ export function createTranscriptionToolDeps({
 			if (source !== "timeline") {
 				throw new Error(`类型不匹配：暂不支持字幕来源 "${source}"`);
 			}
+			const audioRange = resolveRequestedAudioRange({ input, editor });
+			const audioRangeSeconds = audioRangeToSeconds({ range: audioRange });
 			input.onProgress?.({
 				stage: "audio-extract",
-				label: "正在从当前时间线提取音频",
+				label:
+					audioRange.kind === "timeline"
+						? "正在从当前时间线提取音频"
+						: "正在从所选片段范围提取混合音频",
 				status: "running",
+				detail: audioRange.label,
 			});
 			const audioExtractor =
 				extractTimelineAudioFn ??
@@ -556,11 +648,14 @@ export function createTranscriptionToolDeps({
 				tracks: editor.scenes.getActiveScene().tracks,
 				mediaAssets: editor.media.getAssets(),
 				totalDuration: editor.timeline.getTotalDuration(),
+				rangeStart: audioRange.startTime,
+				rangeDuration: audioRange.duration,
 			});
 			input.onProgress?.({
 				stage: "audio-extract",
 				label: "音频已提取",
 				status: "success",
+				detail: audioRange.label,
 			});
 
 			const provider = input.provider ?? DEFAULT_TRANSCRIPTION_PROVIDER;
@@ -593,16 +688,20 @@ export function createTranscriptionToolDeps({
 			const transcription = sanitizeGeneratedTranscription({
 				transcription: rawTranscription,
 			});
+			const timelineTranscription = shiftGeneratedTranscription({
+				transcription,
+				offsetSeconds: audioRangeSeconds.startTimeSeconds,
+			});
 			input.onProgress?.({
 				stage: "asr-provider",
 				label: "字幕识别完成",
 				status: "success",
-				detail: transcription.provider,
+				detail: timelineTranscription.provider,
 				current: 100,
 				total: 100,
 			});
 
-			if (transcription.cues.length === 0) {
+			if (timelineTranscription.cues.length === 0) {
 				throw new Error("字幕为空：ASR 没有返回有效字幕 cue");
 			}
 
@@ -619,7 +718,7 @@ export function createTranscriptionToolDeps({
 				try {
 					subtitleAsset = await saveTranscriptionSubtitleAsset({
 						editor,
-						transcription,
+						transcription: timelineTranscription,
 					});
 					input.onProgress?.({
 						stage: "subtitle-asset",
@@ -649,7 +748,7 @@ export function createTranscriptionToolDeps({
 				toolName: "subtitles_import",
 				params: {
 					format: "cues",
-					cues: transcription.cues,
+					cues: timelineTranscription.cues,
 					style: input.style ?? DEFAULT_SUBTITLE_STYLE,
 					placement: input.placement ?? DEFAULT_SUBTITLE_PLACEMENT,
 					...(subtitleAsset.subtitleAssetId
@@ -686,18 +785,26 @@ export function createTranscriptionToolDeps({
 			});
 			return {
 				imported: true,
-				provider: transcription.provider,
+				provider: timelineTranscription.provider,
 				cueCount:
 					typeof data.cueCount === "number"
 						? data.cueCount
-						: transcription.cues.length,
+						: timelineTranscription.cues.length,
 				groupId: typeof data.groupId === "string" ? data.groupId : undefined,
 				trackId: typeof data.trackId === "string" ? data.trackId : undefined,
 				...subtitleAsset,
-				language: transcription.language,
-				model: transcription.model,
-				text: transcription.text,
-				metadata: transcription.metadata,
+				language: timelineTranscription.language,
+				model: timelineTranscription.model,
+				text: timelineTranscription.text,
+				metadata: {
+					...(timelineTranscription.metadata ?? {}),
+					audioRange: {
+						kind: audioRange.kind,
+						label: audioRange.label,
+						startTimeSeconds: audioRangeSeconds.startTimeSeconds,
+						durationSeconds: audioRangeSeconds.durationSeconds,
+					},
+				},
 			};
 		},
 	};
@@ -776,6 +883,18 @@ export function buildTranscriptionTools({
 					description: "karaoke 高亮颜色，例如 #22d3ee。",
 					optional: true,
 				},
+				audioRangeStartSeconds: {
+					type: "number",
+					description:
+						"可选识别起点，单位秒。省略时若用户已选中有声音频/视频片段，会自动使用所选片段范围；否则使用整条时间线。",
+					optional: true,
+				},
+				audioRangeDurationSeconds: {
+					type: "number",
+					description:
+						"可选识别时长，单位秒。与 audioRangeStartSeconds 一起传入时，会提取该时间范围内的时间线混合音频。",
+					optional: true,
+				},
 				saveAsset: {
 					type: "boolean",
 					description:
@@ -824,6 +943,14 @@ export function buildTranscriptionTools({
 						params,
 						key: "highlightColor",
 					}),
+					audioRangeStartSeconds: optionalNumberParam(
+						params,
+						"audioRangeStartSeconds",
+					),
+					audioRangeDurationSeconds: optionalNumberParam(
+						params,
+						"audioRangeDurationSeconds",
+					),
 					saveAsset: optionalBooleanParam(params, "saveAsset") ?? true,
 					abortSignal: context?.signal,
 					onProgress: context?.onProgress,

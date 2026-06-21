@@ -32,6 +32,8 @@ describe("transcription tools", () => {
 			lineBreakMode: { type: "string", optional: true },
 			maxCharsPerLine: { type: "number", optional: true },
 			highlightColor: { type: "string", optional: true },
+			audioRangeStartSeconds: { type: "number", optional: true },
+			audioRangeDurationSeconds: { type: "number", optional: true },
 			saveAsset: { type: "boolean", optional: true },
 		});
 	});
@@ -56,6 +58,8 @@ describe("transcription tools", () => {
 			lineBreakMode: "page",
 			maxCharsPerLine: 12,
 			highlightColor: "#ffcc00",
+			audioRangeStartSeconds: 3,
+			audioRangeDurationSeconds: 8,
 		});
 
 		expect(generateSubtitlesFromVideo).toHaveBeenCalledWith(
@@ -70,6 +74,8 @@ describe("transcription tools", () => {
 				lineBreakMode: "page",
 				maxCharsPerLine: 12,
 				highlightColor: "#ffcc00",
+				audioRangeStartSeconds: 3,
+				audioRangeDurationSeconds: 8,
 				saveAsset: true,
 			}),
 		);
@@ -352,6 +358,115 @@ describe("transcription tools", () => {
 			}),
 		);
 		expect(result.text).toBe("你好Shotlyx今天继续");
+	});
+
+	test("client deps transcribe an explicit mixed timeline range and offset imported cues", async () => {
+		const addMediaAsset = mock(
+			async ({ asset }: { asset: { name: string } }) => ({
+				id: "subtitle-asset",
+				name: asset.name,
+			}),
+		);
+		const execute = mock(async () => ({
+			status: "success" as const,
+			data: { imported: true, cueCount: 1, trackId: "subtitle-track" },
+		}));
+		const editor = {
+			scenes: {
+				getActiveScene: () => ({
+					tracks: {
+						main: { id: "main", elements: [] },
+						overlay: [],
+						audio: [],
+					},
+				}),
+			},
+			project: { getActive: () => ({ metadata: { id: "project-1" } }) },
+			media: { getAssets: () => [], addMediaAsset },
+			timeline: {
+				getTotalDuration: () => 20 * MEDIA_TIME_TICKS_PER_SECOND,
+			},
+			mcp: { execute },
+		} as unknown as EditorCore;
+		const extractTimelineAudioFn = mock(async () => {
+			return new Blob([new Uint8Array([1, 2, 3])], { type: "audio/wav" });
+		});
+		const fetchFn = mock(async () => {
+			return new Response(
+				JSON.stringify({
+					text: "选区字幕",
+					provider: "volcengine",
+					cues: [
+						{
+							text: "选区字幕",
+							startTimeSeconds: 0.4,
+							durationSeconds: 1.2,
+							tokens: [
+								{ text: "选区", startTime: 0.4, duration: 0.4 },
+								{ text: "字幕", startTime: 0.9, duration: 0.5 },
+							],
+						},
+					],
+				}),
+				{ headers: { "Content-Type": "application/json" } },
+			);
+		});
+		const deps = createTranscriptionToolDeps({
+			editor,
+			fetchFn: fetchFn as unknown as typeof fetch,
+			extractTimelineAudioFn,
+		});
+
+		const result = await deps.generateSubtitlesFromVideo({
+			source: "timeline",
+			provider: "volcengine",
+			audioRangeStartSeconds: 5,
+			audioRangeDurationSeconds: 2,
+		});
+
+		expect(extractTimelineAudioFn).toHaveBeenCalledWith(
+			expect.objectContaining({
+				totalDuration: 20 * MEDIA_TIME_TICKS_PER_SECOND,
+				rangeStart: 5 * MEDIA_TIME_TICKS_PER_SECOND,
+				rangeDuration: 2 * MEDIA_TIME_TICKS_PER_SECOND,
+			}),
+		);
+		expect(execute).toHaveBeenCalledWith(
+			expect.objectContaining({
+				toolName: "subtitles_import",
+				params: expect.objectContaining({
+					cues: [
+						expect.objectContaining({
+							text: "选区字幕",
+							startTimeSeconds: 5.4,
+							durationSeconds: 1.2,
+							tokens: [
+								{ text: "选区", startTime: 5.4, duration: 0.4 },
+								{ text: "字幕", startTime: 5.9, duration: 0.5 },
+							],
+						}),
+					],
+				}),
+			}),
+		);
+		expect(result.metadata).toMatchObject({
+			audioRange: {
+				kind: "element",
+				startTimeSeconds: 5,
+				durationSeconds: 2,
+			},
+		});
+		const addMediaCall = addMediaAsset.mock.calls[0]?.[0] as {
+			asset: { file: File };
+		};
+		expect(await addMediaCall.asset.file.text()).toBe(
+			[
+				"1",
+				"00:00:05,400 --> 00:00:06,600",
+				"选区字幕",
+				"",
+			].join("\n"),
+		);
 	});
 
 	test("client deps emit cloud ASR recognition progress while the request is pending", async () => {
