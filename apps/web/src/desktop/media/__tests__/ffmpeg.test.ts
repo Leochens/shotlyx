@@ -3,10 +3,14 @@ import path from "node:path";
 import {
 	buildExtractAudioArgs,
 	buildExtractKeyframeArgs,
+	buildTranscodeToAlphaWebmArgs,
+	buildTranscodeToBrowserMp4Args,
+	probeHasAlphaVideo,
 	parseSceneDetectionOutput,
 	parseSilenceDetectOutput,
 	resolveFfmpegBundleKey,
 	resolveFfmpegPaths,
+	selectBrowserVideoTranscodePlan,
 } from "../ffmpeg";
 
 describe("desktop ffmpeg resources", () => {
@@ -57,8 +61,7 @@ describe("desktop ffmpeg resources", () => {
 			platform: "darwin",
 			arch: "arm64",
 			repoRoot: "/repo",
-			resourcesPath:
-				"/Applications/Shotlyx Desktop.app/Contents/Resources",
+			resourcesPath: "/Applications/Shotlyx Desktop.app/Contents/Resources",
 		});
 
 		expect(paths).toEqual({
@@ -155,5 +158,108 @@ describe("desktop ffmpeg resources", () => {
 			"pcm_s16le",
 			"/tmp/audio.wav",
 		]);
+	});
+
+	test("builds browser-compatible MP4 transcode args", () => {
+		expect(
+			buildTranscodeToBrowserMp4Args({
+				inputPath: "/video/demo.mov",
+				outputPath: "/tmp/demo.mp4",
+			}),
+		).toEqual([
+			"-hide_banner",
+			"-nostdin",
+			"-y",
+			"-i",
+			"/video/demo.mov",
+			"-map",
+			"0:v:0",
+			"-map",
+			"0:a?",
+			"-c:v",
+			"libx264",
+			"-preset",
+			"veryfast",
+			"-pix_fmt",
+			"yuv420p",
+			"-movflags",
+			"+faststart",
+			"-c:a",
+			"aac",
+			"-b:a",
+			"192k",
+			"/tmp/demo.mp4",
+		]);
+	});
+
+	test("builds alpha-preserving WebM transcode args", () => {
+		expect(
+			buildTranscodeToAlphaWebmArgs({
+				inputPath: "/video/overlay.mov",
+				outputPath: "/tmp/overlay.webm",
+			}),
+		).toEqual([
+			"-hide_banner",
+			"-nostdin",
+			"-y",
+			"-i",
+			"/video/overlay.mov",
+			"-map",
+			"0:v:0",
+			"-map",
+			"0:a?",
+			"-c:v",
+			"libvpx-vp9",
+			"-pix_fmt",
+			"yuva420p",
+			"-auto-alt-ref",
+			"0",
+			"-lossless",
+			"1",
+			"-c:a",
+			"libopus",
+			"/tmp/overlay.webm",
+		]);
+	});
+
+	test("selects alpha WebM only when ffprobe reports an alpha video stream", () => {
+		const alphaProbe = {
+			streams: [
+				{
+					codec_type: "video",
+					pix_fmt: "argb",
+				},
+			],
+		};
+		const normalProbe = {
+			streams: [
+				{
+					codec_type: "video",
+					pix_fmt: "yuv420p",
+				},
+			],
+		};
+		const alphaTagProbe = {
+			streams: [
+				{
+					codec_type: "video",
+					pix_fmt: "yuv420p",
+					tags: { alpha_mode: 1 },
+				},
+			],
+		};
+
+		expect(probeHasAlphaVideo({ probe: alphaProbe })).toBe(true);
+		expect(probeHasAlphaVideo({ probe: alphaTagProbe })).toBe(true);
+		expect(selectBrowserVideoTranscodePlan({ probe: alphaProbe })).toEqual({
+			contentType: "video/webm",
+			extension: ".webm",
+			target: "webm-alpha",
+		});
+		expect(selectBrowserVideoTranscodePlan({ probe: normalProbe })).toEqual({
+			contentType: "video/mp4",
+			extension: ".mp4",
+			target: "mp4",
+		});
 	});
 });

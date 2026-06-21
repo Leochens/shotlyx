@@ -24,6 +24,14 @@ export interface RunFfmpegCommandInput {
 	timeoutMs?: number;
 }
 
+export type BrowserVideoTranscodeTarget = "mp4" | "webm-alpha";
+
+export interface BrowserVideoTranscodePlan {
+	contentType: "video/mp4" | "video/webm";
+	extension: ".mp4" | ".webm";
+	target: BrowserVideoTranscodeTarget;
+}
+
 const DEFAULT_FFMPEG_TIMEOUT_MS = 120_000;
 
 function getProcessResourcesPath(): string | undefined {
@@ -267,6 +275,157 @@ export async function detectSilenceDurations({
 		],
 	});
 	return parseSilenceDetectOutput(stderr);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getStreamTags({ stream }: { stream: Record<string, unknown> }) {
+	const tags = stream.tags;
+	return isRecord(tags) ? tags : {};
+}
+
+export function videoStreamHasAlpha({ stream }: { stream: unknown }): boolean {
+	if (!isRecord(stream)) return false;
+	const tags = getStreamTags({ stream });
+	if (tags.alpha_mode === "1" || tags.alpha_mode === 1) return true;
+	if (
+		Array.isArray(stream.side_data_list) &&
+		stream.side_data_list.some((item) => {
+			if (!isRecord(item)) return false;
+			const sideDataType =
+				typeof item.side_data_type === "string" ? item.side_data_type : "";
+			return sideDataType.toLowerCase().includes("alpha");
+		})
+	) {
+		return true;
+	}
+
+	const pixFmt = typeof stream.pix_fmt === "string" ? stream.pix_fmt : "";
+	return /(^|[^a-z])(argb|rgba|abgr|bgra|yuva|gbrap|ya\d*|pal8)([^a-z]|$)/i.test(
+		pixFmt,
+	);
+}
+
+export function probeHasAlphaVideo({ probe }: { probe: unknown }): boolean {
+	if (!isRecord(probe) || !Array.isArray(probe.streams)) return false;
+	return probe.streams.some((stream) => {
+		if (!isRecord(stream)) return false;
+		const codecType = stream.codec_type;
+		return (
+			(codecType === undefined || codecType === "video") &&
+			videoStreamHasAlpha({ stream })
+		);
+	});
+}
+
+export function selectBrowserVideoTranscodePlan({
+	probe,
+}: {
+	probe: unknown;
+}): BrowserVideoTranscodePlan {
+	if (probeHasAlphaVideo({ probe })) {
+		return {
+			contentType: "video/webm",
+			extension: ".webm",
+			target: "webm-alpha",
+		};
+	}
+	return {
+		contentType: "video/mp4",
+		extension: ".mp4",
+		target: "mp4",
+	};
+}
+
+export function buildTranscodeToBrowserMp4Args({
+	inputPath,
+	outputPath,
+}: {
+	inputPath: string;
+	outputPath: string;
+}): string[] {
+	return [
+		"-hide_banner",
+		"-nostdin",
+		"-y",
+		"-i",
+		inputPath,
+		"-map",
+		"0:v:0",
+		"-map",
+		"0:a?",
+		"-c:v",
+		"libx264",
+		"-preset",
+		"veryfast",
+		"-pix_fmt",
+		"yuv420p",
+		"-movflags",
+		"+faststart",
+		"-c:a",
+		"aac",
+		"-b:a",
+		"192k",
+		outputPath,
+	];
+}
+
+export function buildTranscodeToAlphaWebmArgs({
+	inputPath,
+	outputPath,
+}: {
+	inputPath: string;
+	outputPath: string;
+}): string[] {
+	return [
+		"-hide_banner",
+		"-nostdin",
+		"-y",
+		"-i",
+		inputPath,
+		"-map",
+		"0:v:0",
+		"-map",
+		"0:a?",
+		"-c:v",
+		"libvpx-vp9",
+		"-pix_fmt",
+		"yuva420p",
+		"-auto-alt-ref",
+		"0",
+		"-lossless",
+		"1",
+		"-c:a",
+		"libopus",
+		outputPath,
+	];
+}
+
+export async function transcodeToBrowserVideo({
+	ffmpegPath,
+	inputPath,
+	outputPath,
+	target,
+}: {
+	ffmpegPath: string;
+	inputPath: string;
+	outputPath: string;
+	target: BrowserVideoTranscodeTarget;
+}): Promise<string> {
+	await fs.mkdir(path.dirname(outputPath), { recursive: true });
+	await runFfmpegCommand({
+		binaryPath: ffmpegPath,
+		args:
+			target === "webm-alpha"
+				? buildTranscodeToAlphaWebmArgs({ inputPath, outputPath })
+				: buildTranscodeToBrowserMp4Args({
+						inputPath,
+						outputPath,
+					}),
+	});
+	return outputPath;
 }
 
 export function buildExtractKeyframeArgs({

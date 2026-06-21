@@ -29,6 +29,7 @@ import * as desktopMediaLibraryOpenRoute from "@/api/desktop/media-library/open/
 import * as desktopMediaLibrarySelectRoute from "@/api/desktop/media-library/select/route";
 import * as desktopMediaAnalyzeRoute from "@/api/desktop/media/analyze/route";
 import * as desktopMediaKeyframeRoute from "@/api/desktop/media/keyframe/route";
+import * as desktopMediaPrepareVideoRoute from "@/api/desktop/media/prepare-video/route";
 import * as desktopMediaTranscriptRoute from "@/api/desktop/media/transcript/route";
 import * as desktopModelsRoute from "@/api/desktop/models/route";
 import * as desktopRemotionMgRenderRoute from "@/api/desktop/remotion/mg-render/route";
@@ -115,6 +116,7 @@ const staticRoutes = new Map<string, RouteModule>([
 	["/api/desktop/media-library/select", desktopMediaLibrarySelectRoute],
 	["/api/desktop/media/analyze", desktopMediaAnalyzeRoute],
 	["/api/desktop/media/keyframe", desktopMediaKeyframeRoute],
+	["/api/desktop/media/prepare-video", desktopMediaPrepareVideoRoute],
 	["/api/desktop/media/transcript", desktopMediaTranscriptRoute],
 	["/api/desktop/models", desktopModelsRoute],
 	["/api/desktop/remotion/mg-render", desktopRemotionMgRenderRoute],

@@ -9,6 +9,8 @@ import { renderThumbnailDataUrl } from "./thumbnail";
 
 export type ProcessedMediaAsset = Omit<MediaAsset, "id">;
 
+const DESKTOP_VIDEO_PREPARE_ENDPOINT = "/api/desktop/media/prepare-video";
+
 const getUnsupportedVideoDescription = ({
 	codec,
 }: {
@@ -38,6 +40,90 @@ const getStorageLimitDescription = ({
 		bytes: availableBytes,
 	})} is safely available in browser storage.`;
 };
+
+function isDesktopMode(): boolean {
+	return process.env.VITE_SHOTLYX_DESKTOP === "1";
+}
+
+function getPreparedVideoFileName({
+	contentType,
+	fileName,
+}: {
+	contentType: string;
+	fileName: string;
+}): string {
+	const dotIndex = fileName.lastIndexOf(".");
+	const baseName =
+		dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName || "video";
+	const extension = contentType === "video/webm" ? "webm" : "mp4";
+	return `${baseName || "video"}.${extension}`;
+}
+
+async function prepareVideoForDesktopPreview({
+	file,
+}: {
+	file: File;
+}): Promise<File> {
+	const params = new URLSearchParams({ name: file.name });
+	const response = await fetch(`${DESKTOP_VIDEO_PREPARE_ENDPOINT}?${params}`, {
+		body: file,
+		headers: file.type ? { "Content-Type": file.type } : undefined,
+		method: "POST",
+	});
+	if (!response.ok) {
+		let message = `Video preparation failed: ${response.status}`;
+		try {
+			const body = await response.json();
+			if (typeof body === "object" && body !== null) {
+				const bodyMessage = Reflect.get(body, "message");
+				const bodyError = Reflect.get(body, "error");
+				message =
+					(typeof bodyMessage === "string" && bodyMessage) ||
+					(typeof bodyError === "string" && bodyError) ||
+					message;
+			}
+		} catch {
+			// Keep the status-based message.
+		}
+		throw new Error(message);
+	}
+
+	const blob = await response.blob();
+	const encodedName = response.headers.get("X-Shotlyx-Filename");
+	const contentType =
+		blob.type || response.headers.get("Content-Type") || "video/mp4";
+	const name = encodedName
+		? decodeURIComponent(encodedName)
+		: getPreparedVideoFileName({ contentType, fileName: file.name });
+	return new File([blob], name, {
+		lastModified: file.lastModified,
+		type: contentType,
+	});
+}
+
+async function readPreviewableVideoFile({ file }: { file: File }): Promise<{
+	file: File;
+	videoData: VideoFileData;
+	wasPrepared: boolean;
+}> {
+	const videoData = await readVideoFile({ file });
+	if (videoData.canDecode || !isDesktopMode()) {
+		return { file, videoData, wasPrepared: false };
+	}
+
+	try {
+		const preparedFile = await prepareVideoForDesktopPreview({ file });
+		const preparedVideoData = await readVideoFile({ file: preparedFile });
+		return {
+			file: preparedFile,
+			videoData: preparedVideoData,
+			wasPrepared: true,
+		};
+	} catch (error) {
+		console.warn("Failed to prepare video for desktop preview:", error);
+		return { file, videoData, wasPrepared: false };
+	}
+}
 
 async function generateImageThumbnail({
 	imageFile,
@@ -117,7 +203,8 @@ export async function processMediaAssets({
 			continue;
 		}
 
-		const url = URL.createObjectURL(file);
+		let assetFile = file;
+		let url = URL.createObjectURL(assetFile);
 		let thumbnailUrl: string | undefined;
 		let duration: number | undefined;
 		let width: number | undefined;
@@ -133,7 +220,13 @@ export async function processMediaAssets({
 				height = result.height;
 			} else if (fileType === "video") {
 				try {
-					const videoData = await readVideoFile({ file });
+					const videoResult = await readPreviewableVideoFile({ file });
+					if (videoResult.wasPrepared) {
+						URL.revokeObjectURL(url);
+						assetFile = videoResult.file;
+						url = URL.createObjectURL(assetFile);
+					}
+					const videoData = videoResult.videoData;
 					duration = videoData.duration;
 					width = videoData.width;
 					height = videoData.height;
@@ -152,9 +245,7 @@ export async function processMediaAssets({
 					}
 				} catch (error) {
 					const message =
-						error instanceof Error
-							? error.message
-							: "Could not process video";
+						error instanceof Error ? error.message : "Could not process video";
 
 					toast.error(`Couldn't process ${file.name}`, {
 						description: message,
@@ -167,9 +258,9 @@ export async function processMediaAssets({
 			}
 
 			processedAssets.push({
-				name: file.name,
+				name: assetFile.name,
 				type: fileType,
-				file,
+				file: assetFile,
 				url,
 				thumbnailUrl,
 				duration,
