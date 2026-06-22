@@ -88,6 +88,7 @@ import { getTrackTypeForElementType } from "@/timeline/placement/compatibility";
 import { isCompoundElement } from "@/timeline/compound-elements";
 import { useTimelineStore } from "@/timeline/timeline-store";
 import { KEYFRAME_LANE_HEIGHT_PX } from "./layout";
+import { getResizeHandleVisualVariant } from "./resize-handle-visuals";
 import {
 	getExpandedRows,
 	getExpansionHeight,
@@ -726,17 +727,20 @@ function ResizeHandle({
 	}) => void;
 }) {
 	const isLeft = side === "left";
+	const visualVariant = getResizeHandleVisualVariant({
+		isRollingHighlighted: isHighlighted,
+	});
+	const isRolling = visualVariant === "rolling";
 	return (
 		<button
 			type="button"
 			className={cn(
-				"pointer-events-auto absolute top-0 bottom-0 z-10 w-2 opacity-0 transition-opacity",
-				"bg-primary/70 hover:bg-primary focus-visible:bg-primary focus-visible:opacity-100",
+				"pointer-events-auto absolute top-0 bottom-0 z-10 opacity-0 transition-opacity",
 				"group-hover/element:opacity-100",
 				(isSelected || isHighlighted) && "opacity-100",
 				isLeft
-					? "-left-1 cursor-w-resize rounded-l-sm"
-					: "-right-1 cursor-e-resize rounded-r-sm",
+					? "-left-2 w-4 cursor-w-resize"
+					: "-right-2 w-4 cursor-e-resize",
 			)}
 			onMouseEnter={() =>
 				onHoverChange?.({ element, side, isHovered: true })
@@ -749,7 +753,31 @@ function ResizeHandle({
 			onMouseDown={(event) => onResizeStart({ event, element, track, side })}
 			onClick={(event) => event.stopPropagation()}
 			aria-label={`${isLeft ? "Left" : "Right"} resize handle`}
-		></button>
+		>
+			<span
+				className={cn(
+					"absolute top-0 bottom-0 transition-all",
+					isRolling
+						? "w-5 rounded-sm bg-cyan-500/20 shadow-[0_0_0_1px_rgba(34,211,238,0.35),0_0_18px_rgba(34,211,238,0.28)]"
+						: "w-2 rounded-sm bg-primary/70 hover:bg-primary focus-visible:bg-primary",
+					isLeft ? "left-0" : "right-0",
+				)}
+			>
+				<span
+					className={cn(
+						"absolute top-1 bottom-1 rounded-full bg-cyan-300",
+						isRolling ? "w-1.5" : "left-1/2 w-1 -translate-x-1/2",
+						isRolling && (isLeft ? "right-1" : "left-1"),
+					)}
+				/>
+				{isRolling && !isLeft && (
+					<span
+						className="absolute -right-3 top-1/2 size-2.5 -translate-y-1/2 rotate-45 rounded-[1px] bg-cyan-50 shadow-[0_0_10px_rgba(255,255,255,0.85)]"
+						aria-hidden="true"
+					/>
+				)}
+			</span>
+		</button>
 	);
 }
 
