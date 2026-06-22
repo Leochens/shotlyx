@@ -6,7 +6,9 @@ import type { GroupResizeMember } from "./types";
 mock.module("@/wasm", () => wasmMock);
 mock.module("opencut-wasm", () => wasmMock);
 
-const { computeGroupResize } = await import("./compute-resize");
+const { computeGroupResize, computeRollingResize } = await import(
+	"./compute-resize"
+);
 
 const TICKS_PER_SECOND = 120_000;
 const FPS_30 = { numerator: 30, denominator: 1 };
@@ -160,6 +162,96 @@ describe("computeGroupResize", () => {
 					duration: mt(1),
 					trimStart: mt(1),
 					trimEnd: mt(8),
+				},
+			},
+		]);
+	});
+});
+
+describe("computeRollingResize", () => {
+	test("moves an adjacent edit point right while keeping the occupied span fixed", () => {
+		const result = computeRollingResize({
+			leftMember: buildSplitClipMember({
+				elementId: "a",
+				startTime: mt(0),
+				duration: mt(5),
+				trimStart: mt(0),
+				trimEnd: mt(5),
+			}),
+			rightMember: buildSplitClipMember({
+				elementId: "b",
+				startTime: mt(5),
+				duration: mt(3),
+				trimStart: mt(2),
+				trimEnd: mt(5),
+			}),
+			deltaTime: mt(1),
+			fps: FPS_30,
+		});
+
+		expect(result.updates).toEqual([
+			{
+				trackId: "main",
+				elementId: "a",
+				patch: {
+					startTime: mt(0),
+					duration: mt(6),
+					trimStart: mt(0),
+					trimEnd: mt(4),
+				},
+			},
+			{
+				trackId: "main",
+				elementId: "b",
+				patch: {
+					startTime: mt(6),
+					duration: mt(2),
+					trimStart: mt(3),
+					trimEnd: mt(5),
+				},
+			},
+		]);
+	});
+
+	test("moves an adjacent edit point left while keeping the occupied span fixed", () => {
+		const result = computeRollingResize({
+			leftMember: buildSplitClipMember({
+				elementId: "a",
+				startTime: mt(0),
+				duration: mt(5),
+				trimStart: mt(0),
+				trimEnd: mt(5),
+			}),
+			rightMember: buildSplitClipMember({
+				elementId: "b",
+				startTime: mt(5),
+				duration: mt(3),
+				trimStart: mt(2),
+				trimEnd: mt(5),
+			}),
+			deltaTime: mt(-2),
+			fps: FPS_30,
+		});
+
+		expect(result.updates).toEqual([
+			{
+				trackId: "main",
+				elementId: "a",
+				patch: {
+					startTime: mt(0),
+					duration: mt(3),
+					trimStart: mt(0),
+					trimEnd: mt(7),
+				},
+			},
+			{
+				trackId: "main",
+				elementId: "b",
+				patch: {
+					startTime: mt(3),
+					duration: mt(5),
+					trimStart: mt(0),
+					trimEnd: mt(5),
 				},
 			},
 		]);

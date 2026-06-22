@@ -6,7 +6,9 @@ import type { SceneTracks, VideoElement, VideoTrack } from "@/timeline";
 mock.module("@/wasm", () => wasmMock);
 mock.module("opencut-wasm", () => wasmMock);
 
-const { buildResizeMembers } = await import("./resize-controller");
+const { buildResizeMembers, buildRollingResizeMembers } = await import(
+	"./resize-controller"
+);
 
 const TICKS_PER_SECOND = 120_000;
 
@@ -16,12 +18,14 @@ function mt(seconds: number): MediaTime {
 
 function videoElement({
 	id,
+	mediaId = "media-1",
 	startTime,
 	duration,
 	trimStart,
 	trimEnd,
 }: {
 	id: string;
+	mediaId?: string;
 	startTime: number;
 	duration: number;
 	trimStart: number;
@@ -31,7 +35,7 @@ function videoElement({
 		id,
 		type: "video",
 		name: id,
-		mediaId: "media-1",
+		mediaId,
 		startTime: mt(startTime),
 		duration: mt(duration),
 		trimStart: mt(trimStart),
@@ -90,5 +94,42 @@ describe("buildResizeMembers", () => {
 				trimStart: mt(5),
 			},
 		});
+	});
+
+	test("builds rolling resize members from either side of an adjacent edit point", () => {
+		const left = videoElement({
+			id: "a",
+			mediaId: "media-a",
+			startTime: 0,
+			duration: 5,
+			trimStart: 0,
+			trimEnd: 5,
+		});
+		const right = videoElement({
+			id: "b",
+			mediaId: "media-b",
+			startTime: 5,
+			duration: 3,
+			trimStart: 2,
+			trimEnd: 5,
+		});
+		const tracks = sceneWithMain([left, right]);
+
+		expect(
+			buildRollingResizeMembers({
+				tracks,
+				trackId: "main",
+				element: left,
+				side: "right",
+			})?.map((member) => member.elementId),
+		).toEqual(["a", "b"]);
+		expect(
+			buildRollingResizeMembers({
+				tracks,
+				trackId: "main",
+				element: right,
+				side: "left",
+			})?.map((member) => member.elementId),
+		).toEqual(["a", "b"]);
 	});
 });

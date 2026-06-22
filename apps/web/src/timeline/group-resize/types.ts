@@ -48,3 +48,10 @@ export interface ComputeGroupResizeArgs {
 	deltaTime: MediaTime;
 	fps: FrameRate;
 }
+
+export interface ComputeRollingResizeArgs {
+	leftMember: GroupResizeMember;
+	rightMember: GroupResizeMember;
+	deltaTime: MediaTime;
+	fps: FrameRate;
+}

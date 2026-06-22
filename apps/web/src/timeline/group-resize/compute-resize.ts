@@ -18,6 +18,7 @@ import {
 import type {
 	BoundaryResizeNeighbor,
 	ComputeGroupResizeArgs,
+	ComputeRollingResizeArgs,
 	GroupResizeMember,
 	GroupResizeResult,
 	GroupResizeUpdate,
@@ -112,6 +113,153 @@ export function computeGroupResize({
 			}),
 		).flat(),
 	};
+}
+
+export function computeRollingResize({
+	leftMember,
+	rightMember,
+	deltaTime,
+	fps,
+}: ComputeRollingResizeArgs): GroupResizeResult {
+	const minDuration = mediaTime({
+		ticks: Math.round((TICKS_PER_SECOND * fps.denominator) / fps.numerator),
+	});
+	const minimumDeltaTime = maxMediaTime({
+		a: subMediaTime({ a: minDuration, b: leftMember.duration }),
+		b: subMediaTime({
+			a: ZERO_MEDIA_TIME,
+			b: getLeftExtensionCapacity({
+				member: rightMember,
+			}),
+		}),
+	});
+	const maximumDeltaTime = minMediaTime({
+		a: subMediaTime({ a: rightMember.duration, b: minDuration }),
+		b: getRightExtensionCapacity({
+			member: leftMember,
+		}),
+	});
+	const clampedDeltaTime = clampMediaTime({
+		time: deltaTime,
+		min: minimumDeltaTime,
+		max: maximumDeltaTime,
+	});
+	const snappedDeltaTime = mediaTime({
+		ticks: roundFrameTicks({ ticks: clampedDeltaTime, fps }),
+	});
+	const finalDeltaTime = clampMediaTime({
+		time: snappedDeltaTime,
+		min: minimumDeltaTime,
+		max: maximumDeltaTime,
+	});
+
+	return {
+		deltaTime: Object.is(finalDeltaTime, -0) ? ZERO_MEDIA_TIME : finalDeltaTime,
+		updates: [
+			buildRollingLeftUpdate({
+				member: leftMember,
+				deltaTime: finalDeltaTime,
+			}),
+			buildRollingRightUpdate({
+				member: rightMember,
+				deltaTime: finalDeltaTime,
+			}),
+		],
+	};
+}
+
+function buildRollingLeftUpdate({
+	member,
+	deltaTime,
+}: {
+	member: GroupResizeMember;
+	deltaTime: MediaTime;
+}): GroupResizeUpdate {
+	const sourceDelta = getSourceDeltaForClipDelta({
+		member,
+		clipDelta: deltaTime,
+	});
+
+	return {
+		trackId: member.trackId,
+		elementId: member.elementId,
+		patch: {
+			trimStart: member.trimStart,
+			trimEnd: maxMediaTime({
+				a: ZERO_MEDIA_TIME,
+				b: subMediaTime({ a: member.trimEnd, b: sourceDelta }),
+			}),
+			startTime: member.startTime,
+			duration: addMediaTime({ a: member.duration, b: deltaTime }),
+		},
+	};
+}
+
+function buildRollingRightUpdate({
+	member,
+	deltaTime,
+}: {
+	member: GroupResizeMember;
+	deltaTime: MediaTime;
+}): GroupResizeUpdate {
+	const sourceDelta = getSourceDeltaForClipDelta({
+		member,
+		clipDelta: deltaTime,
+	});
+
+	return {
+		trackId: member.trackId,
+		elementId: member.elementId,
+		patch: {
+			trimStart: maxMediaTime({
+				a: ZERO_MEDIA_TIME,
+				b: addMediaTime({ a: member.trimStart, b: sourceDelta }),
+			}),
+			trimEnd: member.trimEnd,
+			startTime: addMediaTime({ a: member.startTime, b: deltaTime }),
+			duration: subMediaTime({ a: member.duration, b: deltaTime }),
+		},
+	};
+}
+
+function getLeftExtensionCapacity({
+	member,
+}: {
+	member: GroupResizeMember;
+}): MediaTime {
+	return subMediaTime({
+		a: getDurationForVisibleSourceSpan({
+			member,
+			sourceSpan: addMediaTime({
+				a: getVisibleSourceSpanForDuration({
+					member,
+					duration: member.duration,
+				}),
+				b: member.trimStart,
+			}),
+		}),
+		b: member.duration,
+	});
+}
+
+function getRightExtensionCapacity({
+	member,
+}: {
+	member: GroupResizeMember;
+}): MediaTime {
+	if (member.sourceDuration == null) return member.trimEnd;
+	const maximumVisibleSourceSpan = subMediaTime({
+		a: getSourceDuration({ member }),
+		b: member.trimStart,
+	});
+	const maximumDuration = getDurationForVisibleSourceSpan({
+		member,
+		sourceSpan: maximumVisibleSourceSpan,
+	});
+	return subMediaTime({
+		a: maximumDuration,
+		b: member.duration,
+	});
 }
 
 function buildResizeUpdates({

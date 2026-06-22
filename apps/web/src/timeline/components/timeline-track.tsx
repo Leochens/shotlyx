@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useEditor } from "@/editor/use-editor";
 import {
 	createTimelineElementReference,
@@ -15,6 +15,42 @@ import { TIMELINE_LAYERS } from "./layers";
 import type { ElementDragView } from "@/timeline";
 import { getVisibleTimelineElements } from "./visible-elements";
 import { timelineTimeToPixels } from "@/timeline/pixel-utils";
+
+interface RollingBoundaryHover {
+	leftElementId: string;
+	rightElementId: string;
+}
+
+export function getRollingBoundaryForHandle({
+	elements,
+	element,
+	side,
+}: {
+	elements: TimelineElementType[];
+	element: TimelineElementType;
+	side: "left" | "right";
+}): RollingBoundaryHover | null {
+	if (side === "right") {
+		const elementEnd = element.startTime + element.duration;
+		const rightElement = elements.find(
+			(candidate) => candidate.startTime === elementEnd,
+		);
+		if (!rightElement) return null;
+		return {
+			leftElementId: element.id,
+			rightElementId: rightElement.id,
+		};
+	}
+
+	const leftElement = elements.find(
+		(candidate) => candidate.startTime + candidate.duration === element.startTime,
+	);
+	if (!leftElement) return null;
+	return {
+		leftElementId: leftElement.id,
+		rightElementId: element.id,
+	};
+}
 
 interface TimelineTrackContentProps {
 	track: TimelineTrack;
@@ -61,6 +97,8 @@ export function TimelineTrackContent({
 	const { isElementSelected } = useElementSelection();
 	const editor = useEditor();
 	const { pointSelectEnabled, addReference } = useAgentContextStore();
+	const [rollingBoundaryHover, setRollingBoundaryHover] =
+		useState<RollingBoundaryHover | null>(null);
 	const pinnedElementIds =
 		dragView.kind === "dragging"
 			? (dragView.pinnedElementIdsByTrackId.get(track.id) ?? null)
@@ -98,6 +136,37 @@ export function TimelineTrackContent({
 		});
 		if (reference) addReference(reference);
 	};
+
+	const handleResizeHandleHoverChange = useCallback(
+		({
+			element,
+			side,
+			isHovered,
+		}: {
+			element: TimelineElementType;
+			side: "left" | "right";
+			isHovered: boolean;
+		}) => {
+			const boundary = getRollingBoundaryForHandle({
+				elements: track.elements,
+				element,
+				side,
+			});
+			if (isHovered) {
+				setRollingBoundaryHover(boundary);
+				return;
+			}
+			setRollingBoundaryHover((current) =>
+				current &&
+				boundary &&
+				current.leftElementId === boundary.leftElementId &&
+				current.rightElementId === boundary.rightElementId
+					? null
+					: current,
+			);
+		},
+		[track.elements],
+	);
 
 	return (
 		<div
@@ -155,6 +224,13 @@ export function TimelineTrackContent({
 								isSelected={isSelected}
 								onResizeStart={({ event, element, side }) =>
 									onResizeStart({ event, element, track, side })
+								}
+								onResizeHandleHoverChange={handleResizeHandleHoverChange}
+								isLeftResizeHighlighted={
+									rollingBoundaryHover?.rightElementId === element.id
+								}
+								isRightResizeHighlighted={
+									rollingBoundaryHover?.leftElementId === element.id
 								}
 								onElementMouseDown={({ event, element }) =>
 									onElementMouseDown({ event, element, track })

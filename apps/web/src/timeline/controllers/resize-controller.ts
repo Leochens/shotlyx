@@ -9,6 +9,7 @@ import {
 } from "@/wasm";
 import {
 	computeGroupResize,
+	computeRollingResize,
 	type BoundaryResizeNeighbor,
 	type GroupResizeMember,
 	type GroupResizeResult,
@@ -38,6 +39,7 @@ import type { FrameRate } from "opencut-wasm";
 
 interface ResizeSession {
 	kind: "active";
+	mode: "edge" | "rolling";
 	side: ResizeSide;
 	startX: number;
 	fps: FrameRate;
@@ -192,6 +194,68 @@ export function buildResizeMembers({
 	});
 }
 
+function findResizeMember({
+	members,
+	elementId,
+}: {
+	members: GroupResizeMember[];
+	elementId: string;
+}): GroupResizeMember | null {
+	return members.find((member) => member.elementId === elementId) ?? null;
+}
+
+export function buildRollingResizeMembers({
+	tracks,
+	trackId,
+	element,
+	side,
+}: {
+	tracks: SceneTracks;
+	trackId: string;
+	element: TimelineElement;
+	side: ResizeSide;
+}): GroupResizeMember[] | null {
+	const edgeMembers = buildResizeMembers({
+		tracks,
+		selectedElements: [{ trackId, elementId: element.id }],
+	});
+	const activeMember = findResizeMember({
+		members: edgeMembers,
+		elementId: element.id,
+	});
+	if (!activeMember) return null;
+
+	const neighbor =
+		side === "right"
+			? activeMember.rightBoundaryNeighbor
+			: activeMember.leftBoundaryNeighbor;
+	if (!neighbor) return null;
+	const activeEnd = addMediaTime({
+		a: activeMember.startTime,
+		b: activeMember.duration,
+	});
+	const isAdjacent =
+		side === "right"
+			? activeEnd === neighbor.startTime
+			: addMediaTime({ a: neighbor.startTime, b: neighbor.duration }) ===
+				activeMember.startTime;
+	if (!isAdjacent) return null;
+
+	const neighborMembers = buildResizeMembers({
+		tracks,
+		selectedElements: [{ trackId, elementId: neighbor.elementId }],
+	});
+	const neighborMember = findResizeMember({
+		members: neighborMembers,
+		elementId: neighbor.elementId,
+	});
+	if (!neighborMember) return null;
+
+	return side === "right"
+		? [activeMember, neighborMember]
+		: [neighborMember, activeMember];
+}
+
 function hasResizeChanges({
 	members,
 	result,
@@ -269,22 +333,32 @@ export class ResizeController {
 		if (!fps) return;
 
 		const ref = { trackId: track.id, elementId: element.id };
+		const tracks = this.config.getSceneTracks();
+		const rollingMembers = buildRollingResizeMembers({
+			tracks,
+			trackId: track.id,
+			element,
+			side,
+		});
 		const activeSelection = this.config.selectedElements.some(
 			(el) => el.trackId === track.id && el.elementId === element.id,
 		)
 			? this.config.selectedElements
 			: [ref];
 
-		const members = buildResizeMembers({
-			tracks: this.config.getSceneTracks(),
-			selectedElements: activeSelection,
-		});
+		const members =
+			rollingMembers ??
+			buildResizeMembers({
+				tracks,
+				selectedElements: activeSelection,
+			});
 		if (members.length === 0) return;
 
 		this.config.discardPreview();
 
 		this.session = {
 			kind: "active",
+			mode: rollingMembers ? "rolling" : "edge",
 			side,
 			startX: event.clientX,
 			fps,
@@ -351,11 +425,13 @@ export class ResizeController {
 		let closestSnapDistance = Infinity;
 		let deltaTime = rawDeltaTime;
 
-		for (const member of session.members) {
+		const snapMembers =
+			session.mode === "rolling" ? session.members.slice(0, 1) : session.members;
+		for (const member of snapMembers) {
 			const baseEdgeTime =
-				session.side === "left"
-					? member.startTime
-					: addMediaTime({ a: member.startTime, b: member.duration });
+				session.mode === "rolling" || session.side === "right"
+					? addMediaTime({ a: member.startTime, b: member.duration })
+					: member.startTime;
 			const snapResult = resolveTimelineSnap({
 				targetTime: addMediaTime({ a: baseEdgeTime, b: rawDeltaTime }),
 				snapPoints,
@@ -387,12 +463,20 @@ export class ResizeController {
 			),
 		});
 		const deltaTime = this.snappedDelta({ session, rawDeltaTime });
-		const result = computeGroupResize({
-			members: session.members,
-			side: session.side,
-			deltaTime,
-			fps: session.fps,
-		});
+		const result =
+			session.mode === "rolling" && session.members.length === 2
+				? computeRollingResize({
+						leftMember: session.members[0],
+						rightMember: session.members[1],
+						deltaTime,
+						fps: session.fps,
+					})
+				: computeGroupResize({
+						members: session.members,
+						side: session.side,
+						deltaTime,
+						fps: session.fps,
+					});
 
 		session.result = result;
 		this.config.previewElements(result.updates);

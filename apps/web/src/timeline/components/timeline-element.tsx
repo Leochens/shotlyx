@@ -211,6 +211,13 @@ interface TimelineElementProps {
 		track: TimelineTrack;
 		side: "left" | "right";
 	}) => void;
+	onResizeHandleHoverChange?: (params: {
+		element: TimelineElementType;
+		side: "left" | "right";
+		isHovered: boolean;
+	}) => void;
+	isLeftResizeHighlighted?: boolean;
+	isRightResizeHighlighted?: boolean;
 	onElementMouseDown: (params: {
 		event: React.MouseEvent;
 		element: TimelineElementType;
@@ -229,6 +236,9 @@ function TimelineElementComponent({
 	zoomLevel,
 	isSelected,
 	onResizeStart,
+	onResizeHandleHoverChange,
+	isLeftResizeHighlighted = false,
+	isRightResizeHighlighted = false,
 	onElementMouseDown,
 	onElementClick,
 	dragView,
@@ -406,6 +416,9 @@ function TimelineElementComponent({
 							onElementClick={onElementClick}
 							onElementMouseDown={onElementMouseDown}
 							onResizeStart={onResizeStart}
+							onResizeHandleHoverChange={onResizeHandleHoverChange}
+							isLeftResizeHighlighted={isLeftResizeHighlighted}
+							isRightResizeHighlighted={isRightResizeHighlighted}
 							isDropTarget={isDropTarget}
 						/>
 						{isSelected && (
@@ -537,7 +550,9 @@ function areTimelineElementPropsEqual(
 		previous.track !== next.track ||
 		previous.zoomLevel !== next.zoomLevel ||
 		previous.isSelected !== next.isSelected ||
-		previous.isDropTarget !== next.isDropTarget
+		previous.isDropTarget !== next.isDropTarget ||
+		previous.isLeftResizeHighlighted !== next.isLeftResizeHighlighted ||
+		previous.isRightResizeHighlighted !== next.isRightResizeHighlighted
 	) {
 		return false;
 	}
@@ -571,6 +586,9 @@ function ElementInner({
 	onElementClick,
 	onElementMouseDown,
 	onResizeStart,
+	onResizeHandleHoverChange,
+	isLeftResizeHighlighted,
+	isRightResizeHighlighted,
 	isDropTarget = false,
 }: {
 	element: TimelineElementType;
@@ -594,6 +612,13 @@ function ElementInner({
 		track: TimelineTrack;
 		side: "left" | "right";
 	}) => void;
+	onResizeHandleHoverChange?: (params: {
+		element: TimelineElementType;
+		side: "left" | "right";
+		isHovered: boolean;
+	}) => void;
+	isLeftResizeHighlighted: boolean;
+	isRightResizeHighlighted: boolean;
 	isDropTarget?: boolean;
 }) {
 	const visibleElement = displayElement ?? element;
@@ -657,6 +682,8 @@ function ElementInner({
 				element={element}
 				track={track}
 				isSelected={isSelected}
+				isHighlighted={isLeftResizeHighlighted}
+				onHoverChange={onResizeHandleHoverChange}
 				onResizeStart={onResizeStart}
 			/>
 			<ResizeHandle
@@ -664,6 +691,8 @@ function ElementInner({
 				element={element}
 				track={track}
 				isSelected={isSelected}
+				isHighlighted={isRightResizeHighlighted}
+				onHoverChange={onResizeHandleHoverChange}
 				onResizeStart={onResizeStart}
 			/>
 		</div>
@@ -675,12 +704,20 @@ function ResizeHandle({
 	element,
 	track,
 	isSelected,
+	isHighlighted,
+	onHoverChange,
 	onResizeStart,
 }: {
 	side: "left" | "right";
 	element: TimelineElementType;
 	track: TimelineTrack;
 	isSelected: boolean;
+	isHighlighted: boolean;
+	onHoverChange?: (params: {
+		element: TimelineElementType;
+		side: "left" | "right";
+		isHovered: boolean;
+	}) => void;
 	onResizeStart: (params: {
 		event: React.MouseEvent;
 		element: TimelineElementType;
@@ -696,11 +733,19 @@ function ResizeHandle({
 				"pointer-events-auto absolute top-0 bottom-0 z-10 w-2 opacity-0 transition-opacity",
 				"bg-primary/70 hover:bg-primary focus-visible:bg-primary focus-visible:opacity-100",
 				"group-hover/element:opacity-100",
-				isSelected && "opacity-100",
+				(isSelected || isHighlighted) && "opacity-100",
 				isLeft
 					? "-left-1 cursor-w-resize rounded-l-sm"
 					: "-right-1 cursor-e-resize rounded-r-sm",
 			)}
+			onMouseEnter={() =>
+				onHoverChange?.({ element, side, isHovered: true })
+			}
+			onMouseLeave={() =>
+				onHoverChange?.({ element, side, isHovered: false })
+			}
+			onFocus={() => onHoverChange?.({ element, side, isHovered: true })}
+			onBlur={() => onHoverChange?.({ element, side, isHovered: false })}
 			onMouseDown={(event) => onResizeStart({ event, element, track, side })}
 			onClick={(event) => event.stopPropagation()}
 			aria-label={`${isLeft ? "Left" : "Right"} resize handle`}
