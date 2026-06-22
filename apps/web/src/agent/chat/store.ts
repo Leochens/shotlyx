@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createIndexedDBPersistStorage } from "./indexeddb-storage";
 import type {
+	ChatMessage,
 	ChatSession,
 	ChatSessionRunState,
 	ChatState,
@@ -20,6 +21,7 @@ interface PersistedChatState {
 const DEFAULT_CHAT_PROJECT_ID = "default-project";
 const CHAT_WORKBENCH_PROJECT_SEPARATOR = "::";
 const CHAT_STORAGE_WRITE_DEBOUNCE_MS = 350;
+const EMPTY_CHAT_MESSAGES: ChatMessage[] = [];
 
 function getLegacyStorage() {
 	if (typeof window === "undefined") return null;
@@ -224,14 +226,14 @@ export const useChatStore = create<ChatState>()(
 
 			getActiveMessages: () => {
 				const session = get().getActiveSession();
-				return session?.messages ?? [];
+				return session?.messages ?? EMPTY_CHAT_MESSAGES;
 			},
 
 			getSessionMessages: (sessionId) => {
-				if (!sessionId) return [];
+				if (!sessionId) return EMPTY_CHAT_MESSAGES;
 				return (
 					get().sessions.find((session) => session.id === sessionId)
-						?.messages ?? []
+						?.messages ?? EMPTY_CHAT_MESSAGES
 				);
 			},
 

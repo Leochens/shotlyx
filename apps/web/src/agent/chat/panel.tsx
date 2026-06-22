@@ -1936,8 +1936,11 @@ export function ChatPanel() {
 	const [roughCutReview, setRoughCutReview] =
 		useState<RoughCutReviewResult | null>(null);
 	const [roughCutReviewOpen, setRoughCutReviewOpen] = useState(false);
-	const { draftReferences, addReference, clearDraftReferences } =
-		useAgentContextStore();
+	const draftReferences = useAgentContextStore((state) => state.draftReferences);
+	const addReference = useAgentContextStore((state) => state.addReference);
+	const clearDraftReferences = useAgentContextStore(
+		(state) => state.clearDraftReferences,
+	);
 	const activeWorkbench = useTopicWorkbenchStore(
 		(state) => state.activeWorkbench,
 	);

@@ -100,7 +100,10 @@ export function TimelineTrackContent({
 }: TimelineTrackContentProps) {
 	const { isElementSelected } = useElementSelection();
 	const editor = useEditor();
-	const { pointSelectEnabled, addReference } = useAgentContextStore();
+	const pointSelectEnabled = useAgentContextStore(
+		(state) => state.pointSelectEnabled,
+	);
+	const addReference = useAgentContextStore((state) => state.addReference);
 	const [rollingBoundaryHover, setRollingBoundaryHover] =
 		useState<RollingBoundaryHover | null>(null);
 	const pinnedElementIds =

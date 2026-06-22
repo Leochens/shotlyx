@@ -116,16 +116,20 @@ export function MediaView() {
 	const shotlyxMGAssets = useEditor((e) => e.project.getShotlyxMGAssets());
 	const activeProject = useEditor((e) => e.project.getActive());
 
-	const {
-		mediaViewMode,
-		setMediaViewMode,
-		highlightMediaId,
-		clearHighlight,
-		mediaSortBy,
-		mediaSortOrder,
-		setMediaSort,
-		setSelectedAssetRefs,
-	} = useAssetsPanelStore();
+	const mediaViewMode = useAssetsPanelStore((state) => state.mediaViewMode);
+	const setMediaViewMode = useAssetsPanelStore(
+		(state) => state.setMediaViewMode,
+	);
+	const highlightMediaId = useAssetsPanelStore(
+		(state) => state.highlightMediaId,
+	);
+	const clearHighlight = useAssetsPanelStore((state) => state.clearHighlight);
+	const mediaSortBy = useAssetsPanelStore((state) => state.mediaSortBy);
+	const mediaSortOrder = useAssetsPanelStore((state) => state.mediaSortOrder);
+	const setMediaSort = useAssetsPanelStore((state) => state.setMediaSort);
+	const setSelectedAssetRefs = useAssetsPanelStore(
+		(state) => state.setSelectedAssetRefs,
+	);
 
 	const [isProcessing, setIsProcessing] = useState(false);
 	const [progress, setProgress] = useState(0);
@@ -745,7 +749,10 @@ function MediaItemList({
 	}) => void;
 	isGrid: boolean;
 }) {
-	const { pointSelectEnabled, addReference } = useAgentContextStore();
+	const pointSelectEnabled = useAgentContextStore(
+		(state) => state.pointSelectEnabled,
+	);
+	const addReference = useAgentContextStore((state) => state.addReference);
 	const editor = useEditor();
 
 	return (

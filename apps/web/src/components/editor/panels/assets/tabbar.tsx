@@ -17,7 +17,8 @@ import { useAppLocale } from "@/i18n/use-app-locale";
 
 export function TabBar() {
 	const { copy } = useAppLocale();
-	const { activeTab, setActiveTab } = useAssetsPanelStore();
+	const activeTab = useAssetsPanelStore((state) => state.activeTab);
+	const setActiveTab = useAssetsPanelStore((state) => state.setActiveTab);
 	const [showStartFade, setShowStartFade] = useState(false);
 	const [showEndFade, setShowEndFade] = useState(false);
 	const scrollRef = useRef<HTMLDivElement>(null);
@@ -55,10 +56,7 @@ export function TabBar() {
 			>
 				{VISIBLE_TAB_KEYS.map((tabKey) => {
 					const tab = tabs[tabKey];
-					const label =
-						copy.editor.assets.tabs[
-							tabKey as keyof typeof copy.editor.assets.tabs
-						] ?? tab.label;
+					const label = copy.editor.assets.tabs[tabKey] ?? tab.label;
 					return (
 						<Tooltip key={tabKey} delayDuration={10}>
 							<TooltipTrigger asChild>

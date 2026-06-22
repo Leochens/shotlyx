@@ -85,6 +85,8 @@ const TIMELINE_AUDIO_RANGE_CHOICE = "timeline";
 
 type AudioRangeChoice = typeof AUTO_AUDIO_RANGE_CHOICE | string;
 
+const EMPTY_PROJECT_SUBTITLES = createEmptyProjectSubtitles();
+
 function elementAudioRangeChoice({
 	option,
 }: {
@@ -98,7 +100,7 @@ function normalizeProjectSubtitles({
 }: {
 	subtitles: TProjectSubtitles | null | undefined;
 }): TProjectSubtitles {
-	return subtitles ?? createEmptyProjectSubtitles();
+	return subtitles ?? EMPTY_PROJECT_SUBTITLES;
 }
 
 function getCueDisplayTime({ cue }: { cue: SubtitleLayerCue }): string {
@@ -397,10 +399,13 @@ export function Captions() {
 	};
 
 	const updateProjectSubtitles = (updates: Partial<TProjectSubtitles>) => {
+		const currentSubtitles =
+			editor.project.getActive().settings.subtitles ??
+			createEmptyProjectSubtitles();
 		void editor.project.updateSettings({
 			settings: {
 				subtitles: {
-					...projectSubtitles,
+					...currentSubtitles,
 					...updates,
 					updatedAt: new Date().toISOString(),
 				},

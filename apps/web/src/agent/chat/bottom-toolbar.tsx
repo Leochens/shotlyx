@@ -174,15 +174,23 @@ export function BottomToolbar({
 	const scene = useEditor((currentEditor) =>
 		currentEditor.scenes.getActiveSceneOrNull(),
 	);
-	const {
-		draftReferences,
-		primaryReferenceId,
-		pointSelectEnabled,
-		addReference,
-		removeReference,
-		setPrimaryReference,
-		togglePointSelect,
-	} = useAgentContextStore();
+	const draftReferences = useAgentContextStore((state) => state.draftReferences);
+	const primaryReferenceId = useAgentContextStore(
+		(state) => state.primaryReferenceId,
+	);
+	const pointSelectEnabled = useAgentContextStore(
+		(state) => state.pointSelectEnabled,
+	);
+	const addReference = useAgentContextStore((state) => state.addReference);
+	const removeReference = useAgentContextStore(
+		(state) => state.removeReference,
+	);
+	const setPrimaryReference = useAgentContextStore(
+		(state) => state.setPrimaryReference,
+	);
+	const togglePointSelect = useAgentContextStore(
+		(state) => state.togglePointSelect,
+	);
 	const [referenceOpen, setReferenceOpen] = useState(false);
 	const [mediaRatio, setMediaRatio] = useState("16:9");
 	const [mediaDuration, setMediaDuration] = useState(5);

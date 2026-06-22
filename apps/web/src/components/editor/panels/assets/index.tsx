@@ -14,7 +14,7 @@ import { TextView } from "@/text/components/assets-view";
 import { EffectsView } from "@/effects/components/assets-view";
 
 export function AssetsPanel() {
-	const { activeTab } = useAssetsPanelStore();
+	const activeTab = useAssetsPanelStore((state) => state.activeTab);
 
 	const viewMap: Record<Tab, React.ReactNode> = {
 		media: <MediaView />,

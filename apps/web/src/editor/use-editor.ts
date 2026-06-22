@@ -11,9 +11,22 @@ function isShallowEqual({
 	b: unknown;
 }): boolean {
 	if (Object.is(a, b)) return true;
-	if (!Array.isArray(a) || !Array.isArray(b)) return false;
-	if (a.length !== b.length) return false;
-	return a.every((item, i) => Object.is(item, b[i]));
+	if (Array.isArray(a) && Array.isArray(b)) {
+		if (a.length !== b.length) return false;
+		return a.every((item, i) => Object.is(item, b[i]));
+	}
+
+	if (!isPlainObject(a) || !isPlainObject(b)) return false;
+
+	const aKeys = Object.keys(a);
+	const bKeys = Object.keys(b);
+	if (aKeys.length !== bKeys.length) return false;
+	return aKeys.every((key) => Object.is(a[key], b[key]));
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	if (value === null || typeof value !== "object") return false;
+	return Object.getPrototypeOf(value) === Object.prototype;
 }
 
 const subscribeNone = () => () => {};

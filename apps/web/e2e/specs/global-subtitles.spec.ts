@@ -1,5 +1,29 @@
 import { expect, test, type Page } from "@playwright/test";
 
+function collectSubtitleRuntimeErrors({ page }: { page: Page }): string[] {
+	const errors: string[] = [];
+	const isRelevant = (text: string) =>
+		text.includes("getSnapshot should be cached") ||
+		text.includes("Maximum update depth exceeded") ||
+		text.includes("An error occurred in the <button> component");
+
+	page.on("console", (message) => {
+		if (
+			(message.type() === "error" || message.type() === "warning") &&
+			isRelevant(message.text())
+		) {
+			errors.push(message.text());
+		}
+	});
+	page.on("pageerror", (error) => {
+		if (isRelevant(error.message)) {
+			errors.push(error.message);
+		}
+	});
+
+	return errors;
+}
+
 async function setupEditorPage(page: Page): Promise<void> {
 	await page.route("**/api/account/me", async (route) => {
 		await route.fulfill({
@@ -53,9 +77,30 @@ async function setupEditorPage(page: Page): Promise<void> {
 }
 
 test.describe("global subtitles", () => {
+	test("opens an empty legacy transcript without snapshot update loops", async ({
+		page,
+	}) => {
+		const runtimeErrors = collectSubtitleRuntimeErrors({ page });
+		await setupEditorPage(page);
+
+		await page.evaluate(async () => {
+			const { EditorCore } = await import("/src/core/index.ts");
+			const editor = EditorCore.getInstance();
+			await editor.project.updateSettings({
+				settings: { subtitles: undefined },
+				pushHistory: false,
+			});
+		});
+
+		await page.getByRole("button", { name: /文字稿|Transcript/ }).click();
+		await expect(page.getByText("暂无文字稿")).toBeVisible();
+		expect(runtimeErrors).toEqual([]);
+	});
+
 	test("transcript edits global subtitles without creating timeline subtitle clips", async ({
 		page,
 	}) => {
+		const runtimeErrors = collectSubtitleRuntimeErrors({ page });
 		await setupEditorPage(page);
 
 		await page.evaluate(async () => {
@@ -187,5 +232,6 @@ test.describe("global subtitles", () => {
 				}),
 			)
 			.toBe(false);
+		expect(runtimeErrors).toEqual([]);
 	});
 });
