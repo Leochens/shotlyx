@@ -205,6 +205,8 @@ export function Captions() {
 		| {
 				audioRangeStartSeconds: number;
 				audioRangeDurationSeconds: number;
+				audioRangeTrackId?: string;
+				audioRangeElementId?: string;
 		  }
 		| Record<string, never> => {
 		const range = getChosenAudioRange();
@@ -214,6 +216,12 @@ export function Captions() {
 		return {
 			audioRangeStartSeconds: startTimeSeconds,
 			audioRangeDurationSeconds: durationSeconds,
+			...(range.elementRef
+				? {
+						audioRangeTrackId: range.elementRef.trackId,
+						audioRangeElementId: range.elementRef.elementId,
+					}
+				: {}),
 		};
 	};
 

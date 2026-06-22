@@ -6,6 +6,7 @@ import {
 } from "@/agent/mcp/validation";
 import type { EditorCore } from "@/core";
 import type { extractTimelineAudio } from "@/media/mediabunny";
+import type { SceneTracks } from "@/timeline";
 import type {
 	GenerateSubtitlesFromVideoInput,
 	GenerateSubtitlesFromVideoResult,
@@ -401,6 +402,14 @@ function resolveRequestedAudioRange({
 				input.audioRangeDurationSeconds * MEDIA_TIME_TICKS_PER_SECOND,
 			),
 			label: "Selected range mixed audio",
+			...(input.audioRangeTrackId && input.audioRangeElementId
+				? {
+						elementRef: {
+							trackId: input.audioRangeTrackId,
+							elementId: input.audioRangeElementId,
+						},
+					}
+				: {}),
 		};
 	}
 
@@ -425,6 +434,41 @@ function resolveRequestedAudioRange({
 	}
 
 	return getTimelineAudioRange({ totalDuration });
+}
+
+function filterTracksToAudioRangeElement({
+	tracks,
+	audioRange,
+}: {
+	tracks: SceneTracks;
+	audioRange: TranscriptionAudioRange;
+}): SceneTracks {
+	if (!audioRange.elementRef) return tracks;
+
+	const { trackId, elementId } = audioRange.elementRef;
+	return {
+		main:
+			tracks.main.id === trackId
+				? {
+						...tracks.main,
+						elements: tracks.main.elements.filter(
+							(element) => element.id === elementId,
+						),
+					}
+				: { ...tracks.main, elements: [] },
+		overlay: tracks.overlay
+			.filter((track) => track.id === trackId)
+			.map((track) => ({
+				...track,
+				elements: track.elements.filter((element) => element.id === elementId),
+			})),
+		audio: tracks.audio
+			.filter((track) => track.id === trackId)
+			.map((track) => ({
+				...track,
+				elements: track.elements.filter((element) => element.id === elementId),
+			})),
+	};
 }
 
 function normalizeLocalLanguage({
@@ -644,8 +688,12 @@ export function createTranscriptionToolDeps({
 			const audioExtractor =
 				extractTimelineAudioFn ??
 				(await import("@/media/mediabunny")).extractTimelineAudio;
-			const audioBlob = await audioExtractor({
+			const tracks = filterTracksToAudioRangeElement({
 				tracks: editor.scenes.getActiveScene().tracks,
+				audioRange,
+			});
+			const audioBlob = await audioExtractor({
+				tracks,
 				mediaAssets: editor.media.getAssets(),
 				totalDuration: editor.timeline.getTotalDuration(),
 				rangeStart: audioRange.startTime,
@@ -803,6 +851,9 @@ export function createTranscriptionToolDeps({
 						label: audioRange.label,
 						startTimeSeconds: audioRangeSeconds.startTimeSeconds,
 						durationSeconds: audioRangeSeconds.durationSeconds,
+						...(audioRange.elementRef
+							? { elementRef: audioRange.elementRef }
+							: {}),
 					},
 				},
 			};
@@ -895,6 +946,18 @@ export function buildTranscriptionTools({
 						"可选识别时长，单位秒。与 audioRangeStartSeconds 一起传入时，会提取该时间范围内的时间线混合音频。",
 					optional: true,
 				},
+				audioRangeTrackId: {
+					type: "string",
+					description:
+						"可选音频源轨道 ID。与 audioRangeElementId 一起传入时，只提取该片段自身音频，而不是同时间范围内所有轨道混音。",
+					optional: true,
+				},
+				audioRangeElementId: {
+					type: "string",
+					description:
+						"可选音频源片段 ID。与 audioRangeTrackId 一起传入时，只提取该片段自身音频。",
+					optional: true,
+				},
 				saveAsset: {
 					type: "boolean",
 					description:
@@ -951,6 +1014,14 @@ export function buildTranscriptionTools({
 						params,
 						"audioRangeDurationSeconds",
 					),
+					audioRangeTrackId: optionalTrimmedString({
+						params,
+						key: "audioRangeTrackId",
+					}),
+					audioRangeElementId: optionalTrimmedString({
+						params,
+						key: "audioRangeElementId",
+					}),
 					saveAsset: optionalBooleanParam(params, "saveAsset") ?? true,
 					abortSignal: context?.signal,
 					onProgress: context?.onProgress,

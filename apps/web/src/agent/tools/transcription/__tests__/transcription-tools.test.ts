@@ -34,6 +34,8 @@ describe("transcription tools", () => {
 			highlightColor: { type: "string", optional: true },
 			audioRangeStartSeconds: { type: "number", optional: true },
 			audioRangeDurationSeconds: { type: "number", optional: true },
+			audioRangeTrackId: { type: "string", optional: true },
+			audioRangeElementId: { type: "string", optional: true },
 			saveAsset: { type: "boolean", optional: true },
 		});
 	});
@@ -60,6 +62,8 @@ describe("transcription tools", () => {
 			highlightColor: "#ffcc00",
 			audioRangeStartSeconds: 3,
 			audioRangeDurationSeconds: 8,
+			audioRangeTrackId: "audio-track",
+			audioRangeElementId: "voiceover-1",
 		});
 
 		expect(generateSubtitlesFromVideo).toHaveBeenCalledWith(
@@ -76,6 +80,8 @@ describe("transcription tools", () => {
 				highlightColor: "#ffcc00",
 				audioRangeStartSeconds: 3,
 				audioRangeDurationSeconds: 8,
+				audioRangeTrackId: "audio-track",
+				audioRangeElementId: "voiceover-1",
 				saveAsset: true,
 			}),
 		);
@@ -467,6 +473,124 @@ describe("transcription tools", () => {
 				"",
 			].join("\n"),
 		);
+	});
+
+	test("client deps isolate an explicit audio source element instead of transcribing every overlapping track", async () => {
+		const selectedElement = {
+			id: "voice-clip",
+			type: "audio",
+			name: "Selected voice",
+			sourceType: "upload",
+			mediaId: "voice-media",
+			startTime: 5 * MEDIA_TIME_TICKS_PER_SECOND,
+			duration: 2 * MEDIA_TIME_TICKS_PER_SECOND,
+			trimStart: 0,
+			trimEnd: 0,
+			sourceDuration: 2 * MEDIA_TIME_TICKS_PER_SECOND,
+			params: {},
+		};
+		const overlappingElement = {
+			...selectedElement,
+			id: "music-bed",
+			name: "Music bed",
+			mediaId: "music-media",
+			startTime: 0,
+			duration: 20 * MEDIA_TIME_TICKS_PER_SECOND,
+			sourceDuration: 20 * MEDIA_TIME_TICKS_PER_SECOND,
+		};
+		const addMediaAsset = mock(
+			async ({ asset }: { asset: { name: string } }) => ({
+				id: "subtitle-asset",
+				name: asset.name,
+			}),
+		);
+		const execute = mock(async () => ({
+			status: "success" as const,
+			data: { imported: true, cueCount: 1 },
+		}));
+		const editor = {
+			scenes: {
+				getActiveScene: () => ({
+					tracks: {
+						main: { id: "main", elements: [] },
+						overlay: [],
+						audio: [
+							{
+								id: "voice-track",
+								type: "audio",
+								name: "Voice",
+								elements: [selectedElement],
+							},
+							{
+								id: "music-track",
+								type: "audio",
+								name: "Music",
+								elements: [overlappingElement],
+							},
+						],
+					},
+				}),
+			},
+			project: { getActive: () => ({ metadata: { id: "project-1" } }) },
+			media: { getAssets: () => [], addMediaAsset },
+			timeline: {
+				getTotalDuration: () => 20 * MEDIA_TIME_TICKS_PER_SECOND,
+			},
+			mcp: { execute },
+		} as unknown as EditorCore;
+		const extractTimelineAudioFn = mock(async () => {
+			return new Blob([new Uint8Array([1, 2, 3])], { type: "audio/wav" });
+		});
+		const fetchFn = mock(async () => {
+			return new Response(
+				JSON.stringify({
+					text: "只识别人声",
+					provider: "volcengine",
+					cues: [
+						{
+							text: "只识别人声",
+							startTimeSeconds: 0,
+							durationSeconds: 1,
+						},
+					],
+				}),
+				{ headers: { "Content-Type": "application/json" } },
+			);
+		});
+		const deps = createTranscriptionToolDeps({
+			editor,
+			fetchFn: fetchFn as unknown as typeof fetch,
+			extractTimelineAudioFn,
+		});
+
+		const result = await deps.generateSubtitlesFromVideo({
+			source: "timeline",
+			provider: "volcengine",
+			audioRangeStartSeconds: 5,
+			audioRangeDurationSeconds: 2,
+			audioRangeTrackId: "voice-track",
+			audioRangeElementId: "voice-clip",
+		});
+
+		expect(extractTimelineAudioFn).toHaveBeenCalledWith(
+			expect.objectContaining({
+				tracks: expect.objectContaining({
+					audio: [
+						expect.objectContaining({
+							id: "voice-track",
+							elements: [selectedElement],
+						}),
+					],
+				}),
+				rangeStart: 5 * MEDIA_TIME_TICKS_PER_SECOND,
+				rangeDuration: 2 * MEDIA_TIME_TICKS_PER_SECOND,
+			}),
+		);
+		expect(result.metadata).toMatchObject({
+			audioRange: {
+				elementRef: { trackId: "voice-track", elementId: "voice-clip" },
+			},
+		});
 	});
 
 	test("client deps emit cloud ASR recognition progress while the request is pending", async () => {
