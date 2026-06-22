@@ -636,6 +636,7 @@ function ElementInner({
 	isDropTarget?: boolean;
 }) {
 	const visibleElement = displayElement ?? element;
+	const isCompound = isCompoundElement(visibleElement);
 	const isReducedOpacity =
 		(canElementBeHidden(visibleElement) && visibleElement.hidden) ||
 		isDropTarget;
@@ -672,12 +673,17 @@ function ElementInner({
 					>
 						<div
 							className={cn(
-								"flex shrink-0 items-center overflow-hidden",
-								getTimelineElementClassName({
-									type: getTrackTypeForElementType({
-										elementType: element.type,
-									}),
-								}),
+								"flex shrink-0 items-center overflow-hidden border",
+								isCompound
+									? "border-cyan-100/35 bg-[#4277B8] shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-1px_0_rgba(0,0,0,0.18),0_0_0_1px_rgba(56,189,248,0.18)]"
+									: cn(
+											"border-transparent",
+											getTimelineElementClassName({
+												type: getTrackTypeForElementType({
+													elementType: element.type,
+												}),
+											}),
+										),
 								isReducedOpacity && "opacity-50",
 							)}
 							style={{ height: `${baseTrackHeight}px` }}
@@ -764,7 +770,9 @@ function ResizeHandle({
 				"pointer-events-auto absolute top-0 bottom-0 z-10 opacity-0 transition-opacity",
 				revealPolicy === "ambient" && "group-hover/element:opacity-100",
 				revealPolicy === "force" && "opacity-100",
-				isLeft ? "-left-1.5 w-3 cursor-w-resize" : "-right-1.5 w-3 cursor-e-resize",
+				isLeft
+					? "-left-1.5 w-3 cursor-w-resize"
+					: "-right-1.5 w-3 cursor-e-resize",
 			)}
 			onMouseEnter={() => onHoverChange?.({ element, side, isHovered: true })}
 			onMouseLeave={() => onHoverChange?.({ element, side, isHovered: false })}
