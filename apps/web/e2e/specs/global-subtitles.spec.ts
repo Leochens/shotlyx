@@ -219,6 +219,38 @@ test.describe("global subtitles", () => {
 		await expect(page.getByTestId("global-transcript-list")).toContainText(
 			"屏幕轨道文字",
 		);
+		await page
+			.getByRole("switch", { name: "当前轨道字幕是否显示" })
+			.click();
+		await expect(page.getByTestId("global-transcript-list")).toContainText(
+			"屏幕轨道文字",
+		);
+		await expect
+			.poll(async () =>
+				page.evaluate(async () => {
+					const [{ EditorCore }, { buildProjectSubtitleElements }] =
+						await Promise.all([
+							import("/src/core/index.ts"),
+							import("/src/subtitles/project-subtitles.ts"),
+						]);
+					const editor = EditorCore.getInstance();
+					const subtitles = editor.project.getActive().settings.subtitles;
+					return {
+						renderEnabled: subtitles?.tracks?.find(
+							(track) => track.id === "track:screen-track",
+						)?.renderEnabled,
+						renderedNames: buildProjectSubtitleElements({
+							subtitles,
+							canvasSize: { width: 1920, height: 1080 },
+							duration: 120_000,
+						}).map((element) => element.name),
+					};
+				}),
+			)
+			.toEqual({
+				renderEnabled: false,
+				renderedNames: ["V1"],
+			});
 		await expect(page.getByTestId("global-transcript-list")).not.toContainText(
 			"第二句点击跳转",
 		);

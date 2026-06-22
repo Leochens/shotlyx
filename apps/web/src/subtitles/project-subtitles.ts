@@ -26,7 +26,9 @@ function getRenderableSubtitleTracks({
 	subtitles: TProjectSubtitles;
 }): TProjectSubtitleTrack[] {
 	if (subtitles.tracks && subtitles.tracks.length > 0) {
-		return subtitles.tracks.filter((track) => track.cues.length > 0);
+		return subtitles.tracks.filter(
+			(track) => track.cues.length > 0 && track.renderEnabled !== false,
+		);
 	}
 	if (subtitles.cues.length === 0) return [];
 	return [

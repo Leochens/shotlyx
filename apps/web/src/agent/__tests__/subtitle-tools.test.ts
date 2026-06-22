@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-type-assertion -- Test mocks intentionally narrow EditorCore and MediaTime. */
 import { describe, expect, mock, test } from "bun:test";
 import type { EditorCore } from "@/core";
+import type { TProjectSettings } from "@/project/types";
 import { opencutWasmMock, wasmMock } from "@/test/wasm-mock";
 import type { MediaTime } from "@/wasm/media-time";
 import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
@@ -28,6 +29,7 @@ function createMockEditor({
 	getTrackById = mock(() => null),
 	mediaAssets = [],
 	sceneTracks,
+	projectSettings,
 }: {
 	insertElement?: ReturnType<typeof mock>;
 	addTrack?: ReturnType<typeof mock>;
@@ -37,7 +39,13 @@ function createMockEditor({
 	getTrackById?: ReturnType<typeof mock>;
 	mediaAssets?: unknown[];
 	sceneTracks?: unknown;
+	projectSettings?: Partial<TProjectSettings>;
 } = {}): EditorCore {
+	const settings = {
+		canvasSize: { width: 1024, height: 768 },
+		subtitles: null,
+		...projectSettings,
+	};
 	return {
 		timeline: {
 			addTrack,
@@ -50,19 +58,13 @@ function createMockEditor({
 				metadata: {
 					id: "project-1",
 				},
-				settings: {
-					canvasSize: { width: 1024, height: 768 },
-					subtitles: null,
-				},
+				settings,
 			}),
 			getActive: () => ({
 				metadata: {
 					id: "project-1",
 				},
-				settings: {
-					canvasSize: { width: 1024, height: 768 },
-					subtitles: null,
-				},
+				settings,
 			}),
 			updateSettings,
 		},
@@ -258,6 +260,74 @@ describe("subtitle tools", () => {
 									text: "第一轨字幕",
 									startTime: 0,
 									duration: 1,
+								},
+							],
+						},
+					],
+				},
+			},
+		});
+	});
+
+	test("subtitles_import preserves a disabled transcript track render state", () => {
+		const updateSettings = mock(() => {});
+		const editor = createMockEditor({
+			updateSettings,
+			projectSettings: {
+				subtitles: {
+					enabled: true,
+					cues: [],
+					revealMode: "line",
+					lineBreakMode: "page",
+					maxCharsPerLine: 30,
+					selectedTrackId: "track:voice-track",
+					tracks: [
+						{
+							id: "track:voice-track",
+							label: "V1",
+							sourceTrackId: "voice-track",
+							renderEnabled: false,
+							cues: [
+								{
+									text: "旧字幕",
+									startTime: 0,
+									duration: 1,
+								},
+							],
+						},
+					],
+				},
+			},
+		});
+		const tools = buildSubtitleTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find((item) => item.name === "subtitles_import");
+
+		tool?.handler({
+			format: "cues",
+			sourceTrackId: "voice-track",
+			sourceTrackName: "V1",
+			cues: [
+				{
+					text: "新字幕",
+					startTimeSeconds: 0,
+					durationSeconds: 1,
+				},
+			],
+		});
+
+		expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({
+			settings: {
+				subtitles: {
+					tracks: [
+						{
+							id: "track:voice-track",
+							renderEnabled: false,
+							cues: [
+								{
+									text: "新字幕",
 								},
 							],
 						},

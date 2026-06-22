@@ -89,6 +89,7 @@ export interface TProjectSubtitleTrack {
 	id: string;
 	label: string;
 	cues: SubtitleLayerCue[];
+	renderEnabled?: boolean;
 	sourceTrackId?: string;
 	sourceElementId?: string;
 	assetId?: string;

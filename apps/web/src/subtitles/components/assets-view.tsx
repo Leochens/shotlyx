@@ -292,6 +292,8 @@ export function Captions() {
 		transcriptTrackChoices[0] ??
 		null;
 	const hasTranscript = (selectedTranscriptTrack?.cues.length ?? 0) > 0;
+	const isSelectedTrackRenderEnabled =
+		selectedTranscriptTrack?.renderEnabled !== false;
 	const selectedTokenRange = useMemo(
 		() =>
 			selectedTranscriptTrack
@@ -590,6 +592,21 @@ export function Captions() {
 		updateProjectSubtitles({ selectedTrackId: value });
 	};
 
+	const handleToggleSelectedTrackRender = (enabled: boolean) => {
+		if (!selectedTranscriptTrack) return;
+		const currentSubtitles =
+			editor.project.getActive().settings.subtitles ??
+			createEmptyProjectSubtitles();
+		const tracks = getStoredTranscriptTracks({ subtitles: currentSubtitles });
+		updateTranscriptTracks({
+			tracks: tracks.map((track) =>
+				track.id === selectedTranscriptTrack.id
+					? { ...track, renderEnabled: enabled }
+					: track,
+			),
+		});
+	};
+
 	const handleTokenPointerDown = ({
 		address,
 	}: {
@@ -765,6 +782,7 @@ export function Captions() {
 									transcriptTrackChoices.map((track) => (
 										<SelectItem key={track.id} value={track.id}>
 											{track.label}
+											{track.renderEnabled === false ? "（已关闭）" : ""}
 										</SelectItem>
 									))
 								) : (
@@ -849,15 +867,37 @@ export function Captions() {
 									</div>
 									<div className="text-muted-foreground truncate text-xs">
 										{hasTranscript
-											? `${selectedTranscriptTrack?.cues.length ?? 0} 条文字稿，不占用时间线轨道`
+											? `${selectedTranscriptTrack?.cues.length ?? 0} 条文字稿，${
+													isSelectedTrackRenderEnabled
+														? "正在显示字幕"
+														: "字幕显示已关闭"
+												}`
 											: "生成后会按轨道出现在这里"}
 									</div>
 								</div>
-								<Switch
-								checked={projectSubtitles.enabled}
-								onCheckedChange={handleToggleProjectSubtitles}
-								aria-label="字幕是否开启"
-							/>
+								<div className="flex shrink-0 flex-col items-end gap-2">
+									<div className="flex items-center gap-2">
+										<span className="text-muted-foreground text-xs">
+											全部字幕
+										</span>
+										<Switch
+											checked={projectSubtitles.enabled}
+											onCheckedChange={handleToggleProjectSubtitles}
+											aria-label="字幕是否开启"
+										/>
+									</div>
+									<div className="flex items-center gap-2">
+										<span className="text-muted-foreground text-xs">
+											当前轨道
+										</span>
+										<Switch
+											checked={isSelectedTrackRenderEnabled}
+											onCheckedChange={handleToggleSelectedTrackRender}
+											disabled={!selectedTranscriptTrack}
+											aria-label="当前轨道字幕是否显示"
+										/>
+									</div>
+								</div>
 							</div>
 
 							{hasTranscript ? (

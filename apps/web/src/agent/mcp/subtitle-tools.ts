@@ -1380,6 +1380,9 @@ export function buildSubtitleTools({
 					const sourceId = sourceTrackId ?? "global";
 					const trackIdForTranscript = `track:${sourceId}`;
 					const previousTracks = previousSubtitles?.tracks ?? [];
+					const previousTrack = previousTracks.find(
+						(track) => track.id === trackIdForTranscript,
+					);
 					const assetFields = subtitleAssetId
 						? {
 								assetId: subtitleAssetId,
@@ -1392,6 +1395,7 @@ export function buildSubtitleTools({
 							sourceTrackName ??
 							(sourceTrackId ? `轨道 ${sourceTrackId}` : "全局字幕"),
 						cues: layerCues,
+						renderEnabled: previousTrack?.renderEnabled ?? true,
 						...(sourceTrackId ? { sourceTrackId } : {}),
 						...(sourceElementId ? { sourceElementId } : {}),
 						...assetFields,

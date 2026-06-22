@@ -176,6 +176,46 @@ describe("scene builder watermark", () => {
 		);
 	});
 
+	test("skips disabled project-global subtitle tracks", () => {
+		const scene = buildScene({
+			canvasSize: { width: 1920, height: 1080 },
+			tracks: emptyTracks(),
+			mediaAssets: [],
+			duration: time(360_000),
+			background: { type: "color", color: "transparent" },
+			subtitles: {
+				enabled: true,
+				revealMode: "line",
+				lineBreakMode: "page",
+				maxCharsPerLine: 30,
+				cues: [],
+				tracks: [
+					{
+						id: "track:v1",
+						label: "V1",
+						sourceTrackId: "v1",
+						cues: [{ text: "第一轨", startTime: 0, duration: 3 }],
+					},
+					{
+						id: "track:v2",
+						label: "V2",
+						sourceTrackId: "v2",
+						renderEnabled: false,
+						cues: [{ text: "第二轨", startTime: 0, duration: 3 }],
+					},
+				],
+			},
+		});
+
+		const subtitleNodes = scene.children.filter(
+			(child): child is TextNode =>
+				child instanceof TextNode &&
+				child.params.params["subtitle.role"] === "project-global",
+		);
+
+		expect(subtitleNodes.map((node) => node.params.name)).toEqual(["V1"]);
+	});
+
 	test("adds image and video watermarks from media assets", () => {
 		const imageScene = buildScene({
 			canvasSize: { width: 1920, height: 1080 },
