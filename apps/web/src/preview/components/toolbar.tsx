@@ -65,7 +65,9 @@ function SubtitleToggle() {
 	const subtitles = useEditor(
 		(e) => e.project.getActive().settings.subtitles ?? null,
 	);
-	const hasTranscript = (subtitles?.cues.length ?? 0) > 0;
+	const hasTranscript =
+		(subtitles?.tracks?.some((track) => track.cues.length > 0) ?? false) ||
+		(subtitles?.cues.length ?? 0) > 0;
 	const enabled = subtitles?.enabled ?? true;
 
 	const toggleSubtitles = () => {

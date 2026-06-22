@@ -75,9 +75,22 @@ export type TProjectStage = "topic" | "production" | "review" | "published";
 export interface TProjectSubtitles {
 	enabled: boolean;
 	cues: SubtitleLayerCue[];
+	tracks?: TProjectSubtitleTrack[];
+	selectedTrackId?: string;
 	revealMode: Exclude<SubtitleRevealMode, "full">;
 	lineBreakMode: SubtitleLineBreakMode;
 	maxCharsPerLine: number;
+	assetId?: string;
+	assetName?: string;
+	updatedAt?: string;
+}
+
+export interface TProjectSubtitleTrack {
+	id: string;
+	label: string;
+	cues: SubtitleLayerCue[];
+	sourceTrackId?: string;
+	sourceElementId?: string;
 	assetId?: string;
 	assetName?: string;
 	updatedAt?: string;

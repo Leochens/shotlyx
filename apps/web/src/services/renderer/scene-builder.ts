@@ -18,7 +18,7 @@ import type {
 	TProjectWatermark,
 	TProjectSubtitles,
 } from "@/project/types";
-import { buildProjectSubtitleElement } from "@/subtitles/project-subtitles";
+import { buildProjectSubtitleElements } from "@/subtitles/project-subtitles";
 import { DEFAULT_BACKGROUND_BLUR_INTENSITY } from "@/background/blur";
 import { DEFAULTS } from "@/timeline/defaults";
 import {
@@ -513,12 +513,12 @@ export function buildScene({
 		rootNode.add(node);
 	}
 
-	const globalSubtitleElement = buildProjectSubtitleElement({
+	const globalSubtitleElements = buildProjectSubtitleElements({
 		subtitles,
 		canvasSize,
 		duration,
 	});
-	if (globalSubtitleElement) {
+	for (const globalSubtitleElement of globalSubtitleElements) {
 		rootNode.add(
 			new TextNode({
 				...globalSubtitleElement,

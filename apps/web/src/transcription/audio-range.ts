@@ -12,7 +12,11 @@ import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
 type MediaTime = number;
 
-export type TranscriptionAudioRangeKind = "timeline" | "selection" | "element";
+export type TranscriptionAudioRangeKind =
+	| "timeline"
+	| "selection"
+	| "element"
+	| "track";
 
 export interface TranscriptionAudioRange {
 	kind: TranscriptionAudioRangeKind;
@@ -20,11 +24,17 @@ export interface TranscriptionAudioRange {
 	duration: MediaTime;
 	label: string;
 	elementRef?: ElementRef;
+	trackRef?: { trackId: string };
 }
 
 export interface TranscriptionAudioElementOption extends TranscriptionAudioRange {
 	kind: "element";
 	elementRef: ElementRef;
+}
+
+export interface TranscriptionAudioTrackOption extends TranscriptionAudioRange {
+	kind: "track";
+	trackRef: { trackId: string };
 }
 
 interface ElementWithTrack {
@@ -188,6 +198,46 @@ export function getTranscriptionAudioElementOptions({
 				elementRef: { trackId: track.id, elementId: element.id },
 			});
 		}
+	}
+
+	return options;
+}
+
+export function getTranscriptionAudioTrackOptions({
+	tracks,
+	mediaAssets,
+}: {
+	tracks: SceneTracks;
+	mediaAssets: MediaAsset[];
+}): TranscriptionAudioTrackOption[] {
+	const orderedTracks = [...tracks.overlay, tracks.main, ...tracks.audio];
+	const options: TranscriptionAudioTrackOption[] = [];
+
+	for (const track of orderedTracks) {
+		const audibleElements = track.elements.filter((element) =>
+			isElementAudibleForTranscription({
+				element,
+				track,
+				mediaAssets,
+			}),
+		);
+		if (audibleElements.length === 0) continue;
+
+		const startTime = Math.min(
+			...audibleElements.map((element) => element.startTime),
+		);
+		const endTime = Math.max(
+			...audibleElements.map(
+				(element) => element.startTime + element.duration,
+			),
+		);
+		options.push({
+			kind: "track",
+			startTime,
+			duration: endTime - startTime,
+			label: track.name || track.id,
+			trackRef: { trackId: track.id },
+		});
 	}
 
 	return options;

@@ -7,6 +7,7 @@ import type {
 } from "@/timeline/types";
 import type { MediaAsset } from "@/media/types";
 import type { MediaTime } from "@/wasm/media-time";
+import type { TProjectSubtitleTrack } from "@/project/types";
 import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 import {
 	getSubtitleLayerDurationSeconds,
@@ -1212,12 +1213,30 @@ export function buildSubtitleTools({
 						"Structured cues when format is cues: { text, startTimeSeconds, durationSeconds }",
 					optional: true,
 				},
-				trackId: {
-					type: "string",
-					description:
-						"Optional target text track ID. Omit to create a new subtitle text track.",
-					optional: true,
-				},
+					trackId: {
+						type: "string",
+						description:
+							"Optional target text track ID. Omit to create a new subtitle text track.",
+						optional: true,
+					},
+					sourceTrackId: {
+						type: "string",
+						description:
+							"Optional source audio track ID for project-global transcript grouping.",
+						optional: true,
+					},
+					sourceTrackName: {
+						type: "string",
+						description:
+							"Optional source audio track display name for project-global transcript grouping.",
+						optional: true,
+					},
+					sourceElementId: {
+						type: "string",
+						description:
+							"Optional source audio element ID when transcript was generated from one clip.",
+						optional: true,
+					},
 				insertMode: {
 					type: "string",
 					description:
@@ -1334,11 +1353,14 @@ export function buildSubtitleTools({
 					optionalStringParam(params, "highlightColor") ??
 					DEFAULT_SUBTITLE_KARAOKE_HIGHLIGHT_COLOR;
 				const subtitleAssetId = optionalStringParam(params, "subtitleAssetId");
-				const subtitleAssetName = optionalStringParam(
-					params,
-					"subtitleAssetName",
-				);
-				const styleParams = buildSubtitleStyleParams({
+					const subtitleAssetName = optionalStringParam(
+						params,
+						"subtitleAssetName",
+					);
+					const sourceTrackId = optionalStringParam(params, "sourceTrackId");
+					const sourceTrackName = optionalStringParam(params, "sourceTrackName");
+					const sourceElementId = optionalStringParam(params, "sourceElementId");
+					const styleParams = buildSubtitleStyleParams({
 					style,
 					placement,
 					canvasSize,
@@ -1355,11 +1377,39 @@ export function buildSubtitleTools({
 				if (insertMode === "project") {
 					const previousSubtitles =
 						editor.project.getActiveOrNull()?.settings.subtitles ?? null;
+					const sourceId = sourceTrackId ?? "global";
+					const trackIdForTranscript = `track:${sourceId}`;
+					const previousTracks = previousSubtitles?.tracks ?? [];
+					const assetFields = subtitleAssetId
+						? {
+								assetId: subtitleAssetId,
+								...(subtitleAssetName ? { assetName: subtitleAssetName } : {}),
+							}
+						: {};
+					const nextTrack: TProjectSubtitleTrack = {
+						id: trackIdForTranscript,
+						label:
+							sourceTrackName ??
+							(sourceTrackId ? `轨道 ${sourceTrackId}` : "全局字幕"),
+						cues: layerCues,
+						...(sourceTrackId ? { sourceTrackId } : {}),
+						...(sourceElementId ? { sourceElementId } : {}),
+						...assetFields,
+						updatedAt: new Date().toISOString(),
+					};
+					const nextTracks = [
+						...previousTracks.filter((track) => track.id !== trackIdForTranscript),
+						nextTrack,
+					];
 					void editor.project.updateSettings({
 						settings: {
 							subtitles: {
 								enabled: true,
-								cues: layerCues,
+								cues: sourceTrackId
+									? (previousSubtitles?.cues ?? [])
+									: layerCues,
+								tracks: nextTracks,
+								selectedTrackId: trackIdForTranscript,
 								revealMode,
 								lineBreakMode,
 								maxCharsPerLine,
@@ -1393,6 +1443,8 @@ export function buildSubtitleTools({
 						placement,
 						revealMode,
 						global: true,
+						sourceTrackId,
+						sourceTrackName: nextTrack.label,
 						...(subtitleAssetId
 							? {
 									subtitleAssetId,

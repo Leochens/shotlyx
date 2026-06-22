@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { PanelView } from "@/components/editor/panels/assets/views/base-panel";
 import {
@@ -11,16 +10,13 @@ import {
 } from "@/components/ui/select";
 import { useMemo, useReducer, useRef, useState } from "react";
 import { useEditor } from "@/editor/use-editor";
-import { useElementSelection } from "@/timeline/hooks/element/use-element-selection";
 import { TRANSCRIPTION_DIAGNOSTICS_SCOPE } from "@/transcription/diagnostics";
 import { TRANSCRIPTION_LANGUAGES } from "@/transcription/supported-languages";
 import type { CaptionChunk, TranscriptionLanguage } from "@/transcription/types";
 import {
-	getTimelineAudioRange,
-	getTranscriptionAudioElementOptions,
-	resolveSelectedTranscriptionAudioRange,
-	type TranscriptionAudioRange,
-	type TranscriptionAudioElementOption,
+	audioRangeToSeconds,
+	type TranscriptionAudioTrackOption,
+	getTranscriptionAudioTrackOptions,
 } from "@/transcription/audio-range";
 import {
 	CAPTION_TRANSCRIPTION_PROVIDER_OPTIONS,
@@ -46,16 +42,10 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { DiagnosticSeverity } from "@/diagnostics/types";
-import type { TProjectSubtitles } from "@/project/types";
+import type { TProjectSubtitleTrack, TProjectSubtitles } from "@/project/types";
 import type { SubtitleLayerCue, SubtitleToken } from "@/subtitles/types";
 import { createEmptyProjectSubtitles } from "@/subtitles/project-subtitles";
 import { mediaTimeFromSeconds } from "@/wasm/media-time";
-import {
-	buildAsrDebugConfirmation,
-	type AsrAudioRangeParams,
-	type AsrDebugConfirmation,
-	type AsrDebugConfirmationMode,
-} from "./asr-debug-confirmation";
 
 const DIAGNOSTIC_BUTTON_VARIANT: Record<
 	DiagnosticSeverity,
@@ -80,19 +70,15 @@ const IDLE_STATE: ProcessingState = {
 	error: null,
 	warnings: [],
 };
-const AUTO_AUDIO_RANGE_CHOICE = "auto";
-const TIMELINE_AUDIO_RANGE_CHOICE = "timeline";
-
-type AudioRangeChoice = typeof AUTO_AUDIO_RANGE_CHOICE | string;
-
 const EMPTY_PROJECT_SUBTITLES = createEmptyProjectSubtitles();
+const LEGACY_TRANSCRIPT_TRACK_ID = "track:global";
 
-function elementAudioRangeChoice({
+function audioTrackChoiceId({
 	option,
 }: {
-	option: TranscriptionAudioElementOption;
+	option: TranscriptionAudioTrackOption;
 }): string {
-	return `element:${option.elementRef.trackId}:${option.elementRef.elementId}`;
+	return `track:${option.trackRef.trackId}`;
 }
 
 function normalizeProjectSubtitles({
@@ -124,6 +110,58 @@ function splitCueTextIntoClickableUnits({
 	return [{ text: cue.text, startTime: cue.startTime, duration: cue.duration }];
 }
 
+function getStoredTranscriptTracks({
+	subtitles,
+}: {
+	subtitles: TProjectSubtitles;
+}): TProjectSubtitleTrack[] {
+	if (subtitles.tracks && subtitles.tracks.length > 0) {
+		return subtitles.tracks;
+	}
+	if (subtitles.cues.length === 0) return [];
+	return [
+		{
+			id: LEGACY_TRANSCRIPT_TRACK_ID,
+			label: "全局字幕",
+			cues: subtitles.cues,
+			...(subtitles.assetId
+				? {
+						assetId: subtitles.assetId,
+						...(subtitles.assetName ? { assetName: subtitles.assetName } : {}),
+					}
+				: {}),
+			updatedAt: subtitles.updatedAt,
+		},
+	];
+}
+
+function buildTranscriptTrackChoices({
+	audioTrackOptions,
+	storedTracks,
+}: {
+	audioTrackOptions: TranscriptionAudioTrackOption[];
+	storedTracks: TProjectSubtitleTrack[];
+}): TProjectSubtitleTrack[] {
+	const storedById = new Map(storedTracks.map((track) => [track.id, track]));
+	const choices = audioTrackOptions.map((option) => {
+		const id = audioTrackChoiceId({ option });
+		return (
+			storedById.get(id) ?? {
+				id,
+				label: option.label,
+				cues: [],
+				sourceTrackId: option.trackRef.trackId,
+			}
+		);
+	});
+	for (const track of storedTracks) {
+		if (!choices.some((choice) => choice.id === track.id)) {
+			choices.push(track);
+		}
+	}
+	return choices;
+}
+
 /* eslint-disable shotlyx/prefer-object-params -- React reducers must accept (state, action). */
 function processingReducer(
 	state: ProcessingState,
@@ -150,19 +188,12 @@ export function Captions() {
 		useState<CaptionTranscriptionProvider>(
 			DEFAULT_CAPTION_TRANSCRIPTION_PROVIDER,
 		);
-	const [audioRangeChoice, setAudioRangeChoice] = useState<AudioRangeChoice>(
-		AUTO_AUDIO_RANGE_CHOICE,
-	);
-	const [asrDebugConfirmation, setAsrDebugConfirmation] =
-		useState<AsrDebugConfirmation | null>(null);
 	const [processing, dispatch] = useReducer(processingReducer, IDLE_STATE);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const editor = useEditor();
-	const { selectedElements } = useElementSelection();
 	const mediaAssets = useEditor((e) => e.media.getAssets());
 	const sceneTracks = useEditor((e) => e.scenes.getActiveScene().tracks);
-	const totalDuration = useEditor((e) => e.timeline.getTotalDuration());
 	const projectSubtitles = useEditor((e) =>
 		normalizeProjectSubtitles({
 			subtitles: e.project.getActive().settings.subtitles,
@@ -170,50 +201,64 @@ export function Captions() {
 	);
 
 	const isProcessing = processing.status === "processing";
-	const hasTranscript = projectSubtitles.cues.length > 0;
 
 	const activeDiagnostics = useEditor((e) =>
 		e.diagnostics.getActive({ scope: TRANSCRIPTION_DIAGNOSTICS_SCOPE }),
 	);
-	const selectedAudioRange = useMemo(
+	const audioTrackOptions = useMemo(
 		() =>
-			resolveSelectedTranscriptionAudioRange({
-				selectedElements,
-				elementsWithTracks: editor.timeline.getElementsWithTracks({
-					elements: selectedElements,
-				}),
-				mediaAssets,
-			}),
-		[editor, mediaAssets, selectedElements],
-	);
-	const timelineAudioRange = useMemo(
-		() => getTimelineAudioRange({ totalDuration }),
-		[totalDuration],
-	);
-	const audioElementOptions = useMemo(
-		() =>
-			getTranscriptionAudioElementOptions({
+			getTranscriptionAudioTrackOptions({
 				tracks: sceneTracks,
 				mediaAssets,
 			}),
 		[mediaAssets, sceneTracks],
 	);
+	const storedTranscriptTracks = useMemo(
+		() => getStoredTranscriptTracks({ subtitles: projectSubtitles }),
+		[projectSubtitles],
+	);
+	const transcriptTrackChoices = useMemo(
+		() =>
+			buildTranscriptTrackChoices({
+				audioTrackOptions,
+				storedTracks: storedTranscriptTracks,
+			}),
+		[audioTrackOptions, storedTranscriptTracks],
+	);
+	const selectedTrackId =
+		projectSubtitles.selectedTrackId ??
+		transcriptTrackChoices[0]?.id ??
+		LEGACY_TRANSCRIPT_TRACK_ID;
+	const selectedTranscriptTrack =
+		transcriptTrackChoices.find((track) => track.id === selectedTrackId) ??
+		transcriptTrackChoices[0] ??
+		null;
+	const hasTranscript = (selectedTranscriptTrack?.cues.length ?? 0) > 0;
 
 	const insertCaptions = async ({
 		captions,
 	}: {
 		captions: CaptionChunk[];
 	}): Promise<boolean> => {
+		const selectedAudioTrack = audioTrackOptions.find(
+			(option) => audioTrackChoiceId({ option }) === selectedTrackId,
+		);
 		const result = await editor.mcp.execute({
 			toolName: "subtitles_import",
 			params: {
 				format: "cues",
-				insertMode: "layer",
+				insertMode: "project",
 				cues: captions.map((caption) => ({
 					text: caption.text,
 					startTimeSeconds: caption.startTime,
 					durationSeconds: caption.duration,
 				})),
+				...(selectedAudioTrack
+					? {
+							sourceTrackId: selectedAudioTrack.trackRef.trackId,
+							sourceTrackName: selectedAudioTrack.label,
+						}
+					: {}),
 			},
 		});
 		if (result.status === "error") {
@@ -222,73 +267,57 @@ export function Captions() {
 		return true;
 	};
 
-	const getChosenAudioRange = (): TranscriptionAudioRange | null => {
-		if (audioRangeChoice === AUTO_AUDIO_RANGE_CHOICE) {
-			return selectedAudioRange;
+	const runGenerateAllTranscripts = async () => {
+		if (audioTrackOptions.length === 0) {
+			dispatch({
+				type: "fail",
+				error: "No audio tracks were found for transcription",
+			});
+			return;
 		}
-		if (audioRangeChoice === TIMELINE_AUDIO_RANGE_CHOICE) {
-			return timelineAudioRange;
-		}
-
-		return (
-			audioElementOptions.find(
-				(option) => elementAudioRangeChoice({ option }) === audioRangeChoice,
-			) ?? null
-		);
-	};
-
-	const getAudioRangeForAsrDebugConfirmation = (): TranscriptionAudioRange => {
-		return getChosenAudioRange() ?? timelineAudioRange;
-	};
-
-	const prepareAsrDebugConfirmation = ({
-		mode,
-	}: {
-		mode: AsrDebugConfirmationMode;
-	}) => {
-		setAsrDebugConfirmation(
-			buildAsrDebugConfirmation({
-				mode,
-				range: getAudioRangeForAsrDebugConfirmation(),
-			}),
-		);
-	};
-
-	const runGenerateTranscript = async ({
-		audioRangeParams,
-	}: {
-		audioRangeParams: AsrAudioRangeParams;
-	}) => {
 		dispatch({
 			type: "start",
 			step: getCaptionProviderStartStep({ provider: selectedProvider }),
 		});
 		try {
-			const result = await editor.mcp.execute({
-				toolName: "subtitles_generate_from_video",
-				params: {
-					source: "timeline",
-					provider: selectedProvider,
-					language: selectedLanguage,
-					style: "clean",
-					placement: "bottom",
-					...audioRangeParams,
-				},
-				onProgress: (event) => {
-					if (event.status === "running") {
-						dispatch({ type: "update_step", step: event.label });
-					}
-				},
-			});
-			if (result.status === "error") {
-				dispatch({
-					type: "fail",
-					error: result.error ?? "Subtitle generation failed",
+			for (const [index, audioTrack] of audioTrackOptions.entries()) {
+				const { startTimeSeconds, durationSeconds } = audioRangeToSeconds({
+					range: audioTrack,
 				});
-				return;
+				dispatch({
+					type: "update_step",
+					step: `识别 ${index + 1}/${audioTrackOptions.length}: ${audioTrack.label}`,
+				});
+				const result = await editor.mcp.execute({
+					toolName: "subtitles_generate_from_video",
+					params: {
+						source: "timeline",
+						provider: selectedProvider,
+						language: selectedLanguage,
+						style: "clean",
+						placement: "bottom",
+						audioRangeStartSeconds: startTimeSeconds,
+						audioRangeDurationSeconds: durationSeconds,
+						audioRangeTrackId: audioTrack.trackRef.trackId,
+					},
+					onProgress: (event) => {
+						if (event.status === "running") {
+							dispatch({
+								type: "update_step",
+								step: `${audioTrack.label}: ${event.label}`,
+							});
+						}
+					},
+				});
+				if (result.status === "error") {
+					dispatch({
+						type: "fail",
+						error: result.error ?? "Subtitle generation failed",
+					});
+					return;
+				}
 			}
 
-			setAsrDebugConfirmation(null);
 			dispatch({ type: "succeed", warnings: [] });
 		} catch (error) {
 			console.error("Transcription failed:", error);
@@ -303,16 +332,7 @@ export function Captions() {
 	};
 
 	const handleGenerateTranscript = () => {
-		prepareAsrDebugConfirmation({ mode: "transcript" });
-	};
-
-	const handleContinueAsrDebugConfirmation = async () => {
-		const confirmation = asrDebugConfirmation;
-		if (!confirmation) return;
-
-		await runGenerateTranscript({
-			audioRangeParams: confirmation.params,
-		});
+		void runGenerateAllTranscripts();
 	};
 
 	const handleImportClick = () => {
@@ -380,7 +400,6 @@ export function Captions() {
 	const handleLanguageChange = ({ value }: { value: string }) => {
 		if (value === "auto") {
 			setSelectedLanguage("auto");
-			setAsrDebugConfirmation(null);
 			return;
 		}
 
@@ -389,13 +408,11 @@ export function Captions() {
 		);
 		if (!matchedLanguage) return;
 		setSelectedLanguage(matchedLanguage.code);
-		setAsrDebugConfirmation(null);
 	};
 
 	const handleProviderChange = ({ value }: { value: string }) => {
 		if (!isCaptionTranscriptionProvider(value)) return;
 		setSelectedProvider(value);
-		setAsrDebugConfirmation(null);
 	};
 
 	const updateProjectSubtitles = (updates: Partial<TProjectSubtitles>) => {
@@ -417,18 +434,8 @@ export function Captions() {
 		updateProjectSubtitles({ enabled });
 	};
 
-	const handleCueTextChange = ({
-		index,
-		text,
-	}: {
-		index: number;
-		text: string;
-	}) => {
-		updateProjectSubtitles({
-			cues: projectSubtitles.cues.map((cue, cueIndex) =>
-				cueIndex === index ? { ...cue, text } : cue,
-			),
-		});
+	const handleSelectedTrackChange = ({ value }: { value: string }) => {
+		updateProjectSubtitles({ selectedTrackId: value });
 	};
 
 	const seekToSeconds = ({ seconds }: { seconds: number }) => {
@@ -460,6 +467,30 @@ export function Captions() {
 									<TooltipContent>{diagnostic.message}</TooltipContent>
 								</Tooltip>
 							))}
+						<Select
+							value={selectedTrackId}
+							onValueChange={(value) => handleSelectedTrackChange({ value })}
+						>
+							<SelectTrigger
+								className="h-8 w-[6.5rem]"
+								aria-label="选择轨道"
+							>
+								<SelectValue placeholder="选择轨道" />
+							</SelectTrigger>
+							<SelectContent>
+								{transcriptTrackChoices.length > 0 ? (
+									transcriptTrackChoices.map((track) => (
+										<SelectItem key={track.id} value={track.id}>
+											{track.label}
+										</SelectItem>
+									))
+								) : (
+									<SelectItem value={LEGACY_TRANSCRIPT_TRACK_ID}>
+										无轨道
+									</SelectItem>
+								)}
+							</SelectContent>
+						</Select>
 						<Button
 							type="button"
 							variant="outline"
@@ -524,170 +555,90 @@ export function Captions() {
 									))}
 								</SelectContent>
 							</Select>
-						</SectionField>
-						<SectionField label="Audio Source">
-							<Select
-								value={audioRangeChoice}
-								onValueChange={(value) => {
-									setAudioRangeChoice(value);
-									setAsrDebugConfirmation(null);
-								}}
-							>
-								<SelectTrigger>
-									<SelectValue placeholder="Select audio source" />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value={AUTO_AUDIO_RANGE_CHOICE}>
-										{selectedAudioRange
-											? `Auto: ${selectedAudioRange.label}`
-											: "Auto: Full timeline"}
-									</SelectItem>
-									<SelectItem value={TIMELINE_AUDIO_RANGE_CHOICE}>
-										Full timeline mixed audio
-									</SelectItem>
-									{audioElementOptions.map((option) => (
-										<SelectItem
-											key={`${option.elementRef.trackId}:${option.elementRef.elementId}`}
-											value={elementAudioRangeChoice({ option })}
-										>
-											{option.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</SectionField>
-					</SectionFields>
+							</SectionField>
+						</SectionFields>
 
-					<div className="min-h-0 flex-1 overflow-y-auto pr-1">
-						<div className="mb-3 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-accent/25 px-3 py-2">
-							<div className="min-w-0">
-								<div className="text-sm font-medium">全局字幕</div>
-								<div className="text-muted-foreground truncate text-xs">
-									{hasTranscript
-										? `${projectSubtitles.cues.length} 条字幕，不占用时间线轨道`
-										: "生成或导入后会出现在这里"}
+						<div className="min-h-0 flex-1 overflow-y-auto pr-1">
+							<div className="mb-3 flex items-center justify-between gap-3 px-1">
+								<div className="min-w-0">
+									<div className="truncate text-lg font-semibold text-emerald-400">
+										{selectedTranscriptTrack?.label ?? "暂无轨道"}
+									</div>
+									<div className="text-muted-foreground truncate text-xs">
+										{hasTranscript
+											? `${selectedTranscriptTrack?.cues.length ?? 0} 条文字稿，不占用时间线轨道`
+											: "生成后会按轨道出现在这里"}
+									</div>
 								</div>
-							</div>
-							<Switch
+								<Switch
 								checked={projectSubtitles.enabled}
 								onCheckedChange={handleToggleProjectSubtitles}
 								aria-label="字幕是否开启"
 							/>
-						</div>
+							</div>
 
-						{hasTranscript ? (
-							<div className="space-y-3" data-testid="global-transcript-list">
-								{projectSubtitles.cues.map((cue, cueIndex) => (
-									<div
-										key={`${cue.startTime}:${cueIndex}`}
-										className="rounded-md border border-border/70 bg-background/60 p-2.5"
-									>
-										<div className="mb-2 flex items-center justify-between gap-2">
+							{hasTranscript ? (
+								<div
+									className="space-y-4 pb-4"
+									data-testid="global-transcript-list"
+								>
+									{selectedTranscriptTrack?.cues.map((cue, cueIndex) => (
+										<div
+											key={`${cue.startTime}:${cueIndex}`}
+											className="grid grid-cols-[0.75rem_1fr] gap-2"
+										>
 											<button
 												type="button"
-												className="text-muted-foreground rounded-sm font-mono text-[0.7rem] hover:text-foreground"
-												onClick={() =>
-													seekToSeconds({ seconds: cue.startTime })
-												}
+												className="text-muted-foreground/55 hover:text-muted-foreground mt-1.5 text-left text-sm leading-none"
+												aria-label={`跳转到 ${getCueDisplayTime({ cue })}`}
+												onClick={() => seekToSeconds({ seconds: cue.startTime })}
 											>
-												{getCueDisplayTime({ cue })}
+												::
 											</button>
-											<span className="text-muted-foreground text-[0.7rem]">
-												#{cueIndex + 1}
-											</span>
-										</div>
-										<div className="mb-2 flex flex-wrap gap-x-1 gap-y-1">
-											{splitCueTextIntoClickableUnits({ cue }).map(
-												(token, tokenIndex) => (
-													<button
-														type="button"
-														key={`${token.startTime}:${tokenIndex}:${token.text}`}
-														className="rounded-sm px-0.5 text-left text-sm leading-6 text-foreground hover:bg-cyan-300/15 hover:text-cyan-100"
-														onClick={() =>
-															seekToSeconds({
-																seconds: token.startTime,
+											<p className="text-[1.03rem] leading-8 text-foreground/90">
+												{splitCueTextIntoClickableUnits({ cue }).map(
+													(token, tokenIndex) => (
+														<button
+															type="button"
+															key={`${token.startTime}:${tokenIndex}:${token.text}`}
+															className="rounded-[2px] px-px text-left align-baseline hover:bg-cyan-300/15 hover:text-cyan-100"
+															onClick={() =>
+																seekToSeconds({
+																	seconds: token.startTime,
 															})
 														}
 													>
-														{token.text}
-													</button>
-												),
-											)}
+															{token.text}
+														</button>
+													),
+												)}
+											</p>
 										</div>
-										<Textarea
-											value={cue.text}
-											onChange={(event) =>
-												handleCueTextChange({
-													index: cueIndex,
-													text: event.target.value,
-												})
-											}
-											className="min-h-16 text-sm"
-											aria-label={`编辑第 ${cueIndex + 1} 条字幕`}
-										/>
-									</div>
-								))}
-							</div>
-						) : (
+									))}
+								</div>
+							) : (
 							<div className="text-muted-foreground rounded-md border border-dashed border-border/70 px-3 py-8 text-center text-sm">
 								暂无文字稿
 							</div>
 						)}
-					</div>
+						</div>
 
-					<div className="mt-auto space-y-2">
-						{asrDebugConfirmation && !isProcessing && (
-							<div className="rounded-md border border-cyan-500/25 bg-cyan-500/10 p-3">
-								<div className="flex items-center justify-between gap-3">
-									<div className="min-w-0">
-										<div className="text-muted-foreground text-xs">
-											ASR debug check
-										</div>
-										<div className="truncate text-sm font-medium">
-											{asrDebugConfirmation.label}
-										</div>
-										<div className="text-muted-foreground mt-1 text-xs">
-											Start {asrDebugConfirmation.startLabel} / Duration{" "}
-											{asrDebugConfirmation.durationLabel}
-										</div>
-									</div>
-									<div className="flex shrink-0 gap-2">
-										<Button
-											type="button"
-											variant="outline"
-											size="sm"
-											onClick={() => setAsrDebugConfirmation(null)}
-										>
-											Cancel
-										</Button>
-										<Button
-											type="button"
-											size="sm"
-											onClick={() =>
-												void handleContinueAsrDebugConfirmation()
-											}
-										>
-											Next
-										</Button>
-									</div>
-								</div>
-							</div>
-						)}
-						{isProcessing && (
-							<div className="text-muted-foreground flex items-center gap-2 text-xs">
-								<Spinner />
+						<div className="mt-auto space-y-2">
+							{isProcessing && (
+								<div className="text-muted-foreground flex items-center gap-2 text-xs">
+									<Spinner />
 								<span>{processing.step}</span>
 							</div>
 						)}
-						<Button
-							type="button"
-							className="w-full"
-							onClick={handleGenerateTranscript}
-							disabled={isProcessing || activeDiagnostics.length > 0}
-						>
-							Generate transcript
-						</Button>
-					</div>
+							<Button
+								type="button"
+								className="w-full"
+								onClick={handleGenerateTranscript}
+								disabled={isProcessing || audioTrackOptions.length === 0}
+							>
+								Generate all tracks
+							</Button>
+						</div>
 					{error && (
 						<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
 							<p className="text-destructive text-sm">{error}</p>

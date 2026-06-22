@@ -97,40 +97,21 @@ test.describe("global subtitles", () => {
 		expect(runtimeErrors).toEqual([]);
 	});
 
-	test("transcript edits global subtitles without creating timeline subtitle clips", async ({
+	test("transcript switches track-level word transcripts without creating timeline subtitle clips", async ({
 		page,
 	}) => {
 		const runtimeErrors = collectSubtitleRuntimeErrors({ page });
 		await setupEditorPage(page);
 
 		await page.evaluate(async () => {
-			const [{ EditorCore }, { buildDefaultTextParams }, { mediaTimeFromSeconds }] =
-				await Promise.all([
-					import("/src/core/index.ts"),
-					import("/src/agent/mcp/text-overlay-planner.ts"),
-					import("/src/wasm/media-time.ts"),
-				]);
+			const { EditorCore } = await import("/src/core/index.ts");
 			const editor = EditorCore.getInstance();
-			const trackId = editor.timeline.addTrack({ type: "text", index: 0 });
-			editor.timeline.insertElement({
-				element: {
-					type: "text",
-					name: "E2E duration anchor",
-					startTime: mediaTimeFromSeconds({ seconds: 0 }),
-					duration: mediaTimeFromSeconds({ seconds: 5 }),
-					trimStart: mediaTimeFromSeconds({ seconds: 0 }),
-					trimEnd: mediaTimeFromSeconds({ seconds: 0 }),
-					params: {
-						...buildDefaultTextParams({ content: "" }),
-						content: "",
-					},
-				},
-				placement: { mode: "explicit", trackId },
-			});
 			await editor.mcp.execute({
 				toolName: "subtitles_import",
 				params: {
 					format: "cues",
+					sourceTrackId: "voice-track",
+					sourceTrackName: "V1",
 					cues: [
 						{
 							text: "第一句全局字幕",
@@ -153,9 +134,31 @@ test.describe("global subtitles", () => {
 					],
 				},
 			});
+			await editor.mcp.execute({
+				toolName: "subtitles_import",
+				params: {
+					format: "cues",
+					sourceTrackId: "screen-track",
+					sourceTrackName: "V2",
+					cues: [
+						{
+							text: "屏幕轨道文字",
+							startTimeSeconds: 1,
+							durationSeconds: 2,
+							tokens: [
+								{ text: "屏幕", startTime: 1, duration: 0.5 },
+								{ text: "轨道", startTime: 1.5, duration: 0.5 },
+								{ text: "文字", startTime: 2, duration: 0.5 },
+							],
+						},
+					],
+				},
+			});
 		});
 
 		await page.getByRole("button", { name: /文字稿|Transcript/ }).click();
+		await page.getByRole("combobox", { name: "选择轨道" }).click();
+		await page.getByRole("option", { name: "V1" }).click();
 
 		await expect(page.getByTestId("global-transcript-list")).toContainText(
 			"第一句全局字幕",
@@ -176,6 +179,7 @@ test.describe("global subtitles", () => {
 				}),
 			)
 			.toBe(0);
+		await expect(page.getByLabel(/编辑第/)).toHaveCount(0);
 
 		await page.evaluate(async () => {
 			const { EditorCore } = await import("/src/core/index.ts");
@@ -210,17 +214,23 @@ test.describe("global subtitles", () => {
 			)
 			.toBe(300_000);
 
-		const secondCueEditor = page.getByLabel("编辑第 2 条字幕");
-		await secondCueEditor.fill("第二句已经修改");
+		await page.getByRole("combobox", { name: "选择轨道" }).click();
+		await page.getByRole("option", { name: "V2" }).click();
+		await expect(page.getByTestId("global-transcript-list")).toContainText(
+			"屏幕轨道文字",
+		);
+		await expect(page.getByTestId("global-transcript-list")).not.toContainText(
+			"第二句点击跳转",
+		);
 		await expect
 			.poll(async () =>
 				page.evaluate(async () => {
 					const { EditorCore } = await import("/src/core/index.ts");
 					const editor = EditorCore.getInstance();
-					return editor.project.getActive().settings.subtitles?.cues[1]?.text;
+					return editor.project.getActive().settings.subtitles?.selectedTrackId;
 				}),
 			)
-			.toBe("第二句已经修改");
+			.toBe("track:screen-track");
 
 		await page.getByRole("button", { name: "关闭字幕" }).click();
 		await expect
@@ -232,6 +242,157 @@ test.describe("global subtitles", () => {
 				}),
 			)
 			.toBe(false);
+		expect(runtimeErrors).toEqual([]);
+	});
+
+	test("generate transcript requests every audible track", async ({ page }) => {
+		const runtimeErrors = collectSubtitleRuntimeErrors({ page });
+		await setupEditorPage(page);
+
+		await page.evaluate(async () => {
+			const [{ EditorCore }, { mediaTimeFromSeconds }] = await Promise.all([
+				import("/src/core/index.ts"),
+				import("/src/wasm/media-time.ts"),
+			]);
+			const editor = EditorCore.getInstance();
+			const voiceTrackId = "voice-track";
+			const musicTrackId = "music-track";
+			const mediaManager = editor.media as typeof editor.media & {
+				assets: unknown[];
+				notify: () => void;
+			};
+			mediaManager.assets = [
+				...editor.media.getAssets(),
+				{
+					id: "voice-media",
+					name: "voice.wav",
+					type: "audio",
+					file: new File(["voice"], "voice.wav", { type: "audio/wav" }),
+				},
+				{
+					id: "music-media",
+					name: "music.wav",
+					type: "audio",
+					file: new File(["music"], "music.wav", { type: "audio/wav" }),
+				},
+			];
+			mediaManager.notify();
+			const scene = editor.scenes.getActiveScene();
+			scene.tracks.audio = [
+				{
+					id: voiceTrackId,
+					type: "audio",
+					name: "Audio 1",
+					muted: false,
+					elements: [
+						{
+							id: "voice-clip",
+							type: "audio",
+							name: "Voice",
+							sourceType: "upload",
+							mediaId: "voice-media",
+							startTime: mediaTimeFromSeconds({ seconds: 0 }),
+							duration: mediaTimeFromSeconds({ seconds: 2 }),
+							trimStart: mediaTimeFromSeconds({ seconds: 0 }),
+							trimEnd: mediaTimeFromSeconds({ seconds: 0 }),
+							sourceDuration: mediaTimeFromSeconds({ seconds: 2 }),
+							params: {},
+						},
+					],
+				},
+				{
+					id: musicTrackId,
+					type: "audio",
+					name: "Audio 2",
+					muted: false,
+					elements: [
+						{
+							id: "music-clip",
+							type: "audio",
+							name: "Music",
+							sourceType: "upload",
+							mediaId: "music-media",
+							startTime: mediaTimeFromSeconds({ seconds: 1 }),
+							duration: mediaTimeFromSeconds({ seconds: 2 }),
+							trimStart: mediaTimeFromSeconds({ seconds: 0 }),
+							trimEnd: mediaTimeFromSeconds({ seconds: 0 }),
+							sourceDuration: mediaTimeFromSeconds({ seconds: 2 }),
+							params: {},
+						},
+					],
+				},
+			];
+			(
+				editor.scenes as typeof editor.scenes & { notify: () => void }
+			).notify();
+			(
+				editor.timeline as typeof editor.timeline & { notify: () => void }
+			).notify();
+
+			const originalExecute = editor.mcp.execute.bind(editor.mcp);
+			(
+				window as typeof window & {
+					__globalSubtitleGenerateTrackIds?: string[];
+				}
+			).__globalSubtitleGenerateTrackIds = [];
+			editor.mcp.execute = async (request) => {
+				if (request.toolName !== "subtitles_generate_from_video") {
+					return originalExecute(request);
+				}
+				const params = request.params as {
+					audioRangeTrackId?: string;
+					audioRangeStartSeconds?: number;
+				};
+				if (params.audioRangeTrackId) {
+					(
+						window as typeof window & {
+							__globalSubtitleGenerateTrackIds?: string[];
+						}
+					).__globalSubtitleGenerateTrackIds?.push(params.audioRangeTrackId);
+				}
+				await originalExecute({
+					toolName: "subtitles_import",
+					params: {
+						format: "cues",
+						sourceTrackId: params.audioRangeTrackId,
+						sourceTrackName:
+							params.audioRangeTrackId === voiceTrackId ? "Audio 1" : "Audio 2",
+						cues: [
+							{
+								text:
+									params.audioRangeTrackId === voiceTrackId
+										? "人声轨道"
+										: "音乐轨道",
+								startTimeSeconds: params.audioRangeStartSeconds ?? 0,
+								durationSeconds: 1,
+							},
+						],
+					},
+				});
+				return {
+					status: "success",
+					data: { imported: true, global: true, cueCount: 1 },
+				};
+			};
+		});
+
+		await page.getByRole("button", { name: /文字稿|Transcript/ }).click();
+		await page.getByRole("button", { name: "Generate all tracks" }).click();
+		await expect
+			.poll(async () =>
+				page.evaluate(
+					() =>
+						(
+							window as typeof window & {
+								__globalSubtitleGenerateTrackIds?: string[];
+							}
+						).__globalSubtitleGenerateTrackIds?.length,
+				),
+			)
+			.toBe(2);
+		await expect(page.getByTestId("global-transcript-list")).toContainText(
+			"音乐轨道",
+		);
 		expect(runtimeErrors).toEqual([]);
 	});
 });

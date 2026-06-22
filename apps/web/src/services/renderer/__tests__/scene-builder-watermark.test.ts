@@ -132,6 +132,50 @@ describe("scene builder watermark", () => {
 		expect(subtitleNode?.params.cues).toHaveLength(1);
 	});
 
+	test("stacks multiple project-global subtitle tracks", () => {
+		const scene = buildScene({
+			canvasSize: { width: 1920, height: 1080 },
+			tracks: emptyTracks(),
+			mediaAssets: [],
+			duration: time(360_000),
+			background: { type: "color", color: "transparent" },
+			subtitles: {
+				enabled: true,
+				revealMode: "line",
+				lineBreakMode: "page",
+				maxCharsPerLine: 30,
+				cues: [],
+				tracks: [
+					{
+						id: "track:v1",
+						label: "V1",
+						sourceTrackId: "v1",
+						cues: [{ text: "第一轨", startTime: 0, duration: 3 }],
+					},
+					{
+						id: "track:v2",
+						label: "V2",
+						sourceTrackId: "v2",
+						cues: [{ text: "第二轨", startTime: 0, duration: 3 }],
+					},
+				],
+			},
+		});
+
+		const subtitleNodes = scene.children.filter(
+			(child): child is TextNode =>
+				child instanceof TextNode &&
+				child.params.params["subtitle.role"] === "project-global",
+		);
+
+		expect(subtitleNodes.map((node) => node.params.name)).toEqual(["V1", "V2"]);
+		expect(
+			subtitleNodes[1]?.params.params["transform.positionY"] as number,
+		).toBeLessThan(
+			subtitleNodes[0]?.params.params["transform.positionY"] as number,
+		);
+	});
+
 	test("adds image and video watermarks from media assets", () => {
 		const imageScene = buildScene({
 			canvasSize: { width: 1920, height: 1080 },

@@ -639,6 +639,121 @@ describe("transcription tools", () => {
 		});
 	});
 
+	test("client deps isolate an explicit audio source track", async () => {
+		const voiceElement = {
+			id: "voice-clip",
+			type: "audio",
+			name: "Voice",
+			sourceType: "upload",
+			mediaId: "voice-media",
+			startTime: 5 * MEDIA_TIME_TICKS_PER_SECOND,
+			duration: 2 * MEDIA_TIME_TICKS_PER_SECOND,
+			trimStart: 0,
+			trimEnd: 0,
+			sourceDuration: 2 * MEDIA_TIME_TICKS_PER_SECOND,
+			params: {},
+		};
+		const musicElement = {
+			...voiceElement,
+			id: "music-bed",
+			name: "Music",
+			mediaId: "music-media",
+		};
+		const execute = mock(async () => ({
+			status: "success" as const,
+			data: { imported: true, cueCount: 1 },
+		}));
+		const editor = {
+			scenes: {
+				getActiveScene: () => ({
+					tracks: {
+						main: { id: "main", elements: [] },
+						overlay: [],
+						audio: [
+							{
+								id: "voice-track",
+								type: "audio",
+								name: "Voice",
+								elements: [voiceElement],
+							},
+							{
+								id: "music-track",
+								type: "audio",
+								name: "Music",
+								elements: [musicElement],
+							},
+						],
+					},
+				}),
+			},
+			project: { getActive: () => ({ metadata: { id: "project-1" } }) },
+			media: { getAssets: () => [], addMediaAsset: mock(async () => null) },
+			timeline: {
+				getTotalDuration: () => 20 * MEDIA_TIME_TICKS_PER_SECOND,
+			},
+			mcp: { execute },
+		} as unknown as EditorCore;
+		const extractTimelineAudioFn = mock(async () => {
+			return new Blob([new Uint8Array([1, 2, 3])], { type: "audio/wav" });
+		});
+		const fetchFn = mock(async () => {
+			return new Response(
+				JSON.stringify({
+					text: "人声轨",
+					provider: "volcengine",
+					cues: [
+						{
+							text: "人声轨",
+							startTimeSeconds: 0,
+							durationSeconds: 1,
+						},
+					],
+				}),
+				{ headers: { "Content-Type": "application/json" } },
+			);
+		});
+		const deps = createTranscriptionToolDeps({
+			editor,
+			fetchFn: fetchFn as unknown as typeof fetch,
+			extractTimelineAudioFn,
+		});
+
+		const result = await deps.generateSubtitlesFromVideo({
+			source: "timeline",
+			provider: "volcengine",
+			audioRangeStartSeconds: 5,
+			audioRangeDurationSeconds: 2,
+			audioRangeTrackId: "voice-track",
+		});
+
+		expect(extractTimelineAudioFn).toHaveBeenCalledWith(
+			expect.objectContaining({
+				tracks: expect.objectContaining({
+					audio: [
+						expect.objectContaining({
+							id: "voice-track",
+							elements: [voiceElement],
+						}),
+					],
+				}),
+			}),
+		);
+		expect(execute).toHaveBeenCalledWith(
+			expect.objectContaining({
+				params: expect.objectContaining({
+					sourceTrackId: "voice-track",
+					sourceTrackName: "Voice",
+				}),
+			}),
+		);
+		expect(result.metadata).toMatchObject({
+			audioRange: {
+				kind: "track",
+				trackRef: { trackId: "voice-track" },
+			},
+		});
+	});
+
 	test("client deps log the actual ASR audio payload duration before provider upload", async () => {
 		const originalInfo = console.info;
 		const consoleInfo: typeof console.info = mock(() => {});

@@ -7,6 +7,7 @@ const TICKS_PER_SECOND = 120_000;
 const {
 	audioRangeToSeconds,
 	getTranscriptionAudioElementOptions,
+	getTranscriptionAudioTrackOptions,
 	resolveSelectedTranscriptionAudioRange,
 } = await import("./audio-range");
 
@@ -147,6 +148,45 @@ describe("getTranscriptionAudioElementOptions", () => {
 			duration: 5 * TICKS_PER_SECOND,
 			elementRef: { trackId: "main", elementId: "compound-1" },
 		});
+	});
+});
+
+describe("getTranscriptionAudioTrackOptions", () => {
+	test("groups audible clips by track and spans the track range", () => {
+		const sceneTracks = tracks({
+			audio: audioElement({
+				id: "audio-1",
+				startTime: 8 * TICKS_PER_SECOND,
+				duration: 3 * TICKS_PER_SECOND,
+			}),
+		});
+		sceneTracks.audio[0].elements.push(
+			audioElement({
+				id: "audio-2",
+				startTime: 14 * TICKS_PER_SECOND,
+				duration: 2 * TICKS_PER_SECOND,
+			}),
+		);
+
+		const options = getTranscriptionAudioTrackOptions({
+			tracks: sceneTracks,
+			mediaAssets: mediaAssets(),
+		});
+
+		expect(options).toEqual([
+			expect.objectContaining({
+				kind: "track",
+				label: "Main",
+				trackRef: { trackId: "main" },
+			}),
+			expect.objectContaining({
+				kind: "track",
+				label: "Audio",
+				trackRef: { trackId: "audio-track" },
+				startTime: 8 * TICKS_PER_SECOND,
+				duration: 8 * TICKS_PER_SECOND,
+			}),
+		]);
 	});
 });
 

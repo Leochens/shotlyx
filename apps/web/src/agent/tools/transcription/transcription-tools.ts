@@ -393,8 +393,19 @@ function resolveRequestedAudioRange({
 		Number.isFinite(input.audioRangeDurationSeconds) &&
 		input.audioRangeDurationSeconds > 0
 	) {
+		const explicitTrack = input.audioRangeTrackId
+			? findTimelineTrackById({
+					tracks: editor.scenes.getActiveScene().tracks,
+					trackId: input.audioRangeTrackId,
+				})
+			: null;
+		const rangeKind = input.audioRangeTrackId
+			? input.audioRangeElementId
+				? "element"
+				: "track"
+			: "element";
 		return {
-			kind: "element",
+			kind: rangeKind,
 			startTime: Math.round(
 				Math.max(0, input.audioRangeStartSeconds) *
 					MEDIA_TIME_TICKS_PER_SECOND,
@@ -402,7 +413,7 @@ function resolveRequestedAudioRange({
 			duration: Math.round(
 				input.audioRangeDurationSeconds * MEDIA_TIME_TICKS_PER_SECOND,
 			),
-			label: "Selected range mixed audio",
+			label: explicitTrack?.name ?? "Selected range mixed audio",
 			...(input.audioRangeTrackId && input.audioRangeElementId
 				? {
 						elementRef: {
@@ -410,6 +421,12 @@ function resolveRequestedAudioRange({
 							elementId: input.audioRangeElementId,
 						},
 					}
+				: input.audioRangeTrackId
+					? {
+							trackRef: {
+								trackId: input.audioRangeTrackId,
+							},
+						}
 				: {}),
 		};
 	}
@@ -437,6 +454,17 @@ function resolveRequestedAudioRange({
 	return getTimelineAudioRange({ totalDuration });
 }
 
+function findTimelineTrackById({
+	tracks,
+	trackId,
+}: {
+	tracks: SceneTracks;
+	trackId: string;
+}) {
+	const allTracks = [...tracks.overlay, tracks.main, ...tracks.audio];
+	return allTracks.find((track) => track.id === trackId) ?? null;
+}
+
 function filterTracksToAudioRangeElement({
 	tracks,
 	audioRange,
@@ -444,6 +472,17 @@ function filterTracksToAudioRangeElement({
 	tracks: SceneTracks;
 	audioRange: TranscriptionAudioRange;
 }): SceneTracks {
+	if (audioRange.trackRef) {
+		const { trackId } = audioRange.trackRef;
+		return {
+			main:
+				tracks.main.id === trackId
+					? tracks.main
+					: { ...tracks.main, elements: [] },
+			overlay: tracks.overlay.filter((track) => track.id === trackId),
+			audio: tracks.audio.filter((track) => track.id === trackId),
+		};
+	}
 	if (!audioRange.elementRef) return tracks;
 
 	const { trackId, elementId } = audioRange.elementRef;
@@ -824,16 +863,29 @@ export function createTranscriptionToolDeps({
 					cues: timelineTranscription.cues,
 					style: input.style ?? DEFAULT_SUBTITLE_STYLE,
 					placement: input.placement ?? DEFAULT_SUBTITLE_PLACEMENT,
-					...(subtitleAsset.subtitleAssetId
-						? {
-								subtitleAssetId: subtitleAsset.subtitleAssetId,
-								...(subtitleAsset.subtitleAssetName
-									? { subtitleAssetName: subtitleAsset.subtitleAssetName }
-									: {}),
-							}
-						: {}),
-					...(input.trackId ? { trackId: input.trackId } : {}),
-					...(input.revealMode ? { revealMode: input.revealMode } : {}),
+						...(subtitleAsset.subtitleAssetId
+							? {
+									subtitleAssetId: subtitleAsset.subtitleAssetId,
+									...(subtitleAsset.subtitleAssetName
+										? { subtitleAssetName: subtitleAsset.subtitleAssetName }
+										: {}),
+								}
+							: {}),
+						...(audioRange.trackRef
+							? {
+									sourceTrackId: audioRange.trackRef.trackId,
+									sourceTrackName: audioRange.label,
+								}
+							: {}),
+						...(audioRange.elementRef
+							? {
+									sourceTrackId: audioRange.elementRef.trackId,
+									sourceElementId: audioRange.elementRef.elementId,
+									sourceTrackName: audioRange.label,
+								}
+							: {}),
+						...(input.trackId ? { trackId: input.trackId } : {}),
+						...(input.revealMode ? { revealMode: input.revealMode } : {}),
 					...(input.lineBreakMode
 						? { lineBreakMode: input.lineBreakMode }
 						: {}),
@@ -880,12 +932,13 @@ export function createTranscriptionToolDeps({
 						label: audioRange.label,
 						startTimeSeconds: audioRangeSeconds.startTimeSeconds,
 						durationSeconds: audioRangeSeconds.durationSeconds,
-						...(audioRange.elementRef
-							? { elementRef: audioRange.elementRef }
-							: {}),
+							...(audioRange.elementRef
+								? { elementRef: audioRange.elementRef }
+								: {}),
+							...(audioRange.trackRef ? { trackRef: audioRange.trackRef } : {}),
+						},
 					},
-				},
-			};
+				};
 		},
 	};
 }

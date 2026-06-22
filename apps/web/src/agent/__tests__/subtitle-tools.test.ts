@@ -214,6 +214,59 @@ describe("subtitle tools", () => {
 		expect(typeof groupId).toBe("string");
 	});
 
+	test("subtitles_import groups project-global transcript cues by source track", () => {
+		const updateSettings = mock(() => {});
+		const editor = createMockEditor({ updateSettings });
+		const tools = buildSubtitleTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find((item) => item.name === "subtitles_import");
+
+		const result = tool?.handler({
+			format: "cues",
+			sourceTrackId: "voice-track",
+			sourceTrackName: "V1",
+			cues: [
+				{
+					text: "第一轨字幕",
+					startTimeSeconds: 0,
+					durationSeconds: 1,
+				},
+			],
+		});
+
+		expect(result).toMatchObject({
+			imported: true,
+			insertMode: "project",
+			global: true,
+			sourceTrackId: "voice-track",
+			sourceTrackName: "V1",
+		});
+		expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({
+			settings: {
+				subtitles: {
+					cues: [],
+					selectedTrackId: "track:voice-track",
+					tracks: [
+						{
+							id: "track:voice-track",
+							label: "V1",
+							sourceTrackId: "voice-track",
+							cues: [
+								{
+									text: "第一轨字幕",
+									startTime: 0,
+									duration: 1,
+								},
+							],
+						},
+					],
+				},
+			},
+		});
+	});
+
 	test("subtitles_import stores layer captions unwrapped so the panel can change wrapping later", () => {
 		const insertElement = mock(() => ({
 			elementId: "subtitle-1",
