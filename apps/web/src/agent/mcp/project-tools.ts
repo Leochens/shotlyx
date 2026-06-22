@@ -14,6 +14,8 @@ import type {
 } from "@/project/types";
 import {
 	DEFAULT_PROJECT_COVER_DURATION_SECONDS,
+	MAX_PROJECT_COVER_DURATION_SECONDS,
+	MIN_PROJECT_COVER_DURATION_SECONDS,
 	clampProjectCoverDurationSeconds,
 	createDefaultProjectCover,
 	getDefaultProjectCoverCustomSize,
@@ -521,7 +523,7 @@ export function buildProjectTools(editor: EditorCore): Tool[] {
 				},
 				durationSeconds: {
 					type: "number",
-					description: "Cover display duration in seconds. Defaults to 3.",
+					description: `Cover display duration in seconds, from ${MIN_PROJECT_COVER_DURATION_SECONDS} to ${MAX_PROJECT_COVER_DURATION_SECONDS}. Defaults to ${DEFAULT_PROJECT_COVER_DURATION_SECONDS}.`,
 					optional: true,
 				},
 				width: {

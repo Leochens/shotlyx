@@ -1299,6 +1299,59 @@ describe("project_update_cover", () => {
 		});
 	});
 
+	test("accepts a 0.1 second project cover duration", async () => {
+		const updateSettings = mock(async () => {});
+		const updateThumbnail = mock(async () => {});
+		const coverAsset: MediaAsset = {
+			id: "cover",
+			name: "Cover image",
+			type: "image",
+			file: new File(["cover"], "cover.png", { type: "image/png" }),
+			url: "blob:cover",
+			width: 1280,
+			height: 720,
+		};
+		const editor = createMockEditor({
+			project: {
+				getActiveOrNull: () => ({
+					settings: {
+						fps: { numerator: 30, denominator: 1 },
+						canvasSize: { width: 1920, height: 1080 },
+						background: { type: "color", color: "#000000" },
+					},
+				}),
+				updateSettings,
+				updateThumbnail,
+			},
+			media: {
+				getAssets: () => [coverAsset],
+			},
+		});
+		const tools = buildProjectTools(editor);
+		const tool = tools.find((t) => t.name === "project_update_cover");
+
+		const result = await tool?.handler({
+			mediaId: "cover",
+			durationSeconds: 0.1,
+		});
+
+		expect(updateSettings).toHaveBeenCalledWith({
+			settings: {
+				cover: expect.objectContaining({
+					enabled: true,
+					mediaId: "cover",
+					durationSeconds: 0.1,
+				}),
+			},
+			pushHistory: true,
+		});
+		expect(result).toMatchObject({
+			cover: {
+				durationSeconds: 0.1,
+			},
+		});
+	});
+
 	test("clears the project cover without deleting the image asset", async () => {
 		const updateSettings = mock(async () => {});
 		const refreshThumbnailFromTimeline = mock(async () => true);

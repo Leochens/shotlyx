@@ -145,4 +145,22 @@ describe("project cover export plan", () => {
 			}),
 		).toBe(time(13));
 	});
+
+	test("allows a 0.1 second cover duration", () => {
+		const plan = buildProjectCoverExportPlan({
+			canvasSize: { width: 1920, height: 1080 },
+			cover: {
+				enabled: true,
+				mediaId: "cover",
+				durationSeconds: 0.1,
+				layout: { mode: "fill" },
+			},
+			mediaAssets: [imageAsset()],
+			timelineDuration: time(10),
+			tracks: tracks(),
+		});
+
+		expect(plan.coverDuration).toBe(time(0.1));
+		expect(plan.duration).toBe(time(10.1));
+	});
 });

@@ -25,6 +25,8 @@ import {
 	createDefaultProjectCover,
 	getDefaultProjectCoverCustomSize,
 	getProjectCoverThumbnail,
+	MAX_PROJECT_COVER_DURATION_SECONDS,
+	MIN_PROJECT_COVER_DURATION_SECONDS,
 	normalizeProjectCover,
 	type ProjectCoverLayoutMode,
 } from "@/project/cover";
@@ -342,6 +344,10 @@ export function CoverContent() {
 								<NumberField
 									value={formatNumber(cover.durationSeconds)}
 									suffix="s"
+									allowExpressions={false}
+									min={MIN_PROJECT_COVER_DURATION_SECONDS}
+									max={MAX_PROJECT_COVER_DURATION_SECONDS}
+									step={0.1}
 									onChange={(event) =>
 										updateDuration(event.currentTarget.value)
 									}
