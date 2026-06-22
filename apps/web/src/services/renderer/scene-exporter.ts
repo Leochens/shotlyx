@@ -19,6 +19,7 @@ import { frameRateToFloat } from "@/fps/utils";
 import type { RootNode } from "./nodes/root-node";
 import type { ExportFormat, ExportQuality } from "@/export";
 import { CanvasRenderer } from "./canvas-renderer";
+import { nowMs } from "./export-performance";
 
 type ExportParams = {
 	width: number;
@@ -39,9 +40,18 @@ const qualityMap = {
 
 export type SceneExporterEvents = {
 	progress: [progress: number];
+	profile: [profile: SceneExporterProfile];
 	complete: [buffer: ArrayBuffer];
 	error: [error: Error];
 	cancelled: [];
+};
+
+export type SceneExporterProfile = {
+	encodeAddMs: number;
+	finalizeMs: number;
+	frameCount: number;
+	renderMs: number;
+	totalMs: number;
 };
 
 export class SceneExporter extends EventEmitter<SceneExporterEvents> {
@@ -85,6 +95,10 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 	}: {
 		rootNode: RootNode;
 	}): Promise<ArrayBuffer | null> {
+		const exportStartedAt = nowMs();
+		let renderMs = 0;
+		let encodeAddMs = 0;
+		let finalizeMs = 0;
 		const fps = this.renderer.fps;
 		const fpsFloat = frameRateToFloat(fps);
 		const ticksPerFrame = Math.round(
@@ -144,8 +158,12 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 
 			const timeTicks = i * ticksPerFrame;
 			const timeSeconds = mediaTimeToSeconds({ time: timeTicks });
+			const renderStartedAt = nowMs();
 			await this.renderer.render({ node: rootNode, time: timeTicks });
+			renderMs += nowMs() - renderStartedAt;
+			const encodeAddStartedAt = nowMs();
 			await videoSource.add(timeSeconds, 1 / fpsFloat);
+			encodeAddMs += nowMs() - encodeAddStartedAt;
 
 			this.emit("progress", i / frameCount);
 		}
@@ -157,7 +175,16 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		}
 
 		videoSource.close();
+		const finalizeStartedAt = nowMs();
 		await output.finalize();
+		finalizeMs = nowMs() - finalizeStartedAt;
+		this.emit("profile", {
+			encodeAddMs,
+			finalizeMs,
+			frameCount,
+			renderMs,
+			totalMs: nowMs() - exportStartedAt,
+		});
 		this.emit("progress", 1);
 
 		const buffer = output.target.buffer;

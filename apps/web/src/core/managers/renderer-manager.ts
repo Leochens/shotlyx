@@ -20,6 +20,15 @@ import {
 	type ShotlyxMGExportRenderMap,
 } from "@/services/renderer/shotlyx-mg-export-prerender";
 import { buildProjectCoverExportPlan } from "@/project/cover";
+import { analyzeExportFastPath } from "@/services/renderer/export-fast-path";
+import {
+	logExportPerformanceSummary,
+	measureExportPhase,
+	measureExportPhaseSync,
+	nowMs,
+	type ExportPhaseTiming,
+} from "@/services/renderer/export-performance";
+import type { SceneExporterProfile } from "@/services/renderer/scene-exporter";
 
 type SnapshotResult =
 	| {
@@ -224,6 +233,12 @@ export class RendererManager {
 		onCancel?: () => boolean;
 	}): Promise<ExportResult> {
 		const { format, quality, fps, includeAudio } = options;
+		const exportStartedAt = nowMs();
+		const phaseTimings: ExportPhaseTiming[] = [];
+		const recordPhase = (timing: ExportPhaseTiming) => {
+			phaseTimings.push(timing);
+		};
+		let sceneExporterProfile: SceneExporterProfile | null = null;
 
 		try {
 			const tracks = this.editor.scenes.getActiveScene().tracks;
@@ -245,6 +260,10 @@ export class RendererManager {
 			});
 			const duration = coverPlan.duration;
 			const exportTracks = coverPlan.tracks;
+			const fastPath = analyzeExportFastPath({
+				includeAudio: !!includeAudio,
+				tracks: exportTracks,
+			});
 
 			if (duration === 0) {
 				return { success: false, error: "Project is empty" };
@@ -274,37 +293,43 @@ export class RendererManager {
 			let exportMediaAssets = mediaAssets;
 			let shotlyxMGRenderMap: ShotlyxMGExportRenderMap = new Map();
 			try {
-				const prerenderResult = await prerenderShotlyxMGExportSegments({
-					fps: exportFps,
-					mediaAssets,
-					onProgress: (event) => {
-						const segmentProgress =
-							event.frameProgress ??
-							Math.min(
-								1,
-								Math.max(
-									0,
-									event.progress * event.segmentCount - event.segmentIndex,
-								),
-							);
-						onProgress?.({
-							progress: event.progress * 0.15,
-							stage: "prerendering-mg",
-							subProgress: {
-								current: event.frameIndex,
-								estimatedRemainingSeconds:
-									event.estimatedRemainingSeconds ?? null,
-								label: event.segmentName,
-								progress: segmentProgress,
-								stepCount: event.segmentCount,
-								stepIndex: event.segmentIndex,
-								total: event.frameCount,
+				const prerenderResult = await measureExportPhase({
+					name: "mgPrerender",
+					onMeasure: recordPhase,
+					fn: () =>
+						prerenderShotlyxMGExportSegments({
+							fps: exportFps,
+							mediaAssets,
+							onProgress: (event) => {
+								const segmentProgress =
+									event.frameProgress ??
+									Math.min(
+										1,
+										Math.max(
+											0,
+											event.progress * event.segmentCount -
+												event.segmentIndex,
+										),
+									);
+								onProgress?.({
+									progress: event.progress * 0.15,
+									stage: "prerendering-mg",
+									subProgress: {
+										current: event.frameIndex,
+										estimatedRemainingSeconds:
+											event.estimatedRemainingSeconds ?? null,
+										label: event.segmentName,
+										progress: segmentProgress,
+										stepCount: event.segmentCount,
+										stepIndex: event.segmentIndex,
+										total: event.frameCount,
+									},
+								});
 							},
-						});
-					},
-					shotlyxMGAssets: activeProject.shotlyxMGAssets ?? [],
-					signal: abortController.signal,
-					tracks: exportTracks,
+							shotlyxMGAssets: activeProject.shotlyxMGAssets ?? [],
+							signal: abortController.signal,
+							tracks: exportTracks,
+						}),
 				});
 				exportMediaAssets = prerenderResult.mediaAssets;
 				shotlyxMGRenderMap = prerenderResult.renderMap;
@@ -328,21 +353,31 @@ export class RendererManager {
 					stage: "mixing-audio",
 					subProgress: null,
 				});
-				audioBuffer = await createTimelineAudioBuffer({
-					tracks: exportTracks,
-					mediaAssets: exportMediaAssets,
-					duration,
+				audioBuffer = await measureExportPhase({
+					name: "audioMix",
+					onMeasure: recordPhase,
+					fn: () =>
+						createTimelineAudioBuffer({
+							tracks: exportTracks,
+							mediaAssets: exportMediaAssets,
+							duration,
+						}),
 				});
 			}
 
-			const scene = buildScene({
-				tracks: exportTracks,
-				mediaAssets: exportMediaAssets,
-				duration,
-				canvasSize,
-				background: activeProject.settings.background,
-				watermark: activeProject.settings.watermark,
-				shotlyxMGRenderMap,
+			const scene = measureExportPhaseSync({
+				name: "sceneBuild",
+				onMeasure: recordPhase,
+				fn: () =>
+					buildScene({
+						tracks: exportTracks,
+						mediaAssets: exportMediaAssets,
+						duration,
+						canvasSize,
+						background: activeProject.settings.background,
+						watermark: activeProject.settings.watermark,
+						shotlyxMGRenderMap,
+					}),
 			});
 
 			const exporter = new SceneExporter({
@@ -368,6 +403,9 @@ export class RendererManager {
 					subProgress: null,
 				});
 			});
+			exporter.on("profile", (profile) => {
+				sceneExporterProfile = profile;
+			});
 
 			const checkExporterCancel = () => {
 				if (checkCancel()) {
@@ -386,7 +424,11 @@ export class RendererManager {
 			const cancelInterval = setInterval(checkExporterCancel, 100);
 
 			try {
-				const buffer = await exporter.export({ rootNode: scene });
+				const buffer = await measureExportPhase({
+					name: "canvasEncode",
+					onMeasure: recordPhase,
+					fn: () => exporter.export({ rootNode: scene }),
+				});
 				clearInterval(cancelInterval);
 
 				if (cancelled) {
@@ -403,6 +445,16 @@ export class RendererManager {
 				};
 			} finally {
 				clearInterval(cancelInterval);
+				logExportPerformanceSummary({
+					canvasSize,
+					duration,
+					fastPath,
+					fps: exportFps,
+					includeAudio: !!includeAudio,
+					phaseTimings,
+					sceneExporterProfile,
+					startedAt: exportStartedAt,
+				});
 			}
 		} catch (error) {
 			console.error("Export failed:", error);
