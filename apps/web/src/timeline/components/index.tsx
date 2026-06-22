@@ -187,10 +187,18 @@ export function Timeline() {
 	const savedViewState = editor.project.getTimelineViewState();
 	const timelineHeaderHeight =
 		timelineHeaderHeightValue + TIMELINE_CONTENT_TOP_PADDING_PX;
-	const timelineDensity = getTimelineDensity({
-		viewportHeight: Math.max(0, tracksContainerHeight - timelineHeaderHeight),
-		tracks,
-	});
+	const elasticTimelineEnabled = useTimelineStore(
+		(s) => s.elasticTimelineEnabled,
+	);
+	const timelineDensity: TimelineDensity = elasticTimelineEnabled
+		? getTimelineDensity({
+				viewportHeight: Math.max(
+					0,
+					tracksContainerHeight - timelineHeaderHeight,
+				),
+				tracks,
+			})
+		: "normal";
 
 	const {
 		zoomLevel,

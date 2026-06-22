@@ -35,6 +35,7 @@ import {
 	RemoveTrackCommand,
 	ToggleTrackMuteCommand,
 	ToggleTrackVisibilityCommand,
+	OrganizeTracksCommand,
 	InsertElementCommand,
 	DeleteElementsCommand,
 	DuplicateElementsCommand,
@@ -67,6 +68,7 @@ import type {
 	PlannedTrackCreation,
 } from "@/timeline/group-move";
 import { buildSelectedElementsMergePlan } from "@/timeline/merge-elements";
+import { buildOrganizedTracksPlan } from "@/timeline/organize-tracks";
 import { buildSilenceCutTracks, type SilenceCutTarget } from "@/silence";
 
 export class TimelineManager {
@@ -208,6 +210,27 @@ export class TimelineManager {
 	toggleTrackVisibility({ trackId }: { trackId: string }): void {
 		const command = new ToggleTrackVisibilityCommand(trackId);
 		this.editor.command.execute({ command });
+	}
+
+	canOrganizeTracks(): boolean {
+		const tracks = this.editor.scenes.getActiveSceneOrNull()?.tracks;
+		if (!tracks) return false;
+		return buildOrganizedTracksPlan({ tracks }).changed;
+	}
+
+	organizeTracks(): boolean {
+		const tracks = this.editor.scenes.getActiveSceneOrNull()?.tracks;
+		if (!tracks) return false;
+
+		const plan = buildOrganizedTracksPlan({ tracks });
+		if (!plan.changed) return false;
+
+		const command = new OrganizeTracksCommand({
+			tracks: plan.tracks,
+			elementTrackMap: plan.elementTrackMap,
+		});
+		this.editor.command.execute({ command });
+		return true;
 	}
 
 	splitElements({

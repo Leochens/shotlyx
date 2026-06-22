@@ -39,6 +39,7 @@ import {
 	SearchAddIcon,
 	SearchMinusIcon,
 	Copy01Icon,
+	ArrangeIcon,
 	AlignLeftIcon,
 	AlignRightIcon,
 	JoinStraightIcon,
@@ -48,6 +49,7 @@ import {
 	Unlink02Icon,
 	AudioWave01Icon,
 	FitToScreenIcon,
+	VerticalResizeIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { OcRippleIcon } from "@/components/icons";
@@ -381,8 +383,16 @@ function ToolbarRightSection({
 }) {
 	const snappingEnabled = useTimelineStore((s) => s.snappingEnabled);
 	const rippleEditingEnabled = useTimelineStore((s) => s.rippleEditingEnabled);
+	const elasticTimelineEnabled = useTimelineStore(
+		(s) => s.elasticTimelineEnabled,
+	);
 	const toggleSnapping = useTimelineStore((s) => s.toggleSnapping);
 	const toggleRippleEditing = useTimelineStore((s) => s.toggleRippleEditing);
+	const toggleElasticTimeline = useTimelineStore(
+		(s) => s.toggleElasticTimeline,
+	);
+	const editor = useEditor();
+	const canOrganizeTimeline = useEditor((e) => e.timeline.canOrganizeTracks());
 
 	return (
 		<div className="flex items-center gap-1">
@@ -399,6 +409,27 @@ function ToolbarRightSection({
 					isActive={rippleEditingEnabled}
 					tooltip="Ripple move main timeline"
 					onClick={() => toggleRippleEditing()}
+				/>
+
+				<ToolbarButton
+					icon={<HugeiconsIcon icon={VerticalResizeIcon} />}
+					isActive={elasticTimelineEnabled}
+					tooltip={
+						elasticTimelineEnabled
+							? "Elastic timeline on"
+							: "Elastic timeline off"
+					}
+					onClick={() => toggleElasticTimeline()}
+				/>
+
+				<ToolbarButton
+					icon={<HugeiconsIcon icon={ArrangeIcon} />}
+					tooltip="Organize timeline tracks"
+					disabled={!canOrganizeTimeline}
+					onClick={({ event }) => {
+						event.stopPropagation();
+						editor.timeline.organizeTracks();
+					}}
 				/>
 			</TooltipProvider>
 

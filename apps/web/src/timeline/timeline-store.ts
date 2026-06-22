@@ -11,6 +11,8 @@ export type TimelineMode = "simple" | "pro";
 interface TimelineStore {
 	timelineMode: TimelineMode;
 	setTimelineMode: (mode: TimelineMode) => void;
+	elasticTimelineEnabled: boolean;
+	toggleElasticTimeline: () => void;
 	snappingEnabled: boolean;
 	toggleSnapping: () => void;
 	rippleEditingEnabled: boolean;
@@ -26,6 +28,14 @@ export const useTimelineStore = create<TimelineStore>()(
 
 			setTimelineMode: (mode) => {
 				set({ timelineMode: mode });
+			},
+
+			elasticTimelineEnabled: true,
+
+			toggleElasticTimeline: () => {
+				set((state) => ({
+					elasticTimelineEnabled: !state.elasticTimelineEnabled,
+				}));
 			},
 
 			snappingEnabled: true,
@@ -60,6 +70,7 @@ export const useTimelineStore = create<TimelineStore>()(
 			name: "timeline-store",
 			partialize: (state) => ({
 				timelineMode: state.timelineMode,
+				elasticTimelineEnabled: state.elasticTimelineEnabled,
 				snappingEnabled: state.snappingEnabled,
 				rippleEditingEnabled: state.rippleEditingEnabled,
 			}),
