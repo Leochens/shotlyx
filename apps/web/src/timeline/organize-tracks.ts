@@ -65,45 +65,28 @@ function compactTrackCategory({
 	changed: boolean;
 	elementTrackMap: Map<string, string>;
 } {
-	const groups = new Map<
-		string,
-		{
-			sourceTracks: Array<OverlayTrack | AudioTrack>;
-			sourceTrackIds: Set<string>;
-		}
-	>();
-
-	for (const track of tracks) {
-		const key = getTrackOrganizeKey(track);
-		const group = groups.get(key) ?? {
-			sourceTracks: [],
-			sourceTrackIds: new Set<string>(),
-		};
-		group.sourceTracks.push(track);
-		group.sourceTrackIds.add(track.id);
-		groups.set(key, group);
-	}
-
-	const replacements = new Map<string, OverlayTrack | AudioTrack>();
-	const removedTrackIds = new Set<string>();
+	const nextTracks: Array<OverlayTrack | AudioTrack> = [];
 	const elementTrackMap = new Map<string, string>();
 	let changed = false;
+	let currentRun: Array<OverlayTrack | AudioTrack> = [];
 
-	for (const group of groups.values()) {
+	const flushRun = () => {
+		if (currentRun.length === 0) return;
 		const compacted = compactCompatibleTracks({
-			tracks: group.sourceTracks,
+			tracks: currentRun,
 		});
 
 		for (const [index, lane] of compacted.lanes.entries()) {
-			const sourceTrack = group.sourceTracks[index];
+			const sourceTrack = currentRun[index];
 			if (!sourceTrack) continue;
 
-			replacements.set(
-				sourceTrack.id,
-				withTrackElements({
-					track: sourceTrack,
-					elements: lane.elements,
-				}),
+			nextTracks.push(
+				compacted.changed
+					? withTrackElements({
+							track: sourceTrack,
+							elements: lane.elements,
+						})
+					: sourceTrack,
 			);
 
 			for (const element of lane.elements) {
@@ -111,21 +94,21 @@ function compactTrackCategory({
 			}
 		}
 
-		for (const sourceTrack of group.sourceTracks.slice(
-			compacted.lanes.length,
-		)) {
-			removedTrackIds.add(sourceTrack.id);
-		}
-
 		changed = changed || compacted.changed;
-	}
+		currentRun = [];
+	};
 
-	const nextTracks: Array<OverlayTrack | AudioTrack> = tracks.flatMap(
-		(track) => {
-			if (removedTrackIds.has(track.id)) return [];
-			return [replacements.get(track.id) ?? track];
-		},
-	);
+	for (const track of tracks) {
+		const previousTrack = currentRun.at(-1);
+		if (
+			previousTrack &&
+			getTrackOrganizeKey(previousTrack) !== getTrackOrganizeKey(track)
+		) {
+			flushRun();
+		}
+		currentRun.push(track);
+	}
+	flushRun();
 
 	return {
 		tracks: changed ? nextTracks : tracks,

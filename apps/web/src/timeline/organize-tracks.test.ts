@@ -164,4 +164,72 @@ describe("buildOrganizedTracksPlan", () => {
 		expect(plan.tracks.overlay).toHaveLength(2);
 		expect(plan.elementTrackMap.get("b")).toBe("hidden-text");
 	});
+
+	test("does not merge same-type tracks across another layer type", () => {
+		const tracks = baseTracks([
+			textTrack({
+				id: "text-top",
+				elements: [textElement({ id: "a", startTime: 0 })],
+			}),
+			effectTrack({
+				id: "effect-middle",
+				elements: [effectElement({ id: "fx", startTime: 0 })],
+			}),
+			textTrack({
+				id: "text-bottom",
+				elements: [textElement({ id: "b", startTime: 12 })],
+			}),
+		]);
+
+		const plan = buildOrganizedTracksPlan({ tracks });
+
+		expect(plan.changed).toBe(false);
+		expect(plan.tracks.overlay.map((track) => track.id)).toEqual([
+			"text-top",
+			"effect-middle",
+			"text-bottom",
+		]);
+		expect(plan.elementTrackMap.get("b")).toBe("text-bottom");
+	});
+
+	test("compacts only consecutive same-type runs and preserves layer order", () => {
+		const tracks = baseTracks([
+			effectTrack({
+				id: "effect-1",
+				elements: [effectElement({ id: "fx-1", startTime: 0 })],
+			}),
+			effectTrack({
+				id: "effect-2",
+				elements: [effectElement({ id: "fx-2", startTime: 12 })],
+			}),
+			textTrack({
+				id: "text-middle",
+				elements: [textElement({ id: "text", startTime: 0 })],
+			}),
+			effectTrack({
+				id: "effect-3",
+				elements: [effectElement({ id: "fx-3", startTime: 24 })],
+			}),
+			effectTrack({
+				id: "effect-4",
+				elements: [effectElement({ id: "fx-4", startTime: 36 })],
+			}),
+		]);
+
+		const plan = buildOrganizedTracksPlan({ tracks });
+
+		expect(plan.changed).toBe(true);
+		expect(plan.tracks.overlay.map((track) => track.id)).toEqual([
+			"effect-1",
+			"text-middle",
+			"effect-3",
+		]);
+		expect(
+			plan.tracks.overlay[0]?.elements.map((element) => element.id),
+		).toEqual(["fx-1", "fx-2"]);
+		expect(
+			plan.tracks.overlay[2]?.elements.map((element) => element.id),
+		).toEqual(["fx-3", "fx-4"]);
+		expect(plan.elementTrackMap.get("fx-4")).toBe("effect-3");
+	});
 });
