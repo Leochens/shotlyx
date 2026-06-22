@@ -50,6 +50,7 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Pencil, Trash2 } from "lucide-react";
 import type { DiagnosticSeverity } from "@/diagnostics/types";
 import type { TProjectSubtitleTrack, TProjectSubtitles } from "@/project/types";
 import type { SubtitleLayerCue } from "@/subtitles/types";
@@ -189,6 +190,26 @@ function isSameTokenAddress({
 		left.cueIndex === right.cueIndex &&
 		left.tokenIndex === right.tokenIndex
 	);
+}
+
+function getTokenSelectionPosition({
+	address,
+	range,
+}: {
+	address: TranscriptTokenAddress;
+	range: ReturnType<typeof resolveTranscriptTokenRange>;
+}): "single" | "start" | "middle" | "end" | null {
+	if (!range) return null;
+	if (address.cueIndex !== range.start.cueIndex) return null;
+	if (address.cueIndex !== range.end.cueIndex) return null;
+	if (address.tokenIndex < range.start.tokenIndex) return null;
+	if (address.tokenIndex > range.end.tokenIndex) return null;
+	const isStart = address.tokenIndex === range.start.tokenIndex;
+	const isEnd = address.tokenIndex === range.end.tokenIndex;
+	if (isStart && isEnd) return "single";
+	if (isStart) return "start";
+	if (isEnd) return "end";
+	return "middle";
 }
 
 function trackElementsOverlappingRange({
@@ -931,6 +952,10 @@ export function Captions() {
 															address,
 															selection: tokenSelection,
 														});
+														const selectionPosition = getTokenSelectionPosition({
+															address,
+															range: selectedTokenRange,
+														});
 														return (
 														<button
 															type="button"
@@ -939,14 +964,29 @@ export function Captions() {
 																data-transcript-token-key={tokenKey}
 																data-active={isActive ? "true" : "false"}
 																data-selected={isSelected ? "true" : "false"}
+																data-selection-position={
+																	selectionPosition ?? undefined
+																}
 																className={[
-																	"rounded-[3px] px-px text-left align-baseline transition-colors",
+																	"border border-transparent px-px text-left align-baseline transition-colors",
 																	"hover:bg-cyan-300/15 hover:text-cyan-100",
 																	isActive
-																		? "bg-emerald-400/25 text-emerald-100 ring-1 ring-emerald-300/40"
+																		? "rounded-[3px] bg-emerald-400/25 text-emerald-100 ring-1 ring-emerald-300/40"
 																		: "",
 																	isSelected
-																		? "bg-cyan-400/25 text-cyan-50 ring-1 ring-cyan-300/50"
+																		? "bg-cyan-400/30 text-cyan-50 ring-0 border-y-cyan-300/50"
+																		: "",
+																	selectionPosition === "single"
+																		? "rounded-[5px] border-x-cyan-300/50"
+																		: "",
+																	selectionPosition === "start"
+																		? "rounded-l-[5px] rounded-r-none border-l-cyan-300/50 border-r-transparent"
+																		: "",
+																	selectionPosition === "middle"
+																		? "rounded-none border-x-transparent"
+																		: "",
+																	selectionPosition === "end"
+																		? "rounded-l-none rounded-r-[5px] border-l-transparent border-r-cyan-300/50"
 																		: "",
 																].join(" ")}
 																onPointerDown={() =>
@@ -973,27 +1013,38 @@ export function Captions() {
 													className="absolute -top-8 left-6 z-20 flex items-center gap-1 rounded-md border border-cyan-300/20 bg-background/95 p-1 shadow-lg backdrop-blur"
 													data-testid="transcript-selection-toolbar"
 												>
-													<span className="text-muted-foreground max-w-28 truncate px-1 text-xs">
-														{selectedTokenRange.text}
-													</span>
-													<Button
-														type="button"
-														size="sm"
-														variant="outline"
-														className="h-7 px-2 text-xs"
-														onClick={handleOpenEditSelection}
-													>
-														编辑选区
-													</Button>
-													<Button
-														type="button"
-														size="sm"
-														variant="destructive"
-														className="h-7 px-2 text-xs"
-														onClick={handleDeleteSelection}
-													>
-														删除选区
-													</Button>
+													<TooltipProvider>
+														<Tooltip>
+															<TooltipTrigger asChild>
+																<Button
+																	type="button"
+																	size="icon"
+																	variant="outline"
+																	className="h-7 w-7"
+																	aria-label="编辑选区"
+																	onClick={handleOpenEditSelection}
+																>
+																	<Pencil className="h-3.5 w-3.5" />
+																</Button>
+															</TooltipTrigger>
+															<TooltipContent>编辑选区</TooltipContent>
+														</Tooltip>
+														<Tooltip>
+															<TooltipTrigger asChild>
+																<Button
+																	type="button"
+																	size="icon"
+																	variant="destructive"
+																	className="h-7 w-7"
+																	aria-label="删除选区"
+																	onClick={handleDeleteSelection}
+																>
+																	<Trash2 className="h-3.5 w-3.5" />
+																</Button>
+															</TooltipTrigger>
+															<TooltipContent>删除选区</TooltipContent>
+														</Tooltip>
+													</TooltipProvider>
 												</div>
 											)}
 										</div>

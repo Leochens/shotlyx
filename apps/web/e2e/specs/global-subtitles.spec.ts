@@ -584,13 +584,26 @@ test.describe("global subtitles", () => {
 			to: "transcript-token-1-1",
 		});
 		await expect(page.getByTestId("transcript-selection-toolbar")).toBeVisible();
+		await expect(page.getByTestId("transcript-selection-toolbar")).not.toContainText(
+			"删除后",
+		);
+		await expect(page.getByRole("button", { name: "编辑选区" })).toHaveText("");
+		await expect(page.getByRole("button", { name: "删除选区" })).toHaveText("");
 		await expect(page.getByTestId("transcript-token-1-0")).toHaveAttribute(
 			"data-selected",
 			"true",
 		);
+		await expect(page.getByTestId("transcript-token-1-0")).toHaveAttribute(
+			"data-selection-position",
+			"start",
+		);
 		await expect(page.getByTestId("transcript-token-1-1")).toHaveAttribute(
 			"data-selected",
 			"true",
+		);
+		await expect(page.getByTestId("transcript-token-1-1")).toHaveAttribute(
+			"data-selection-position",
+			"end",
 		);
 		await page.getByRole("button", { name: "删除选区" }).click();
 
