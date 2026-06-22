@@ -14,7 +14,6 @@ import { TRANSCRIPTION_DIAGNOSTICS_SCOPE } from "@/transcription/diagnostics";
 import { TRANSCRIPTION_LANGUAGES } from "@/transcription/supported-languages";
 import type { CaptionChunk, TranscriptionLanguage } from "@/transcription/types";
 import {
-	audioRangeToSeconds,
 	getTimelineAudioRange,
 	getTranscriptionAudioElementOptions,
 	resolveSelectedTranscriptionAudioRange,
@@ -45,6 +44,12 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { DiagnosticSeverity } from "@/diagnostics/types";
+import {
+	buildAsrDebugConfirmation,
+	type AsrAudioRangeParams,
+	type AsrDebugConfirmation,
+	type AsrDebugConfirmationMode,
+} from "./asr-debug-confirmation";
 
 const DIAGNOSTIC_BUTTON_VARIANT: Record<
 	DiagnosticSeverity,
@@ -125,6 +130,8 @@ export function Captions() {
 	const [audioRangeChoice, setAudioRangeChoice] = useState<AudioRangeChoice>(
 		AUTO_AUDIO_RANGE_CHOICE,
 	);
+	const [asrDebugConfirmation, setAsrDebugConfirmation] =
+		useState<AsrDebugConfirmation | null>(null);
 	const [processing, dispatch] = useReducer(processingReducer, IDLE_STATE);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -201,31 +208,28 @@ export function Captions() {
 		);
 	};
 
-	const getAudioRangeParams = ():
-		| {
-				audioRangeStartSeconds: number;
-				audioRangeDurationSeconds: number;
-				audioRangeTrackId?: string;
-				audioRangeElementId?: string;
-		  }
-		| Record<string, never> => {
-		const range = getChosenAudioRange();
-		if (!range) return {};
-
-		const { startTimeSeconds, durationSeconds } = audioRangeToSeconds({ range });
-		return {
-			audioRangeStartSeconds: startTimeSeconds,
-			audioRangeDurationSeconds: durationSeconds,
-			...(range.elementRef
-				? {
-						audioRangeTrackId: range.elementRef.trackId,
-						audioRangeElementId: range.elementRef.elementId,
-					}
-				: {}),
-		};
+	const getAudioRangeForAsrDebugConfirmation = (): TranscriptionAudioRange => {
+		return getChosenAudioRange() ?? timelineAudioRange;
 	};
 
-	const handleGenerateTranscript = async () => {
+	const prepareAsrDebugConfirmation = ({
+		mode,
+	}: {
+		mode: AsrDebugConfirmationMode;
+	}) => {
+		setAsrDebugConfirmation(
+			buildAsrDebugConfirmation({
+				mode,
+				range: getAudioRangeForAsrDebugConfirmation(),
+			}),
+		);
+	};
+
+	const runGenerateTranscript = async ({
+		audioRangeParams,
+	}: {
+		audioRangeParams: AsrAudioRangeParams;
+	}) => {
 		dispatch({
 			type: "start",
 			step: getCaptionProviderStartStep({ provider: selectedProvider }),
@@ -239,7 +243,7 @@ export function Captions() {
 					language: selectedLanguage,
 					style: "clean",
 					placement: "bottom",
-					...getAudioRangeParams(),
+					...audioRangeParams,
 				},
 				onProgress: (event) => {
 					if (event.status === "running") {
@@ -255,6 +259,7 @@ export function Captions() {
 				return;
 			}
 
+			setAsrDebugConfirmation(null);
 			dispatch({ type: "succeed", warnings: [] });
 		} catch (error) {
 			console.error("Transcription failed:", error);
@@ -266,6 +271,10 @@ export function Captions() {
 						: "An unexpected error occurred",
 			});
 		}
+	};
+
+	const handleGenerateTranscript = () => {
+		prepareAsrDebugConfirmation({ mode: "transcript" });
 	};
 
 	const translateCaptions = async ({
@@ -313,7 +322,11 @@ export function Captions() {
 		}
 	};
 
-	const handleGenerateBilingualSubtitles = async () => {
+	const runGenerateBilingualSubtitles = async ({
+		audioRangeParams,
+	}: {
+		audioRangeParams: AsrAudioRangeParams;
+	}) => {
 		dispatch({
 			type: "start",
 			step: getCaptionProviderStartStep({ provider: selectedProvider }),
@@ -329,7 +342,7 @@ export function Captions() {
 					placement: "bottom",
 					revealMode: "line",
 					lineBreakMode: "page",
-					...getAudioRangeParams(),
+					...audioRangeParams,
 				},
 				onProgress: (event) => {
 					if (event.status === "running") {
@@ -355,6 +368,7 @@ export function Captions() {
 					typeof data?.elementId === "string" ? data.elementId : undefined,
 			});
 
+			setAsrDebugConfirmation(null);
 			dispatch({ type: "succeed", warnings: [] });
 		} catch (error) {
 			console.error("Bilingual subtitle generation failed:", error);
@@ -366,6 +380,26 @@ export function Captions() {
 						: "An unexpected error occurred",
 			});
 		}
+	};
+
+	const handleGenerateBilingualSubtitles = () => {
+		prepareAsrDebugConfirmation({ mode: "bilingual" });
+	};
+
+	const handleContinueAsrDebugConfirmation = async () => {
+		const confirmation = asrDebugConfirmation;
+		if (!confirmation) return;
+
+		if (confirmation.mode === "bilingual") {
+			await runGenerateBilingualSubtitles({
+				audioRangeParams: confirmation.params,
+			});
+			return;
+		}
+
+		await runGenerateTranscript({
+			audioRangeParams: confirmation.params,
+		});
 	};
 
 	const handleImportClick = () => {
@@ -433,6 +467,7 @@ export function Captions() {
 	const handleLanguageChange = ({ value }: { value: string }) => {
 		if (value === "auto") {
 			setSelectedLanguage("auto");
+			setAsrDebugConfirmation(null);
 			return;
 		}
 
@@ -441,11 +476,13 @@ export function Captions() {
 		);
 		if (!matchedLanguage) return;
 		setSelectedLanguage(matchedLanguage.code);
+		setAsrDebugConfirmation(null);
 	};
 
 	const handleProviderChange = ({ value }: { value: string }) => {
 		if (!isCaptionTranscriptionProvider(value)) return;
 		setSelectedProvider(value);
+		setAsrDebugConfirmation(null);
 	};
 
 	const handleTargetLanguageChange = ({ value }: { value: string }) => {
@@ -549,7 +586,10 @@ export function Captions() {
 						<SectionField label="Audio Source">
 							<Select
 								value={audioRangeChoice}
-								onValueChange={(value) => setAudioRangeChoice(value)}
+								onValueChange={(value) => {
+									setAudioRangeChoice(value);
+									setAsrDebugConfirmation(null);
+								}}
 							>
 								<SelectTrigger>
 									<SelectValue placeholder="Select audio source" />
@@ -596,6 +636,43 @@ export function Captions() {
 					</SectionFields>
 
 					<div className="mt-auto space-y-2">
+						{asrDebugConfirmation && !isProcessing && (
+							<div className="rounded-md border border-cyan-500/25 bg-cyan-500/10 p-3">
+								<div className="flex items-center justify-between gap-3">
+									<div className="min-w-0">
+										<div className="text-muted-foreground text-xs">
+											ASR debug check
+										</div>
+										<div className="truncate text-sm font-medium">
+											{asrDebugConfirmation.label}
+										</div>
+										<div className="text-muted-foreground mt-1 text-xs">
+											Start {asrDebugConfirmation.startLabel} / Duration{" "}
+											{asrDebugConfirmation.durationLabel}
+										</div>
+									</div>
+									<div className="flex shrink-0 gap-2">
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											onClick={() => setAsrDebugConfirmation(null)}
+										>
+											Cancel
+										</Button>
+										<Button
+											type="button"
+											size="sm"
+											onClick={() =>
+												void handleContinueAsrDebugConfirmation()
+											}
+										>
+											Next
+										</Button>
+									</div>
+								</div>
+							</div>
+						)}
 						{isProcessing && (
 							<div className="text-muted-foreground flex items-center gap-2 text-xs">
 								<Spinner />
