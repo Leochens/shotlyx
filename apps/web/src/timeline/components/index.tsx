@@ -189,6 +189,7 @@ export function Timeline() {
 		timelineHeaderHeightValue + TIMELINE_CONTENT_TOP_PADDING_PX;
 	const timelineDensity = getTimelineDensity({
 		viewportHeight: Math.max(0, tracksContainerHeight - timelineHeaderHeight),
+		tracks,
 	});
 
 	const {

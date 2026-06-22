@@ -7,11 +7,11 @@ export const TIMELINE_TRACK_HEIGHTS_PX: Record<
 	Record<TrackType, number>
 > = {
 	compact: {
-		video: 32,
-		text: 18,
-		audio: 28,
-		graphic: 18,
-		effect: 18,
+		video: 24,
+		text: 14,
+		audio: 16,
+		graphic: 14,
+		effect: 14,
 	},
 	normal: {
 		video: 65,
@@ -34,7 +34,7 @@ export const KEYFRAME_DIAMOND_SIZE_PX = 14;
 export const EXPANDED_GROUP_HEADER_HEIGHT_PX = 18;
 
 export const TIMELINE_TRACK_GAP_PX: Record<TimelineDensity, number> = {
-	compact: 4,
+	compact: 1,
 	normal: 6,
 	expanded: 8,
 } as const;

@@ -10,11 +10,24 @@ const DEFAULT_TIMELINE_DENSITY: TimelineDensity = "normal";
 
 export function getTimelineDensity({
 	viewportHeight,
+	tracks = [],
 }: {
 	viewportHeight: number;
+	tracks?: Array<{ type: TrackType }>;
 }): TimelineDensity {
 	if (viewportHeight < 180) return "compact";
-	if (viewportHeight >= 420) return "expanded";
+
+	const normalTracksHeight = getTotalTracksHeight({
+		tracks,
+		density: "normal",
+	});
+	if (tracks.length > 0 && normalTracksHeight > viewportHeight * 0.9) {
+		return "compact";
+	}
+
+	if (viewportHeight >= 420 && normalTracksHeight < viewportHeight * 0.65) {
+		return "expanded";
+	}
 	return "normal";
 }
 

@@ -39,4 +39,12 @@ describe("timeline track layout density", () => {
 		expect(compactTotal).toBeLessThan(normalTotal);
 		expect(expandedTotal).toBeGreaterThan(normalTotal);
 	});
+
+	test("uses compact density when many tracks would not fit the viewport", () => {
+		const tracks = Array.from({ length: 22 }, () => ({
+			type: "audio" as const,
+		}));
+
+		expect(getTimelineDensity({ viewportHeight: 520, tracks })).toBe("compact");
+	});
 });
