@@ -165,7 +165,7 @@ describe("tool call card display helpers", () => {
 		expect(getToolStatus(toolCall)).toBe("pending");
 		expect(getToolOutputDisplay(toolCall)).toEqual({
 			tone: "pending",
-			text: "MG 子智能体已启动，正在后台生成。",
+			text: "MG 子智能体已启动，正在后台生成。已完成的组件会先保存到素材库，断开后重开面板也会继续同步进度。",
 		});
 	});
 
@@ -252,7 +252,7 @@ describe("tool call card display helpers", () => {
 		expect(getToolStatus(toolCall)).toBe("error");
 		expect(getToolOutputDisplay(toolCall)).toEqual({
 			tone: "error",
-			text: "Shotlyx MG job not found",
+			text: "MG 生成失败：Shotlyx MG job not found\n\n未拿到可保存组件；可以直接重试，新的生成会重新走校验。",
 		});
 	});
 

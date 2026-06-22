@@ -28,6 +28,10 @@ const DEFAULT_DURATION_SECONDS = 6;
 const MAX_OUTPUT_TOKENS = 12_000;
 const RENDER_VALIDATION_FRAME_COUNT = 4;
 const MAX_SOURCE_CHARS = 32_000;
+const SVG_CHILD_TAG_RE =
+	/<(?:animate|circle|clipPath|defs|ellipse|fe[A-Z][A-Za-z]*|filter|g|line|linearGradient|mask|path|pattern|polygon|polyline|radialGradient|rect|stop|text|textPath|tspan|use)\b/i;
+const SVG_BLOCK_RE = /<svg\b[\s\S]*?<\/svg>/gi;
+const NON_FINITE_RENDER_VALUE_RE = /\b(?:NaN|Infinity|-Infinity)\b/;
 
 let renderValidationQueue: Promise<void> = Promise.resolve();
 
@@ -364,6 +368,18 @@ function StubVideo({ src, style }: { src?: unknown; style?: CSSProperties }) {
 	});
 }
 
+function assertValidRenderedMarkup({ markup }: { markup: string }): void {
+	if (NON_FINITE_RENDER_VALUE_RE.test(markup)) {
+		throw new Error("rendered markup contains a non-finite value");
+	}
+	const outsideSvg = markup.replace(SVG_BLOCK_RE, "");
+	if (SVG_CHILD_TAG_RE.test(outsideSvg)) {
+		throw new Error(
+			"rendered SVG child tags must be wrapped in an <svg> element",
+		);
+	}
+}
+
 async function assertRenderableShotlyxRemotionComponent({
 	document,
 }: {
@@ -447,9 +463,10 @@ async function assertRenderableShotlyxRemotionComponent({
 			thumbnailFrame: document.thumbnailFrame,
 		})) {
 			currentFrame = frame;
-			renderToStaticMarkup(
+			const markup = renderToStaticMarkup(
 				ReactRuntime.createElement(Component, document.defaultProps),
 			);
+			assertValidRenderedMarkup({ markup });
 		}
 		if (renderWarnings.length > 0) {
 			throw new Error(
@@ -967,6 +984,8 @@ function buildCodeSystemPrompt({
 		"Use frame-based motion only: useCurrentFrame(), useVideoConfig(), interpolate(), spring(), and deterministic math.",
 		"Do not use CSS transition, CSS animation, @keyframes, or Tailwind animate/transition utility classes.",
 		"Prefer SVG, div geometry, masks, gradients, strokes, paths, and deterministic particle arrays for motion graphics.",
+		"When using SVG tags such as g, rect, circle, line, or path, always wrap them inside an <svg> element.",
+		"All animated numeric values must be finite. Guard divisions and scale values so JSX never renders NaN, Infinity, or -Infinity.",
 		"For moving elements, do not apply the same axis twice. Example: do not use top: y together with transform: translateY(y); use one positioning method per axis.",
 		"Use only the provided props contract. Do not invent additional props.",
 		buildPropsType({ propsSchema }),

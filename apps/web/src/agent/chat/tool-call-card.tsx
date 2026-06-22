@@ -83,6 +83,31 @@ function getLatestProgress(toolCall: ToolCallRecord) {
 	return progress[progress.length - 1];
 }
 
+function isShotlyxMGTool(toolName: string): boolean {
+	return (
+		toolName === "shotlyx_generate_mg_component" ||
+		toolName === "shotlyx_generate_mg_composition"
+	);
+}
+
+function getSavedMGComponentCount(toolCall: ToolCallRecord): number {
+	const savedIndexes = new Set<number>();
+	let fallbackCount = 0;
+	for (const event of toolCall.progress ?? []) {
+		if (event.status !== "success") continue;
+		const isSaved =
+			event.label.includes("已保存到素材库") ||
+			event.label.includes("已生成");
+		if (!isSaved) continue;
+		if (event.taskIndex !== undefined) {
+			savedIndexes.add(event.taskIndex);
+		} else {
+			fallbackCount += 1;
+		}
+	}
+	return Math.max(savedIndexes.size, fallbackCount);
+}
+
 export interface JobTaskProgressItem {
 	id: string;
 	label: string;
@@ -169,6 +194,7 @@ export function getToolOutputDisplay(
 ): ToolOutputDisplay {
 	const status = getToolStatus(toolCall);
 	const latestProgress = getLatestProgress(toolCall);
+	const isMGTool = isShotlyxMGTool(toolCall.tool);
 	if (!toolCall.result) {
 		if (isVisionAnalysisTool(toolCall.tool) && latestProgress?.detail) {
 			return {
@@ -184,7 +210,9 @@ export function getToolOutputDisplay(
 	if (status === "pending") {
 		return {
 			tone: "pending",
-			text: "MG 子智能体已启动，正在后台生成。",
+			text: isMGTool
+				? "MG 子智能体已启动，正在后台生成。已完成的组件会先保存到素材库，断开后重开面板也会继续同步进度。"
+				: "工具正在后台执行。",
 		};
 	}
 	if (status === "success") {
@@ -233,6 +261,22 @@ export function getToolOutputDisplay(
 									: isVisionAnalysisTool(toolCall.tool)
 										? "视觉分析已完成。"
 										: stringifyCompact(toolCall.result.data),
+		};
+	}
+	if (isMGTool) {
+		const savedCount = getSavedMGComponentCount(toolCall);
+		const reason =
+			toolCall.result?.error ??
+			latestProgress?.detail ??
+			latestProgress?.label ??
+			"未知错误";
+		return {
+			tone: "error",
+			text:
+				`MG 生成失败：${reason}` +
+				(savedCount > 0
+					? `\n\n已保存 ${savedCount} 个完成组件到素材库；可以用相同提示重试，已保存的组件不会丢。`
+					: "\n\n未拿到可保存组件；可以直接重试，新的生成会重新走校验。"),
 		};
 	}
 	return {

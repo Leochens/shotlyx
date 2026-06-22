@@ -188,6 +188,73 @@ export default function ShotlyxComponent() {
 		).rejects.toThrow("Render validation failed");
 	});
 
+	test("rejects SVG child tags rendered outside svg context", async () => {
+		await expect(
+			createShotlyxRemotionComponentDocument({
+				name: "Bare SVG Child",
+				componentSource: `
+export default function ShotlyxComponent() {
+	const frame = useCurrentFrame();
+	return (
+		<AbsoluteFill>
+			<g transform={"translate(" + (120 + frame * 0) + ",230)"}>
+				<rect x={0} y={0} width={200} height={80} fill="#22d3ee" />
+			</g>
+		</AbsoluteFill>
+	);
+}
+`,
+				propsSchema: [
+					{
+						key: "title",
+						label: "Title",
+						type: "text",
+						role: "content",
+						default: "Runtime",
+					},
+				],
+				sourcePrompt: "bare svg",
+				durationSeconds: 3,
+				aspectRatio: "16:9",
+			}),
+		).rejects.toThrow("wrapped in an <svg> element");
+	});
+
+	test("rejects non-finite render values before saving generated MG", async () => {
+		await expect(
+			createShotlyxRemotionComponentDocument({
+				name: "NaN Transform",
+				componentSource: `
+export default function ShotlyxComponent() {
+	const frame = useCurrentFrame();
+	const scale = frame / 0 - Infinity;
+	return (
+		<AbsoluteFill>
+			<svg width="100%" height="100%">
+				<g transform={"translate(120,230) scale(" + scale + ")"}>
+					<circle cx={120} cy={120} r={64} fill="#22d3ee" />
+				</g>
+			</svg>
+		</AbsoluteFill>
+	);
+}
+`,
+				propsSchema: [
+					{
+						key: "title",
+						label: "Title",
+						type: "text",
+						role: "content",
+						default: "Runtime",
+					},
+				],
+				sourcePrompt: "nan transform",
+				durationSeconds: 3,
+				aspectRatio: "16:9",
+			}),
+		).rejects.toThrow("non-finite value");
+	});
+
 	test("custom generation asks for TSX only and derives editable props", async () => {
 		const generateTextMock = mock(
 			async (options: { output?: unknown; prompt?: string; system?: string }) => {

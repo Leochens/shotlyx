@@ -51,6 +51,18 @@ import { useEditor } from "@/editor/use-editor";
 import { DEFAULT_EXPORT_OPTIONS } from "@/export/defaults";
 import { useAppLocale } from "@/i18n/use-app-locale";
 
+type ExportSuccessState =
+	| {
+			kind: "desktop";
+			fileName: string;
+			filePath: string;
+			sizeBytes?: number;
+	  }
+	| {
+			kind: "browser";
+			fileName: string;
+	  };
+
 function isExportFormat(value: string): value is ExportFormat {
 	return EXPORT_FORMAT_VALUES.some((formatValue) => formatValue === value);
 }
@@ -153,10 +165,13 @@ function ExportDialog({
 	const [desktopExportError, setDesktopExportError] = useState<string | null>(
 		null,
 	);
+	const [exportSuccess, setExportSuccess] =
+		useState<ExportSuccessState | null>(null);
 
 	const handleExport = async () => {
 		if (!activeProject) return;
 		setDesktopExportError(null);
+		setExportSuccess(null);
 
 		const mimeType = getExportMimeType({ format });
 		const filename = `${activeProject.metadata.name}${getExportFileExtension({
@@ -196,10 +211,16 @@ function ExportDialog({
 		if (result.success && result.buffer) {
 			try {
 				if (desktopTarget) {
-					await writeDesktopExportFile({
+					const writeResult = await writeDesktopExportFile({
 						buffer: result.buffer,
 						mimeType,
 						targetId: desktopTarget.id,
+					});
+					setExportSuccess({
+						kind: "desktop",
+						fileName: desktopTarget.fileName,
+						filePath: writeResult.filePath ?? desktopTarget.filePath,
+						sizeBytes: writeResult.sizeBytes,
 					});
 				} else {
 					downloadBuffer({
@@ -207,10 +228,13 @@ function ExportDialog({
 						filename,
 						mimeType,
 					});
+					setExportSuccess({
+						kind: "browser",
+						fileName: filename,
+					});
 				}
 
 				editor.project.clearExportState();
-				onOpenChange(false);
 			} catch (error) {
 				setDesktopExportError(
 					error instanceof Error ? error.message : dialogCopy.unknownError,
@@ -265,7 +289,12 @@ function ExportDialog({
 				if (isExporting) event.preventDefault();
 			}}
 		>
-			{desktopExportError || (exportResult && !exportResult.success) ? (
+			{exportSuccess ? (
+				<ExportSuccess
+					result={exportSuccess}
+					onClose={() => onOpenChange(false)}
+				/>
+			) : desktopExportError || (exportResult && !exportResult.success) ? (
 				<ExportError
 					error={
 						desktopExportError ||
@@ -460,6 +489,80 @@ function ExportDialog({
 				</>
 			)}
 		</DialogContent>
+	);
+}
+
+function formatBytes(bytes?: number): string | null {
+	if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) {
+		return null;
+	}
+	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+	return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function ExportSuccess({
+	result,
+	onClose,
+}: {
+	result: ExportSuccessState;
+	onClose: () => void;
+}) {
+	const { copy } = useAppLocale();
+	const dialogCopy = copy.editor.exportDialog;
+	const [copied, setCopied] = useState(false);
+	const targetText =
+		result.kind === "desktop" ? result.filePath : result.fileName;
+	const sizeLabel =
+		result.kind === "desktop" ? formatBytes(result.sizeBytes) : null;
+
+	const handleCopy = async () => {
+		await navigator.clipboard.writeText(targetText);
+		setCopied(true);
+		setTimeout(() => setCopied(false), 1000);
+	};
+
+	return (
+		<div className="space-y-4 p-3">
+			<DialogHeader className="space-y-1.5 p-0 text-left">
+				<DialogTitle className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+					{dialogCopy.completed}
+				</DialogTitle>
+				<DialogDescription className="text-muted-foreground text-xs">
+					{result.kind === "desktop"
+						? dialogCopy.savedTo
+						: dialogCopy.downloadStarted}
+				</DialogDescription>
+			</DialogHeader>
+
+			<div className="rounded-md border border-emerald-200/70 bg-emerald-50/70 p-2 dark:border-emerald-300/15 dark:bg-emerald-300/10">
+				<div className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200">
+					{result.fileName}
+				</div>
+				<div className="mt-1 break-all font-mono text-[10px] leading-relaxed text-emerald-900/80 dark:text-emerald-100/75">
+					{targetText}
+				</div>
+				{sizeLabel && (
+					<div className="mt-1 text-[10px] text-emerald-800/70 dark:text-emerald-100/60">
+						{sizeLabel}
+					</div>
+				)}
+			</div>
+
+			<div className="flex gap-2">
+				<Button
+					variant="outline"
+					size="sm"
+					className="h-8 flex-1 text-xs"
+					onClick={handleCopy}
+				>
+					{copied ? <Check className="text-constructive" /> : <Copy />}
+					{dialogCopy.copy}
+				</Button>
+				<Button size="sm" className="h-8 flex-1 text-xs" onClick={onClose}>
+					{dialogCopy.done}
+				</Button>
+			</div>
+		</div>
 	);
 }
 
