@@ -44,15 +44,27 @@ describe("transcript editing", () => {
 			track: track(),
 			selection: {
 				anchor: { cueIndex: 0, tokenIndex: 2 },
-				focus: { cueIndex: 1, tokenIndex: 0 },
+				focus: { cueIndex: 0, tokenIndex: 3 },
 			},
 		});
 
 		expect(range).toMatchObject({
 			startTime: 2,
-			endTime: 5,
-			text: "错字删除",
+			endTime: 4,
+			text: "错字",
 		});
+	});
+
+	test("does not resolve selections that cross cue boundaries", () => {
+		expect(
+			resolveTranscriptTokenRange({
+				track: track(),
+				selection: {
+					anchor: { cueIndex: 0, tokenIndex: 2 },
+					focus: { cueIndex: 1, tokenIndex: 0 },
+				},
+			}),
+		).toBeNull();
 	});
 
 	test("edits selected tokens without changing timing", () => {

@@ -508,11 +508,58 @@ test.describe("global subtitles", () => {
 			"这是对字",
 		);
 
-		await page.getByTestId("transcript-token-1-0").click();
-		await page
-			.getByTestId("transcript-token-1-1")
-			.click({ modifiers: ["Shift"] });
-		await expect(page.getByRole("button", { name: "删除选区" })).toBeVisible();
+		const dragBetweenTokens = async ({
+			from,
+			to,
+		}: {
+			from: string;
+			to: string;
+		}) => {
+			await page.getByTestId(from).scrollIntoViewIfNeeded();
+			await page.getByTestId(to).scrollIntoViewIfNeeded();
+			const fromBox = await page.getByTestId(from).boundingBox();
+			const toBox = await page.getByTestId(to).boundingBox();
+			expect(fromBox).not.toBeNull();
+			expect(toBox).not.toBeNull();
+			if (!fromBox || !toBox) return;
+			await page.mouse.move(
+				fromBox.x + fromBox.width / 2,
+				fromBox.y + fromBox.height / 2,
+			);
+			await page.mouse.down();
+			await page.mouse.move(
+				toBox.x + toBox.width / 2,
+				toBox.y + toBox.height / 2,
+			);
+			await page.mouse.up();
+		};
+
+		await dragBetweenTokens({
+			from: "transcript-token-0-3",
+			to: "transcript-token-1-0",
+		});
+		await expect(page.getByTestId("transcript-token-0-3")).toHaveAttribute(
+			"data-selected",
+			"true",
+		);
+		await expect(page.getByTestId("transcript-token-1-0")).toHaveAttribute(
+			"data-selected",
+			"false",
+		);
+
+		await dragBetweenTokens({
+			from: "transcript-token-1-0",
+			to: "transcript-token-1-1",
+		});
+		await expect(page.getByTestId("transcript-selection-toolbar")).toBeVisible();
+		await expect(page.getByTestId("transcript-token-1-0")).toHaveAttribute(
+			"data-selected",
+			"true",
+		);
+		await expect(page.getByTestId("transcript-token-1-1")).toHaveAttribute(
+			"data-selected",
+			"true",
+		);
 		await page.getByRole("button", { name: "删除选区" }).click();
 
 		await expect(page.getByTestId("global-transcript-list")).not.toContainText(

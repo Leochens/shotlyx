@@ -56,6 +56,14 @@ export function normalizeTokenSelection({
 	return { start: selection.focus, end: selection.anchor };
 }
 
+export function isSingleCueSelection({
+	selection,
+}: {
+	selection: TranscriptTokenSelection;
+}): boolean {
+	return selection.anchor.cueIndex === selection.focus.cueIndex;
+}
+
 export function isTokenAddressInSelection({
 	address,
 	selection,
@@ -79,6 +87,7 @@ export function resolveTranscriptTokenRange({
 	selection: TranscriptTokenSelection | null;
 }): TranscriptTokenRange | null {
 	if (!selection) return null;
+	if (!isSingleCueSelection({ selection })) return null;
 	const { start, end } = normalizeTokenSelection({ selection });
 	const selectedTokens: SubtitleToken[] = [];
 

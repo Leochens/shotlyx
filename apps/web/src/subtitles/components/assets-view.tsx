@@ -61,6 +61,7 @@ import {
 	editTranscriptSelection,
 	findActiveTranscriptToken,
 	getTranscriptCueTokens,
+	isSingleCueSelection,
 	isTokenAddressInSelection,
 	resolveTranscriptTokenRange,
 	type TranscriptTokenAddress,
@@ -590,20 +591,13 @@ export function Captions() {
 	};
 
 	const handleTokenPointerDown = ({
-		event,
 		address,
 	}: {
-		event: React.PointerEvent<HTMLButtonElement>;
 		address: TranscriptTokenAddress;
 	}) => {
 		isSelectingRef.current = true;
 		selectionMovedRef.current = false;
-		if (event.shiftKey && tokenSelection) {
-			setTokenSelection({ ...tokenSelection, focus: address });
-			return;
-		}
 		setTokenSelection({ anchor: address, focus: address });
-		event.currentTarget.setPointerCapture?.(event.pointerId);
 	};
 
 	const handleTokenPointerEnter = ({
@@ -613,24 +607,21 @@ export function Captions() {
 	}) => {
 		if (!isSelectingRef.current) return;
 		selectionMovedRef.current = true;
-		setTokenSelection((previous) =>
-			previous ? { ...previous, focus: address } : previous,
-		);
+		setTokenSelection((previous) => {
+			if (!previous) return previous;
+			if (previous.anchor.cueIndex !== address.cueIndex) return previous;
+			return { ...previous, focus: address };
+		});
 	};
 
 	const handleTokenClick = ({
 		event,
-		address,
 		seconds,
 	}: {
 		event: React.MouseEvent<HTMLButtonElement>;
-		address: TranscriptTokenAddress;
 		seconds: number;
 	}) => {
-		if (event.shiftKey && tokenSelection) {
-			setTokenSelection({ ...tokenSelection, focus: address });
-			return;
-		}
+		event.preventDefault();
 		if (selectionMovedRef.current) {
 			selectionMovedRef.current = false;
 			return;
@@ -639,7 +630,8 @@ export function Captions() {
 	};
 
 	const handleOpenEditSelection = () => {
-		if (!selectedTokenRange) return;
+		if (!selectedTokenRange || !tokenSelection) return;
+		if (!isSingleCueSelection({ selection: tokenSelection })) return;
 		setEditDraft(selectedTokenRange.text);
 		setIsEditDialogOpen(true);
 	};
@@ -657,7 +649,10 @@ export function Captions() {
 	};
 
 	const handleDeleteSelection = () => {
-		if (!selectedTranscriptTrack || !selectedTokenRange) return;
+		if (!selectedTranscriptTrack || !selectedTokenRange || !tokenSelection) {
+			return;
+		}
+		if (!isSingleCueSelection({ selection: tokenSelection })) return;
 		const sourceTrackId =
 			selectedTranscriptTrack.sourceTrackId ??
 			(selectedTrackId.startsWith("track:")
@@ -867,13 +862,13 @@ export function Captions() {
 
 							{hasTranscript ? (
 								<div
-									className="space-y-4 pb-4"
+									className="space-y-4 pt-8 pb-4"
 									data-testid="global-transcript-list"
 								>
 									{selectedTranscriptTrack?.cues.map((cue, cueIndex) => (
 										<div
 											key={`${cue.startTime}:${cueIndex}`}
-											className="grid grid-cols-[0.75rem_1fr] gap-2"
+											className="group relative grid grid-cols-[0.75rem_1fr] gap-2"
 										>
 											<button
 												type="button"
@@ -914,8 +909,8 @@ export function Captions() {
 																		? "bg-cyan-400/25 text-cyan-50 ring-1 ring-cyan-300/50"
 																		: "",
 																].join(" ")}
-																onPointerDown={(event) =>
-																	handleTokenPointerDown({ event, address })
+																onPointerDown={() =>
+																	handleTokenPointerDown({ address })
 																}
 																onPointerEnter={() =>
 																	handleTokenPointerEnter({ address })
@@ -923,7 +918,6 @@ export function Captions() {
 																onClick={(event) =>
 																	handleTokenClick({
 																		event,
-																		address,
 																		seconds: token.startTime,
 																	})
 																}
@@ -934,41 +928,36 @@ export function Captions() {
 													},
 												)}
 											</p>
+											{selectedTokenRange?.start.cueIndex === cueIndex && (
+												<div
+													className="absolute -top-8 left-6 z-20 flex items-center gap-1 rounded-md border border-cyan-300/20 bg-background/95 p-1 shadow-lg backdrop-blur"
+													data-testid="transcript-selection-toolbar"
+												>
+													<span className="text-muted-foreground max-w-28 truncate px-1 text-xs">
+														{selectedTokenRange.text}
+													</span>
+													<Button
+														type="button"
+														size="sm"
+														variant="outline"
+														className="h-7 px-2 text-xs"
+														onClick={handleOpenEditSelection}
+													>
+														编辑选区
+													</Button>
+													<Button
+														type="button"
+														size="sm"
+														variant="destructive"
+														className="h-7 px-2 text-xs"
+														onClick={handleDeleteSelection}
+													>
+														删除选区
+													</Button>
+												</div>
+											)}
 										</div>
 									))}
-									{selectedTokenRange && (
-										<div className="sticky bottom-0 z-10 mx-1 rounded-md border border-cyan-300/20 bg-background/95 p-2 shadow-lg backdrop-blur">
-											<div className="text-muted-foreground mb-2 truncate text-xs">
-												已选择：{selectedTokenRange.text}
-											</div>
-											<div className="grid grid-cols-3 gap-2">
-												<Button
-													type="button"
-													size="sm"
-													variant="outline"
-													onClick={handleOpenEditSelection}
-												>
-													编辑选区
-												</Button>
-												<Button
-													type="button"
-													size="sm"
-													variant="destructive"
-													onClick={handleDeleteSelection}
-												>
-													删除选区
-												</Button>
-												<Button
-													type="button"
-													size="sm"
-													variant="ghost"
-													onClick={() => setTokenSelection(null)}
-												>
-													取消
-												</Button>
-											</div>
-										</div>
-									)}
 								</div>
 							) : (
 							<div className="text-muted-foreground rounded-md border border-dashed border-border/70 px-3 py-8 text-center text-sm">
