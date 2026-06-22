@@ -2,15 +2,14 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { BASE_TIMELINE_PIXELS_PER_SECOND } from "@/timeline/scale";
 import {
 	addMediaTime,
-	maxMediaTime,
 	type MediaTime,
 	mediaTime,
-	minMediaTime,
 	subMediaTime,
 	TICKS_PER_SECOND,
 } from "@/wasm";
 import {
 	computeGroupResize,
+	type BoundaryResizeNeighbor,
 	type GroupResizeMember,
 	type GroupResizeResult,
 	type GroupResizeUpdate,
@@ -26,6 +25,7 @@ import { getElementEdgeSnapPoints } from "@/timeline/element-snap-source";
 import { getPlayheadSnapPoints } from "@/timeline/playhead-snap-source";
 import { getAnimationKeyframeSnapPointsForTimeline } from "@/timeline/animation-snap-points";
 import {
+	hasMediaId,
 	isRetimableElement,
 	type SceneTracks,
 	type TimelineElement,
@@ -69,6 +69,41 @@ export interface ResizeConfigRef {
 
 // --- Pure helpers ---
 
+function getSourceKey({
+	element,
+}: {
+	element: TimelineElement;
+}): string | undefined {
+	if (hasMediaId(element)) {
+		return `media:${element.mediaId}`;
+	}
+	if (element.type === "audio" && element.sourceType === "library") {
+		return `library:${element.sourceUrl}`;
+	}
+	return undefined;
+}
+
+function buildBoundaryResizeNeighbor({
+	trackId,
+	element,
+}: {
+	trackId: string;
+	element: TimelineElement | null;
+}): BoundaryResizeNeighbor | undefined {
+	if (!element) return undefined;
+	return {
+		trackId,
+		elementId: element.id,
+		startTime: element.startTime,
+		duration: element.duration,
+		trimStart: element.trimStart,
+		trimEnd: element.trimEnd,
+		sourceDuration: element.sourceDuration,
+		sourceKey: getSourceKey({ element }),
+		retime: isRetimableElement(element) ? element.retime : undefined,
+	};
+}
+
 export function buildResizeMembers({
 	tracks,
 	selectedElements,
@@ -94,33 +129,42 @@ export function buildResizeMembers({
 		const otherElements = track.elements.filter(
 			(el) => !selectedElementIds.has(el.id),
 		);
-		const leftNeighborBound = otherElements
-			.filter(
-				(el) =>
-					addMediaTime({ a: el.startTime, b: el.duration }) <=
-					element.startTime,
-			)
-			.reduce<MediaTime | null>((bound, el) => {
+		const leftNeighbor = otherElements
+			.filter((el) => {
 				const elementEnd = addMediaTime({
 					a: el.startTime,
 					b: el.duration,
 				});
-				return bound === null
-					? elementEnd
-					: maxMediaTime({ a: bound, b: elementEnd });
+				return elementEnd <= element.startTime;
+			})
+			.reduce<TimelineElement | null>((neighbor, el) => {
+				if (!neighbor) return el;
+				const neighborEnd = addMediaTime({
+					a: neighbor.startTime,
+					b: neighbor.duration,
+				});
+				const elementEnd = addMediaTime({
+					a: el.startTime,
+					b: el.duration,
+				});
+				return elementEnd > neighborEnd ? el : neighbor;
 			}, null);
-		const rightNeighborBound = otherElements
+		const leftNeighborBound = leftNeighbor
+			? addMediaTime({
+					a: leftNeighbor.startTime,
+					b: leftNeighbor.duration,
+				})
+			: null;
+		const rightNeighbor = otherElements
 			.filter(
 				(el) =>
 					el.startTime >= addMediaTime({ a: element.startTime, b: element.duration }),
 			)
-			.reduce<MediaTime | null>(
-				(bound, el) =>
-					bound === null
-						? el.startTime
-						: minMediaTime({ a: bound, b: el.startTime }),
-				null,
-			);
+			.reduce<TimelineElement | null>((neighbor, el) => {
+				if (!neighbor) return el;
+				return el.startTime < neighbor.startTime ? el : neighbor;
+			}, null);
+		const rightNeighborBound = rightNeighbor?.startTime ?? null;
 
 		return [
 			{
@@ -131,9 +175,18 @@ export function buildResizeMembers({
 				trimStart: element.trimStart,
 				trimEnd: element.trimEnd,
 				sourceDuration: element.sourceDuration,
+				sourceKey: getSourceKey({ element }),
 				retime: isRetimableElement(element) ? element.retime : undefined,
 				leftNeighborBound,
 				rightNeighborBound,
+				leftBoundaryNeighbor: buildBoundaryResizeNeighbor({
+					trackId,
+					element: leftNeighbor,
+				}),
+				rightBoundaryNeighbor: buildBoundaryResizeNeighbor({
+					trackId,
+					element: rightNeighbor,
+				}),
 			},
 		];
 	});

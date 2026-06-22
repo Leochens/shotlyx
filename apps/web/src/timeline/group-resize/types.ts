@@ -10,9 +10,22 @@ export interface GroupResizeMember extends ElementRef {
 	trimStart: MediaTime;
 	trimEnd: MediaTime;
 	sourceDuration?: MediaTime;
+	sourceKey?: string;
 	retime?: RetimeConfig;
 	leftNeighborBound: MediaTime | null;
 	rightNeighborBound: MediaTime | null;
+	leftBoundaryNeighbor?: BoundaryResizeNeighbor;
+	rightBoundaryNeighbor?: BoundaryResizeNeighbor;
+}
+
+export interface BoundaryResizeNeighbor extends ElementRef {
+	startTime: MediaTime;
+	duration: MediaTime;
+	trimStart: MediaTime;
+	trimEnd: MediaTime;
+	sourceDuration?: MediaTime;
+	sourceKey?: string;
+	retime?: RetimeConfig;
 }
 
 export interface GroupResizeUpdate extends ElementRef {

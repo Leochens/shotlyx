@@ -602,7 +602,7 @@ function ElementInner({
 		isDropTarget;
 	return (
 		<div
-			className="absolute top-0 bottom-0"
+			className="group/element absolute top-0 bottom-0"
 			style={{
 				left: `${ELEMENT_RING_WIDTH_PX}px`,
 				right: `${ELEMENT_RING_WIDTH_PX}px`,
@@ -652,22 +652,20 @@ function ElementInner({
 				</div>
 			</div>
 
-			{isSelected && (
-				<>
-					<ResizeHandle
-						side="left"
-						element={element}
-						track={track}
-						onResizeStart={onResizeStart}
-					/>
-					<ResizeHandle
-						side="right"
-						element={element}
-						track={track}
-						onResizeStart={onResizeStart}
-					/>
-				</>
-			)}
+			<ResizeHandle
+				side="left"
+				element={element}
+				track={track}
+				isSelected={isSelected}
+				onResizeStart={onResizeStart}
+			/>
+			<ResizeHandle
+				side="right"
+				element={element}
+				track={track}
+				isSelected={isSelected}
+				onResizeStart={onResizeStart}
+			/>
 		</div>
 	);
 }
@@ -676,11 +674,13 @@ function ResizeHandle({
 	side,
 	element,
 	track,
+	isSelected,
 	onResizeStart,
 }: {
 	side: "left" | "right";
 	element: TimelineElementType;
 	track: TimelineTrack;
+	isSelected: boolean;
 	onResizeStart: (params: {
 		event: React.MouseEvent;
 		element: TimelineElementType;
@@ -693,8 +693,13 @@ function ResizeHandle({
 		<button
 			type="button"
 			className={cn(
-				"absolute top-0 bottom-0 w-2",
-				isLeft ? "-left-1 cursor-w-resize" : "-right-1 cursor-e-resize",
+				"pointer-events-auto absolute top-0 bottom-0 z-10 w-2 opacity-0 transition-opacity",
+				"bg-primary/70 hover:bg-primary focus-visible:bg-primary focus-visible:opacity-100",
+				"group-hover/element:opacity-100",
+				isSelected && "opacity-100",
+				isLeft
+					? "-left-1 cursor-w-resize rounded-l-sm"
+					: "-right-1 cursor-e-resize rounded-r-sm",
 			)}
 			onMouseDown={(event) => onResizeStart({ event, element, track, side })}
 			onClick={(event) => event.stopPropagation()}
