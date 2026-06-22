@@ -47,6 +47,7 @@ import {
 	Chart03Icon,
 	Unlink02Icon,
 	AudioWave01Icon,
+	FitToScreenIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { OcRippleIcon } from "@/components/icons";
@@ -60,10 +61,14 @@ export function TimelineToolbar({
 	zoomLevel,
 	minZoom,
 	setZoomLevel,
+	onFitTimeline,
+	canFitTimeline,
 }: {
 	zoomLevel: number;
 	minZoom: number;
 	setZoomLevel: ({ zoom }: { zoom: number }) => void;
+	onFitTimeline: () => void;
+	canFitTimeline: boolean;
 }) {
 	const handleZoom = ({ direction }: { direction: "in" | "out" }) => {
 		const newZoomLevel =
@@ -93,6 +98,8 @@ export function TimelineToolbar({
 					minZoom={minZoom}
 					onZoomChange={(zoom) => setZoomLevel({ zoom })}
 					onZoom={handleZoom}
+					onFitTimeline={onFitTimeline}
+					canFitTimeline={canFitTimeline}
 				/>
 			</div>
 		</ScrollArea>
@@ -362,11 +369,15 @@ function ToolbarRightSection({
 	minZoom,
 	onZoomChange,
 	onZoom,
+	onFitTimeline,
+	canFitTimeline,
 }: {
 	zoomLevel: number;
 	minZoom: number;
 	onZoomChange: (zoom: number) => void;
 	onZoom: (options: { direction: "in" | "out" }) => void;
+	onFitTimeline: () => void;
+	canFitTimeline: boolean;
 }) {
 	const snappingEnabled = useTimelineStore((s) => s.snappingEnabled);
 	const rippleEditingEnabled = useTimelineStore((s) => s.rippleEditingEnabled);
@@ -394,6 +405,14 @@ function ToolbarRightSection({
 			<div className="bg-border mx-1 h-6 w-px" />
 
 			<div className="flex items-center gap-1">
+				<TooltipProvider delayDuration={500}>
+					<ToolbarButton
+						icon={<HugeiconsIcon icon={FitToScreenIcon} />}
+						tooltip="Fit timeline"
+						disabled={!canFitTimeline}
+						onClick={() => onFitTimeline()}
+					/>
+				</TooltipProvider>
 				<Button
 					variant="text"
 					size="icon"

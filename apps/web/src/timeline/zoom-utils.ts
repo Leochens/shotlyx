@@ -2,11 +2,12 @@ import {
 	BASE_TIMELINE_PIXELS_PER_SECOND,
 	TIMELINE_ZOOM_MAX,
 } from "@/timeline/scale";
-import { TICKS_PER_SECOND } from "@/wasm";
+import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
 const PADDING_MAX_RATIO = 0.75;
 const PADDING_MIN_RATIO = 0.15;
 const PADDING_MIN_AT_ZOOM_PERCENT = 0.2;
+const FIT_TIMELINE_PADDING_RATIO = 0.12;
 
 export function getTimelineZoomMin({
 	duration,
@@ -15,10 +16,32 @@ export function getTimelineZoomMin({
 	duration: number;
 	containerWidth: number | null | undefined;
 }): number {
-	const safeDurationSeconds = Math.max(duration / TICKS_PER_SECOND, 1);
+	const safeDurationSeconds = Math.max(
+		duration / MEDIA_TIME_TICKS_PER_SECOND,
+		1,
+	);
 	const safeContainerWidth = containerWidth ?? 1000;
 	const contentRatioAtMinZoom = 1 - PADDING_MAX_RATIO;
 	const availableWidth = safeContainerWidth * contentRatioAtMinZoom;
+	const zoomToFit =
+		availableWidth / (safeDurationSeconds * BASE_TIMELINE_PIXELS_PER_SECOND);
+
+	return Math.min(TIMELINE_ZOOM_MAX, zoomToFit);
+}
+
+export function getTimelineFitZoom({
+	duration,
+	containerWidth,
+}: {
+	duration: number;
+	containerWidth: number | null | undefined;
+}): number {
+	const safeDurationSeconds = Math.max(
+		duration / MEDIA_TIME_TICKS_PER_SECOND,
+		1,
+	);
+	const safeContainerWidth = containerWidth ?? 1000;
+	const availableWidth = safeContainerWidth * (1 - FIT_TIMELINE_PADDING_RATIO);
 	const zoomToFit =
 		availableWidth / (safeDurationSeconds * BASE_TIMELINE_PIXELS_PER_SECOND);
 

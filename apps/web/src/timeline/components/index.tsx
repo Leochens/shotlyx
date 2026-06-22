@@ -97,6 +97,7 @@ import { DragLine } from "./drag-line";
 import { invokeAction } from "@/actions";
 import { resolveTimelineElementIntersections } from "./selection-hit-testing";
 import { cn } from "@/utils/ui";
+import { getTimelineFitZoom } from "@/timeline/zoom-utils";
 
 const TRACKS_CONTAINER_MAX_HEIGHT = 800;
 const FALLBACK_CONTAINER_WIDTH = 1000;
@@ -190,16 +191,21 @@ export function Timeline() {
 		viewportHeight: Math.max(0, tracksContainerHeight - timelineHeaderHeight),
 	});
 
-	const { zoomLevel, setZoomLevel, handleWheel, saveScrollPosition } =
-		useTimelineZoom({
-			containerRef: timelineRef,
-			minZoom: minZoomLevel,
-			initialZoom: savedViewState?.zoomLevel,
-			initialScrollLeft: savedViewState?.scrollLeft,
-			initialPlayheadTime: savedViewState?.playheadTime,
-			tracksScrollRef,
-			rulerScrollRef,
-		});
+	const {
+		zoomLevel,
+		setZoomLevel,
+		fitTimeline,
+		handleWheel,
+		saveScrollPosition,
+	} = useTimelineZoom({
+		containerRef: timelineRef,
+		minZoom: minZoomLevel,
+		initialZoom: savedViewState?.zoomLevel,
+		initialScrollLeft: savedViewState?.scrollLeft,
+		initialPlayheadTime: savedViewState?.playheadTime,
+		tracksScrollRef,
+		rulerScrollRef,
+	});
 	const { isResizing, handleResizeStart } = useTimelineResize({
 		zoomLevel,
 		onSnapPointChange: handleSnapPointChange,
@@ -457,6 +463,18 @@ export function Timeline() {
 				zoomLevel={zoomLevel}
 				minZoom={minZoomLevel}
 				setZoomLevel={({ zoom }) => setZoomLevel(zoom)}
+				onFitTimeline={() =>
+					fitTimeline({
+						zoom: Math.max(
+							minZoomLevel,
+							getTimelineFitZoom({
+								duration: timelineDuration,
+								containerWidth,
+							}),
+						),
+					})
+				}
+				canFitTimeline={timelineDuration > 0}
 			/>
 
 			<div className="relative flex flex-1 overflow-hidden" ref={timelineRef}>

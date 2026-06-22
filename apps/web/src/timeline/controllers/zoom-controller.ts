@@ -61,6 +61,7 @@ export class ZoomController {
 		this.hasInitialized = deps.initialZoom !== undefined;
 
 		this.setZoomLevel = this.setZoomLevel.bind(this);
+		this.fitTimeline = this.fitTimeline.bind(this);
 		this.handleWheel = this.handleWheel.bind(this);
 		this.saveScrollPosition = this.saveScrollPosition.bind(this);
 	}
@@ -103,6 +104,33 @@ export class ZoomController {
 
 		this.zoomLevelValue = nextZoom;
 		this.notify();
+	}
+
+	fitTimeline({ zoomLevel }: { zoomLevel: number }): void {
+		const nextZoom = clampZoom({
+			zoomLevel,
+			minZoom: this.config.minZoom,
+		});
+		this.preZoomScrollLeft = 0;
+		this.isInPlayheadAnchorMode = false;
+		this.zoomLevelValue = nextZoom;
+		this.notify();
+
+		requestAnimationFrame(() => {
+			const scrollElement = this.config.getTracksScrollEl();
+			if (!scrollElement) return;
+			scrollElement.scrollLeft = 0;
+			const ruler = this.config.getRulerScrollEl();
+			if (ruler) {
+				ruler.scrollLeft = 0;
+			}
+			this.previousZoom = nextZoom;
+			this.config.setTimelineViewState({
+				zoomLevel: nextZoom,
+				scrollLeft: 0,
+				playheadTime: this.config.getCurrentPlayheadTime(),
+			});
+		});
 	}
 
 	handleWheel(event: ReactWheelEvent): void {
@@ -277,7 +305,9 @@ export class ZoomController {
 		const preventZoom = (event: WheelEvent) => {
 			const isZoomKeyPressed = event.ctrlKey || event.metaKey;
 			const container = this.config.getContainerEl();
-			const isInContainer = container?.contains(event.target as Node) ?? false;
+			const target = event.target;
+			const isInContainer =
+				target instanceof Node ? (container?.contains(target) ?? false) : false;
 			if (isZoomKeyPressed && isInContainer) {
 				event.preventDefault();
 			}
