@@ -21,7 +21,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { useEditor } from "@/editor/use-editor";
 import { TRANSCRIPTION_DIAGNOSTICS_SCOPE } from "@/transcription/diagnostics";
 import { TRANSCRIPTION_LANGUAGES } from "@/transcription/supported-languages";
-import type { CaptionChunk, TranscriptionLanguage } from "@/transcription/types";
+import type {
+	CaptionChunk,
+	TranscriptionLanguage,
+} from "@/transcription/types";
 import {
 	audioRangeToSeconds,
 	type TranscriptionAudioTrackOption,
@@ -582,7 +585,7 @@ export function Captions() {
 				subtitles: {
 					...currentSubtitles,
 					tracks,
-					cues: isLegacyOnly ? tracks[0]?.cues ?? [] : currentSubtitles.cues,
+					cues: isLegacyOnly ? (tracks[0]?.cues ?? []) : currentSubtitles.cues,
 					selectedTrackId: selectedTrackId,
 					updatedAt: new Date().toISOString(),
 				},
@@ -704,7 +707,9 @@ export function Captions() {
 			return;
 		}
 
-		const sourceTrack = editor.timeline.getTrackById({ trackId: sourceTrackId });
+		const sourceTrack = editor.timeline.getTrackById({
+			trackId: sourceTrackId,
+		});
 		if (!sourceTrack) {
 			dispatch({
 				type: "fail",
@@ -792,10 +797,7 @@ export function Captions() {
 							value={selectedTrackId}
 							onValueChange={(value) => handleSelectedTrackChange({ value })}
 						>
-							<SelectTrigger
-								className="h-8 w-[6.5rem]"
-								aria-label="选择轨道"
-							>
+							<SelectTrigger className="h-8 w-[6.5rem]" aria-label="选择轨道">
 								<SelectValue placeholder="选择轨道" />
 							</SelectTrigger>
 							<SelectContent>
@@ -877,89 +879,140 @@ export function Captions() {
 									))}
 								</SelectContent>
 							</Select>
-							</SectionField>
-						</SectionFields>
+						</SectionField>
+					</SectionFields>
 
-						<div className="min-h-0 flex-1 overflow-y-auto pr-1">
-							<div className="mb-3 flex items-center justify-between gap-3 px-1">
-								<div className="min-w-0">
-									<div className="truncate text-lg font-semibold text-emerald-400">
-										{selectedTranscriptTrack?.label ?? "暂无轨道"}
-									</div>
-									<div className="text-muted-foreground truncate text-xs">
-										{hasTranscript
-											? `${selectedTranscriptTrack?.cues.length ?? 0} 条文字稿，${
-													isSelectedTrackRenderEnabled
-														? "正在显示字幕"
-														: "字幕显示已关闭"
-												}`
-											: "生成后会按轨道出现在这里"}
-									</div>
+					<div className="min-h-0 flex-1 overflow-y-auto pr-1">
+						<div className="mb-3 flex items-center justify-between gap-3 px-1">
+							<div className="min-w-0">
+								<div className="truncate text-lg font-semibold text-emerald-400">
+									{selectedTranscriptTrack?.label ?? "暂无轨道"}
 								</div>
-								<div className="flex shrink-0 flex-col items-end gap-2">
-									<div className="flex items-center gap-2">
-										<span className="text-muted-foreground text-xs">
-											全部字幕
-										</span>
-										<Switch
-											checked={projectSubtitles.enabled}
-											onCheckedChange={handleToggleProjectSubtitles}
-											aria-label="字幕是否开启"
-										/>
-									</div>
-									<div className="flex items-center gap-2">
-										<span className="text-muted-foreground text-xs">
-											当前轨道
-										</span>
-										<Switch
-											checked={isSelectedTrackRenderEnabled}
-											onCheckedChange={handleToggleSelectedTrackRender}
-											disabled={!selectedTranscriptTrack}
-											aria-label="当前轨道字幕是否显示"
-										/>
-									</div>
+								<div className="text-muted-foreground truncate text-xs">
+									{hasTranscript
+										? `${selectedTranscriptTrack?.cues.length ?? 0} 条文字稿，${
+												isSelectedTrackRenderEnabled
+													? "正在显示字幕"
+													: "字幕显示已关闭"
+											}`
+										: "生成后会按轨道出现在这里"}
 								</div>
 							</div>
+							<div className="flex shrink-0 flex-col items-end gap-2">
+								<div className="flex items-center gap-2">
+									<span className="text-muted-foreground text-xs">
+										全部字幕
+									</span>
+									<Switch
+										checked={projectSubtitles.enabled}
+										onCheckedChange={handleToggleProjectSubtitles}
+										aria-label="字幕是否开启"
+									/>
+								</div>
+								<div className="flex items-center gap-2">
+									<span className="text-muted-foreground text-xs">
+										当前轨道
+									</span>
+									<Switch
+										checked={isSelectedTrackRenderEnabled}
+										onCheckedChange={handleToggleSelectedTrackRender}
+										disabled={!selectedTranscriptTrack}
+										aria-label="当前轨道字幕是否显示"
+									/>
+								</div>
+							</div>
+						</div>
 
-							{hasTranscript ? (
-								<div
-									className="space-y-4 pt-8 pb-4"
-									data-testid="global-transcript-list"
-								>
-									{selectedTranscriptTrack?.cues.map((cue, cueIndex) => (
-										<div
-											key={`${cue.startTime}:${cueIndex}`}
-											className="group relative grid grid-cols-[0.75rem_1fr] gap-2"
+						{hasTranscript ? (
+							<div
+								className="space-y-4 pt-8 pb-4"
+								data-testid="global-transcript-list"
+							>
+								{selectedTranscriptTrack?.cues.map((cue, cueIndex) => (
+									<div
+										key={`${cue.startTime}:${cueIndex}`}
+										className="group relative grid grid-cols-[0.75rem_1fr] gap-2"
+									>
+										<button
+											type="button"
+											className="text-muted-foreground/55 hover:text-muted-foreground mt-1.5 text-left text-sm leading-none"
+											aria-label={`跳转到 ${getCueDisplayTime({ cue })}`}
+											onClick={() => seekToSeconds({ seconds: cue.startTime })}
 										>
-											<button
-												type="button"
-												className="text-muted-foreground/55 hover:text-muted-foreground mt-1.5 text-left text-sm leading-none"
-												aria-label={`跳转到 ${getCueDisplayTime({ cue })}`}
-												onClick={() => seekToSeconds({ seconds: cue.startTime })}
-											>
-												::
+											::
 										</button>
-											<p className="text-[1.03rem] leading-8 text-foreground/90">
-												{getTranscriptCueTokens({ cue }).map(
-													(token, tokenIndex) => {
-														const address = { cueIndex, tokenIndex };
-														const tokenKey = transcriptTokenKey({ address });
-														const isActive = isSameTokenAddress({
-															left: activeTokenAddress,
-															right: address,
-														});
-														const isSelected = isTokenAddressInSelection({
-															address,
-															selection: tokenSelection,
-														});
-														const selectionPosition = getTokenSelectionPosition({
-															address,
-															range: selectedTokenRange,
-														});
-														return (
-														<button
-															type="button"
+										<p className="text-[1.03rem] leading-8 text-foreground/90">
+											{getTranscriptCueTokens({ cue }).map(
+												(token, tokenIndex) => {
+													const address = { cueIndex, tokenIndex };
+													const tokenKey = transcriptTokenKey({ address });
+													const isActive = isSameTokenAddress({
+														left: activeTokenAddress,
+														right: address,
+													});
+													const isSelected = isTokenAddressInSelection({
+														address,
+														selection: tokenSelection,
+													});
+													const selectionPosition = getTokenSelectionPosition({
+														address,
+														range: selectedTokenRange,
+													});
+													return (
+														<span
 															key={`${token.startTime}:${tokenIndex}:${token.text}`}
+														>
+															{(selectionPosition === "start" ||
+																selectionPosition === "single") && (
+																<span
+																	className="relative inline-block h-[1lh] w-0 align-baseline"
+																	data-testid="transcript-selection-anchor"
+																>
+																	<span
+																		className="absolute bottom-full left-0 z-20 mb-1 flex items-center gap-1 rounded-md border border-cyan-300/20 bg-background/95 p-1 shadow-lg backdrop-blur"
+																		data-testid="transcript-selection-toolbar"
+																	>
+																		<TooltipProvider>
+																			<Tooltip>
+																				<TooltipTrigger asChild>
+																					<Button
+																						type="button"
+																						size="icon"
+																						variant="outline"
+																						className="h-7 w-7"
+																						aria-label="编辑选区"
+																						onClick={handleOpenEditSelection}
+																					>
+																						<Pencil className="h-3.5 w-3.5" />
+																					</Button>
+																				</TooltipTrigger>
+																				<TooltipContent>
+																					编辑选区
+																				</TooltipContent>
+																			</Tooltip>
+																			<Tooltip>
+																				<TooltipTrigger asChild>
+																					<Button
+																						type="button"
+																						size="icon"
+																						variant="destructive"
+																						className="h-7 w-7"
+																						aria-label="删除选区"
+																						onClick={handleDeleteSelection}
+																					>
+																						<Trash2 className="h-3.5 w-3.5" />
+																					</Button>
+																				</TooltipTrigger>
+																				<TooltipContent>
+																					删除选区
+																				</TooltipContent>
+																			</Tooltip>
+																		</TooltipProvider>
+																	</span>
+																</span>
+															)}
+															<button
+																type="button"
 																data-testid={`transcript-token-${cueIndex}-${tokenIndex}`}
 																data-transcript-token-key={tokenKey}
 																data-active={isActive ? "true" : "false"}
@@ -970,8 +1023,8 @@ export function Captions() {
 																className={[
 																	"border border-transparent px-px text-left align-baseline transition-colors",
 																	"hover:bg-cyan-300/15 hover:text-cyan-100",
-																	isActive
-																		? "rounded-[3px] bg-emerald-400/25 text-emerald-100 ring-1 ring-emerald-300/40"
+																	isActive && !isSelected
+																		? "rounded-[5px] border-cyan-300/50 bg-cyan-400/30 text-cyan-50"
 																		: "",
 																	isSelected
 																		? "bg-cyan-400/30 text-cyan-50 ring-0 border-y-cyan-300/50"
@@ -1001,78 +1054,40 @@ export function Captions() {
 																		seconds: token.startTime,
 																	})
 																}
-													>
-															{token.text}
-														</button>
-														);
-													},
-												)}
-											</p>
-											{selectedTokenRange?.start.cueIndex === cueIndex && (
-												<div
-													className="absolute -top-8 left-6 z-20 flex items-center gap-1 rounded-md border border-cyan-300/20 bg-background/95 p-1 shadow-lg backdrop-blur"
-													data-testid="transcript-selection-toolbar"
-												>
-													<TooltipProvider>
-														<Tooltip>
-															<TooltipTrigger asChild>
-																<Button
-																	type="button"
-																	size="icon"
-																	variant="outline"
-																	className="h-7 w-7"
-																	aria-label="编辑选区"
-																	onClick={handleOpenEditSelection}
-																>
-																	<Pencil className="h-3.5 w-3.5" />
-																</Button>
-															</TooltipTrigger>
-															<TooltipContent>编辑选区</TooltipContent>
-														</Tooltip>
-														<Tooltip>
-															<TooltipTrigger asChild>
-																<Button
-																	type="button"
-																	size="icon"
-																	variant="destructive"
-																	className="h-7 w-7"
-																	aria-label="删除选区"
-																	onClick={handleDeleteSelection}
-																>
-																	<Trash2 className="h-3.5 w-3.5" />
-																</Button>
-															</TooltipTrigger>
-															<TooltipContent>删除选区</TooltipContent>
-														</Tooltip>
-													</TooltipProvider>
-												</div>
+															>
+																{token.text}
+															</button>
+														</span>
+													);
+												},
 											)}
-										</div>
-									))}
-								</div>
-							) : (
+										</p>
+									</div>
+								))}
+							</div>
+						) : (
 							<div className="text-muted-foreground rounded-md border border-dashed border-border/70 px-3 py-8 text-center text-sm">
 								暂无文字稿
 							</div>
 						)}
-						</div>
+					</div>
 
-						<div className="mt-auto space-y-2">
-							{isProcessing && (
-								<div className="text-muted-foreground flex items-center gap-2 text-xs">
-									<Spinner />
+					<div className="mt-auto space-y-2">
+						{isProcessing && (
+							<div className="text-muted-foreground flex items-center gap-2 text-xs">
+								<Spinner />
 								<span>{processing.step}</span>
 							</div>
 						)}
-							<Button
-								type="button"
-								className="w-full"
-								onClick={handleGenerateTranscript}
-								disabled={isProcessing || audioTrackOptions.length === 0}
-							>
-								Generate all tracks
-							</Button>
-						</div>
+						<Button
+							type="button"
+							className="w-full"
+							onClick={handleGenerateTranscript}
+							disabled={isProcessing || audioTrackOptions.length === 0}
+						>
+							Generate all tracks
+						</Button>
+					</div>
 					{error && (
 						<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
 							<p className="text-destructive text-sm">{error}</p>

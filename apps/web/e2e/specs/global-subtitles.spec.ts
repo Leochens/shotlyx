@@ -219,9 +219,7 @@ test.describe("global subtitles", () => {
 		await expect(page.getByTestId("global-transcript-list")).toContainText(
 			"屏幕轨道文字",
 		);
-		await page
-			.getByRole("switch", { name: "当前轨道字幕是否显示" })
-			.click();
+		await page.getByRole("switch", { name: "当前轨道字幕是否显示" }).click();
 		await expect(page.getByTestId("global-transcript-list")).toContainText(
 			"屏幕轨道文字",
 		);
@@ -354,9 +352,7 @@ test.describe("global subtitles", () => {
 					],
 				},
 			];
-			(
-				editor.scenes as typeof editor.scenes & { notify: () => void }
-			).notify();
+			(editor.scenes as typeof editor.scenes & { notify: () => void }).notify();
 			(
 				editor.timeline as typeof editor.timeline & { notify: () => void }
 			).notify();
@@ -478,9 +474,7 @@ test.describe("global subtitles", () => {
 					],
 				},
 			];
-			(
-				editor.scenes as typeof editor.scenes & { notify: () => void }
-			).notify();
+			(editor.scenes as typeof editor.scenes & { notify: () => void }).notify();
 			(
 				editor.timeline as typeof editor.timeline & { notify: () => void }
 			).notify();
@@ -529,6 +523,12 @@ test.describe("global subtitles", () => {
 		await expect(page.getByTestId("transcript-token-0-2")).toHaveAttribute(
 			"data-active",
 			"true",
+		);
+		await expect(page.getByTestId("transcript-token-0-2")).toHaveClass(
+			/bg-cyan-400\/30/,
+		);
+		await expect(page.getByTestId("transcript-token-0-2")).not.toHaveClass(
+			/emerald/,
 		);
 
 		await page.getByTestId("transcript-token-0-2").click();
@@ -583,12 +583,26 @@ test.describe("global subtitles", () => {
 			from: "transcript-token-1-0",
 			to: "transcript-token-1-1",
 		});
-		await expect(page.getByTestId("transcript-selection-toolbar")).toBeVisible();
-		await expect(page.getByTestId("transcript-selection-toolbar")).not.toContainText(
-			"删除后",
-		);
+		await expect(
+			page.getByTestId("transcript-selection-toolbar"),
+		).toBeVisible();
+		await expect(
+			page.getByTestId("transcript-selection-toolbar"),
+		).not.toContainText("删除后");
 		await expect(page.getByRole("button", { name: "编辑选区" })).toHaveText("");
 		await expect(page.getByRole("button", { name: "删除选区" })).toHaveText("");
+		const toolbarBox = await page
+			.getByTestId("transcript-selection-toolbar")
+			.boundingBox();
+		const selectionStartBox = await page
+			.getByTestId("transcript-token-1-0")
+			.boundingBox();
+		expect(toolbarBox).not.toBeNull();
+		expect(selectionStartBox).not.toBeNull();
+		if (toolbarBox && selectionStartBox) {
+			expect(Math.abs(toolbarBox.x - selectionStartBox.x)).toBeLessThan(24);
+			expect(toolbarBox.y).toBeLessThan(selectionStartBox.y);
+		}
 		await expect(page.getByTestId("transcript-token-1-0")).toHaveAttribute(
 			"data-selected",
 			"true",
@@ -610,13 +624,17 @@ test.describe("global subtitles", () => {
 		await expect(page.getByTestId("global-transcript-list")).not.toContainText(
 			"删除",
 		);
-		await expect(page.getByTestId("global-transcript-list")).toContainText("面");
+		await expect(page.getByTestId("global-transcript-list")).toContainText(
+			"面",
+		);
 		await expect
 			.poll(async () =>
 				page.evaluate(async () => {
 					const { EditorCore } = await import("/src/core/index.ts");
 					const editor = EditorCore.getInstance();
-					const track = editor.timeline.getTrackById({ trackId: "voice-track" });
+					const track = editor.timeline.getTrackById({
+						trackId: "voice-track",
+					});
 					if (!track) return null;
 					return Math.max(
 						...track.elements.map(
