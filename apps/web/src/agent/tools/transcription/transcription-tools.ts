@@ -18,6 +18,7 @@ import type {
 	TranscriptionLanguage,
 	TranscriptionModelId,
 } from "@/transcription/types";
+import { readAudioPayloadDiagnostics } from "@/transcription/audio-payload-diagnostics";
 import type { SubtitleToken } from "@/subtitles/types";
 import { formatSrt } from "@/subtitles/srt";
 import {
@@ -594,8 +595,18 @@ async function transcribeWithApi({
 	onProgress?: GenerateSubtitlesFromVideoInput["onProgress"];
 	progressIntervalMs?: number;
 }): Promise<TranscribeAudioResult> {
+	const audioFile = buildTimelineAudioFile({ blob: audioBlob });
+	const payloadDiagnostics = await readAudioPayloadDiagnostics({
+		audio: audioFile,
+	});
+	console.info("[Shotlyx transcription] sending ASR audio payload", {
+		provider,
+		payloadDurationSeconds: payloadDiagnostics.durationSeconds,
+		payloadBytes: payloadDiagnostics.byteLength,
+		mimeType: payloadDiagnostics.mimeType,
+	});
 	const form = new FormData();
-	form.set("audio", buildTimelineAudioFile({ blob: audioBlob }));
+	form.set("audio", audioFile);
 	form.set("provider", provider);
 	if (language) form.set("language", language);
 	if (model) form.set("model", model);
@@ -676,6 +687,7 @@ export function createTranscriptionToolDeps({
 			}
 			const audioRange = resolveRequestedAudioRange({ input, editor });
 			const audioRangeSeconds = audioRangeToSeconds({ range: audioRange });
+			const provider = input.provider ?? DEFAULT_TRANSCRIPTION_PROVIDER;
 			input.onProgress?.({
 				stage: "audio-extract",
 				label:
@@ -699,6 +711,20 @@ export function createTranscriptionToolDeps({
 				rangeStart: audioRange.startTime,
 				rangeDuration: audioRange.duration,
 			});
+			const payloadDiagnostics = await readAudioPayloadDiagnostics({
+				audio: audioBlob,
+			});
+			console.info("[Shotlyx transcription] extracted ASR audio payload", {
+				provider,
+				audioRangeKind: audioRange.kind,
+				audioRangeLabel: audioRange.label,
+				requestedStartSeconds: audioRangeSeconds.startTimeSeconds,
+				requestedDurationSeconds: audioRangeSeconds.durationSeconds,
+				payloadDurationSeconds: payloadDiagnostics.durationSeconds,
+				payloadBytes: payloadDiagnostics.byteLength,
+				mimeType: payloadDiagnostics.mimeType,
+				elementRef: audioRange.elementRef,
+			});
 			input.onProgress?.({
 				stage: "audio-extract",
 				label: "音频已提取",
@@ -706,7 +732,6 @@ export function createTranscriptionToolDeps({
 				detail: audioRange.label,
 			});
 
-			const provider = input.provider ?? DEFAULT_TRANSCRIPTION_PROVIDER;
 			input.onProgress?.({
 				stage: "asr-provider",
 				label: provider === "local" ? "正在本地识别字幕" : "正在请求 ASR 服务",

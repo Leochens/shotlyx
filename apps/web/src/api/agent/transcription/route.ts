@@ -1,5 +1,6 @@
 import { transcribeAudio } from "@/agent/tools/transcription/providers";
 import { type ApiRequest, ApiResponse } from "@/platform/http";
+import { readAudioPayloadDiagnostics } from "@/transcription/audio-payload-diagnostics";
 
 export const runtime = "nodejs";
 
@@ -42,10 +43,19 @@ export async function POST(request: ApiRequest) {
 	}
 
 	try {
+		const provider = stringFormValue({ form, key: "provider" });
+		const payloadDiagnostics = await readAudioPayloadDiagnostics({ audio });
+		console.info("[Shotlyx transcription] received ASR audio payload", {
+			provider,
+			audioName: audio.name,
+			payloadDurationSeconds: payloadDiagnostics.durationSeconds,
+			payloadBytes: payloadDiagnostics.byteLength,
+			mimeType: payloadDiagnostics.mimeType,
+		});
 		const result = await transcribeAudio({
 			input: {
 				audio,
-				provider: stringFormValue({ form, key: "provider" }),
+				provider,
 				language: stringFormValue({ form, key: "language" }),
 				model: stringFormValue({ form, key: "model" }),
 				referenceText: stringFormValue({ form, key: "referenceText" }),

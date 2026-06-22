@@ -7,6 +7,53 @@ import {
 } from "@/agent/tools/transcription/transcription-tools";
 import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
+function writeAscii({
+	view,
+	offset,
+	value,
+}: {
+	view: DataView;
+	offset: number;
+	value: string;
+}) {
+	for (let index = 0; index < value.length; index += 1) {
+		view.setUint8(offset + index, value.charCodeAt(index));
+	}
+}
+
+function wavBlob({
+	durationSeconds,
+	sampleRate = 44_100,
+	channels = 2,
+}: {
+	durationSeconds: number;
+	sampleRate?: number;
+	channels?: number;
+}): Blob {
+	const bitsPerSample = 16;
+	const bytesPerSample = bitsPerSample / 8;
+	const sampleCount = Math.round(durationSeconds * sampleRate);
+	const dataSize = sampleCount * channels * bytesPerSample;
+	const buffer = new ArrayBuffer(44 + dataSize);
+	const view = new DataView(buffer);
+
+	writeAscii({ view, offset: 0, value: "RIFF" });
+	view.setUint32(4, 36 + dataSize, true);
+	writeAscii({ view, offset: 8, value: "WAVE" });
+	writeAscii({ view, offset: 12, value: "fmt " });
+	view.setUint32(16, 16, true);
+	view.setUint16(20, 1, true);
+	view.setUint16(22, channels, true);
+	view.setUint32(24, sampleRate, true);
+	view.setUint32(28, sampleRate * channels * bytesPerSample, true);
+	view.setUint16(32, channels * bytesPerSample, true);
+	view.setUint16(34, bitsPerSample, true);
+	writeAscii({ view, offset: 36, value: "data" });
+	view.setUint32(40, dataSize, true);
+
+	return new Blob([buffer], { type: "audio/wav" });
+}
+
 describe("transcription tools", () => {
 	test("builds subtitles_generate_from_video schema", () => {
 		const [tool] = buildTranscriptionTools({
@@ -591,6 +638,86 @@ describe("transcription tools", () => {
 				elementRef: { trackId: "voice-track", elementId: "voice-clip" },
 			},
 		});
+	});
+
+	test("client deps log the actual ASR audio payload duration before provider upload", async () => {
+		const originalInfo = console.info;
+		const consoleInfo: typeof console.info = mock(() => {});
+		console.info = consoleInfo;
+		try {
+			const execute = mock(async () => ({
+				status: "success" as const,
+				data: { imported: true, cueCount: 1 },
+			}));
+			const editor = {
+				scenes: {
+					getActiveScene: () => ({
+						tracks: {
+							main: { id: "main", elements: [] },
+							overlay: [],
+							audio: [],
+						},
+					}),
+				},
+				project: { getActive: () => ({ metadata: { id: "project-1" } }) },
+				media: {
+					getAssets: () => [],
+					addMediaAsset: mock(async () => null),
+				},
+				timeline: {
+					getTotalDuration: () => 10 * MEDIA_TIME_TICKS_PER_SECOND,
+				},
+				mcp: { execute },
+			} as unknown as EditorCore;
+			const fetchFn = mock(async () =>
+				Response.json({
+					text: "payload",
+					provider: "volcengine",
+					cues: [
+						{
+							text: "payload",
+							startTimeSeconds: 0,
+							durationSeconds: 1,
+						},
+					],
+				}),
+			);
+			const deps = createTranscriptionToolDeps({
+				editor,
+				fetchFn: fetchFn as unknown as typeof fetch,
+				extractTimelineAudioFn: mock(async () =>
+					wavBlob({ durationSeconds: 2.5 }),
+				),
+			});
+
+			await deps.generateSubtitlesFromVideo({
+				source: "timeline",
+				provider: "volcengine",
+				audioRangeStartSeconds: 4,
+				audioRangeDurationSeconds: 2.5,
+				saveAsset: false,
+			});
+
+			expect(consoleInfo).toHaveBeenCalledWith(
+				"[Shotlyx transcription] extracted ASR audio payload",
+				expect.objectContaining({
+					provider: "volcengine",
+					payloadDurationSeconds: 2.5,
+					requestedDurationSeconds: 2.5,
+					payloadBytes: expect.any(Number),
+				}),
+			);
+			expect(consoleInfo).toHaveBeenCalledWith(
+				"[Shotlyx transcription] sending ASR audio payload",
+				expect.objectContaining({
+					provider: "volcengine",
+					payloadDurationSeconds: 2.5,
+					payloadBytes: expect.any(Number),
+				}),
+			);
+		} finally {
+			console.info = originalInfo;
+		}
 	});
 
 	test("client deps emit cloud ASR recognition progress while the request is pending", async () => {
