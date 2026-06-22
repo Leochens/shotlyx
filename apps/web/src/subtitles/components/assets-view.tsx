@@ -8,7 +8,16 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+	Dialog,
+	DialogBody,
+	DialogContent,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { useEditor } from "@/editor/use-editor";
 import { TRANSCRIPTION_DIAGNOSTICS_SCOPE } from "@/transcription/diagnostics";
 import { TRANSCRIPTION_LANGUAGES } from "@/transcription/supported-languages";
@@ -43,9 +52,20 @@ import {
 } from "@/components/ui/tooltip";
 import type { DiagnosticSeverity } from "@/diagnostics/types";
 import type { TProjectSubtitleTrack, TProjectSubtitles } from "@/project/types";
-import type { SubtitleLayerCue, SubtitleToken } from "@/subtitles/types";
+import type { SubtitleLayerCue } from "@/subtitles/types";
 import { createEmptyProjectSubtitles } from "@/subtitles/project-subtitles";
-import { mediaTimeFromSeconds } from "@/wasm/media-time";
+import { mediaTimeFromSeconds, mediaTimeToSeconds } from "@/wasm/media-time";
+import type { TimelineTrack } from "@/timeline";
+import {
+	cutTranscriptTrackByTimeRange,
+	editTranscriptSelection,
+	findActiveTranscriptToken,
+	getTranscriptCueTokens,
+	isTokenAddressInSelection,
+	resolveTranscriptTokenRange,
+	type TranscriptTokenAddress,
+	type TranscriptTokenSelection,
+} from "@/subtitles/transcript-editing";
 
 const DIAGNOSTIC_BUTTON_VARIANT: Record<
 	DiagnosticSeverity,
@@ -97,17 +117,6 @@ function getCueDisplayTime({ cue }: { cue: SubtitleLayerCue }): string {
 		2,
 		"0",
 	)}.${String(milliseconds).padStart(3, "0")}`;
-}
-
-function splitCueTextIntoClickableUnits({
-	cue,
-}: {
-	cue: SubtitleLayerCue;
-}): SubtitleToken[] {
-	if (cue.tokens && cue.tokens.length > 0) {
-		return cue.tokens;
-	}
-	return [{ text: cue.text, startTime: cue.startTime, duration: cue.duration }];
 }
 
 function getStoredTranscriptTracks({
@@ -162,6 +171,46 @@ function buildTranscriptTrackChoices({
 	return choices;
 }
 
+function transcriptTokenKey({ address }: { address: TranscriptTokenAddress }) {
+	return `${address.cueIndex}-${address.tokenIndex}`;
+}
+
+function isSameTokenAddress({
+	left,
+	right,
+}: {
+	left: TranscriptTokenAddress | null;
+	right: TranscriptTokenAddress | null;
+}): boolean {
+	return (
+		!!left &&
+		!!right &&
+		left.cueIndex === right.cueIndex &&
+		left.tokenIndex === right.tokenIndex
+	);
+}
+
+function trackElementsOverlappingRange({
+	track,
+	startTime,
+	endTime,
+}: {
+	track: TimelineTrack;
+	startTime: number;
+	endTime: number;
+}): { trackId: string; elementId: string }[] {
+	return track.elements
+		.filter((element) => {
+			const elementStart = element.startTime;
+			const elementEnd = element.startTime + element.duration;
+			return elementStart < endTime && elementEnd > startTime;
+		})
+		.map((element) => ({
+			trackId: track.id,
+			elementId: element.id,
+		}));
+}
+
 /* eslint-disable shotlyx/prefer-object-params -- React reducers must accept (state, action). */
 function processingReducer(
 	state: ProcessingState,
@@ -191,6 +240,14 @@ export function Captions() {
 	const [processing, dispatch] = useReducer(processingReducer, IDLE_STATE);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const isSelectingRef = useRef(false);
+	const selectionMovedRef = useRef(false);
+	const [tokenSelection, setTokenSelection] =
+		useState<TranscriptTokenSelection | null>(null);
+	const [activeTokenAddress, setActiveTokenAddress] =
+		useState<TranscriptTokenAddress | null>(null);
+	const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+	const [editDraft, setEditDraft] = useState("");
 	const editor = useEditor();
 	const mediaAssets = useEditor((e) => e.media.getAssets());
 	const sceneTracks = useEditor((e) => e.scenes.getActiveScene().tracks);
@@ -234,6 +291,60 @@ export function Captions() {
 		transcriptTrackChoices[0] ??
 		null;
 	const hasTranscript = (selectedTranscriptTrack?.cues.length ?? 0) > 0;
+	const selectedTokenRange = useMemo(
+		() =>
+			selectedTranscriptTrack
+				? resolveTranscriptTokenRange({
+						track: selectedTranscriptTrack,
+						selection: tokenSelection,
+					})
+				: null,
+		[selectedTranscriptTrack, tokenSelection],
+	);
+
+	useEffect(() => {
+		const handlePointerUp = () => {
+			isSelectingRef.current = false;
+		};
+		window.addEventListener("pointerup", handlePointerUp);
+		return () => window.removeEventListener("pointerup", handlePointerUp);
+	}, []);
+
+	useEffect(() => {
+		const updateActiveToken = (time: number) => {
+			const nextAddress = findActiveTranscriptToken({
+				track: selectedTranscriptTrack,
+				timeSeconds: mediaTimeToSeconds({ time }),
+			});
+			setActiveTokenAddress((previous) =>
+				isSameTokenAddress({ left: previous, right: nextAddress })
+					? previous
+					: nextAddress,
+			);
+		};
+
+		updateActiveToken(editor.playback.getCurrentTime());
+		const unsubscribeUpdate = editor.playback.onUpdate(updateActiveToken);
+		const unsubscribeSeek = editor.playback.onSeek(updateActiveToken);
+		const unsubscribePlayback = editor.playback.subscribe(() =>
+			updateActiveToken(editor.playback.getCurrentTime()),
+		);
+		return () => {
+			unsubscribeUpdate();
+			unsubscribeSeek();
+			unsubscribePlayback();
+		};
+	}, [editor, selectedTranscriptTrack]);
+
+	useEffect(() => {
+		if (!activeTokenAddress || !containerRef.current) return;
+		const tokenElement = containerRef.current.querySelector(
+			`[data-transcript-token-key="${transcriptTokenKey({
+				address: activeTokenAddress,
+			})}"]`,
+		);
+		tokenElement?.scrollIntoView({ block: "nearest", inline: "nearest" });
+	}, [activeTokenAddress]);
 
 	const insertCaptions = async ({
 		captions,
@@ -430,12 +541,189 @@ export function Captions() {
 		});
 	};
 
+	const updateTranscriptTracks = ({
+		tracks,
+	}: {
+		tracks: TProjectSubtitleTrack[];
+	}) => {
+		const currentSubtitles =
+			editor.project.getActive().settings.subtitles ??
+			createEmptyProjectSubtitles();
+		const isLegacyOnly =
+			(!currentSubtitles.tracks || currentSubtitles.tracks.length === 0) &&
+			tracks.length === 1 &&
+			tracks[0]?.id === LEGACY_TRANSCRIPT_TRACK_ID;
+		void editor.project.updateSettings({
+			settings: {
+				subtitles: {
+					...currentSubtitles,
+					tracks,
+					cues: isLegacyOnly ? tracks[0]?.cues ?? [] : currentSubtitles.cues,
+					selectedTrackId: selectedTrackId,
+					updatedAt: new Date().toISOString(),
+				},
+			},
+		});
+	};
+
+	const replaceTranscriptTrack = ({
+		track,
+	}: {
+		track: TProjectSubtitleTrack;
+	}) => {
+		const currentSubtitles =
+			editor.project.getActive().settings.subtitles ??
+			createEmptyProjectSubtitles();
+		const tracks = getStoredTranscriptTracks({ subtitles: currentSubtitles });
+		updateTranscriptTracks({
+			tracks: tracks.map((item) => (item.id === track.id ? track : item)),
+		});
+	};
+
 	const handleToggleProjectSubtitles = (enabled: boolean) => {
 		updateProjectSubtitles({ enabled });
 	};
 
 	const handleSelectedTrackChange = ({ value }: { value: string }) => {
+		setTokenSelection(null);
 		updateProjectSubtitles({ selectedTrackId: value });
+	};
+
+	const handleTokenPointerDown = ({
+		event,
+		address,
+	}: {
+		event: React.PointerEvent<HTMLButtonElement>;
+		address: TranscriptTokenAddress;
+	}) => {
+		isSelectingRef.current = true;
+		selectionMovedRef.current = false;
+		if (event.shiftKey && tokenSelection) {
+			setTokenSelection({ ...tokenSelection, focus: address });
+			return;
+		}
+		setTokenSelection({ anchor: address, focus: address });
+		event.currentTarget.setPointerCapture?.(event.pointerId);
+	};
+
+	const handleTokenPointerEnter = ({
+		address,
+	}: {
+		address: TranscriptTokenAddress;
+	}) => {
+		if (!isSelectingRef.current) return;
+		selectionMovedRef.current = true;
+		setTokenSelection((previous) =>
+			previous ? { ...previous, focus: address } : previous,
+		);
+	};
+
+	const handleTokenClick = ({
+		event,
+		address,
+		seconds,
+	}: {
+		event: React.MouseEvent<HTMLButtonElement>;
+		address: TranscriptTokenAddress;
+		seconds: number;
+	}) => {
+		if (event.shiftKey && tokenSelection) {
+			setTokenSelection({ ...tokenSelection, focus: address });
+			return;
+		}
+		if (selectionMovedRef.current) {
+			selectionMovedRef.current = false;
+			return;
+		}
+		seekToSeconds({ seconds });
+	};
+
+	const handleOpenEditSelection = () => {
+		if (!selectedTokenRange) return;
+		setEditDraft(selectedTokenRange.text);
+		setIsEditDialogOpen(true);
+	};
+
+	const handleSaveEditSelection = () => {
+		if (!selectedTranscriptTrack || !tokenSelection) return;
+		const nextTrack = editTranscriptSelection({
+			track: selectedTranscriptTrack,
+			selection: tokenSelection,
+			text: editDraft,
+		});
+		replaceTranscriptTrack({ track: nextTrack });
+		setIsEditDialogOpen(false);
+		setTokenSelection(null);
+	};
+
+	const handleDeleteSelection = () => {
+		if (!selectedTranscriptTrack || !selectedTokenRange) return;
+		const sourceTrackId =
+			selectedTranscriptTrack.sourceTrackId ??
+			(selectedTrackId.startsWith("track:")
+				? selectedTrackId.slice("track:".length)
+				: null);
+		if (!sourceTrackId) {
+			dispatch({
+				type: "fail",
+				error: "当前文字稿没有绑定素材轨道，无法剪辑对应素材",
+			});
+			return;
+		}
+
+		const sourceTrack = editor.timeline.getTrackById({ trackId: sourceTrackId });
+		if (!sourceTrack) {
+			dispatch({
+				type: "fail",
+				error: "没有找到当前文字稿对应的素材轨道",
+			});
+			return;
+		}
+
+		const startTime = mediaTimeFromSeconds({
+			seconds: selectedTokenRange.startTime,
+		});
+		const endTime = mediaTimeFromSeconds({
+			seconds: selectedTokenRange.endTime,
+		});
+		const targets = trackElementsOverlappingRange({
+			track: sourceTrack,
+			startTime,
+			endTime,
+		}).map((target) => ({
+			...target,
+			ranges: [{ startTime, endTime }],
+		}));
+
+		if (targets.length === 0) {
+			dispatch({
+				type: "fail",
+				error: "选中的文字没有命中对应素材片段",
+			});
+			return;
+		}
+
+		const didApply = editor.timeline.applySilenceCutPlan({ targets });
+		if (!didApply) {
+			dispatch({ type: "fail", error: "剪辑没有产生可应用的时间线变更" });
+			return;
+		}
+
+		const currentSubtitles =
+			editor.project.getActive().settings.subtitles ??
+			createEmptyProjectSubtitles();
+		updateTranscriptTracks({
+			tracks: getStoredTranscriptTracks({ subtitles: currentSubtitles }).map(
+				(track) =>
+					cutTranscriptTrackByTimeRange({
+						track,
+						startTime: selectedTokenRange.startTime,
+						endTime: selectedTokenRange.endTime,
+					}),
+			),
+		});
+		setTokenSelection(null);
+		seekToSeconds({ seconds: selectedTokenRange.startTime });
 	};
 
 	const seekToSeconds = ({ seconds }: { seconds: number }) => {
@@ -594,27 +882,93 @@ export function Captions() {
 												onClick={() => seekToSeconds({ seconds: cue.startTime })}
 											>
 												::
-											</button>
+										</button>
 											<p className="text-[1.03rem] leading-8 text-foreground/90">
-												{splitCueTextIntoClickableUnits({ cue }).map(
-													(token, tokenIndex) => (
+												{getTranscriptCueTokens({ cue }).map(
+													(token, tokenIndex) => {
+														const address = { cueIndex, tokenIndex };
+														const tokenKey = transcriptTokenKey({ address });
+														const isActive = isSameTokenAddress({
+															left: activeTokenAddress,
+															right: address,
+														});
+														const isSelected = isTokenAddressInSelection({
+															address,
+															selection: tokenSelection,
+														});
+														return (
 														<button
 															type="button"
 															key={`${token.startTime}:${tokenIndex}:${token.text}`}
-															className="rounded-[2px] px-px text-left align-baseline hover:bg-cyan-300/15 hover:text-cyan-100"
-															onClick={() =>
-																seekToSeconds({
-																	seconds: token.startTime,
-															})
-														}
+																data-testid={`transcript-token-${cueIndex}-${tokenIndex}`}
+																data-transcript-token-key={tokenKey}
+																data-active={isActive ? "true" : "false"}
+																data-selected={isSelected ? "true" : "false"}
+																className={[
+																	"rounded-[3px] px-px text-left align-baseline transition-colors",
+																	"hover:bg-cyan-300/15 hover:text-cyan-100",
+																	isActive
+																		? "bg-emerald-400/25 text-emerald-100 ring-1 ring-emerald-300/40"
+																		: "",
+																	isSelected
+																		? "bg-cyan-400/25 text-cyan-50 ring-1 ring-cyan-300/50"
+																		: "",
+																].join(" ")}
+																onPointerDown={(event) =>
+																	handleTokenPointerDown({ event, address })
+																}
+																onPointerEnter={() =>
+																	handleTokenPointerEnter({ address })
+																}
+																onClick={(event) =>
+																	handleTokenClick({
+																		event,
+																		address,
+																		seconds: token.startTime,
+																	})
+																}
 													>
 															{token.text}
 														</button>
-													),
+														);
+													},
 												)}
 											</p>
 										</div>
 									))}
+									{selectedTokenRange && (
+										<div className="sticky bottom-0 z-10 mx-1 rounded-md border border-cyan-300/20 bg-background/95 p-2 shadow-lg backdrop-blur">
+											<div className="text-muted-foreground mb-2 truncate text-xs">
+												已选择：{selectedTokenRange.text}
+											</div>
+											<div className="grid grid-cols-3 gap-2">
+												<Button
+													type="button"
+													size="sm"
+													variant="outline"
+													onClick={handleOpenEditSelection}
+												>
+													编辑选区
+												</Button>
+												<Button
+													type="button"
+													size="sm"
+													variant="destructive"
+													onClick={handleDeleteSelection}
+												>
+													删除选区
+												</Button>
+												<Button
+													type="button"
+													size="sm"
+													variant="ghost"
+													onClick={() => setTokenSelection(null)}
+												>
+													取消
+												</Button>
+											</div>
+										</div>
+									)}
 								</div>
 							) : (
 							<div className="text-muted-foreground rounded-md border border-dashed border-border/70 px-3 py-8 text-center text-sm">
@@ -655,6 +1009,33 @@ export function Captions() {
 					)}
 				</SectionContent>
 			</Section>
+			<Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+				<DialogContent className="max-w-md overflow-hidden rounded-md">
+					<DialogHeader>
+						<DialogTitle>编辑文字稿</DialogTitle>
+					</DialogHeader>
+					<DialogBody>
+						<Textarea
+							value={editDraft}
+							onChange={(event) => setEditDraft(event.target.value)}
+							className="min-h-28"
+							aria-label="编辑选中文字"
+						/>
+					</DialogBody>
+					<DialogFooter>
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() => setIsEditDialogOpen(false)}
+						>
+							取消
+						</Button>
+						<Button type="button" onClick={handleSaveEditSelection}>
+							保存
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</PanelView>
 	);
 }

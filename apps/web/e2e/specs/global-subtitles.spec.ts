@@ -395,4 +395,145 @@ test.describe("global subtitles", () => {
 		);
 		expect(runtimeErrors).toEqual([]);
 	});
+
+	test("highlights playback word and edits video by transcript selection", async ({
+		page,
+	}) => {
+		const runtimeErrors = collectSubtitleRuntimeErrors({ page });
+		await setupEditorPage(page);
+
+		await page.evaluate(async () => {
+			const [{ EditorCore }, { mediaTimeFromSeconds }] = await Promise.all([
+				import("/src/core/index.ts"),
+				import("/src/wasm/media-time.ts"),
+			]);
+			const editor = EditorCore.getInstance();
+			const mediaManager = editor.media as typeof editor.media & {
+				assets: unknown[];
+				notify: () => void;
+			};
+			mediaManager.assets = [
+				...editor.media.getAssets(),
+				{
+					id: "voice-media",
+					name: "voice.wav",
+					type: "audio",
+					file: new File(["voice"], "voice.wav", { type: "audio/wav" }),
+				},
+			];
+			mediaManager.notify();
+			const scene = editor.scenes.getActiveScene();
+			scene.tracks.audio = [
+				{
+					id: "voice-track",
+					type: "audio",
+					name: "V1",
+					muted: false,
+					elements: [
+						{
+							id: "voice-clip",
+							type: "audio",
+							name: "Voice",
+							sourceType: "upload",
+							mediaId: "voice-media",
+							startTime: mediaTimeFromSeconds({ seconds: 0 }),
+							duration: mediaTimeFromSeconds({ seconds: 10 }),
+							trimStart: mediaTimeFromSeconds({ seconds: 0 }),
+							trimEnd: mediaTimeFromSeconds({ seconds: 0 }),
+							sourceDuration: mediaTimeFromSeconds({ seconds: 10 }),
+							params: {},
+						},
+					],
+				},
+			];
+			(
+				editor.scenes as typeof editor.scenes & { notify: () => void }
+			).notify();
+			(
+				editor.timeline as typeof editor.timeline & { notify: () => void }
+			).notify();
+			await editor.mcp.execute({
+				toolName: "subtitles_import",
+				params: {
+					format: "cues",
+					sourceTrackId: "voice-track",
+					sourceTrackName: "V1",
+					cues: [
+						{
+							text: "这是错字",
+							startTimeSeconds: 0,
+							durationSeconds: 4,
+							tokens: [
+								{ text: "这", startTime: 0, duration: 1 },
+								{ text: "是", startTime: 1, duration: 1 },
+								{ text: "错", startTime: 2, duration: 1 },
+								{ text: "字", startTime: 3, duration: 1 },
+							],
+						},
+						{
+							text: "删除后面",
+							startTimeSeconds: 4,
+							durationSeconds: 3,
+							tokens: [
+								{ text: "删除", startTime: 4, duration: 1 },
+								{ text: "后", startTime: 5, duration: 1 },
+								{ text: "面", startTime: 6, duration: 1 },
+							],
+						},
+					],
+				},
+			});
+		});
+
+		await page.getByRole("button", { name: /文字稿|Transcript/ }).click();
+		await page.evaluate(async () => {
+			const [{ EditorCore }, { mediaTimeFromSeconds }] = await Promise.all([
+				import("/src/core/index.ts"),
+				import("/src/wasm/media-time.ts"),
+			]);
+			const editor = EditorCore.getInstance();
+			editor.playback.seek({ time: mediaTimeFromSeconds({ seconds: 2.2 }) });
+		});
+		await expect(page.getByTestId("transcript-token-0-2")).toHaveAttribute(
+			"data-active",
+			"true",
+		);
+
+		await page.getByTestId("transcript-token-0-2").click();
+		await page.getByRole("button", { name: "编辑选区" }).click();
+		await page.getByLabel("编辑选中文字").fill("对");
+		await page.getByRole("button", { name: "保存" }).click();
+		await expect(page.getByTestId("transcript-token-0-2")).toHaveText("对");
+		await expect(page.getByTestId("global-transcript-list")).toContainText(
+			"这是对字",
+		);
+
+		await page.getByTestId("transcript-token-1-0").click();
+		await page
+			.getByTestId("transcript-token-1-1")
+			.click({ modifiers: ["Shift"] });
+		await expect(page.getByRole("button", { name: "删除选区" })).toBeVisible();
+		await page.getByRole("button", { name: "删除选区" }).click();
+
+		await expect(page.getByTestId("global-transcript-list")).not.toContainText(
+			"删除",
+		);
+		await expect(page.getByTestId("global-transcript-list")).toContainText("面");
+		await expect
+			.poll(async () =>
+				page.evaluate(async () => {
+					const { EditorCore } = await import("/src/core/index.ts");
+					const editor = EditorCore.getInstance();
+					const track = editor.timeline.getTrackById({ trackId: "voice-track" });
+					if (!track) return null;
+					return Math.max(
+						...track.elements.map(
+							(element) => element.startTime + element.duration,
+						),
+					);
+				}),
+			)
+			.toBe(960_000);
+		expect(runtimeErrors).toEqual([]);
+	});
 });
