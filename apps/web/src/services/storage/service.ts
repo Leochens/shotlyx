@@ -351,9 +351,7 @@ class StorageService {
 	}
 
 	async saveProject({ project }: { project: TProject }): Promise<void> {
-		const duration =
-			project.metadata.duration ??
-			getProjectDurationFromScenes({ scenes: project.scenes });
+		const duration = getProjectDurationFromScenes({ scenes: project.scenes });
 		const serializedScenes: SerializedScene[] = project.scenes.map((scene) => ({
 			id: scene.id,
 			name: scene.name,
@@ -434,9 +432,7 @@ class StorageService {
 				name: serializedProject.metadata.name,
 				thumbnail: serializedProject.metadata.thumbnail,
 				duration: roundMediaTime({
-					time:
-						serializedProject.metadata.duration ??
-						getProjectDurationFromScenes({ scenes }),
+					time: getProjectDurationFromScenes({ scenes }),
 				}),
 				createdAt: new Date(serializedProject.metadata.createdAt),
 				updatedAt: new Date(serializedProject.metadata.updatedAt),
@@ -547,9 +543,7 @@ class StorageService {
 				name: serializedProject.metadata.name,
 				thumbnail: serializedProject.metadata.thumbnail,
 				duration: roundMediaTime({
-					time:
-						serializedProject.metadata.duration ??
-						getProjectDurationFromScenes({ scenes: normalizedScenes }),
+					time: getProjectDurationFromScenes({ scenes: normalizedScenes }),
 				}),
 				createdAt: new Date(serializedProject.metadata.createdAt),
 				updatedAt: new Date(serializedProject.metadata.updatedAt),

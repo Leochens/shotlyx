@@ -143,20 +143,6 @@ export function normalizeProjectCover({
 	};
 }
 
-export function getProjectDurationWithCover({
-	cover,
-	timelineDuration,
-}: {
-	cover?: TProjectCover | null;
-	timelineDuration: MediaTime;
-}): MediaTime {
-	if (!cover?.enabled) return timelineDuration;
-	const coverDuration = projectCoverMediaTimeFromSeconds({
-		seconds: clampProjectCoverDurationSeconds(cover.durationSeconds),
-	});
-	return addProjectCoverMediaTime({ a: timelineDuration, b: coverDuration });
-}
-
 export function buildProjectCoverExportPlan({
 	canvasSize,
 	cover,

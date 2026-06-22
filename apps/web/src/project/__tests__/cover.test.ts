@@ -12,7 +12,6 @@ mock.module("opencut-wasm", () => wasmMock);
 const {
 	buildProjectCoverExportPlan,
 	buildProjectCoverParams,
-	getProjectDurationWithCover,
 } = await import("@/project/cover");
 
 function time(seconds: number): MediaTime {
@@ -130,20 +129,6 @@ describe("project cover export plan", () => {
 
 		expect(params["transform.scaleX"]).toBeCloseTo(0.5, 4);
 		expect(params["transform.scaleY"]).toBeCloseTo(0.5, 4);
-	});
-
-	test("adds cover duration to project metadata duration", () => {
-		expect(
-			getProjectDurationWithCover({
-				timelineDuration: time(10),
-				cover: {
-					enabled: true,
-					mediaId: "cover",
-					durationSeconds: 3,
-					layout: { mode: "fill" },
-				},
-			}),
-		).toBe(time(13));
 	});
 
 	test("allows a 0.1 second cover duration", () => {

@@ -22,7 +22,6 @@ import type {
 } from "@/project/types";
 import {
 	getProjectCoverThumbnail,
-	getProjectDurationWithCover,
 } from "@/project/cover";
 import type { ExportOptions, ExportResult, ExportState } from "@/export";
 import { estimateExportRemainingSeconds } from "@/export/progress";
@@ -298,10 +297,7 @@ export class ProjectManager {
 				scenes,
 				metadata: {
 					...this.active.metadata,
-					duration: getProjectDurationWithCover({
-						timelineDuration: getProjectDurationFromScenes({ scenes }),
-						cover: this.active.settings.cover,
-					}),
+					duration: getProjectDurationFromScenes({ scenes }),
 					updatedAt: new Date(),
 				},
 			};
