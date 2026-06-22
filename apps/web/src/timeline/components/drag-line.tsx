@@ -1,12 +1,14 @@
 import { getDropLineY } from "./drop-target";
 import type { TimelineTrack, DropTarget } from "@/timeline";
 import { TIMELINE_LAYERS } from "./layers";
+import type { TimelineDensity } from "./layout";
 
 interface DragLineProps {
 	dropTarget: DropTarget | null;
 	tracks: TimelineTrack[];
 	isVisible: boolean;
 	headerHeight?: number;
+	timelineDensity?: TimelineDensity;
 }
 
 export function DragLine({
@@ -14,10 +16,11 @@ export function DragLine({
 	tracks,
 	isVisible,
 	headerHeight = 0,
+	timelineDensity,
 }: DragLineProps) {
 	if (!isVisible || !dropTarget) return null;
 
-	const y = getDropLineY({ dropTarget, tracks });
+	const y = getDropLineY({ dropTarget, tracks, timelineDensity });
 	const lineTop = y + headerHeight;
 
 	return (

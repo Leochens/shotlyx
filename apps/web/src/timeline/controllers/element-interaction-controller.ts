@@ -18,6 +18,7 @@ import {
 	ZERO_MEDIA_TIME,
 } from "@/wasm";
 import { TIMELINE_DRAG_THRESHOLD_PX } from "@/timeline/components/interaction";
+import type { TimelineDensity } from "@/timeline/components/layout";
 import type { FrameRate } from "opencut-wasm";
 import { computeDropTarget } from "@/timeline/components/drop-target";
 import { getMouseTimeFromClientX } from "@/timeline/drag-utils";
@@ -41,6 +42,7 @@ export interface ViewportAdapter {
 	getTracksScrollEl: () => HTMLDivElement | null;
 	getTracksContainerEl: () => HTMLDivElement | null;
 	getHeaderEl: () => HTMLElement | null;
+	getTimelineDensity: () => TimelineDensity;
 }
 
 export interface InputAdapter {
@@ -209,6 +211,7 @@ function resolveDropTarget({
 	snappedTime,
 	verticalDragDirection,
 	allowOccupiedExistingTrack,
+	timelineDensity,
 }: {
 	clientX: number;
 	clientY: number;
@@ -220,6 +223,7 @@ function resolveDropTarget({
 	snappedTime: MediaTime;
 	verticalDragDirection: "up" | "down" | null;
 	allowOccupiedExistingTrack: boolean;
+	timelineDensity: TimelineDensity;
 }): DropTarget | null {
 	const containerRect = viewport
 		.getTracksContainerEl()
@@ -251,6 +255,7 @@ function resolveDropTarget({
 		excludeElementId: movingElement.id,
 		verticalDragDirection,
 		allowOccupiedExistingTrack,
+		timelineDensity,
 	});
 }
 
@@ -547,6 +552,7 @@ export class ElementInteractionController {
 				currentMouseY: clientY,
 			}),
 			allowOccupiedExistingTrack: this.deps.timeline.isRippleEditingEnabled(),
+			timelineDensity: viewport.getTimelineDensity(),
 		});
 
 		const nextGroupMoveResult = anchorDropTarget

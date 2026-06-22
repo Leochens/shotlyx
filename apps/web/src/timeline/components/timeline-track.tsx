@@ -11,6 +11,7 @@ import { useElementSelection } from "@/timeline/hooks/element/use-element-select
 import { TimelineElement } from "./timeline-element";
 import type { TimelineTrack } from "@/timeline";
 import type { TimelineElement as TimelineElementType } from "@/timeline";
+import type { TimelineDensity } from "./layout";
 import { TIMELINE_LAYERS } from "./layers";
 import type { ElementDragView } from "@/timeline";
 import { getVisibleTimelineElements } from "./visible-elements";
@@ -43,7 +44,8 @@ export function getRollingBoundaryForHandle({
 	}
 
 	const leftElement = elements.find(
-		(candidate) => candidate.startTime + candidate.duration === element.startTime,
+		(candidate) =>
+			candidate.startTime + candidate.duration === element.startTime,
 	);
 	if (!leftElement) return null;
 	return {
@@ -55,6 +57,7 @@ export function getRollingBoundaryForHandle({
 interface TimelineTrackContentProps {
 	track: TimelineTrack;
 	zoomLevel: number;
+	timelineDensity: TimelineDensity;
 	scrollLeft: number;
 	viewportWidth: number;
 	dragView: ElementDragView;
@@ -83,6 +86,7 @@ interface TimelineTrackContentProps {
 export function TimelineTrackContent({
 	track,
 	zoomLevel,
+	timelineDensity,
 	scrollLeft,
 	viewportWidth,
 	dragView,
@@ -221,6 +225,7 @@ export function TimelineTrackContent({
 								element={element}
 								track={track}
 								zoomLevel={zoomLevel}
+								timelineDensity={timelineDensity}
 								isSelected={isSelected}
 								onResizeStart={({ event, element, side }) =>
 									onResizeStart({ event, element, track, side })

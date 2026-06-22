@@ -11,12 +11,14 @@ import {
 } from "@/timeline/controllers/element-interaction-controller";
 import type { SnapPoint } from "@/timeline/snapping";
 import { useTimelineStore } from "@/timeline/timeline-store";
+import type { TimelineDensity } from "@/timeline/components/layout";
 
 interface UseElementInteractionProps {
 	zoomLevel: number;
 	tracksContainerRef: RefObject<HTMLDivElement | null>;
 	tracksScrollRef: RefObject<HTMLDivElement | null>;
 	headerRef?: RefObject<HTMLElement | null>;
+	timelineDensity: TimelineDensity;
 	snappingEnabled: boolean;
 	onSnapPointChange?: (snapPoint: SnapPoint | null) => void;
 }
@@ -26,6 +28,7 @@ export function useElementInteraction({
 	tracksContainerRef,
 	tracksScrollRef,
 	headerRef,
+	timelineDensity,
 	snappingEnabled,
 	onSnapPointChange,
 }: UseElementInteractionProps) {
@@ -42,6 +45,7 @@ export function useElementInteraction({
 			getTracksScrollEl: () => tracksScrollRef.current,
 			getTracksContainerEl: () => tracksContainerRef.current,
 			getHeaderEl: () => headerRef?.current ?? null,
+			getTimelineDensity: () => timelineDensity,
 		},
 		input: {
 			isShiftHeld: () => isShiftHeldRef.current,

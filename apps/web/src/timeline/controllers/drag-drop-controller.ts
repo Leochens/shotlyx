@@ -24,6 +24,7 @@ import { BatchCommand } from "@/commands/batch-command";
 import { buildMotionGraphicElementFromAsset } from "@/motion-graphics/project-assets";
 import type { Command } from "@/commands/base-command";
 import { computeDropTarget } from "@/timeline/components/drop-target";
+import type { TimelineDensity } from "@/timeline/components/layout";
 import type { TimelineDragSource } from "@/timeline/drag-source";
 import type {
 	TrackType,
@@ -45,6 +46,7 @@ import { roundFrameTime, type MediaTime } from "@/wasm";
 
 export interface DragDropConfig {
 	zoomLevel: number;
+	timelineDensity: TimelineDensity;
 	getContainerEl: () => HTMLDivElement | null;
 	getHeaderEl: () => HTMLElement | null;
 	getTracksScrollEl: () => HTMLDivElement | null;
@@ -283,6 +285,7 @@ export class DragDropController {
 			elementDuration: duration,
 			pixelsPerSecond: BASE_TIMELINE_PIXELS_PER_SECOND,
 			zoomLevel: this.config.zoomLevel,
+			timelineDensity: this.config.timelineDensity,
 			targetElementTypes,
 		});
 
@@ -725,6 +728,7 @@ export class DragDropController {
 						elementDuration: duration,
 						pixelsPerSecond: BASE_TIMELINE_PIXELS_PER_SECOND,
 						zoomLevel: this.config.zoomLevel,
+						timelineDensity: this.config.timelineDensity,
 					});
 
 					const trackType: TrackType =

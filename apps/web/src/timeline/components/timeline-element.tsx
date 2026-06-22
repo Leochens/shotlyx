@@ -88,6 +88,7 @@ import { getTrackTypeForElementType } from "@/timeline/placement/compatibility";
 import { isCompoundElement } from "@/timeline/compound-elements";
 import { useTimelineStore } from "@/timeline/timeline-store";
 import { KEYFRAME_LANE_HEIGHT_PX } from "./layout";
+import type { TimelineDensity } from "./layout";
 import { getResizeHandleVisualVariant } from "./resize-handle-visuals";
 import {
 	getExpandedRows,
@@ -205,6 +206,7 @@ interface TimelineElementProps {
 	element: TimelineElementType;
 	track: TimelineTrack;
 	zoomLevel: number;
+	timelineDensity: TimelineDensity;
 	isSelected: boolean;
 	onResizeStart: (params: {
 		event: React.MouseEvent;
@@ -235,6 +237,7 @@ function TimelineElementComponent({
 	element,
 	track,
 	zoomLevel,
+	timelineDensity,
 	isSelected,
 	onResizeStart,
 	onResizeHandleHoverChange,
@@ -363,7 +366,10 @@ function TimelineElementComponent({
 		element.type === "video" && isSourceAudioSeparated({ element });
 	const hasKeyframes = elementKeyframes.length > 0;
 	const expansionHeight = getExpansionHeight({ rows: expandedRows });
-	const baseTrackHeight = getTrackHeight({ type: track.type });
+	const baseTrackHeight = getTrackHeight({
+		type: track.type,
+		density: timelineDensity,
+	});
 
 	const expandedContent =
 		isExpanded && expandedRows.length > 0 ? (
@@ -410,6 +416,7 @@ function TimelineElementComponent({
 							element={element}
 							displayElement={renderElement}
 							track={track}
+							timelineDensity={timelineDensity}
 							isSelected={isSelected}
 							isExpanded={expandedRows.length > 0}
 							baseTrackHeight={baseTrackHeight}
@@ -550,6 +557,7 @@ function areTimelineElementPropsEqual(
 		previous.element !== next.element ||
 		previous.track !== next.track ||
 		previous.zoomLevel !== next.zoomLevel ||
+		previous.timelineDensity !== next.timelineDensity ||
 		previous.isSelected !== next.isSelected ||
 		previous.isDropTarget !== next.isDropTarget ||
 		previous.isLeftResizeHighlighted !== next.isLeftResizeHighlighted ||
@@ -580,6 +588,7 @@ function ElementInner({
 	element,
 	displayElement,
 	track,
+	timelineDensity,
 	isSelected,
 	isExpanded,
 	baseTrackHeight,
@@ -595,6 +604,7 @@ function ElementInner({
 	element: TimelineElementType;
 	displayElement?: TimelineElementType;
 	track: TimelineTrack;
+	timelineDensity: TimelineDensity;
 	isSelected: boolean;
 	isExpanded: boolean;
 	baseTrackHeight: number;
@@ -670,7 +680,11 @@ function ElementInner({
 							style={{ height: `${baseTrackHeight}px` }}
 						>
 							<div className="flex flex-1 min-h-0 h-full items-center overflow-hidden">
-								<ElementContent element={visibleElement} track={track} />
+								<ElementContent
+									element={visibleElement}
+									track={track}
+									timelineDensity={timelineDensity}
+								/>
 							</div>
 						</div>
 						{expandedContent}
@@ -738,16 +752,10 @@ function ResizeHandle({
 				"pointer-events-auto absolute top-0 bottom-0 z-10 opacity-0 transition-opacity",
 				"group-hover/element:opacity-100",
 				(isSelected || isHighlighted) && "opacity-100",
-				isLeft
-					? "-left-2 w-4 cursor-w-resize"
-					: "-right-2 w-4 cursor-e-resize",
+				isLeft ? "-left-2 w-4 cursor-w-resize" : "-right-2 w-4 cursor-e-resize",
 			)}
-			onMouseEnter={() =>
-				onHoverChange?.({ element, side, isHovered: true })
-			}
-			onMouseLeave={() =>
-				onHoverChange?.({ element, side, isHovered: false })
-			}
+			onMouseEnter={() => onHoverChange?.({ element, side, isHovered: true })}
+			onMouseLeave={() => onHoverChange?.({ element, side, isHovered: false })}
 			onFocus={() => onHoverChange?.({ element, side, isHovered: true })}
 			onBlur={() => onHoverChange?.({ element, side, isHovered: false })}
 			onMouseDown={(event) => onResizeStart({ event, element, track, side })}
@@ -1026,13 +1034,20 @@ function ExpandedKeyframeLanes({
 interface ElementContentProps {
 	element: TimelineElementType;
 	track: TimelineTrack;
+	timelineDensity: TimelineDensity;
 }
 
 function TextElementContent({
 	element,
+	timelineDensity,
 }: {
 	element: Extract<TimelineElementType, { type: "text" }>;
+	timelineDensity: TimelineDensity;
 }) {
+	if (timelineDensity === "compact") {
+		return null;
+	}
+
 	return (
 		<div className="flex size-full items-center justify-start pl-2">
 			<span className="truncate text-xs text-white">
@@ -1046,9 +1061,21 @@ function TextElementContent({
 
 function SubtitleElementContent({
 	element,
+	timelineDensity,
 }: {
 	element: Extract<TimelineElementType, { type: "subtitle" }>;
+	timelineDensity: TimelineDensity;
 }) {
+	if (timelineDensity === "compact") {
+		return (
+			<div className="flex size-full items-center justify-start pl-1.5">
+				<span className="shrink-0 rounded-[3px] bg-white/18 px-1 text-[0.56rem] font-semibold leading-4 text-white">
+					CC
+				</span>
+			</div>
+		);
+	}
+
 	return (
 		<div className="flex size-full items-center justify-start gap-1.5 pl-2">
 			<span className="shrink-0 rounded-[3px] bg-white/18 px-1 text-[0.58rem] font-semibold leading-4 text-white">
@@ -1063,9 +1090,22 @@ function SubtitleElementContent({
 
 function EffectElementContent({
 	element,
+	timelineDensity,
 }: {
 	element: Extract<TimelineElementType, { type: "effect" }>;
+	timelineDensity: TimelineDensity;
 }) {
+	if (timelineDensity === "compact") {
+		return (
+			<div className="flex size-full items-center justify-start pl-1.5">
+				<HugeiconsIcon
+					icon={MagicWand05Icon}
+					className="size-3.5 shrink-0 text-white"
+				/>
+			</div>
+		);
+	}
+
 	return (
 		<div className="flex size-full items-center justify-start gap-1 pl-2">
 			<HugeiconsIcon
@@ -1079,9 +1119,15 @@ function EffectElementContent({
 
 function StickerElementContent({
 	element,
+	timelineDensity,
 }: {
 	element: Extract<TimelineElementType, { type: "sticker" }>;
+	timelineDensity: TimelineDensity;
 }) {
+	if (timelineDensity === "compact") {
+		return null;
+	}
+
 	return (
 		<div className="flex size-full items-center gap-2 pl-2">
 			<Image
@@ -1102,9 +1148,15 @@ function StickerElementContent({
 
 function GraphicElementContent({
 	element,
+	timelineDensity,
 }: {
 	element: Extract<TimelineElementType, { type: "graphic" }>;
+	timelineDensity: TimelineDensity;
 }) {
+	if (timelineDensity === "compact") {
+		return null;
+	}
+
 	return (
 		<div className="flex size-full items-center gap-2 pl-2">
 			<Image
@@ -1127,10 +1179,19 @@ function GraphicElementContent({
 	);
 }
 
-function CompoundElementContent({ element }: { element: TimelineElementType }) {
+function CompoundElementContent({
+	element,
+	timelineDensity,
+}: {
+	element: TimelineElementType;
+	timelineDensity: TimelineDensity;
+}) {
 	const childCount = isCompoundElement(element)
 		? element.compound.elements.length
 		: 0;
+	if (timelineDensity === "compact") {
+		return null;
+	}
 
 	return (
 		<div className="flex size-full items-center justify-start gap-1.5 pl-2">
@@ -1148,9 +1209,11 @@ function CompoundElementContent({ element }: { element: TimelineElementType }) {
 function AudioElementContent({
 	element,
 	trackId,
+	timelineDensity,
 }: {
 	element: AudioElement;
 	trackId: string;
+	timelineDensity: TimelineDensity;
 }) {
 	const pixelsPerSecond = useContext(PixelsPerSecondContext);
 	if (pixelsPerSecond === null) {
@@ -1184,10 +1247,16 @@ function AudioElementContent({
 		[element],
 	);
 	if (audioBuffer || audioUrl || sourceFile) {
+		const isCompact = timelineDensity === "compact";
 		return (
 			<div className="group/audio relative size-full">
-				<MediaElementHeader name={mediaLabel} hasFade={false} />
-				<div className="absolute inset-x-0 top-5 bottom-0 overflow-hidden">
+				{!isCompact && <MediaElementHeader name={mediaLabel} hasFade={false} />}
+				<div
+					className={cn(
+						"absolute inset-x-0 bottom-0 overflow-hidden",
+						isCompact ? "top-0" : "top-5",
+					)}
+				>
 					<AudioWaveform
 						sourceKey={sourceKey}
 						sourceFile={sourceFile}
@@ -1200,7 +1269,9 @@ function AudioElementContent({
 						sourceStartSec={element.trimStart / TICKS_PER_SECOND}
 						color={TIMELINE_TRACK_THEME.audio.waveformColor}
 					/>
-					<AudioVolumeLine element={element} trackId={trackId} />
+					{!isCompact && (
+						<AudioVolumeLine element={element} trackId={trackId} />
+					)}
 				</div>
 			</div>
 		);
@@ -1213,7 +1284,9 @@ function AudioElementContent({
 					{element.name}
 				</span>
 			</div>
-			<AudioVolumeLine element={element} trackId={trackId} />
+			{timelineDensity !== "compact" && (
+				<AudioVolumeLine element={element} trackId={trackId} />
+			)}
 		</div>
 	);
 }
@@ -1251,9 +1324,11 @@ function EffectsButton({
 function TiledMediaContent({
 	element,
 	track,
+	timelineDensity,
 }: {
 	element: VideoElement | ImageElement;
 	track: TimelineTrack;
+	timelineDensity: TimelineDensity;
 }) {
 	const mediaAssets = useEditor((e) => e.media.getAssets());
 
@@ -1264,6 +1339,10 @@ function TiledMediaContent({
 			: (mediaAsset?.thumbnailUrl ?? mediaAsset?.url);
 
 	if (!imageUrl) {
+		if (timelineDensity === "compact") {
+			return null;
+		}
+
 		return (
 			<span className="text-foreground/80 truncate text-xs">
 				{element.name}
@@ -1271,8 +1350,12 @@ function TiledMediaContent({
 		);
 	}
 
-	const trackHeight = getTrackHeight({ type: track.type });
+	const trackHeight = getTrackHeight({
+		type: track.type,
+		density: timelineDensity,
+	});
 	const tileWidth = trackHeight * THUMBNAIL_ASPECT_RATIO;
+	const showHeader = timelineDensity !== "compact";
 
 	return (
 		<>
@@ -1287,15 +1370,17 @@ function TiledMediaContent({
 					pointerEvents: "none",
 				}}
 			/>
-			<MediaElementHeader
-				name={mediaAsset?.name}
-				leading={
-					hasElementEffects({ element }) ? (
-						<EffectsButton element={element} track={track} />
-					) : null
-				}
-				hasFade={true}
-			/>
+			{showHeader && (
+				<MediaElementHeader
+					name={mediaAsset?.name}
+					leading={
+						hasElementEffects({ element }) ? (
+							<EffectsButton element={element} track={track} />
+						) : null
+					}
+					hasFade={true}
+				/>
+			)}
 		</>
 	);
 }
@@ -1330,27 +1415,73 @@ function MediaElementHeader({
 	);
 }
 
-function ElementContent({ element, track }: ElementContentProps) {
+function ElementContent({
+	element,
+	track,
+	timelineDensity,
+}: ElementContentProps) {
 	if (isCompoundElement(element)) {
-		return <CompoundElementContent element={element} />;
+		return (
+			<CompoundElementContent
+				element={element}
+				timelineDensity={timelineDensity}
+			/>
+		);
 	}
 
 	switch (element.type) {
 		case "text":
-			return <TextElementContent element={element} />;
+			return (
+				<TextElementContent
+					element={element}
+					timelineDensity={timelineDensity}
+				/>
+			);
 		case "subtitle":
-			return <SubtitleElementContent element={element} />;
+			return (
+				<SubtitleElementContent
+					element={element}
+					timelineDensity={timelineDensity}
+				/>
+			);
 		case "effect":
-			return <EffectElementContent element={element} />;
+			return (
+				<EffectElementContent
+					element={element}
+					timelineDensity={timelineDensity}
+				/>
+			);
 		case "sticker":
-			return <StickerElementContent element={element} />;
+			return (
+				<StickerElementContent
+					element={element}
+					timelineDensity={timelineDensity}
+				/>
+			);
 		case "graphic":
-			return <GraphicElementContent element={element} />;
+			return (
+				<GraphicElementContent
+					element={element}
+					timelineDensity={timelineDensity}
+				/>
+			);
 		case "audio":
-			return <AudioElementContent element={element} trackId={track.id} />;
+			return (
+				<AudioElementContent
+					element={element}
+					trackId={track.id}
+					timelineDensity={timelineDensity}
+				/>
+			);
 		case "video":
 		case "image":
-			return <TiledMediaContent element={element} track={track} />;
+			return (
+				<TiledMediaContent
+					element={element}
+					track={track}
+					timelineDensity={timelineDensity}
+				/>
+			);
 	}
 }
 

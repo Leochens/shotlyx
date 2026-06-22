@@ -6,12 +6,14 @@ import {
 	type DragDropConfig,
 } from "@/timeline/controllers/drag-drop-controller";
 import { usePropertiesStore } from "@/components/editor/panels/properties/stores/properties-store";
+import type { TimelineDensity } from "@/timeline/components/layout";
 
 interface UseTimelineDragDropProps {
 	containerRef: RefObject<HTMLDivElement | null>;
 	headerRef?: RefObject<HTMLElement | null>;
 	tracksScrollRef?: RefObject<HTMLDivElement | null>;
 	zoomLevel: number;
+	timelineDensity: TimelineDensity;
 }
 
 export function useTimelineDragDrop({
@@ -19,11 +21,13 @@ export function useTimelineDragDrop({
 	headerRef,
 	tracksScrollRef,
 	zoomLevel,
+	timelineDensity,
 }: UseTimelineDragDropProps) {
 	const editor = useEditor();
 
 	const config: DragDropConfig = {
 		zoomLevel,
+		timelineDensity,
 		getContainerEl: () => containerRef.current,
 		getHeaderEl: () => headerRef?.current ?? null,
 		getTracksScrollEl: () => tracksScrollRef?.current ?? null,
@@ -41,9 +45,7 @@ export function useTimelineDragDrop({
 		seekToTime: ({ time }) => editor.playback.seek({ time }),
 		selectElements: (args) => editor.selection.setSelectedElements(args),
 		openElementPropertiesTab: ({ elementType, tabId }) =>
-			usePropertiesStore
-				.getState()
-				.setActiveTab({ elementType, tabId }),
+			usePropertiesStore.getState().setActiveTab({ elementType, tabId }),
 	};
 	const configRef = useCommittedRef(config);
 	const [controller] = useState(() => new DragDropController({ configRef }));

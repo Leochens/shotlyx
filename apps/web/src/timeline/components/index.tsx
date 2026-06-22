@@ -50,9 +50,9 @@ import type { TimelineTrack } from "@/timeline";
 import {
 	TIMELINE_SCROLLBAR_SIZE_PX,
 	TIMELINE_CONTENT_TOP_PADDING_PX,
-	TIMELINE_TRACK_GAP_PX,
 	TIMELINE_TRACK_LABELS_COLUMN_WIDTH_PX,
 	KEYFRAME_LANE_HEIGHT_PX,
+	type TimelineDensity,
 } from "./layout";
 import { useElementInteraction } from "@/timeline/hooks/element/use-element-interaction";
 import {
@@ -64,8 +64,10 @@ import {
 import { timelineTimeToPixels } from "@/timeline/pixel-utils";
 import {
 	getTrackHeight,
+	getTrackGap,
 	getCumulativeHeightBefore,
 	getTotalTracksHeight,
+	getTimelineDensity,
 } from "./track-layout";
 import { SELECTED_TRACK_ROW_CLASS } from "./theme";
 import {
@@ -158,9 +160,10 @@ export function Timeline() {
 	const [currentSnapPoint, setCurrentSnapPoint] = useState<SnapPoint | null>(
 		null,
 	);
-	const { width: tracksContainerWidth } = useContainerSize({
-		containerRef: tracksContainerRef,
-	});
+	const { width: tracksContainerWidth, height: tracksContainerHeight } =
+		useContainerSize({
+			containerRef: tracksContainerRef,
+		});
 	const { height: timelineHeaderHeightValue } = useContainerSize({
 		containerRef: timelineHeaderRef,
 	});
@@ -181,6 +184,11 @@ export function Timeline() {
 	});
 
 	const savedViewState = editor.project.getTimelineViewState();
+	const timelineHeaderHeight =
+		timelineHeaderHeightValue + TIMELINE_CONTENT_TOP_PADDING_PX;
+	const timelineDensity = getTimelineDensity({
+		viewportHeight: Math.max(0, tracksContainerHeight - timelineHeaderHeight),
+	});
 
 	const { zoomLevel, setZoomLevel, handleWheel, saveScrollPosition } =
 		useTimelineZoom({
@@ -312,6 +320,7 @@ export function Timeline() {
 	const { dragView, handleElementMouseDown, handleElementClick } =
 		useElementInteraction({
 			zoomLevel,
+			timelineDensity,
 			tracksContainerRef,
 			tracksScrollRef,
 			snappingEnabled,
@@ -343,6 +352,7 @@ export function Timeline() {
 		containerRef: tracksContainerRef,
 		tracksScrollRef,
 		zoomLevel,
+		timelineDensity,
 	});
 
 	const {
@@ -366,6 +376,7 @@ export function Timeline() {
 				scrollContainer: tracksScrollRef.current,
 				tracks,
 				zoomLevel,
+				timelineDensity,
 				startPos,
 				currentPos,
 			});
@@ -434,9 +445,6 @@ export function Timeline() {
 		seek,
 	});
 
-	const timelineHeaderHeight =
-		timelineHeaderHeightValue + TIMELINE_CONTENT_TOP_PADDING_PX;
-
 	return (
 		<section
 			className={
@@ -458,6 +466,7 @@ export function Timeline() {
 					timelineHeaderHeight={timelineHeaderHeight}
 					hasHorizontalScrollbar={hasHorizontalScrollbar}
 					getTrackExpansionHeight={getTrackExpansionHeight}
+					timelineDensity={timelineDensity}
 				/>
 
 				<div
@@ -470,12 +479,14 @@ export function Timeline() {
 						tracks={tracks}
 						isVisible={isDragOver && !dropTarget?.targetElement}
 						headerHeight={timelineHeaderHeight}
+						timelineDensity={timelineDensity}
 					/>
 					<DragLine
 						dropTarget={isElementDragging ? dragView.dropTarget : null}
 						tracks={tracks}
 						isVisible={isElementDragging}
 						headerHeight={timelineHeaderHeight}
+						timelineDensity={timelineDensity}
 					/>
 
 					<div ref={rulerScrollRef} className="shrink-0 overflow-hidden">
@@ -531,6 +542,7 @@ export function Timeline() {
 												getTotalTracksHeight({
 													tracks,
 													getExtraHeight: getTrackExpansionHeight,
+													density: timelineDensity,
 												}),
 											),
 										) + TIMELINE_CONTENT_TOP_PADDING_PX
@@ -556,6 +568,7 @@ export function Timeline() {
 										zoomLevel={zoomLevel}
 										scrollLeft={tracksScrollLeft}
 										viewportWidth={tracksViewportWidth}
+										timelineDensity={timelineDensity}
 										dragView={dragView}
 										onResizeStart={handleResizeStart}
 										onElementMouseDown={handleElementMouseDown}
@@ -612,12 +625,14 @@ function TrackLabelsPanel({
 	timelineHeaderHeight,
 	hasHorizontalScrollbar,
 	getTrackExpansionHeight,
+	timelineDensity,
 }: {
 	trackLabelsRef: React.RefObject<HTMLDivElement | null>;
 	trackLabelsScrollRef: React.RefObject<HTMLDivElement | null>;
 	timelineHeaderHeight: number;
 	hasHorizontalScrollbar: boolean;
 	getTrackExpansionHeight: (trackIndex: number) => number;
+	timelineDensity: TimelineDensity;
 }) {
 	const editor = useEditor();
 	const scene = useEditor((e) => e.scenes.getActiveSceneOrNull());
@@ -692,11 +707,15 @@ function TrackLabelsPanel({
 					{tracks.length > 0 && (
 						<div
 							className="flex flex-col"
-							style={{ gap: `${TIMELINE_TRACK_GAP_PX}px` }}
+							style={{ gap: `${getTrackGap({ density: timelineDensity })}px` }}
 						>
 							{tracks.map((track, index) => {
 								const expandedRows = trackExpandedRowsMap[index];
-								const baseHeight = getTrackHeight({ type: track.type });
+								const baseHeight = getTrackHeight({
+									type: track.type,
+									density: timelineDensity,
+								});
+								const isCompact = timelineDensity === "compact";
 
 								return (
 									<div
@@ -711,55 +730,68 @@ function TrackLabelsPanel({
 										}}
 									>
 										<div
-											className="flex shrink-0 items-center justify-between gap-2 px-2"
+											className={cn(
+												"flex shrink-0 items-center",
+												isCompact
+													? "justify-center px-1"
+													: "justify-between gap-2 px-2",
+											)}
 											style={{ height: `${baseHeight}px` }}
 										>
-											{track.id !== mainTrackId ? (
-												<TrackLabelButton
-													label="Delete track"
-													onClick={() =>
-														editor.timeline.removeTrack({ trackId: track.id })
-													}
-												>
-													<HugeiconsIcon
-														icon={Delete02Icon}
-														className="size-4"
-													/>
-												</TrackLabelButton>
+											{isCompact ? (
+												<TrackIcon track={track} compact />
 											) : (
-												<span className="size-7" aria-hidden />
+												<>
+													{track.id !== mainTrackId ? (
+														<TrackLabelButton
+															label="Delete track"
+															onClick={() =>
+																editor.timeline.removeTrack({
+																	trackId: track.id,
+																})
+															}
+														>
+															<HugeiconsIcon
+																icon={Delete02Icon}
+																className="size-4"
+															/>
+														</TrackLabelButton>
+													) : (
+														<span className="size-7" aria-hidden />
+													)}
+													<div className="flex items-center justify-end gap-2">
+														{canTrackHaveAudio(track) && (
+															<TrackToggleIcon
+																isOff={track.muted}
+																icons={{
+																	on: VolumeHighIcon,
+																	off: VolumeOffIcon,
+																}}
+																onClick={() =>
+																	editor.timeline.toggleTrackMute({
+																		trackId: track.id,
+																	})
+																}
+															/>
+														)}
+														{canTrackBeHidden(track) && (
+															<TrackToggleIcon
+																isOff={track.hidden}
+																icons={{
+																	on: ViewIcon,
+																	off: ViewOffSlashIcon,
+																}}
+																onClick={() =>
+																	editor.timeline.toggleTrackVisibility({
+																		trackId: track.id,
+																	})
+																}
+															/>
+														)}
+														<TrackIcon track={track} />
+													</div>
+												</>
 											)}
-											<div className="flex items-center justify-end gap-2">
-												{canTrackHaveAudio(track) && (
-													<TrackToggleIcon
-														isOff={track.muted}
-														icons={{
-															on: VolumeHighIcon,
-															off: VolumeOffIcon,
-														}}
-														onClick={() =>
-															editor.timeline.toggleTrackMute({
-																trackId: track.id,
-															})
-														}
-													/>
-												)}
-												{canTrackBeHidden(track) && (
-													<TrackToggleIcon
-														isOff={track.hidden}
-														icons={{
-															on: ViewIcon,
-															off: ViewOffSlashIcon,
-														}}
-														onClick={() =>
-															editor.timeline.toggleTrackVisibility({
-																trackId: track.id,
-															})
-														}
-													/>
-												)}
-												<TrackIcon track={track} />
-											</div>
 										</div>
 										{expandedRows.length > 0 && (
 											<PropertyTree rows={expandedRows} />
@@ -786,6 +818,7 @@ function TimelineTrackRows({
 	zoomLevel,
 	scrollLeft,
 	viewportWidth,
+	timelineDensity,
 	dragView,
 	onResizeStart,
 	onElementMouseDown,
@@ -800,6 +833,7 @@ function TimelineTrackRows({
 	zoomLevel: number;
 	scrollLeft: number;
 	viewportWidth: number;
+	timelineDensity: TimelineDensity;
 	dragView: ElementDragView;
 	onResizeStart: React.ComponentProps<
 		typeof TimelineTrackContent
@@ -874,13 +908,14 @@ function TimelineTrackRows({
 								tracksWithSelection.has(track.id) && SELECTED_TRACK_ROW_CLASS,
 							)}
 							style={{
-								top: `${TIMELINE_CONTENT_TOP_PADDING_PX + getCumulativeHeightBefore({ tracks, trackIndex: index, getExtraHeight: getTrackExpansionHeight })}px`,
-								height: `${getTrackHeight({ type: track.type }) + getTrackExpansionHeight(index)}px`,
+								top: `${TIMELINE_CONTENT_TOP_PADDING_PX + getCumulativeHeightBefore({ tracks, trackIndex: index, getExtraHeight: getTrackExpansionHeight, density: timelineDensity })}px`,
+								height: `${getTrackHeight({ type: track.type, density: timelineDensity }) + getTrackExpansionHeight(index)}px`,
 							}}
 						>
 							<TimelineTrackContent
 								track={track}
 								zoomLevel={zoomLevel}
+								timelineDensity={timelineDensity}
 								scrollLeft={scrollLeft}
 								viewportWidth={viewportWidth}
 								dragView={dragView}
@@ -962,8 +997,22 @@ function TimelineGutter({
 	);
 }
 
-function TrackIcon({ track }: { track: TimelineTrack }) {
-	return <>{TRACK_ICONS[track.type]}</>;
+function TrackIcon({
+	track,
+	compact = false,
+}: {
+	track: TimelineTrack;
+	compact?: boolean;
+}) {
+	if (!compact) {
+		return <>{TRACK_ICONS[track.type]}</>;
+	}
+
+	return (
+		<span className="flex size-4 items-center justify-center overflow-hidden">
+			{TRACK_ICONS[track.type]}
+		</span>
+	);
 }
 
 function TrackLabelButton({

@@ -2,6 +2,7 @@ import type { TimelineTrack } from "@/timeline";
 import { timelineTimeToPixels } from "@/timeline/pixel-utils";
 import {
 	TIMELINE_CONTENT_TOP_PADDING_PX,
+	type TimelineDensity,
 } from "./layout";
 import { getCumulativeHeightBefore, getTrackHeight } from "./track-layout";
 
@@ -80,6 +81,7 @@ export function resolveTimelineElementIntersections({
 	scrollContainer,
 	tracks,
 	zoomLevel,
+	timelineDensity,
 	startPos,
 	currentPos,
 }: {
@@ -87,6 +89,7 @@ export function resolveTimelineElementIntersections({
 	scrollContainer: HTMLDivElement | null;
 	tracks: TimelineTrack[];
 	zoomLevel: number;
+	timelineDensity?: TimelineDensity;
 	startPos: { x: number; y: number };
 	currentPos: { x: number; y: number };
 }): TimelineElementRef[] {
@@ -102,14 +105,24 @@ export function resolveTimelineElementIntersections({
 		const trackTop = getCumulativeHeightBefore({
 			tracks,
 			trackIndex,
+			density: timelineDensity,
 		});
-		const trackHeight = getTrackHeight({ type: track.type });
+		const trackHeight = getTrackHeight({
+			type: track.type,
+			density: timelineDensity,
+		});
 		const elementTop = TIMELINE_CONTENT_TOP_PADDING_PX + trackTop;
 		const elementBottom = elementTop + trackHeight;
 
 		for (const element of track.elements) {
-			const elementLeft = timelineTimeToPixels({ time: element.startTime, zoomLevel });
-			const elementRight = timelineTimeToPixels({ time: element.startTime + element.duration, zoomLevel });
+			const elementLeft = timelineTimeToPixels({
+				time: element.startTime,
+				zoomLevel,
+			});
+			const elementRight = timelineTimeToPixels({
+				time: element.startTime + element.duration,
+				zoomLevel,
+			});
 			const elementRectangle = {
 				left: elementLeft,
 				top: elementTop,
