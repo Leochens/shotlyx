@@ -1,4 +1,4 @@
-import type { SceneTracks, TimelineTrack } from "@/timeline";
+import type { SceneTracks, TimelineTrack } from "@/timeline/types";
 import { expandCompoundElement } from "@/timeline/compound-elements";
 import type { MediaAsset } from "@/media/types";
 import { RootNode } from "./nodes/root-node";
@@ -16,7 +16,9 @@ import type {
 	TBackground,
 	TCanvasSize,
 	TProjectWatermark,
+	TProjectSubtitles,
 } from "@/project/types";
+import { buildProjectSubtitleElement } from "@/subtitles/project-subtitles";
 import { DEFAULT_BACKGROUND_BLUR_INTENSITY } from "@/background/blur";
 import { DEFAULTS } from "@/timeline/defaults";
 import {
@@ -446,6 +448,7 @@ export type BuildSceneParams = {
 	duration: number;
 	background: TBackground;
 	watermark?: TProjectWatermark | null;
+	subtitles?: TProjectSubtitles | null;
 	isPreview?: boolean;
 	shotlyxMGRenderMap?: ShotlyxMGExportRenderMap;
 };
@@ -457,6 +460,7 @@ export function buildScene({
 	duration,
 	background,
 	watermark,
+	subtitles,
 	isPreview,
 	shotlyxMGRenderMap,
 }: BuildSceneParams) {
@@ -507,6 +511,32 @@ export function buildScene({
 		isPreview,
 	})) {
 		rootNode.add(node);
+	}
+
+	const globalSubtitleElement = buildProjectSubtitleElement({
+		subtitles,
+		canvasSize,
+		duration,
+	});
+	if (globalSubtitleElement) {
+		rootNode.add(
+			new TextNode({
+				...globalSubtitleElement,
+				transform: buildTransformFromParams({
+					params: globalSubtitleElement.params,
+				}),
+				opacity: readOpacityFromParams({
+					params: globalSubtitleElement.params,
+				}),
+				blendMode: readBlendModeFromParams({
+					params: globalSubtitleElement.params,
+				}),
+				canvasCenter: { x: canvasSize.width / 2, y: canvasSize.height / 2 },
+				canvasHeight: canvasSize.height,
+				textBaseline: "middle",
+				effects: [],
+			}),
+		);
 	}
 
 	return rootNode;

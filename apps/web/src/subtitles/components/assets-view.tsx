@@ -1,4 +1,6 @@
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { PanelView } from "@/components/editor/panels/assets/views/base-panel";
 import {
 	Select,
@@ -44,6 +46,10 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { DiagnosticSeverity } from "@/diagnostics/types";
+import type { TProjectSubtitles } from "@/project/types";
+import type { SubtitleLayerCue, SubtitleToken } from "@/subtitles/types";
+import { createEmptyProjectSubtitles } from "@/subtitles/project-subtitles";
+import { mediaTimeFromSeconds } from "@/wasm/media-time";
 import {
 	buildAsrDebugConfirmation,
 	type AsrAudioRangeParams,
@@ -87,16 +93,33 @@ function elementAudioRangeChoice({
 	return `element:${option.elementRef.trackId}:${option.elementRef.elementId}`;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+function normalizeProjectSubtitles({
+	subtitles,
+}: {
+	subtitles: TProjectSubtitles | null | undefined;
+}): TProjectSubtitles {
+	return subtitles ?? createEmptyProjectSubtitles();
 }
 
-function readToolData({
-	result,
+function getCueDisplayTime({ cue }: { cue: SubtitleLayerCue }): string {
+	const minutes = Math.floor(cue.startTime / 60);
+	const seconds = Math.floor(cue.startTime % 60);
+	const milliseconds = Math.round((cue.startTime % 1) * 1000);
+	return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(
+		2,
+		"0",
+	)}.${String(milliseconds).padStart(3, "0")}`;
+}
+
+function splitCueTextIntoClickableUnits({
+	cue,
 }: {
-	result: { data?: unknown };
-}): Record<string, unknown> | null {
-	return isRecord(result.data) ? result.data : null;
+	cue: SubtitleLayerCue;
+}): SubtitleToken[] {
+	if (cue.tokens && cue.tokens.length > 0) {
+		return cue.tokens;
+	}
+	return [{ text: cue.text, startTime: cue.startTime, duration: cue.duration }];
 }
 
 /* eslint-disable shotlyx/prefer-object-params -- React reducers must accept (state, action). */
@@ -121,8 +144,6 @@ function processingReducer(
 export function Captions() {
 	const [selectedLanguage, setSelectedLanguage] =
 		useState<TranscriptionLanguage>("auto");
-	const [selectedTargetLanguage, setSelectedTargetLanguage] =
-		useState<string>("en");
 	const [selectedProvider, setSelectedProvider] =
 		useState<CaptionTranscriptionProvider>(
 			DEFAULT_CAPTION_TRANSCRIPTION_PROVIDER,
@@ -140,8 +161,14 @@ export function Captions() {
 	const mediaAssets = useEditor((e) => e.media.getAssets());
 	const sceneTracks = useEditor((e) => e.scenes.getActiveScene().tracks);
 	const totalDuration = useEditor((e) => e.timeline.getTotalDuration());
+	const projectSubtitles = useEditor((e) =>
+		normalizeProjectSubtitles({
+			subtitles: e.project.getActive().settings.subtitles,
+		}),
+	);
 
 	const isProcessing = processing.status === "processing";
+	const hasTranscript = projectSubtitles.cues.length > 0;
 
 	const activeDiagnostics = useEditor((e) =>
 		e.diagnostics.getActive({ scope: TRANSCRIPTION_DIAGNOSTICS_SCOPE }),
@@ -277,125 +304,9 @@ export function Captions() {
 		prepareAsrDebugConfirmation({ mode: "transcript" });
 	};
 
-	const translateCaptions = async ({
-		trackId,
-		elementId,
-	}: {
-		trackId?: string;
-		elementId?: string;
-	} = {}) => {
-		const result = await editor.mcp.execute({
-			toolName: "subtitles_translate",
-			params: {
-				targetLanguage: selectedTargetLanguage,
-				sourceLanguage:
-					selectedLanguage === "auto" ? undefined : selectedLanguage,
-				subtitleTrackId: trackId,
-				subtitleElementId: elementId,
-			},
-			onProgress: (event) => {
-				if (event.status === "running") {
-					dispatch({ type: "update_step", step: event.label });
-				}
-			},
-		});
-		if (result.status === "error") {
-			throw new Error(result.error ?? "Subtitle translation failed");
-		}
-		return true;
-	};
-
-	const handleTranslateCurrentCaptions = async () => {
-		dispatch({ type: "start", step: "Translating captions..." });
-		try {
-			await translateCaptions();
-			dispatch({ type: "succeed", warnings: [] });
-		} catch (error) {
-			console.error("Subtitle translation failed:", error);
-			dispatch({
-				type: "fail",
-				error:
-					error instanceof Error
-						? error.message
-						: "An unexpected error occurred",
-			});
-		}
-	};
-
-	const runGenerateBilingualSubtitles = async ({
-		audioRangeParams,
-	}: {
-		audioRangeParams: AsrAudioRangeParams;
-	}) => {
-		dispatch({
-			type: "start",
-			step: getCaptionProviderStartStep({ provider: selectedProvider }),
-		});
-		try {
-			const transcriptResult = await editor.mcp.execute({
-				toolName: "subtitles_generate_from_video",
-				params: {
-					source: "timeline",
-					provider: selectedProvider,
-					language: selectedLanguage,
-					style: "clean",
-					placement: "bottom",
-					revealMode: "line",
-					lineBreakMode: "page",
-					...audioRangeParams,
-				},
-				onProgress: (event) => {
-					if (event.status === "running") {
-						dispatch({ type: "update_step", step: event.label });
-					}
-				},
-			});
-			if (transcriptResult.status === "error") {
-				dispatch({
-					type: "fail",
-					error:
-						transcriptResult.error ?? "Subtitle generation failed",
-				});
-				return;
-			}
-
-			dispatch({ type: "update_step", step: "Translating captions..." });
-			const data = readToolData({ result: transcriptResult });
-			await translateCaptions({
-				trackId:
-					typeof data?.trackId === "string" ? data.trackId : undefined,
-				elementId:
-					typeof data?.elementId === "string" ? data.elementId : undefined,
-			});
-
-			setAsrDebugConfirmation(null);
-			dispatch({ type: "succeed", warnings: [] });
-		} catch (error) {
-			console.error("Bilingual subtitle generation failed:", error);
-			dispatch({
-				type: "fail",
-				error:
-					error instanceof Error
-						? error.message
-						: "An unexpected error occurred",
-			});
-		}
-	};
-
-	const handleGenerateBilingualSubtitles = () => {
-		prepareAsrDebugConfirmation({ mode: "bilingual" });
-	};
-
 	const handleContinueAsrDebugConfirmation = async () => {
 		const confirmation = asrDebugConfirmation;
 		if (!confirmation) return;
-
-		if (confirmation.mode === "bilingual") {
-			await runGenerateBilingualSubtitles({
-				audioRangeParams: confirmation.params,
-			});
-			return;
-		}
 
 		await runGenerateTranscript({
 			audioRangeParams: confirmation.params,
@@ -485,12 +396,38 @@ export function Captions() {
 		setAsrDebugConfirmation(null);
 	};
 
-	const handleTargetLanguageChange = ({ value }: { value: string }) => {
-		const matchedLanguage = TRANSCRIPTION_LANGUAGES.find(
-			(language) => language.code === value,
-		);
-		if (!matchedLanguage) return;
-		setSelectedTargetLanguage(matchedLanguage.code);
+	const updateProjectSubtitles = (updates: Partial<TProjectSubtitles>) => {
+		void editor.project.updateSettings({
+			settings: {
+				subtitles: {
+					...projectSubtitles,
+					...updates,
+					updatedAt: new Date().toISOString(),
+				},
+			},
+		});
+	};
+
+	const handleToggleProjectSubtitles = (enabled: boolean) => {
+		updateProjectSubtitles({ enabled });
+	};
+
+	const handleCueTextChange = ({
+		index,
+		text,
+	}: {
+		index: number;
+		text: string;
+	}) => {
+		updateProjectSubtitles({
+			cues: projectSubtitles.cues.map((cue, cueIndex) =>
+				cueIndex === index ? { ...cue, text } : cue,
+			),
+		});
+	};
+
+	const seekToSeconds = ({ seconds }: { seconds: number }) => {
+		editor.playback.seek({ time: mediaTimeFromSeconds({ seconds }) });
 	};
 
 	const error = processing.status === "idle" ? processing.error : null;
@@ -498,7 +435,7 @@ export function Captions() {
 
 	return (
 		<PanelView
-			title="Captions"
+			title="Transcript"
 			contentClassName="px-0 flex flex-col h-full"
 			actions={
 				<TooltipProvider>
@@ -614,26 +551,84 @@ export function Captions() {
 								</SelectContent>
 							</Select>
 						</SectionField>
-						<SectionField label="Translate To">
-							<Select
-								value={selectedTargetLanguage}
-								onValueChange={(value) =>
-									handleTargetLanguageChange({ value })
-								}
-							>
-								<SelectTrigger>
-									<SelectValue placeholder="Select a language" />
-								</SelectTrigger>
-								<SelectContent>
-									{TRANSCRIPTION_LANGUAGES.map((language) => (
-										<SelectItem key={language.code} value={language.code}>
-											{language.name}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</SectionField>
 					</SectionFields>
+
+					<div className="min-h-0 flex-1 overflow-y-auto pr-1">
+						<div className="mb-3 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-accent/25 px-3 py-2">
+							<div className="min-w-0">
+								<div className="text-sm font-medium">全局字幕</div>
+								<div className="text-muted-foreground truncate text-xs">
+									{hasTranscript
+										? `${projectSubtitles.cues.length} 条字幕，不占用时间线轨道`
+										: "生成或导入后会出现在这里"}
+								</div>
+							</div>
+							<Switch
+								checked={projectSubtitles.enabled}
+								onCheckedChange={handleToggleProjectSubtitles}
+								aria-label="字幕是否开启"
+							/>
+						</div>
+
+						{hasTranscript ? (
+							<div className="space-y-3" data-testid="global-transcript-list">
+								{projectSubtitles.cues.map((cue, cueIndex) => (
+									<div
+										key={`${cue.startTime}:${cueIndex}`}
+										className="rounded-md border border-border/70 bg-background/60 p-2.5"
+									>
+										<div className="mb-2 flex items-center justify-between gap-2">
+											<button
+												type="button"
+												className="text-muted-foreground rounded-sm font-mono text-[0.7rem] hover:text-foreground"
+												onClick={() =>
+													seekToSeconds({ seconds: cue.startTime })
+												}
+											>
+												{getCueDisplayTime({ cue })}
+											</button>
+											<span className="text-muted-foreground text-[0.7rem]">
+												#{cueIndex + 1}
+											</span>
+										</div>
+										<div className="mb-2 flex flex-wrap gap-x-1 gap-y-1">
+											{splitCueTextIntoClickableUnits({ cue }).map(
+												(token, tokenIndex) => (
+													<button
+														type="button"
+														key={`${token.startTime}:${tokenIndex}:${token.text}`}
+														className="rounded-sm px-0.5 text-left text-sm leading-6 text-foreground hover:bg-cyan-300/15 hover:text-cyan-100"
+														onClick={() =>
+															seekToSeconds({
+																seconds: token.startTime,
+															})
+														}
+													>
+														{token.text}
+													</button>
+												),
+											)}
+										</div>
+										<Textarea
+											value={cue.text}
+											onChange={(event) =>
+												handleCueTextChange({
+													index: cueIndex,
+													text: event.target.value,
+												})
+											}
+											className="min-h-16 text-sm"
+											aria-label={`编辑第 ${cueIndex + 1} 条字幕`}
+										/>
+									</div>
+								))}
+							</div>
+						) : (
+							<div className="text-muted-foreground rounded-md border border-dashed border-border/70 px-3 py-8 text-center text-sm">
+								暂无文字稿
+							</div>
+						)}
+					</div>
 
 					<div className="mt-auto space-y-2">
 						{asrDebugConfirmation && !isProcessing && (
@@ -687,26 +682,6 @@ export function Captions() {
 						>
 							Generate transcript
 						</Button>
-						<div className="space-y-2">
-							<Button
-								type="button"
-								variant="outline"
-								className="w-full"
-								onClick={handleTranslateCurrentCaptions}
-								disabled={isProcessing}
-							>
-								Translate captions
-							</Button>
-							<Button
-								type="button"
-								variant="outline"
-								className="w-full"
-								onClick={handleGenerateBilingualSubtitles}
-								disabled={isProcessing || activeDiagnostics.length > 0}
-							>
-								Generate bilingual
-							</Button>
-						</div>
 					</div>
 					{error && (
 						<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">

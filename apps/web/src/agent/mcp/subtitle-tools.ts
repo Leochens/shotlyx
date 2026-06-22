@@ -4,14 +4,15 @@ import type {
 	CreateTimelineElement,
 	SubtitleElement,
 	TimelineTrack,
-} from "@/timeline";
+} from "@/timeline/types";
 import type { MediaAsset } from "@/media/types";
-import type { MediaTime } from "@/wasm";
+import type { MediaTime } from "@/wasm/media-time";
 import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 import {
 	getSubtitleLayerDurationSeconds,
 	normalizeSubtitleLayerCues,
 } from "@/subtitles/layer";
+import { DEFAULT_PROJECT_SUBTITLE_MAX_CHARS_PER_LINE } from "@/subtitles/project-subtitles";
 import { parseSrt } from "@/subtitles/srt";
 import type {
 	SubtitleLayerCue,
@@ -32,7 +33,7 @@ import { buildDefaultTextParams } from "./text-overlay-planner";
 const SUBTITLE_FORMATS = ["srt", "cues"] as const;
 type SubtitleFormat = (typeof SUBTITLE_FORMATS)[number];
 
-const SUBTITLE_INSERT_MODES = ["layer", "text-elements"] as const;
+const SUBTITLE_INSERT_MODES = ["project", "layer", "text-elements"] as const;
 type SubtitleInsertMode = (typeof SUBTITLE_INSERT_MODES)[number];
 
 const SUBTITLE_STYLES = ["clean", "documentary", "social"] as const;
@@ -1194,7 +1195,7 @@ export function buildSubtitleTools({
 		{
 			name: "subtitles_import",
 			description:
-				"Import subtitles as one editable subtitle layer by default. Accepts SRT text or structured cues, including optional per-word/per-character tokens.",
+				"Import subtitles into the project-level global transcript by default. Accepts SRT text or structured cues, including optional per-word/per-character tokens.",
 			parameters: {
 				format: {
 					type: "string",
@@ -1220,7 +1221,7 @@ export function buildSubtitleTools({
 				insertMode: {
 					type: "string",
 					description:
-						"Insert mode: layer for one unified subtitle component, or text-elements for legacy one-element-per-cue insertion.",
+						"Insert mode: project for the global transcript, layer for a legacy timeline subtitle component, or text-elements for legacy one-element-per-cue insertion.",
 					optional: true,
 				},
 				style: {
@@ -1304,25 +1305,15 @@ export function buildSubtitleTools({
 							"insertMode",
 							SUBTITLE_INSERT_MODES,
 						) as SubtitleInsertMode)
-					: "layer";
-
-				const explicitTrackId = optionalStringParam(params, "trackId");
-				const trackId =
-					explicitTrackId ??
-					editor.timeline.addTrack({ type: "text", index: 0 });
-				const track = editor.timeline.getTrackById({ trackId });
-				if (explicitTrackId && !track) {
-					throw new Error(`轨道不存在：找不到轨道 "${explicitTrackId}"`);
-				}
-				if (track && track.type !== "text") {
-					throw new Error(`类型不匹配：无法将字幕插入 ${track.type} 轨道`);
-				}
+					: "project";
 
 				const groupId = `subtitle-${generateUUID()}`;
 				const canvasSize = getCanvasSize({ editor });
 				const maxCharsPerLine =
 					optionalNumberParam(params, "maxCharsPerLine") ??
-					resolveDefaultMaxCharsPerLine();
+					(insertMode === "project"
+						? DEFAULT_PROJECT_SUBTITLE_MAX_CHARS_PER_LINE
+						: resolveDefaultMaxCharsPerLine());
 				const rawLineBreakMode = optionalStringParam(params, "lineBreakMode");
 				const lineBreakMode = rawLineBreakMode
 					? (requireEnumParam(
@@ -1352,22 +1343,84 @@ export function buildSubtitleTools({
 					placement,
 					canvasSize,
 				});
+				const layerCues = buildLayerCues({
+					cues,
+				});
+				const revealMode: SubtitleRevealMode =
+					explicitRevealMode ??
+					(layerCues.some((cue) => (cue.tokens?.length ?? 0) > 0)
+						? "token"
+						: "line");
+
+				if (insertMode === "project") {
+					const previousSubtitles =
+						editor.project.getActiveOrNull()?.settings.subtitles ?? null;
+					void editor.project.updateSettings({
+						settings: {
+							subtitles: {
+								enabled: true,
+								cues: layerCues,
+								revealMode,
+								lineBreakMode,
+								maxCharsPerLine,
+								...(subtitleAssetId
+									? {
+											assetId: subtitleAssetId,
+											...(subtitleAssetName
+												? { assetName: subtitleAssetName }
+												: {}),
+										}
+									: previousSubtitles?.assetId
+										? {
+												assetId: previousSubtitles.assetId,
+												...(previousSubtitles.assetName
+													? { assetName: previousSubtitles.assetName }
+													: {}),
+											}
+										: {}),
+								updatedAt: new Date().toISOString(),
+							},
+						},
+					});
+
+					return {
+						imported: true,
+						insertMode,
+						cueCount: layerCues.length,
+						skippedCueCount,
+						warnings,
+						style,
+						placement,
+						revealMode,
+						global: true,
+						...(subtitleAssetId
+							? {
+									subtitleAssetId,
+									...(subtitleAssetName ? { subtitleAssetName } : {}),
+								}
+							: {}),
+					};
+				}
+
+				const explicitTrackId = optionalStringParam(params, "trackId");
+				const trackId =
+					explicitTrackId ??
+					editor.timeline.addTrack({ type: "text", index: 0 });
+				const track = editor.timeline.getTrackById({ trackId });
+				if (explicitTrackId && !track) {
+					throw new Error(`轨道不存在：找不到轨道 "${explicitTrackId}"`);
+				}
+				if (track && track.type !== "text") {
+					throw new Error(`类型不匹配：无法将字幕插入 ${track.type} 轨道`);
+				}
 
 				if (insertMode === "layer") {
-					const layerCues = buildLayerCues({
-						cues,
-					});
 					const layerDuration = getSubtitleLayerDurationSeconds({
 						cues: layerCues,
 					});
 					const layerDurationTime = mediaTimeFromSeconds({
 						seconds: layerDuration,
 					});
-					const revealMode: SubtitleRevealMode =
-						explicitRevealMode ??
-						(layerCues.some((cue) => (cue.tokens?.length ?? 0) > 0)
-							? "token"
-							: "line");
 					const insertResult = editor.timeline.insertElement({
 						element: {
 							type: "subtitle",

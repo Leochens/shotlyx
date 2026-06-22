@@ -7,6 +7,7 @@ import { invokeAction } from "@/actions";
 import { EditableTimecode } from "@/components/editable-timecode";
 import { Button } from "@/components/ui/button";
 import {
+	ClosedCaptionIcon,
 	FullScreenIcon,
 	PauseIcon,
 	PlayIcon,
@@ -22,8 +23,6 @@ import {
 } from "@/components/ui/select";
 import { PREVIEW_ZOOM_PRESETS } from "@/preview/zoom";
 import { usePreviewViewport } from "./preview-viewport";
-import { GridPopover } from "./guide-popover";
-import { usePreviewStore } from "@/preview/preview-store";
 import type { MediaTime } from "@/wasm";
 
 export function PreviewToolbar({
@@ -37,6 +36,8 @@ export function PreviewToolbar({
 			<PlayPauseButton />
 			<div className="justify-self-end flex items-center gap-2.5">
 				<ZoomSelect />
+				<Separator orientation="vertical" className="h-4" />
+				<SubtitleToggle />
 				<Separator orientation="vertical" className="h-4" />
 				{/* v0.4.0 */}
 				{/* <GridPopover>
@@ -56,6 +57,42 @@ export function PreviewToolbar({
 				</Button>
 			</div>
 		</div>
+	);
+}
+
+function SubtitleToggle() {
+	const editor = useEditor();
+	const subtitles = useEditor(
+		(e) => e.project.getActive().settings.subtitles ?? null,
+	);
+	const hasTranscript = (subtitles?.cues.length ?? 0) > 0;
+	const enabled = subtitles?.enabled ?? true;
+
+	const toggleSubtitles = () => {
+		if (!subtitles) return;
+		void editor.project.updateSettings({
+			settings: {
+				subtitles: {
+					...subtitles,
+					enabled: !enabled,
+					updatedAt: new Date().toISOString(),
+				},
+			},
+		});
+	};
+
+	return (
+		<Button
+			variant={enabled && hasTranscript ? "secondary" : "text"}
+			size="icon"
+			aria-label={enabled ? "关闭字幕" : "开启字幕"}
+			aria-pressed={enabled && hasTranscript}
+			disabled={!hasTranscript}
+			onClick={toggleSubtitles}
+			title={enabled ? "关闭字幕" : "开启字幕"}
+		>
+			<HugeiconsIcon icon={ClosedCaptionIcon} />
+		</Button>
 	);
 }
 

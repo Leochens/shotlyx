@@ -116,6 +116,7 @@ function RenderTreeController() {
 			canvasSize: { width, height },
 			background: activeProject.settings.background,
 			watermark: activeProject.settings.watermark,
+			subtitles: activeProject.settings.subtitles,
 			isPreview: true,
 		});
 
@@ -125,6 +126,7 @@ function RenderTreeController() {
 		mediaAssets,
 		activeProject?.settings.background,
 		activeProject?.settings.watermark,
+		activeProject?.settings.subtitles,
 		width,
 		height,
 	]);

@@ -98,6 +98,40 @@ describe("scene builder watermark", () => {
 		});
 	});
 
+	test("adds project-global subtitles without timeline subtitle elements", () => {
+		const scene = buildScene({
+			canvasSize: { width: 1920, height: 1080 },
+			tracks: emptyTracks(),
+			mediaAssets: [],
+			duration: time(360_000),
+			background: { type: "color", color: "transparent" },
+			subtitles: {
+				enabled: true,
+				revealMode: "line",
+				lineBreakMode: "page",
+				maxCharsPerLine: 30,
+				cues: [
+					{
+						text: "全局字幕不占时间线轨道",
+						startTime: 0,
+						duration: 3,
+					},
+				],
+			},
+		});
+
+		const subtitleNode = scene.children.find(
+			(child): child is TextNode =>
+				child instanceof TextNode &&
+				child.params.params["subtitle.role"] === "project-global",
+		);
+
+		expect(subtitleNode?.params.name).toBe("全局字幕");
+		expect(subtitleNode?.params.type).toBe("subtitle");
+		expect(subtitleNode?.params.duration).toBe(time(360_000));
+		expect(subtitleNode?.params.cues).toHaveLength(1);
+	});
+
 	test("adds image and video watermarks from media assets", () => {
 		const imageScene = buildScene({
 			canvasSize: { width: 1920, height: 1080 },

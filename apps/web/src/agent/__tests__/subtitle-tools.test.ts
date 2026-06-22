@@ -1,9 +1,14 @@
 /* eslint-disable @typescript-eslint/no-unsafe-type-assertion -- Test mocks intentionally narrow EditorCore and MediaTime. */
 import { describe, expect, mock, test } from "bun:test";
 import type { EditorCore } from "@/core";
-import { buildSubtitleTools } from "@/agent/mcp/subtitle-tools";
-import type { MediaTime } from "@/wasm";
+import { opencutWasmMock, wasmMock } from "@/test/wasm-mock";
+import type { MediaTime } from "@/wasm/media-time";
 import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
+
+mock.module("@/wasm", () => wasmMock);
+mock.module("opencut-wasm", () => opencutWasmMock);
+
+const { buildSubtitleTools } = await import("@/agent/mcp/subtitle-tools");
 
 function mockMediaTimeFromSeconds({ seconds }: { seconds: number }): MediaTime {
 	return Math.round(
@@ -19,6 +24,7 @@ function createMockEditor({
 	addTrack = mock(() => "track-sub"),
 	addMediaAsset = mock(() => ({ id: "text-asset", name: "transcript.txt" })),
 	updateElements = mock(() => {}),
+	updateSettings = mock(() => {}),
 	getTrackById = mock(() => null),
 	mediaAssets = [],
 	sceneTracks,
@@ -27,6 +33,7 @@ function createMockEditor({
 	addTrack?: ReturnType<typeof mock>;
 	addMediaAsset?: ReturnType<typeof mock>;
 	updateElements?: ReturnType<typeof mock>;
+	updateSettings?: ReturnType<typeof mock>;
 	getTrackById?: ReturnType<typeof mock>;
 	mediaAssets?: unknown[];
 	sceneTracks?: unknown;
@@ -45,6 +52,7 @@ function createMockEditor({
 				},
 				settings: {
 					canvasSize: { width: 1024, height: 768 },
+					subtitles: null,
 				},
 			}),
 			getActive: () => ({
@@ -53,8 +61,10 @@ function createMockEditor({
 				},
 				settings: {
 					canvasSize: { width: 1024, height: 768 },
+					subtitles: null,
 				},
 			}),
+			updateSettings,
 		},
 		media: {
 			getAssets: () => mediaAssets,
@@ -75,7 +85,66 @@ function createMockEditor({
 }
 
 describe("subtitle tools", () => {
-	test("subtitles_import parses SRT and inserts one subtitle layer by default", () => {
+	test("subtitles_import writes SRT cues to the project-global transcript by default", () => {
+		const insertElement = mock(() => ({
+			elementId: "subtitle-1",
+			trackId: "track-sub",
+		}));
+		const updateSettings = mock(() => {});
+		const editor = createMockEditor({ insertElement, updateSettings });
+		const tools = buildSubtitleTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find((item) => item.name === "subtitles_import");
+
+		const result = tool?.handler({
+			format: "srt",
+			content: [
+				"1",
+				"00:00:00,000 --> 00:00:02,000",
+				"花生其实不是坚果",
+				"",
+				"2",
+				"00:00:02,000 --> 00:00:04,500",
+				"它属于豆科植物",
+			].join("\n"),
+			style: "clean",
+		});
+
+		expect(result).toMatchObject({
+			imported: true,
+			insertMode: "project",
+			global: true,
+			cueCount: 2,
+			skippedCueCount: 0,
+			revealMode: "line",
+		});
+		expect(insertElement.mock.calls.length).toBe(0);
+		expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({
+			settings: {
+				subtitles: {
+					enabled: true,
+					lineBreakMode: "page",
+					maxCharsPerLine: 30,
+					cues: [
+						{
+							text: "花生其实不是坚果",
+							startTime: 0,
+							duration: 2,
+						},
+						{
+							text: "它属于豆科植物",
+							startTime: 2,
+							duration: 2.5,
+						},
+					],
+				},
+			},
+		});
+	});
+
+	test("subtitles_import can still insert one legacy subtitle layer", () => {
 		const insertElement = mock(() => ({
 			elementId: "subtitle-1",
 			trackId: "track-sub",
@@ -89,6 +158,7 @@ describe("subtitle tools", () => {
 
 		const result = tool?.handler({
 			format: "srt",
+			insertMode: "layer",
 			content: [
 				"1",
 				"00:00:00,000 --> 00:00:02,000",
@@ -552,6 +622,7 @@ describe("subtitle tools", () => {
 		expect(() =>
 			tool?.handler({
 				format: "srt",
+				insertMode: "layer",
 				trackId: "missing-track",
 				content: [
 					"1",

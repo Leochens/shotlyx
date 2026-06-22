@@ -2,6 +2,11 @@ import type { FrameRate } from "opencut-wasm";
 import type { ShotlyxMGAsset } from "@/shotlyx/remotion-components/asset-store";
 import type { ProjectBrandKit } from "@/brand-kit/types";
 import type { ProjectMotionGraphicAsset } from "@/motion-graphics/types";
+import type {
+	SubtitleLayerCue,
+	SubtitleLineBreakMode,
+	SubtitleRevealMode,
+} from "@/subtitles/types";
 import type { TScene } from "@/timeline/types";
 import type { MediaTime } from "@/wasm";
 
@@ -67,6 +72,17 @@ export type TProjectCover =
 
 export type TProjectStage = "topic" | "production" | "review" | "published";
 
+export interface TProjectSubtitles {
+	enabled: boolean;
+	cues: SubtitleLayerCue[];
+	revealMode: Exclude<SubtitleRevealMode, "full">;
+	lineBreakMode: SubtitleLineBreakMode;
+	maxCharsPerLine: number;
+	assetId?: string;
+	assetName?: string;
+	updatedAt?: string;
+}
+
 export interface TProjectAssetSummary {
 	videoCount: number;
 	imageCount: number;
@@ -95,6 +111,7 @@ export interface TProjectSettings {
 	background: TBackground;
 	watermark?: TProjectWatermark | null;
 	cover?: TProjectCover | null;
+	subtitles?: TProjectSubtitles | null;
 }
 
 export interface TTimelineViewState {

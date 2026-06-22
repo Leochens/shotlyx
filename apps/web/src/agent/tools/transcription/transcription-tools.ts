@@ -814,7 +814,7 @@ export function createTranscriptionToolDeps({
 
 			input.onProgress?.({
 				stage: "subtitle-import",
-				label: "正在插入字幕到时间线",
+				label: "正在写入全局字幕稿",
 				status: "running",
 			});
 			const importResult = await editor.mcp.execute({
@@ -852,9 +852,12 @@ export function createTranscriptionToolDeps({
 			const data = isRecord(importResult.data) ? importResult.data : {};
 			input.onProgress?.({
 				stage: "subtitle-import",
-				label: "字幕已插入时间线",
+				label: "全局字幕稿已更新",
 				status: "success",
-				detail: typeof data.trackId === "string" ? data.trackId : undefined,
+				detail:
+					typeof data.cueCount === "number"
+						? `${data.cueCount} 条字幕`
+						: undefined,
 			});
 			return {
 				imported: true,
@@ -865,6 +868,7 @@ export function createTranscriptionToolDeps({
 						: timelineTranscription.cues.length,
 				groupId: typeof data.groupId === "string" ? data.groupId : undefined,
 				trackId: typeof data.trackId === "string" ? data.trackId : undefined,
+				global: data.global === true,
 				...subtitleAsset,
 				language: timelineTranscription.language,
 				model: timelineTranscription.model,
@@ -893,7 +897,7 @@ export function buildTranscriptionTools({
 		{
 			name: "subtitles_generate_from_video",
 			description:
-				"从当前时间线提取音频，调用本地或云端 ASR 生成字幕，并将字幕 cue 插入时间线。",
+				"从当前时间线提取音频，调用本地或云端 ASR 生成字幕，并写入项目级全局字幕稿。",
 			parameters: {
 				source: {
 					type: "string",
@@ -934,7 +938,8 @@ export function buildTranscriptionTools({
 				},
 				trackId: {
 					type: "string",
-					description: "可选目标字幕文本轨道 ID；省略时自动创建新字幕轨",
+					description:
+						"兼容旧版时间线字幕的目标文本轨道 ID；默认路径会写入全局字幕稿",
 					optional: true,
 				},
 				revealMode: {

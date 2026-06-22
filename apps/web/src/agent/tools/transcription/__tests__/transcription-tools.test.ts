@@ -169,8 +169,7 @@ describe("transcription tools", () => {
 			status: "success" as const,
 			data: {
 				imported: true,
-				groupId: "subtitle-group",
-				trackId: "subtitle-track",
+				global: true,
 				cueCount: 1,
 			},
 		}));
@@ -294,7 +293,7 @@ describe("transcription tools", () => {
 			imported: true,
 			provider: "tencent",
 			cueCount: 1,
-			groupId: "subtitle-group",
+			global: true,
 			subtitleAssetId: "subtitle-asset",
 			subtitleAssetName: "transcript-tencent.srt",
 		});
@@ -422,7 +421,7 @@ describe("transcription tools", () => {
 		);
 		const execute = mock(async () => ({
 			status: "success" as const,
-			data: { imported: true, cueCount: 1, trackId: "subtitle-track" },
+			data: { imported: true, cueCount: 1, global: true },
 		}));
 		const editor = {
 			scenes: {

@@ -20,9 +20,8 @@ import type {
 	TProjectSettings,
 	TTimelineViewState,
 } from "@/project/types";
-import {
-	getProjectCoverThumbnail,
-} from "@/project/cover";
+import { getProjectCoverThumbnail } from "@/project/cover";
+import { createEmptyProjectSubtitles } from "@/subtitles/project-subtitles";
 import type { ExportOptions, ExportResult, ExportState } from "@/export";
 import { estimateExportRemainingSeconds } from "@/export/progress";
 import { storageService } from "@/services/storage/service";
@@ -193,6 +192,7 @@ export class ProjectManager {
 					type: "color",
 					color: DEFAULT_BACKGROUND_COLOR,
 				},
+				subtitles: createEmptyProjectSubtitles(),
 			},
 			version: CURRENT_PROJECT_VERSION,
 			brandKits: [],
@@ -1059,7 +1059,8 @@ export class ProjectManager {
 		const tracks = this.editor.scenes.getActiveScene().tracks;
 		const mediaAssets = this.editor.media.getAssets();
 		const duration = this.editor.timeline.getTotalDuration();
-		const { canvasSize, background, watermark } = this.active.settings;
+		const { canvasSize, background, watermark, subtitles } =
+			this.active.settings;
 
 		const scene = buildScene({
 			tracks,
@@ -1068,6 +1069,7 @@ export class ProjectManager {
 			canvasSize,
 			background,
 			watermark,
+			subtitles,
 		});
 
 		const renderer = new CanvasRenderer({

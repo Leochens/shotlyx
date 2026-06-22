@@ -376,6 +376,7 @@ export class RendererManager {
 						canvasSize,
 						background: activeProject.settings.background,
 						watermark: activeProject.settings.watermark,
+						subtitles: activeProject.settings.subtitles,
 						shotlyxMGRenderMap,
 					}),
 			});

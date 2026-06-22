@@ -1,4 +1,4 @@
-import type { TextElement, SubtitleElement } from "@/timeline";
+import type { TextElement, SubtitleElement } from "@/timeline/types";
 import type {
 	SubtitleCue,
 	SubtitleCueTranslation,
