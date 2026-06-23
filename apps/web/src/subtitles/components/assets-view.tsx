@@ -477,7 +477,7 @@ export function Captions() {
 		if (!selectedTranscriptTrack) return;
 		dispatch({
 			type: "start",
-			step: "正在分析并剪除气口...",
+			step: "正在让 AI 分析气口...",
 		});
 		const result = await editor.mcp.execute({
 			toolName: "subtitles_cut_filler_words",

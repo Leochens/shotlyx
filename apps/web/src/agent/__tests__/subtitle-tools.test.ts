@@ -340,9 +340,36 @@ describe("subtitle tools", () => {
 		});
 	});
 
-	test("subtitles_cut_filler_words trims filler tokens from a project-global transcript", () => {
+	test("subtitles_cut_filler_words asks AI which transcript candidates to trim", async () => {
 		const updateSettings = mock(() => {});
 		const applySilenceCutPlan = mock(() => true);
+		const fetchFn = Object.assign(
+			mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe("/api/agent/subtitle-filler-analysis");
+				const body = JSON.parse(String(init?.body)) as {
+					candidates: Array<{ id: string; text: string }>;
+				};
+				expect(body.candidates).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							id: "track:voice-track:0:0",
+							text: "嗯",
+						}),
+						expect.objectContaining({
+							id: "track:voice-track:1:0",
+							text: "好啊",
+						}),
+					]),
+				);
+				return new Response(
+					JSON.stringify({
+						cutIds: ["track:voice-track:0:0"],
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				);
+			}),
+			{ preconnect: mock(() => {}) },
+		);
 		const voiceTrack = {
 			id: "voice-track",
 			type: "audio",
@@ -405,19 +432,21 @@ describe("subtitle tools", () => {
 		});
 		const tools = buildSubtitleTools({
 			editor,
-			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds, fetchFn },
 		});
 		const tool = tools.find(
 			(item) => item.name === "subtitles_cut_filler_words",
 		);
 
-		const result = tool?.handler({});
+		const result = await tool?.handler({});
 
 		expect(result).toMatchObject({
 			applied: true,
+			analyzedCandidateCount: 5,
 			candidateCount: 1,
 			removedSeconds: 0.4,
 		});
+		expect(fetchFn).toHaveBeenCalledTimes(1);
 		expect(applySilenceCutPlan.mock.calls[0]?.[0]).toEqual({
 			targets: [
 				{

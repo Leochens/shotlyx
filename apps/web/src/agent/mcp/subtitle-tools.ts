@@ -1016,41 +1016,20 @@ async function saveTranscriptTextAsset({
 	};
 }
 
-const DEFAULT_FILLER_WORDS = [
-	"啊",
-	"啊啊",
-	"嗯",
-	"嗯嗯",
-	"呃",
-	"呃呃",
-	"额",
-	"额额",
-	"哦",
-	"噢",
-	"喔",
-	"唔",
-	"唉",
-	"哎",
-	"呐",
-	"哈",
-	"呃嗯",
-	"um",
-	"uh",
-	"uhh",
-	"umm",
-	"er",
-	"erm",
-	"ah",
-	"oh",
-] as const;
+const DEFAULT_FILLER_ANALYSIS_CANDIDATE_LIMIT = 700;
+const FILLER_CONTEXT_TOKEN_COUNT = 4;
 
 interface FillerCutCandidate {
+	id: string;
 	trackId: string;
 	trackLabel: string;
 	sourceTrackId: string;
 	cueIndex: number;
 	tokenIndex: number;
 	text: string;
+	cueText: string;
+	contextBefore: string;
+	contextAfter: string;
 	startTime: number;
 	endTime: number;
 	duration: number;
@@ -1063,19 +1042,15 @@ function normalizeFillerText({ text }: { text: string }): string {
 		.trim();
 }
 
-function resolveFillerWords({
-	value,
+function isPotentialFillerCandidate({
+	token,
 }: {
-	value: unknown;
-}): Set<string> {
-	const customWords = Array.isArray(value)
-		? value.filter((item): item is string => typeof item === "string")
-		: [];
-	return new Set(
-		[...DEFAULT_FILLER_WORDS, ...customWords]
-			.map((word) => normalizeFillerText({ text: word }))
-			.filter((word) => word.length > 0),
-	);
+	token: SubtitleToken;
+}): boolean {
+	const normalized = normalizeFillerText({ text: token.text });
+	if (normalized.length === 0) return false;
+	if (token.duration > 2.5) return false;
+	return Array.from(normalized).length <= 8;
 }
 
 function getStoredProjectTranscriptTracks({
@@ -1120,28 +1095,42 @@ function resolveFillerCutTracks({
 
 function findFillerCutCandidates({
 	tracks,
-	fillerWords,
+	limit,
 }: {
 	tracks: TProjectSubtitleTrack[];
-	fillerWords: Set<string>;
+	limit: number;
 }): FillerCutCandidate[] {
-	return tracks.flatMap((track) => {
+	const candidates = tracks.flatMap((track) => {
 		const sourceTrackId = track.sourceTrackId;
 		if (!sourceTrackId) return [];
 		return track.cues.flatMap((cue, cueIndex) =>
-			getTranscriptCueTokens({ cue }).flatMap((token, tokenIndex) => {
-				const normalized = normalizeFillerText({ text: token.text });
-				if (!fillerWords.has(normalized)) return [];
+			getTranscriptCueTokens({ cue }).flatMap((token, tokenIndex, tokens) => {
+				if (!isPotentialFillerCandidate({ token })) return [];
 				const endTime = tokenEndTime({ token });
 				if (endTime <= token.startTime) return [];
+				const before = tokens
+					.slice(
+						Math.max(0, tokenIndex - FILLER_CONTEXT_TOKEN_COUNT),
+						tokenIndex,
+					)
+					.map((item) => item.text)
+					.join("");
+				const after = tokens
+					.slice(tokenIndex + 1, tokenIndex + 1 + FILLER_CONTEXT_TOKEN_COUNT)
+					.map((item) => item.text)
+					.join("");
 				return [
 					{
+						id: `${track.id}:${cueIndex}:${tokenIndex}`,
 						trackId: track.id,
 						trackLabel: track.label,
 						sourceTrackId,
 						cueIndex,
 						tokenIndex,
 						text: token.text,
+						cueText: cue.text,
+						contextBefore: before,
+						contextAfter: after,
 						startTime: token.startTime,
 						endTime,
 						duration: endTime - token.startTime,
@@ -1150,6 +1139,7 @@ function findFillerCutCandidates({
 			}),
 		);
 	});
+	return candidates.slice(0, limit);
 }
 
 function mergeSecondRanges({
@@ -1222,7 +1212,10 @@ function buildFillerCutTargets({
 		});
 		if (!sourceTrack) continue;
 		const startSeconds = Math.max(0, candidate.startTime - paddingSeconds);
-		const endSeconds = Math.max(startSeconds, candidate.endTime + paddingSeconds);
+		const endSeconds = Math.max(
+			startSeconds,
+			candidate.endTime + paddingSeconds,
+		);
 		const startTime = mediaTimeFromSeconds({ seconds: startSeconds });
 		const endTime = mediaTimeFromSeconds({ seconds: endSeconds });
 		for (const elementRef of trackElementsOverlappingTimeRange({
@@ -1231,12 +1224,10 @@ function buildFillerCutTargets({
 			endTime,
 		})) {
 			const key = `${elementRef.trackId}:${elementRef.elementId}`;
-			const target =
-				targetsByElement.get(key) ??
-				{
-					...elementRef,
-					ranges: [],
-				};
+			const target = targetsByElement.get(key) ?? {
+				...elementRef,
+				ranges: [],
+			};
 			target.ranges.push({ startTime, endTime });
 			targetsByElement.set(key, target);
 		}
@@ -1261,7 +1252,10 @@ function filterApplicableFillerCandidates({
 		});
 		if (!sourceTrack) return false;
 		const startSeconds = Math.max(0, candidate.startTime - paddingSeconds);
-		const endSeconds = Math.max(startSeconds, candidate.endTime + paddingSeconds);
+		const endSeconds = Math.max(
+			startSeconds,
+			candidate.endTime + paddingSeconds,
+		);
 		const startTime = mediaTimeFromSeconds({ seconds: startSeconds });
 		const endTime = mediaTimeFromSeconds({ seconds: endSeconds });
 		return (
@@ -1271,6 +1265,86 @@ function filterApplicableFillerCandidates({
 				endTime,
 			}).length > 0
 		);
+	});
+}
+
+function resolveFillerAnalysisCandidateLimit({
+	params,
+}: {
+	params: Record<string, unknown>;
+}): number {
+	const requested = optionalNumberParam(params, "maxCandidates");
+	if (requested === undefined) return DEFAULT_FILLER_ANALYSIS_CANDIDATE_LIMIT;
+	return Math.max(1, Math.min(1500, Math.floor(requested)));
+}
+
+function parseFillerAnalysisResponse({
+	value,
+	candidates,
+}: {
+	value: unknown;
+	candidates: FillerCutCandidate[];
+}): FillerCutCandidate[] {
+	if (!isRecord(value)) {
+		throw new Error("provider_error: filler analysis response is invalid");
+	}
+	const cutIds = value.cutIds;
+	if (!Array.isArray(cutIds)) {
+		throw new Error("provider_error: filler analysis response missing cutIds");
+	}
+	const selectedIds = new Set(
+		cutIds.filter((item): item is string => typeof item === "string"),
+	);
+	return candidates.filter((candidate) => selectedIds.has(candidate.id));
+}
+
+async function analyzeFillerCutCandidatesWithAi({
+	fetchFn,
+	candidates,
+	instructions,
+}: {
+	fetchFn: typeof fetch;
+	candidates: FillerCutCandidate[];
+	instructions?: string;
+}): Promise<FillerCutCandidate[]> {
+	const response = await fetchFn("/api/agent/subtitle-filler-analysis", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			instructions,
+			candidates: candidates.map((candidate) => ({
+				id: candidate.id,
+				text: candidate.text,
+				cueText: candidate.cueText,
+				contextBefore: candidate.contextBefore,
+				contextAfter: candidate.contextAfter,
+				trackLabel: candidate.trackLabel,
+				startTimeSeconds: candidate.startTime,
+				endTimeSeconds: candidate.endTime,
+				durationSeconds: candidate.duration,
+			})),
+		}),
+	});
+	if (!response.ok) {
+		let error = `provider_error: filler analysis failed with ${response.status}`;
+		try {
+			const data: unknown = await response.json();
+			if (
+				typeof data === "object" &&
+				data !== null &&
+				"error" in data &&
+				typeof data.error === "string"
+			) {
+				error = data.error;
+			}
+		} catch {
+			// Use status-based error.
+		}
+		throw new Error(error);
+	}
+	return parseFillerAnalysisResponse({
+		value: await response.json(),
+		candidates,
 	});
 }
 
@@ -1476,30 +1550,30 @@ export function buildSubtitleTools({
 						"Structured cues when format is cues: { text, startTimeSeconds, durationSeconds }",
 					optional: true,
 				},
-					trackId: {
-						type: "string",
-						description:
-							"Optional target text track ID. Omit to create a new subtitle text track.",
-						optional: true,
-					},
-					sourceTrackId: {
-						type: "string",
-						description:
-							"Optional source audio track ID for project-global transcript grouping.",
-						optional: true,
-					},
-					sourceTrackName: {
-						type: "string",
-						description:
-							"Optional source audio track display name for project-global transcript grouping.",
-						optional: true,
-					},
-					sourceElementId: {
-						type: "string",
-						description:
-							"Optional source audio element ID when transcript was generated from one clip.",
-						optional: true,
-					},
+				trackId: {
+					type: "string",
+					description:
+						"Optional target text track ID. Omit to create a new subtitle text track.",
+					optional: true,
+				},
+				sourceTrackId: {
+					type: "string",
+					description:
+						"Optional source audio track ID for project-global transcript grouping.",
+					optional: true,
+				},
+				sourceTrackName: {
+					type: "string",
+					description:
+						"Optional source audio track display name for project-global transcript grouping.",
+					optional: true,
+				},
+				sourceElementId: {
+					type: "string",
+					description:
+						"Optional source audio element ID when transcript was generated from one clip.",
+					optional: true,
+				},
 				insertMode: {
 					type: "string",
 					description:
@@ -1616,14 +1690,14 @@ export function buildSubtitleTools({
 					optionalStringParam(params, "highlightColor") ??
 					DEFAULT_SUBTITLE_KARAOKE_HIGHLIGHT_COLOR;
 				const subtitleAssetId = optionalStringParam(params, "subtitleAssetId");
-					const subtitleAssetName = optionalStringParam(
-						params,
-						"subtitleAssetName",
-					);
-					const sourceTrackId = optionalStringParam(params, "sourceTrackId");
-					const sourceTrackName = optionalStringParam(params, "sourceTrackName");
-					const sourceElementId = optionalStringParam(params, "sourceElementId");
-					const styleParams = buildSubtitleStyleParams({
+				const subtitleAssetName = optionalStringParam(
+					params,
+					"subtitleAssetName",
+				);
+				const sourceTrackId = optionalStringParam(params, "sourceTrackId");
+				const sourceTrackName = optionalStringParam(params, "sourceTrackName");
+				const sourceElementId = optionalStringParam(params, "sourceElementId");
+				const styleParams = buildSubtitleStyleParams({
 					style,
 					placement,
 					canvasSize,
@@ -1665,7 +1739,9 @@ export function buildSubtitleTools({
 						updatedAt: new Date().toISOString(),
 					};
 					const nextTracks = [
-						...previousTracks.filter((track) => track.id !== trackIdForTranscript),
+						...previousTracks.filter(
+							(track) => track.id !== trackIdForTranscript,
+						),
 						nextTrack,
 					];
 					void editor.project.updateSettings({
@@ -1838,7 +1914,7 @@ export function buildSubtitleTools({
 		{
 			name: "subtitles_cut_filler_words",
 			description:
-				"基于项目级全局文字稿识别并直接剪除独立气口词/口头气声，如“啊、嗯、呃、哦、额”。用于子 Agent 在生成全局字幕后做一键剪气口；如果还没有全局文字稿，先调用 subtitles_generate_from_video。",
+				"把项目级全局文字稿候选提交给 AI 分析，由 AI 决定需要剪除的冗余气口/口头气声，再自动剪掉对应素材片段。用于子 Agent 在生成全局字幕后做一键剪气口；如果还没有全局文字稿，先调用 subtitles_generate_from_video。",
 			parameters: {
 				transcriptTrackId: {
 					type: "string",
@@ -1857,11 +1933,15 @@ export function buildSubtitleTools({
 						"是否处理所有带 sourceTrackId 的文字稿轨道。默认 false，只处理当前轨道。",
 					optional: true,
 				},
-				fillerWords: {
-					type: "array",
+				instructions: {
+					type: "string",
 					description:
-						"额外气口词数组。工具默认已包含 啊、嗯、呃、哦、额、um、uh 等保守词表。",
-					items: { type: "string", description: "气口词" },
+						"可选的 AI 分析补充要求，例如更激进或更保守。最终仍由 AI 根据上下文返回 cutIds。",
+					optional: true,
+				},
+				maxCandidates: {
+					type: "number",
+					description: "最多提交给 AI 分析的候选词数量，默认 700，最大 1500。",
 					optional: true,
 				},
 				paddingMs: {
@@ -1873,7 +1953,7 @@ export function buildSubtitleTools({
 			},
 			mutating: true,
 			// eslint-disable-next-line shotlyx/prefer-object-params -- MCP tool handlers receive positional params/context.
-			handler: (params, context) => {
+			handler: async (params, context) => {
 				const subtitles = editor.project.getActiveOrNull()?.settings.subtitles;
 				if (!subtitles) {
 					throw new Error("当前项目还没有全局文字稿，请先生成字幕");
@@ -1886,38 +1966,56 @@ export function buildSubtitleTools({
 					Math.max(0, optionalNumberParam(params, "paddingMs") ?? 0) / 1000;
 				const candidates = findFillerCutCandidates({
 					tracks: candidateTracks,
-					fillerWords: resolveFillerWords({ value: params.fillerWords }),
+					limit: resolveFillerAnalysisCandidateLimit({ params }),
 				});
 
 				if (candidates.length === 0) {
 					return {
 						applied: false,
+						analyzedCandidateCount: 0,
 						candidateCount: 0,
 						removedSeconds: 0,
-						message: "没有识别到可剪除的独立气口词。",
+						message: "没有可交给 AI 分析的字幕候选。",
 					};
 				}
 
 				context?.onProgress?.({
 					stage: "subtitle-filler-cut",
-					label: "正在剪除气口",
+					label: "正在让 AI 分析气口",
 					status: "running",
 					detail: `${candidates.length} tokens`,
 				});
 
+				const selectedCandidates = await analyzeFillerCutCandidatesWithAi({
+					fetchFn,
+					candidates,
+					instructions: optionalStringParam(params, "instructions"),
+				});
+
+				if (selectedCandidates.length === 0) {
+					return {
+						applied: false,
+						analyzedCandidateCount: candidates.length,
+						candidateCount: 0,
+						removedSeconds: 0,
+						message: "AI 没有判断出需要剪除的气口。",
+					};
+				}
+
 				const applicableCandidates = filterApplicableFillerCandidates({
 					editor,
 					mediaTimeFromSeconds,
-					candidates,
+					candidates: selectedCandidates,
 					paddingSeconds,
 				});
 
 				if (applicableCandidates.length === 0) {
 					return {
 						applied: false,
-						candidateCount: candidates.length,
+						analyzedCandidateCount: candidates.length,
+						candidateCount: selectedCandidates.length,
 						removedSeconds: 0,
-						message: "识别到了气口词，但没有命中对应素材片段。",
+						message: "AI 选出了气口，但没有命中对应素材片段。",
 					};
 				}
 
@@ -1931,9 +2029,10 @@ export function buildSubtitleTools({
 				if (targets.length === 0) {
 					return {
 						applied: false,
+						analyzedCandidateCount: candidates.length,
 						candidateCount: applicableCandidates.length,
 						removedSeconds: 0,
-						message: "识别到了气口词，但没有命中对应素材片段。",
+						message: "AI 选出了气口，但没有命中对应素材片段。",
 					};
 				}
 
@@ -1941,7 +2040,8 @@ export function buildSubtitleTools({
 				if (!didApply) {
 					return {
 						applied: false,
-						candidateCount: candidates.length,
+						analyzedCandidateCount: candidates.length,
+						candidateCount: selectedCandidates.length,
 						removedSeconds: 0,
 						message: "剪气口没有产生可应用的时间线变化。",
 					};
@@ -1989,11 +2089,12 @@ export function buildSubtitleTools({
 					stage: "subtitle-filler-cut",
 					label: "气口剪除完成",
 					status: "success",
-					detail: `${candidates.length} tokens`,
+					detail: `${applicableCandidates.length} tokens`,
 				});
 
 				return {
 					applied: true,
+					analyzedCandidateCount: candidates.length,
 					candidateCount: applicableCandidates.length,
 					rangeCount: cutRanges.length,
 					targetCount: targets.length,
@@ -2001,17 +2102,16 @@ export function buildSubtitleTools({
 					tracks: Array.from(
 						new Set(applicableCandidates.map((candidate) => candidate.trackId)),
 					),
-					candidates: applicableCandidates
-						.slice(0, 20)
-						.map((candidate) => ({
-							text: candidate.text,
-							trackId: candidate.trackId,
-							sourceTrackId: candidate.sourceTrackId,
-							startTimeSeconds: candidate.startTime,
-							endTimeSeconds: candidate.endTime,
-						})),
+					candidates: applicableCandidates.slice(0, 20).map((candidate) => ({
+						text: candidate.text,
+						id: candidate.id,
+						trackId: candidate.trackId,
+						sourceTrackId: candidate.sourceTrackId,
+						startTimeSeconds: candidate.startTime,
+						endTimeSeconds: candidate.endTime,
+					})),
 					truncatedCandidates: applicableCandidates.length > 20,
-					message: `已剪掉 ${applicableCandidates.length} 个气口词，时间线缩短约 ${removedSeconds.toFixed(2)} 秒。`,
+					message: `AI 已判断并剪掉 ${applicableCandidates.length} 个气口，时间线缩短约 ${removedSeconds.toFixed(2)} 秒。`,
 				};
 			},
 		},

@@ -736,6 +736,36 @@ test.describe("global subtitles", () => {
 		await expect(page.getByTestId("global-transcript-list")).toContainText(
 			"嗯大家好",
 		);
+		let analysisCallCount = 0;
+		await page.route("**/api/agent/subtitle-filler-analysis", async (route) => {
+			analysisCallCount += 1;
+			const body = route.request().postDataJSON() as {
+				candidates: Array<{ id: string; text: string }>;
+			};
+			expect(body.candidates).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ id: "track:voice-track:0:0", text: "嗯" }),
+					expect.objectContaining({
+						id: "track:voice-track:1:0",
+						text: "好啊",
+					}),
+				]),
+			);
+			await route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				body: JSON.stringify({
+					cutIds: ["track:voice-track:0:0"],
+					decisions: [
+						{
+							id: "track:voice-track:0:0",
+							shouldCut: true,
+							reason: "AI selected standalone filler",
+						},
+					],
+				}),
+			});
+		});
 		await page.getByRole("button", { name: "一键剪气口" }).click();
 		await expect(page.getByTestId("global-transcript-list")).not.toContainText(
 			"嗯",
@@ -763,6 +793,7 @@ test.describe("global subtitles", () => {
 				}),
 			)
 			.toBe(672_000);
+		expect(analysisCallCount).toBe(1);
 		expect(runtimeErrors).toEqual([]);
 	});
 });
