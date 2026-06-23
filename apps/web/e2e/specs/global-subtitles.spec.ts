@@ -837,6 +837,49 @@ test.describe("global subtitles", () => {
 			"data-active",
 			"true",
 		);
+		await expect
+			.poll(async () =>
+				page.evaluate(async () => {
+					const [
+						{ EditorCore },
+						{ buildProjectSubtitleElements },
+						{ resolveSubtitleTextAtTime },
+						{ mediaTimeFromSeconds, mediaTimeToSeconds },
+					] = await Promise.all([
+						import("/src/core/index.ts"),
+						import("/src/subtitles/project-subtitles.ts"),
+						import("/src/subtitles/layer.ts"),
+						import("/src/wasm/media-time.ts"),
+					]);
+					const editor = EditorCore.getInstance();
+					const project = editor.project.getActive();
+					const element = buildProjectSubtitleElements({
+						subtitles: project.settings.subtitles,
+						canvasSize: project.settings.canvasSize,
+						duration: editor.timeline.getTotalDuration(),
+						timelineTracks: editor.scenes.getActiveScene().tracks,
+					})[0];
+					if (!element) return null;
+					return {
+						startTimeSeconds: mediaTimeToSeconds({ time: element.startTime }),
+						beforeText:
+							resolveSubtitleTextAtTime({
+								element,
+								timelineTime: mediaTimeFromSeconds({ seconds: 0.2 }),
+							})?.text ?? null,
+						movedText:
+							resolveSubtitleTextAtTime({
+								element,
+								timelineTime: mediaTimeFromSeconds({ seconds: 10.2 }),
+							})?.text ?? null,
+					};
+				}),
+			)
+			.toEqual({
+				startTimeSeconds: 10,
+				beforeText: null,
+				movedText: "移",
+			});
 		await page.getByTestId("transcript-token-0-0").click();
 		await expect
 			.poll(async () =>

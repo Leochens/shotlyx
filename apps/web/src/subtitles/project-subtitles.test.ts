@@ -6,6 +6,7 @@ mock.module("@/wasm", () => wasmMock);
 mock.module("opencut-wasm", () => opencutWasmMock);
 
 const { buildProjectSubtitleElements } = await import("./project-subtitles");
+const { resolveSubtitleTextAtTime } = await import("./layer");
 const { mediaTimeFromSeconds } = await import("@/wasm/media-time");
 
 function videoElement({
@@ -132,7 +133,27 @@ describe("project subtitles", () => {
 			},
 		});
 
-		expect(elements[0]?.cues[0]?.startTime).toBe(11);
-		expect(elements[0]?.cues[0]?.tokens?.[1]?.startTime).toBe(12);
+		const subtitleElement = elements[0];
+		expect(subtitleElement?.startTime).toBe(
+			mediaTimeFromSeconds({ seconds: 11 }),
+		);
+		expect(subtitleElement?.cues[0]?.startTime).toBe(0);
+		expect(subtitleElement?.cues[0]?.tokens?.[1]?.startTime).toBe(1);
+		expect(
+			subtitleElement
+				? resolveSubtitleTextAtTime({
+						element: subtitleElement,
+						timelineTime: mediaTimeFromSeconds({ seconds: 0 }),
+					})
+				: null,
+		).toBeNull();
+		expect(
+			subtitleElement
+				? resolveSubtitleTextAtTime({
+						element: subtitleElement,
+						timelineTime: mediaTimeFromSeconds({ seconds: 11.5 }),
+					})?.text
+				: null,
+		).toBe("你");
 	});
 });

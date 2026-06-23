@@ -6,8 +6,13 @@ import type {
 	TProjectSubtitles,
 } from "@/project/types";
 import type { SceneTracks, SubtitleElement } from "@/timeline/types";
+import type { SubtitleLayerCue } from "@/subtitles/types";
 import { getTimelineSubtitleTrack } from "@/subtitles/timing-bindings";
-import { mediaTimeFromSeconds, type MediaTime } from "@/wasm/media-time";
+import {
+	mediaTimeFromSeconds,
+	mediaTimeToSeconds,
+	type MediaTime,
+} from "@/wasm/media-time";
 
 export const DEFAULT_PROJECT_SUBTITLE_MAX_CHARS_PER_LINE = 30;
 const PROJECT_SUBTITLE_STACK_OFFSET_RATIO = 0.07;
@@ -47,6 +52,71 @@ function getRenderableSubtitleTracks({
 				: {}),
 		},
 	];
+}
+
+function getCueStartSeconds({ cue }: { cue: SubtitleLayerCue }): number {
+	return cue.startTime;
+}
+
+function getCueEndSeconds({ cue }: { cue: SubtitleLayerCue }): number {
+	return cue.startTime + cue.duration;
+}
+
+function getSubtitleTrackStartSeconds({
+	track,
+}: {
+	track: TProjectSubtitleTrack;
+}): number {
+	return Math.min(...track.cues.map((cue) => getCueStartSeconds({ cue })));
+}
+
+function getSubtitleTrackEndSeconds({
+	track,
+}: {
+	track: TProjectSubtitleTrack;
+}): number {
+	return Math.max(...track.cues.map((cue) => getCueEndSeconds({ cue })));
+}
+
+function shiftProjectSubtitleCue({
+	cue,
+	offsetSeconds,
+}: {
+	cue: SubtitleLayerCue;
+	offsetSeconds: number;
+}): SubtitleLayerCue {
+	if (offsetSeconds === 0) return cue;
+	return {
+		...cue,
+		startTime: cue.startTime + offsetSeconds,
+		tokens: cue.tokens?.map((token) => ({
+			...token,
+			startTime: token.startTime + offsetSeconds,
+		})),
+	};
+}
+
+function getElementRelativeSubtitleTrack({
+	track,
+}: {
+	track: TProjectSubtitleTrack;
+}): {
+	startTimeSeconds: number;
+	durationSeconds: number;
+	cues: SubtitleLayerCue[];
+} {
+	const startTimeSeconds = getSubtitleTrackStartSeconds({ track });
+	const endTimeSeconds = getSubtitleTrackEndSeconds({ track });
+	return {
+		startTimeSeconds,
+		durationSeconds: Math.max(0, endTimeSeconds - startTimeSeconds),
+		cues: track.cues.map((cue) =>
+			shiftProjectSubtitleCue({
+				cue,
+				offsetSeconds: -startTimeSeconds,
+			}),
+		),
+	};
 }
 
 export function buildDefaultProjectSubtitleStyleParams({
@@ -113,17 +183,33 @@ export function buildProjectSubtitleElements({
 			track: storedTrack,
 			tracks: timelineTracks,
 		});
+		const relativeTrack = getElementRelativeSubtitleTrack({ track });
+		const elementStartTime = mediaTimeFromSeconds({
+			seconds: relativeTrack.startTimeSeconds,
+		});
+		const requestedDurationSeconds = mediaTimeToSeconds({
+			time: duration as MediaTime,
+		});
+		const elementDuration = mediaTimeFromSeconds({
+			seconds: Math.max(
+				0,
+				Math.max(
+					relativeTrack.durationSeconds,
+					requestedDurationSeconds - relativeTrack.startTimeSeconds,
+				),
+			),
+		});
 		const stackOffset =
 			trackIndex * canvasSize.height * PROJECT_SUBTITLE_STACK_OFFSET_RATIO;
 		return {
 			id: `project-global-subtitles-${track.id}`,
 			type: "subtitle",
 			name: track.label,
-			startTime: 0 as MediaTime,
-			duration: duration as MediaTime,
+			startTime: elementStartTime,
+			duration: elementDuration,
 			trimStart: 0 as MediaTime,
 			trimEnd: 0 as MediaTime,
-			sourceDuration: duration as MediaTime,
+			sourceDuration: elementDuration,
 			revealMode: subtitles.revealMode,
 			params: {
 				...defaultStyleParams,
@@ -135,7 +221,7 @@ export function buildProjectSubtitleElements({
 					DEFAULT_PROJECT_SUBTITLE_MAX_CHARS_PER_LINE,
 				"subtitle.lineBreakMode": subtitles.lineBreakMode,
 			},
-			cues: track.cues,
+			cues: relativeTrack.cues,
 		};
 	});
 }
