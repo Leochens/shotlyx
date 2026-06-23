@@ -244,6 +244,7 @@ describe("subtitle tools", () => {
 			format: "cues",
 			sourceTrackId: "voice-track",
 			sourceTrackName: "V1",
+			sourceTimelineStartTimeSeconds: 5,
 			cues: [
 				{
 					text: "第一轨字幕",
@@ -270,6 +271,7 @@ describe("subtitle tools", () => {
 							id: "track:voice-track",
 							label: "V1",
 							sourceTrackId: "voice-track",
+							sourceTimelineStartTimeSeconds: 5,
 							cues: [
 								{
 									text: "第一轨字幕",

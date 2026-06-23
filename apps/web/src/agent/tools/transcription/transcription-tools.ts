@@ -25,6 +25,7 @@ import {
 	audioRangeToSeconds,
 	getTimelineAudioRange,
 	resolveSelectedTranscriptionAudioRange,
+	resolveTranscriptionAudioRangeByRef,
 	type TranscriptionAudioRange,
 } from "@/transcription/audio-range";
 import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
@@ -385,6 +386,22 @@ function resolveRequestedAudioRange({
 	input: GenerateSubtitlesFromVideoInput;
 	editor: EditorCore;
 }): TranscriptionAudioRange {
+	const sceneTracks = editor.scenes.getActiveScene().tracks;
+	if (input.audioRangeTrackId) {
+		const sourceRange = resolveTranscriptionAudioRangeByRef({
+			tracks: sceneTracks,
+			mediaAssets: editor.media.getAssets(),
+			trackId: input.audioRangeTrackId,
+			elementId: input.audioRangeElementId,
+		});
+		if (sourceRange) {
+			return constrainRequestedAudioRangeToSourceRange({
+				input,
+				sourceRange,
+			});
+		}
+	}
+
 	const totalDuration = editor.timeline.getTotalDuration();
 	if (
 		typeof input.audioRangeStartSeconds === "number" &&
@@ -395,7 +412,7 @@ function resolveRequestedAudioRange({
 	) {
 		const explicitTrack = input.audioRangeTrackId
 			? findTimelineTrackById({
-					tracks: editor.scenes.getActiveScene().tracks,
+					tracks: sceneTracks,
 					trackId: input.audioRangeTrackId,
 				})
 			: null;
@@ -407,8 +424,7 @@ function resolveRequestedAudioRange({
 		return {
 			kind: rangeKind,
 			startTime: Math.round(
-				Math.max(0, input.audioRangeStartSeconds) *
-					MEDIA_TIME_TICKS_PER_SECOND,
+				Math.max(0, input.audioRangeStartSeconds) * MEDIA_TIME_TICKS_PER_SECOND,
 			),
 			duration: Math.round(
 				input.audioRangeDurationSeconds * MEDIA_TIME_TICKS_PER_SECOND,
@@ -427,12 +443,13 @@ function resolveRequestedAudioRange({
 								trackId: input.audioRangeTrackId,
 							},
 						}
-				: {}),
+					: {}),
 		};
 	}
 
-	let selectedElements: ReturnType<EditorCore["selection"]["getSelectedElements"]> =
-		[];
+	let selectedElements: ReturnType<
+		EditorCore["selection"]["getSelectedElements"]
+	> = [];
 	try {
 		selectedElements = editor.selection.getSelectedElements();
 	} catch {
@@ -452,6 +469,40 @@ function resolveRequestedAudioRange({
 	}
 
 	return getTimelineAudioRange({ totalDuration });
+}
+
+function constrainRequestedAudioRangeToSourceRange({
+	input,
+	sourceRange,
+}: {
+	input: GenerateSubtitlesFromVideoInput;
+	sourceRange: TranscriptionAudioRange;
+}): TranscriptionAudioRange {
+	if (
+		typeof input.audioRangeStartSeconds !== "number" ||
+		!Number.isFinite(input.audioRangeStartSeconds) ||
+		typeof input.audioRangeDurationSeconds !== "number" ||
+		!Number.isFinite(input.audioRangeDurationSeconds) ||
+		input.audioRangeDurationSeconds <= 0
+	) {
+		return sourceRange;
+	}
+
+	const requestedStartTime = Math.round(
+		Math.max(0, input.audioRangeStartSeconds) * MEDIA_TIME_TICKS_PER_SECOND,
+	);
+	const requestedEndTime =
+		requestedStartTime +
+		Math.round(input.audioRangeDurationSeconds * MEDIA_TIME_TICKS_PER_SECOND);
+	const sourceEndTime = sourceRange.startTime + sourceRange.duration;
+	const startTime = Math.max(sourceRange.startTime, requestedStartTime);
+	const endTime = Math.min(sourceEndTime, requestedEndTime);
+	if (endTime <= startTime) return sourceRange;
+	return {
+		...sourceRange,
+		startTime,
+		duration: endTime - startTime,
+	};
 }
 
 function findTimelineTrackById({
@@ -863,29 +914,35 @@ export function createTranscriptionToolDeps({
 					cues: timelineTranscription.cues,
 					style: input.style ?? DEFAULT_SUBTITLE_STYLE,
 					placement: input.placement ?? DEFAULT_SUBTITLE_PLACEMENT,
-						...(subtitleAsset.subtitleAssetId
-							? {
-									subtitleAssetId: subtitleAsset.subtitleAssetId,
-									...(subtitleAsset.subtitleAssetName
-										? { subtitleAssetName: subtitleAsset.subtitleAssetName }
-										: {}),
-								}
-							: {}),
-						...(audioRange.trackRef
-							? {
-									sourceTrackId: audioRange.trackRef.trackId,
-									sourceTrackName: audioRange.label,
-								}
-							: {}),
-						...(audioRange.elementRef
-							? {
-									sourceTrackId: audioRange.elementRef.trackId,
-									sourceElementId: audioRange.elementRef.elementId,
-									sourceTrackName: audioRange.label,
-								}
-							: {}),
-						...(input.trackId ? { trackId: input.trackId } : {}),
-						...(input.revealMode ? { revealMode: input.revealMode } : {}),
+					...(subtitleAsset.subtitleAssetId
+						? {
+								subtitleAssetId: subtitleAsset.subtitleAssetId,
+								...(subtitleAsset.subtitleAssetName
+									? { subtitleAssetName: subtitleAsset.subtitleAssetName }
+									: {}),
+							}
+						: {}),
+					...(audioRange.trackRef
+						? {
+								sourceTrackId: audioRange.trackRef.trackId,
+								sourceTrackName: audioRange.label,
+							}
+						: {}),
+					...(audioRange.elementRef
+						? {
+								sourceTrackId: audioRange.elementRef.trackId,
+								sourceElementId: audioRange.elementRef.elementId,
+								sourceTrackName: audioRange.label,
+							}
+						: {}),
+					...(audioRange.trackRef || audioRange.elementRef
+						? {
+								sourceTimelineStartTimeSeconds:
+									audioRangeSeconds.startTimeSeconds,
+							}
+						: {}),
+					...(input.trackId ? { trackId: input.trackId } : {}),
+					...(input.revealMode ? { revealMode: input.revealMode } : {}),
 					...(input.lineBreakMode
 						? { lineBreakMode: input.lineBreakMode }
 						: {}),
@@ -932,13 +989,13 @@ export function createTranscriptionToolDeps({
 						label: audioRange.label,
 						startTimeSeconds: audioRangeSeconds.startTimeSeconds,
 						durationSeconds: audioRangeSeconds.durationSeconds,
-							...(audioRange.elementRef
-								? { elementRef: audioRange.elementRef }
-								: {}),
-							...(audioRange.trackRef ? { trackRef: audioRange.trackRef } : {}),
-						},
+						...(audioRange.elementRef
+							? { elementRef: audioRange.elementRef }
+							: {}),
+						...(audioRange.trackRef ? { trackRef: audioRange.trackRef } : {}),
 					},
-				};
+				},
+			};
 		},
 	};
 }

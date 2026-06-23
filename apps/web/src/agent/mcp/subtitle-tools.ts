@@ -1250,10 +1250,7 @@ function getFillerCandidateTimelineRangeSeconds({
 			: {}),
 	};
 	const tracks = editor.scenes.getActiveScene().tracks;
-	const storedStartSeconds = Math.max(
-		0,
-		candidate.startTime - paddingSeconds,
-	);
+	const storedStartSeconds = Math.max(0, candidate.startTime - paddingSeconds);
 	const storedEndSeconds = Math.max(
 		storedStartSeconds,
 		candidate.endTime + paddingSeconds,
@@ -1302,12 +1299,13 @@ function buildFillerCutTargets({
 			trackId: candidate.sourceTrackId,
 		});
 		if (!sourceTrack) continue;
-		const { startSeconds, endSeconds } =
-			getFillerCandidateTimelineRangeSeconds({
+		const { startSeconds, endSeconds } = getFillerCandidateTimelineRangeSeconds(
+			{
 				editor,
 				candidate,
 				paddingSeconds,
-			});
+			},
+		);
 		const startTime = mediaTimeFromSeconds({ seconds: startSeconds });
 		const endTime = mediaTimeFromSeconds({ seconds: endSeconds });
 		for (const elementRef of trackElementsOverlappingTimeRange({
@@ -1343,12 +1341,13 @@ function filterApplicableFillerCandidates({
 			trackId: candidate.sourceTrackId,
 		});
 		if (!sourceTrack) return false;
-		const { startSeconds, endSeconds } =
-			getFillerCandidateTimelineRangeSeconds({
+		const { startSeconds, endSeconds } = getFillerCandidateTimelineRangeSeconds(
+			{
 				editor,
 				candidate,
 				paddingSeconds,
-			});
+			},
+		);
 		const startTime = mediaTimeFromSeconds({ seconds: startSeconds });
 		const endTime = mediaTimeFromSeconds({ seconds: endSeconds });
 		return (
@@ -1667,6 +1666,12 @@ export function buildSubtitleTools({
 						"Optional source audio element ID when transcript was generated from one clip.",
 					optional: true,
 				},
+				sourceTimelineStartTimeSeconds: {
+					type: "number",
+					description:
+						"Optional timeline start time, in seconds, of the source track or element when the transcript was generated.",
+					optional: true,
+				},
 				insertMode: {
 					type: "string",
 					description:
@@ -1790,7 +1795,12 @@ export function buildSubtitleTools({
 				const sourceTrackId = optionalStringParam(params, "sourceTrackId");
 				const sourceTrackName = optionalStringParam(params, "sourceTrackName");
 				const sourceElementId = optionalStringParam(params, "sourceElementId");
+				const explicitSourceTimelineStartTimeSeconds = optionalNumberParam(
+					params,
+					"sourceTimelineStartTimeSeconds",
+				);
 				const resolvedSourceTimelineStartTimeSeconds =
+					explicitSourceTimelineStartTimeSeconds ??
 					resolveSubtitleSourceTimelineStartSeconds({
 						sourceTrackId,
 						sourceElementId,

@@ -203,6 +203,80 @@ export function getTranscriptionAudioElementOptions({
 	return options;
 }
 
+function getOrderedTimelineTracks({
+	tracks,
+}: {
+	tracks: SceneTracks;
+}): TimelineTrack[] {
+	return [...tracks.overlay, tracks.main, ...tracks.audio];
+}
+
+export function resolveTranscriptionAudioRangeByRef({
+	tracks,
+	mediaAssets,
+	trackId,
+	elementId,
+}: {
+	tracks: SceneTracks;
+	mediaAssets: MediaAsset[];
+	trackId: string;
+	elementId?: string | null;
+}): TranscriptionAudioRange | null {
+	const track =
+		getOrderedTimelineTracks({ tracks }).find((item) => item.id === trackId) ??
+		null;
+	if (!track) return null;
+
+	if (elementId) {
+		const element =
+			track.elements.find((candidate) => candidate.id === elementId) ?? null;
+		if (
+			!element ||
+			!isElementAudibleForTranscription({ element, track, mediaAssets })
+		) {
+			return null;
+		}
+		return {
+			kind: "element",
+			startTime: element.startTime,
+			duration: element.duration,
+			label: element.name || track.name || "Audio clip",
+			elementRef: { trackId, elementId },
+		};
+	}
+
+	const audibleElements = track.elements.filter((element) =>
+		isElementAudibleForTranscription({
+			element,
+			track,
+			mediaAssets,
+		}),
+	);
+	if (audibleElements.length === 0) return null;
+
+	const startTime = Math.min(
+		...audibleElements.map((element) => element.startTime),
+	);
+	const endTime = Math.max(
+		...audibleElements.map((element) => element.startTime + element.duration),
+	);
+	return {
+		kind: "track",
+		startTime,
+		duration: endTime - startTime,
+		label: track.name || track.id,
+		trackRef: { trackId },
+		...(audibleElements.length === 1
+			? {
+					elementRef: {
+						trackId,
+						elementId: audibleElements[0].id,
+					},
+				}
+			: {}),
+	};
+}
+
 export function getTranscriptionAudioTrackOptions({
 	tracks,
 	mediaAssets,
@@ -210,7 +284,7 @@ export function getTranscriptionAudioTrackOptions({
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
 }): TranscriptionAudioTrackOption[] {
-	const orderedTracks = [...tracks.overlay, tracks.main, ...tracks.audio];
+	const orderedTracks = getOrderedTimelineTracks({ tracks });
 	const options: TranscriptionAudioTrackOption[] = [];
 
 	for (const track of orderedTracks) {
@@ -227,9 +301,7 @@ export function getTranscriptionAudioTrackOptions({
 			...audibleElements.map((element) => element.startTime),
 		);
 		const endTime = Math.max(
-			...audibleElements.map(
-				(element) => element.startTime + element.duration,
-			),
+			...audibleElements.map((element) => element.startTime + element.duration),
 		);
 		options.push({
 			kind: "track",
@@ -276,7 +348,9 @@ export function resolveSelectedTranscriptionAudioRange({
 		...audibleSelected.map(({ element }) => element.startTime),
 	);
 	const endTime = Math.max(
-		...audibleSelected.map(({ element }) => element.startTime + element.duration),
+		...audibleSelected.map(
+			({ element }) => element.startTime + element.duration,
+		),
 	);
 	const first = audibleSelected[0];
 

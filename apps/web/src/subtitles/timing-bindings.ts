@@ -4,6 +4,7 @@ import type { SceneTracks, TimelineElement, TimelineTrack } from "@/timeline";
 import { mediaTimeToSeconds } from "@/wasm/media-time";
 
 const LEGACY_ZERO_START_CUE_THRESHOLD_SECONDS = 5;
+const SOURCE_RELATIVE_CUE_EPSILON_SECONDS = 0.001;
 
 function getAllTracks({ tracks }: { tracks: SceneTracks }): TimelineTrack[] {
 	return [...tracks.overlay, tracks.main, ...tracks.audio];
@@ -72,6 +73,30 @@ function getSubtitleTrackSourceTimelineStartSeconds({
 	return Math.max(0, Math.floor(earliestCueStart));
 }
 
+function getStoredCueTimelineBaseOffsetSeconds({
+	track,
+}: {
+	track: TProjectSubtitleTrack;
+}): number {
+	const sourceTimelineStartTimeSeconds =
+		typeof track.sourceTimelineStartTimeSeconds === "number"
+			? track.sourceTimelineStartTimeSeconds
+			: null;
+	if (
+		sourceTimelineStartTimeSeconds === null ||
+		sourceTimelineStartTimeSeconds <= 0
+	) {
+		return 0;
+	}
+	const earliestCueStart = earliestCueStartSeconds({ track });
+	if (earliestCueStart === null) return 0;
+
+	return earliestCueStart + SOURCE_RELATIVE_CUE_EPSILON_SECONDS <
+		sourceTimelineStartTimeSeconds
+		? sourceTimelineStartTimeSeconds
+		: 0;
+}
+
 export function resolveSubtitleSourceTimelineStartSeconds({
 	sourceTrackId,
 	sourceElementId,
@@ -93,7 +118,9 @@ export function resolveSubtitleSourceTimelineStartSeconds({
 		}
 	}
 	const sourceTrack = findTrackById({ tracks, trackId: sourceTrackId });
-	return sourceTrack ? earliestElementStartSeconds({ track: sourceTrack }) : null;
+	return sourceTrack
+		? earliestElementStartSeconds({ track: sourceTrack })
+		: null;
 }
 
 export function getSubtitleTrackTimelineOffsetSeconds({
@@ -113,7 +140,11 @@ export function getSubtitleTrackTimelineOffsetSeconds({
 		tracks,
 	});
 	if (currentStart === null) return 0;
-	return currentStart - sourceTimelineStartTimeSeconds;
+	return (
+		getStoredCueTimelineBaseOffsetSeconds({ track }) +
+		currentStart -
+		sourceTimelineStartTimeSeconds
+	);
 }
 
 function shiftTokenTime({
@@ -153,13 +184,14 @@ export function getTimelineSubtitleTrack({
 	track: TProjectSubtitleTrack;
 	tracks?: SceneTracks | null;
 }): TProjectSubtitleTrack {
-	const offsetSeconds = getSubtitleTrackTimelineOffsetSeconds({ track, tracks });
+	const offsetSeconds = getSubtitleTrackTimelineOffsetSeconds({
+		track,
+		tracks,
+	});
 	if (offsetSeconds === 0) return track;
 	return {
 		...track,
-		cues: track.cues.map((cue) =>
-			shiftSubtitleCueTime({ cue, offsetSeconds }),
-		),
+		cues: track.cues.map((cue) => shiftSubtitleCueTime({ cue, offsetSeconds })),
 	};
 }
 

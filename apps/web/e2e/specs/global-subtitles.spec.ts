@@ -896,6 +896,300 @@ test.describe("global subtitles", () => {
 		expect(runtimeErrors).toEqual([]);
 	});
 
+	test("generates global subtitles at the moved source clip start", async ({
+		page,
+	}) => {
+		const runtimeErrors = collectSubtitleRuntimeErrors({ page });
+		await setupEditorPage(page);
+		await page.route("**/api/agent/transcription", async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				body: JSON.stringify({
+					text: "先移后识别",
+					provider: "volcengine",
+					cues: [
+						{
+							text: "先移后识别",
+							startTimeSeconds: 0,
+							durationSeconds: 1,
+							tokens: [
+								{ text: "先", startTime: 0, duration: 0.25 },
+								{ text: "移", startTime: 0.25, duration: 0.25 },
+								{ text: "后", startTime: 0.5, duration: 0.25 },
+								{ text: "识", startTime: 0.75, duration: 0.25 },
+							],
+						},
+					],
+				}),
+			});
+		});
+
+		await expect
+			.poll(async () =>
+				page.evaluate(async () => {
+					const [{ EditorCore }, { mediaTimeFromSeconds, mediaTimeToSeconds }] =
+						await Promise.all([
+							import("/src/core/index.ts"),
+							import("/src/wasm/media-time.ts"),
+						]);
+					const editor = EditorCore.getInstance();
+					const wavFile = (() => {
+						const sampleRate = 8_000;
+						const durationSeconds = 2;
+						const dataSize = sampleRate * durationSeconds * 2;
+						const buffer = new ArrayBuffer(44 + dataSize);
+						const view = new DataView(buffer);
+						const writeAscii = (offset: number, value: string) => {
+							for (let index = 0; index < value.length; index += 1) {
+								view.setUint8(offset + index, value.charCodeAt(index));
+							}
+						};
+						writeAscii(0, "RIFF");
+						view.setUint32(4, 36 + dataSize, true);
+						writeAscii(8, "WAVE");
+						writeAscii(12, "fmt ");
+						view.setUint32(16, 16, true);
+						view.setUint16(20, 1, true);
+						view.setUint16(22, 1, true);
+						view.setUint32(24, sampleRate, true);
+						view.setUint32(28, sampleRate * 2, true);
+						view.setUint16(32, 2, true);
+						view.setUint16(34, 16, true);
+						writeAscii(36, "data");
+						view.setUint32(40, dataSize, true);
+						return new File([buffer], "moved-voice.wav", {
+							type: "audio/wav",
+						});
+					})();
+					const mediaManager = editor.media as typeof editor.media & {
+						assets: unknown[];
+						notify: () => void;
+					};
+					mediaManager.assets = [
+						...editor.media.getAssets(),
+						{
+							id: "moved-voice-media",
+							name: "moved-voice.wav",
+							type: "audio",
+							file: wavFile,
+							duration: 2,
+							hasAudio: true,
+						},
+					];
+					mediaManager.notify();
+					const scene = editor.scenes.getActiveScene();
+					scene.tracks.audio = [
+						{
+							id: "moved-voice-track",
+							type: "audio",
+							name: "Moved Voice",
+							muted: false,
+							elements: [
+								{
+									id: "moved-voice-clip",
+									type: "audio",
+									name: "Moved Voice Clip",
+									sourceType: "upload",
+									mediaId: "moved-voice-media",
+									startTime: mediaTimeFromSeconds({ seconds: 5 }),
+									duration: mediaTimeFromSeconds({ seconds: 2 }),
+									trimStart: mediaTimeFromSeconds({ seconds: 0 }),
+									trimEnd: mediaTimeFromSeconds({ seconds: 0 }),
+									sourceDuration: mediaTimeFromSeconds({ seconds: 2 }),
+									params: {},
+								},
+							],
+						},
+					];
+					(
+						editor.scenes as typeof editor.scenes & { notify: () => void }
+					).notify();
+					(
+						editor.timeline as typeof editor.timeline & { notify: () => void }
+					).notify();
+					const result = await editor.mcp.execute({
+						toolName: "subtitles_generate_from_video",
+						params: {
+							source: "timeline",
+							provider: "volcengine",
+							audioRangeStartSeconds: 0,
+							audioRangeDurationSeconds: 12,
+							audioRangeTrackId: "moved-voice-track",
+							saveAsset: false,
+						},
+					});
+					if (result.status === "error") {
+						return { error: result.error };
+					}
+					const [
+						{ buildProjectSubtitleElements },
+						{ resolveSubtitleTextAtTime },
+					] = await Promise.all([
+						import("/src/subtitles/project-subtitles.ts"),
+						import("/src/subtitles/layer.ts"),
+					]);
+					const project = editor.project.getActive();
+					const track = project.settings.subtitles?.tracks?.find(
+						(item) => item.id === "track:moved-voice-track",
+					);
+					const element = buildProjectSubtitleElements({
+						subtitles: project.settings.subtitles,
+						canvasSize: project.settings.canvasSize,
+						duration: editor.timeline.getTotalDuration(),
+						timelineTracks: editor.scenes.getActiveScene().tracks,
+					})[0];
+					if (!track || !element) return null;
+					return {
+						sourceTimelineStartTimeSeconds:
+							track.sourceTimelineStartTimeSeconds,
+						cueStartTime: track.cues[0]?.startTime,
+						elementStartTime: mediaTimeToSeconds({ time: element.startTime }),
+						beforeText:
+							resolveSubtitleTextAtTime({
+								element,
+								timelineTime: mediaTimeFromSeconds({ seconds: 0.2 }),
+							})?.text ?? null,
+						movedText:
+							resolveSubtitleTextAtTime({
+								element,
+								timelineTime: mediaTimeFromSeconds({ seconds: 5.2 }),
+							})?.text ?? null,
+					};
+				}),
+			)
+			.toEqual({
+				sourceTimelineStartTimeSeconds: 5,
+				cueStartTime: 5,
+				elementStartTime: 5,
+				beforeText: null,
+				movedText: "先",
+			});
+		expect(runtimeErrors).toEqual([]);
+	});
+
+	test("repairs source-relative subtitles generated before binding fix", async ({
+		page,
+	}) => {
+		const runtimeErrors = collectSubtitleRuntimeErrors({ page });
+		await setupEditorPage(page);
+
+		await expect
+			.poll(async () =>
+				page.evaluate(async () => {
+					const [{ EditorCore }, { mediaTimeFromSeconds, mediaTimeToSeconds }] =
+						await Promise.all([
+							import("/src/core/index.ts"),
+							import("/src/wasm/media-time.ts"),
+						]);
+					const editor = EditorCore.getInstance();
+					const mediaManager = editor.media as typeof editor.media & {
+						assets: unknown[];
+						notify: () => void;
+					};
+					mediaManager.assets = [
+						...editor.media.getAssets(),
+						{
+							id: "legacy-voice-media",
+							name: "legacy-voice.wav",
+							type: "audio",
+							file: new File(["voice"], "legacy-voice.wav", {
+								type: "audio/wav",
+							}),
+							duration: 2,
+							hasAudio: true,
+						},
+					];
+					mediaManager.notify();
+					const scene = editor.scenes.getActiveScene();
+					scene.tracks.audio = [
+						{
+							id: "legacy-voice-track",
+							type: "audio",
+							name: "Legacy Voice",
+							muted: false,
+							elements: [
+								{
+									id: "legacy-voice-clip",
+									type: "audio",
+									name: "Legacy Voice Clip",
+									sourceType: "upload",
+									mediaId: "legacy-voice-media",
+									startTime: mediaTimeFromSeconds({ seconds: 5 }),
+									duration: mediaTimeFromSeconds({ seconds: 2 }),
+									trimStart: mediaTimeFromSeconds({ seconds: 0 }),
+									trimEnd: mediaTimeFromSeconds({ seconds: 0 }),
+									sourceDuration: mediaTimeFromSeconds({ seconds: 2 }),
+									params: {},
+								},
+							],
+						},
+					];
+					(
+						editor.scenes as typeof editor.scenes & { notify: () => void }
+					).notify();
+					(
+						editor.timeline as typeof editor.timeline & { notify: () => void }
+					).notify();
+					await editor.mcp.execute({
+						toolName: "subtitles_import",
+						params: {
+							format: "cues",
+							sourceTrackId: "legacy-voice-track",
+							sourceElementId: "legacy-voice-clip",
+							sourceTrackName: "Legacy Voice",
+							sourceTimelineStartTimeSeconds: 5,
+							cues: [
+								{
+									text: "旧字幕",
+									startTimeSeconds: 0,
+									durationSeconds: 1,
+									tokens: [
+										{ text: "旧", startTime: 0, duration: 0.5 },
+										{ text: "字", startTime: 0.5, duration: 0.5 },
+									],
+								},
+							],
+						},
+					});
+					const [
+						{ buildProjectSubtitleElements },
+						{ resolveSubtitleTextAtTime },
+					] = await Promise.all([
+						import("/src/subtitles/project-subtitles.ts"),
+						import("/src/subtitles/layer.ts"),
+					]);
+					const project = editor.project.getActive();
+					const element = buildProjectSubtitleElements({
+						subtitles: project.settings.subtitles,
+						canvasSize: project.settings.canvasSize,
+						duration: editor.timeline.getTotalDuration(),
+						timelineTracks: editor.scenes.getActiveScene().tracks,
+					})[0];
+					if (!element) return null;
+					return {
+						elementStartTime: mediaTimeToSeconds({ time: element.startTime }),
+						beforeText:
+							resolveSubtitleTextAtTime({
+								element,
+								timelineTime: mediaTimeFromSeconds({ seconds: 0.2 }),
+							})?.text ?? null,
+						movedText:
+							resolveSubtitleTextAtTime({
+								element,
+								timelineTime: mediaTimeFromSeconds({ seconds: 5.2 }),
+							})?.text ?? null,
+					};
+				}),
+			)
+			.toEqual({
+				elementStartTime: 5,
+				beforeText: null,
+				movedText: "旧",
+			});
+		expect(runtimeErrors).toEqual([]);
+	});
+
 	test("cuts filler words from the selected global transcript track", async ({
 		page,
 	}) => {

@@ -116,4 +116,41 @@ describe("subtitle timing bindings", () => {
 		expect(timelineTrack.cues[0]?.startTime).toBe(11);
 		expect(timelineTrack.cues[0]?.tokens?.[1]?.startTime).toBe(12);
 	});
+
+	test("repairs pre-fix generated tracks that stored source-relative cue times", () => {
+		const sourceRelativeTrack: TProjectSubtitleTrack = {
+			...subtitleTrack(),
+			sourceTimelineStartTimeSeconds: 5,
+			cues: [
+				{
+					text: "先移后识别",
+					startTime: 0.5,
+					duration: 1,
+					tokens: [
+						{ text: "先", startTime: 0.5, duration: 0.25 },
+						{ text: "移", startTime: 0.75, duration: 0.25 },
+					],
+				},
+			],
+		};
+		const timelineTrack = getTimelineSubtitleTrack({
+			track: sourceRelativeTrack,
+			tracks: sceneTracks({ clipStartSeconds: 5 }),
+		});
+		const movedTimelineTrack = getTimelineSubtitleTrack({
+			track: sourceRelativeTrack,
+			tracks: sceneTracks({ clipStartSeconds: 10 }),
+		});
+
+		expect(timelineTrack.cues[0]?.startTime).toBe(5.5);
+		expect(timelineTrack.cues[0]?.tokens?.[1]?.startTime).toBe(5.75);
+		expect(movedTimelineTrack.cues[0]?.startTime).toBe(10.5);
+		expect(
+			storedSubtitleSecondsToTimelineSeconds({
+				track: sourceRelativeTrack,
+				tracks: sceneTracks({ clipStartSeconds: 10 }),
+				seconds: 0.75,
+			}),
+		).toBe(10.75);
+	});
 });
