@@ -71,6 +71,10 @@ export type TProjectCover =
 	  };
 
 export type TProjectStage = "topic" | "production" | "review" | "published";
+export type ProjectSubtitleStyleParams = Record<
+	string,
+	string | number | boolean
+>;
 
 export interface TProjectSubtitles {
 	enabled: boolean;
@@ -80,6 +84,7 @@ export interface TProjectSubtitles {
 	revealMode: Exclude<SubtitleRevealMode, "full">;
 	lineBreakMode: SubtitleLineBreakMode;
 	maxCharsPerLine: number;
+	styleParams?: ProjectSubtitleStyleParams;
 	assetId?: string;
 	assetName?: string;
 	updatedAt?: string;

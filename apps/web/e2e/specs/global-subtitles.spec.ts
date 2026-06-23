@@ -93,6 +93,9 @@ test.describe("global subtitles", () => {
 		});
 
 		await page.getByRole("button", { name: /文字稿|Transcript/ }).click();
+		await page.getByRole("button", { name: "字幕设置" }).click();
+		await expect(page.getByTestId("global-subtitle-properties")).toBeVisible();
+		await expect(page.getByText("全局字幕")).toBeVisible();
 		await expect(page.getByText("暂无文字稿")).toBeVisible();
 		expect(runtimeErrors).toEqual([]);
 	});
@@ -525,7 +528,7 @@ test.describe("global subtitles", () => {
 			"true",
 		);
 		await expect(page.getByTestId("transcript-token-0-2")).toHaveClass(
-			/bg-cyan-400\/30/,
+			/bg-cyan-400\/\[0\.18\]/,
 		);
 		await expect(page.getByTestId("transcript-token-0-2")).not.toHaveClass(
 			/emerald/,

@@ -18,10 +18,11 @@ import { useAssetsPanelStore } from "@/components/editor/panels/assets/assets-pa
 import type { SelectedAssetRef } from "@/components/editor/panels/assets/assets-panel-store";
 import { ResourcePropertiesPanel } from "@/components/editor/panels/properties/resource-properties-panel";
 import { EmptyView } from "@/components/editor/panels/properties/empty-view";
+import { ProjectSubtitlePropertiesPanel } from "@/components/editor/panels/properties/project-subtitle-properties-panel";
 import { createTimelineElementReference } from "@/agent/context/resolve-references";
 import { useAgentContextStore } from "@/agent/context/store";
 import { usePanelStore } from "@/editor/panel-store";
-import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
+import { Captions, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useAppLocale } from "@/i18n/use-app-locale";
 import type { ElementRef } from "@/timeline/types";
@@ -55,6 +56,7 @@ export function PropertiesPanel({ onCollapse }: { onCollapse?: () => void }) {
 	const selectedAssetRefs = useAssetsPanelStore(
 		(state) => state.selectedAssetRefs,
 	);
+	const inspectorFocus = usePropertiesStore((state) => state.inspectorFocus);
 	const selectionKey = useMemo(
 		() => getSelectionKey({ selectedElements, selectedAssetRefs }),
 		[selectedAssetRefs, selectedElements],
@@ -62,9 +64,10 @@ export function PropertiesPanel({ onCollapse }: { onCollapse?: () => void }) {
 
 	return (
 		<PropertiesPanelContent
-			key={selectionKey ?? "empty"}
+			key={selectionKey ?? inspectorFocus ?? "empty"}
 			selectedElements={selectedElements}
 			selectedAssetRefs={selectedAssetRefs}
+			inspectorFocus={inspectorFocus}
 			onCollapse={onCollapse}
 		/>
 	);
@@ -73,10 +76,12 @@ export function PropertiesPanel({ onCollapse }: { onCollapse?: () => void }) {
 function PropertiesPanelContent({
 	selectedElements,
 	selectedAssetRefs,
+	inspectorFocus,
 	onCollapse,
 }: {
 	selectedElements: ElementRef[];
 	selectedAssetRefs: SelectedAssetRef[];
+	inspectorFocus: "project-subtitles" | null;
 	onCollapse?: () => void;
 }) {
 	const { copy } = useAppLocale();
@@ -113,6 +118,21 @@ function PropertiesPanelContent({
 	};
 
 	if (selectedElements.length === 0) {
+		if (inspectorFocus === "project-subtitles") {
+			return (
+				<PropertiesPanelFrame onCollapse={onCollapse}>
+					<InspectorContextHeader
+						icon={<Captions className="size-4" />}
+						label="全局字幕"
+						description="字幕颜色、位置与显示方式"
+					/>
+					<ScrollArea className="min-h-0 flex-1 scrollbar-hidden">
+						<ProjectSubtitlePropertiesPanel />
+					</ScrollArea>
+				</PropertiesPanelFrame>
+			);
+		}
+
 		if (selectedAssetRefs.length > 0) {
 			return (
 				<PropertiesPanelFrame onCollapse={onCollapse}>
@@ -230,6 +250,30 @@ function PropertiesPanelFrame({
 			) : null}
 			{children}
 		</section>
+	);
+}
+
+function InspectorContextHeader({
+	icon,
+	label,
+	description,
+}: {
+	icon: React.ReactNode;
+	label: string;
+	description: string;
+}) {
+	return (
+		<div className="flex min-h-12 shrink-0 items-center gap-2 border-b border-cyan-300/10 bg-cyan-300/[0.035] py-2 pl-3 pr-10">
+			<div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-cyan-300/15 bg-cyan-300/[0.06] text-cyan-100">
+				{icon}
+			</div>
+			<div className="min-w-0">
+				<p className="truncate text-xs font-medium text-foreground">{label}</p>
+				<p className="truncate text-[0.68rem] text-muted-foreground">
+					{description}
+				</p>
+			</div>
+		</div>
 	);
 }
 

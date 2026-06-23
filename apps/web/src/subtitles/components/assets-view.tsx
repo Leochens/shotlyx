@@ -53,7 +53,9 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Pencil, Scissors, Trash2 } from "lucide-react";
+import { Pencil, Scissors, Settings2, Trash2 } from "lucide-react";
+import { usePropertiesStore } from "@/components/editor/panels/properties/stores/properties-store";
+import { useAssetsPanelStore } from "@/components/editor/panels/assets/assets-panel-store";
 import type { DiagnosticSeverity } from "@/diagnostics/types";
 import type { TProjectSubtitleTrack, TProjectSubtitles } from "@/project/types";
 import type { SubtitleLayerCue } from "@/subtitles/types";
@@ -273,6 +275,12 @@ export function Captions() {
 		useState<TranscriptTokenAddress | null>(null);
 	const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 	const [editDraft, setEditDraft] = useState("");
+	const setInspectorFocus = usePropertiesStore(
+		(state) => state.setInspectorFocus,
+	);
+	const clearSelectedAssetRefs = useAssetsPanelStore(
+		(state) => state.clearSelectedAssetRefs,
+	);
 	const editor = useEditor();
 	const mediaAssets = useEditor((e) => e.media.getAssets());
 	const sceneTracks = useEditor((e) => e.scenes.getActiveScene().tracks);
@@ -590,6 +598,12 @@ export function Captions() {
 		setSelectedProvider(value);
 	};
 
+	const handleOpenSubtitleSettings = () => {
+		editor.selection.clearSelection();
+		clearSelectedAssetRefs();
+		setInspectorFocus("project-subtitles");
+	};
+
 	const updateProjectSubtitles = (updates: Partial<TProjectSubtitles>) => {
 		const currentSubtitles =
 			editor.project.getActive().settings.subtitles ??
@@ -855,6 +869,16 @@ export function Captions() {
 						<Button
 							type="button"
 							variant="outline"
+							size="icon"
+							aria-label="字幕设置"
+							onClick={handleOpenSubtitleSettings}
+							className="h-8 w-8"
+						>
+							<Settings2 className="h-4 w-4" />
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
 							size="sm"
 							onClick={handleImportClick}
 							disabled={isProcessing}
@@ -962,13 +986,13 @@ export function Captions() {
 
 						{hasTranscript ? (
 							<div
-								className="space-y-4 pt-8 pb-4"
+								className="space-y-2.5 pt-4 pb-3"
 								data-testid="global-transcript-list"
 							>
 								{selectedTranscriptTrack?.cues.map((cue, cueIndex) => (
 									<div
 										key={`${cue.startTime}:${cueIndex}`}
-										className="group relative grid grid-cols-[0.75rem_1fr] gap-2"
+										className="group relative grid grid-cols-[0.75rem_1fr] gap-1.5"
 									>
 										<button
 											type="button"
@@ -978,7 +1002,7 @@ export function Captions() {
 										>
 											::
 										</button>
-										<p className="text-[1.03rem] leading-8 text-foreground/90">
+										<p className="text-[1.01rem] leading-7 text-foreground/90">
 											{getTranscriptCueTokens({ cue }).map(
 												(token, tokenIndex) => {
 													const address = { cueIndex, tokenIndex };
@@ -1059,24 +1083,24 @@ export function Captions() {
 																}
 																className={[
 																	"border border-transparent px-px text-left align-baseline transition-colors",
-																	"hover:bg-cyan-300/15 hover:text-cyan-100",
+																	"hover:bg-cyan-300/10 hover:text-cyan-100",
 																	isActive && !isSelected
-																		? "rounded-[5px] border-cyan-300/50 bg-cyan-400/30 text-cyan-50"
+																		? "rounded-[5px] border-cyan-300/35 bg-cyan-400/[0.18] text-cyan-50"
 																		: "",
 																	isSelected
-																		? "bg-cyan-400/30 text-cyan-50 ring-0 border-y-cyan-300/50"
+																		? "bg-cyan-400/[0.18] text-cyan-50 ring-0 border-y-cyan-300/35"
 																		: "",
 																	selectionPosition === "single"
-																		? "rounded-[5px] border-x-cyan-300/50"
+																		? "rounded-[5px] border-x-cyan-300/35"
 																		: "",
 																	selectionPosition === "start"
-																		? "rounded-l-[5px] rounded-r-none border-l-cyan-300/50 border-r-transparent"
+																		? "rounded-l-[5px] rounded-r-none border-l-cyan-300/35 border-r-transparent"
 																		: "",
 																	selectionPosition === "middle"
 																		? "rounded-none border-x-transparent"
 																		: "",
 																	selectionPosition === "end"
-																		? "rounded-l-none rounded-r-[5px] border-l-transparent border-r-cyan-300/50"
+																		? "rounded-l-none rounded-r-[5px] border-l-transparent border-r-cyan-300/35"
 																		: "",
 																].join(" ")}
 																onPointerDown={() =>

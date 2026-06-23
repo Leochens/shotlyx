@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-type-assertion -- Renderer scene duration is already MediaTime ticks; this helper adapts project-level subtitle settings into a transient timeline element shape. */
 import type {
 	TCanvasSize,
+	ProjectSubtitleStyleParams,
 	TProjectSubtitleTrack,
 	TProjectSubtitles,
 } from "@/project/types";
@@ -8,6 +9,7 @@ import type { SubtitleElement } from "@/timeline/types";
 import { mediaTimeFromSeconds, type MediaTime } from "@/wasm/media-time";
 
 export const DEFAULT_PROJECT_SUBTITLE_MAX_CHARS_PER_LINE = 30;
+const PROJECT_SUBTITLE_STACK_OFFSET_RATIO = 0.07;
 
 export function createEmptyProjectSubtitles(): TProjectSubtitles {
 	return {
@@ -46,6 +48,39 @@ function getRenderableSubtitleTracks({
 	];
 }
 
+export function buildDefaultProjectSubtitleStyleParams({
+	canvasSize,
+}: {
+	canvasSize: TCanvasSize;
+}): ProjectSubtitleStyleParams {
+	return {
+		fontFamily: "Arial",
+		fontSize: 4,
+		color: "#ffffff",
+		textAlign: "center",
+		fontWeight: "bold",
+		fontStyle: "normal",
+		textDecoration: "none",
+		letterSpacing: 0,
+		lineHeight: 1.2,
+		"background.enabled": true,
+		"background.color": "#00000099",
+		"background.cornerRadius": 8,
+		"background.paddingX": 22,
+		"background.paddingY": 24,
+		"background.offsetX": 0,
+		"background.offsetY": 0,
+		"transform.positionX": 0,
+		"transform.positionY": canvasSize.height * 0.36,
+		"transform.scaleX": 1,
+		"transform.scaleY": 1,
+		"transform.rotate": 0,
+		opacity: 1,
+		blendMode: "normal",
+		"subtitle.highlightColor": "#93c5fd",
+	};
+}
+
 export function buildProjectSubtitleElements({
 	subtitles,
 	canvasSize,
@@ -60,50 +95,42 @@ export function buildProjectSubtitleElements({
 	const tracks = getRenderableSubtitleTracks({ subtitles });
 	if (tracks.length === 0) return [];
 
-	return tracks.map((track, trackIndex) => ({
-		id: `project-global-subtitles-${track.id}`,
-		type: "subtitle",
-		name: track.label,
-		startTime: 0 as MediaTime,
-		duration: duration as MediaTime,
-		trimStart: 0 as MediaTime,
-		trimEnd: 0 as MediaTime,
-		sourceDuration: duration as MediaTime,
-		revealMode: subtitles.revealMode,
-		params: {
-			fontFamily: "Arial",
-			fontSize: 4,
-			color: "#ffffff",
-			textAlign: "center",
-			fontWeight: "bold",
-			fontStyle: "normal",
-			textDecoration: "none",
-			letterSpacing: 0,
-			lineHeight: 1.2,
-			"background.enabled": true,
-			"background.color": "#00000099",
-			"background.cornerRadius": 8,
-			"background.paddingX": 22,
-			"background.paddingY": 24,
-			"background.offsetX": 0,
-			"background.offsetY": 0,
-			"transform.positionX": 0,
-			"transform.positionY":
-				canvasSize.height * 0.36 - trackIndex * canvasSize.height * 0.07,
-			"transform.scaleX": 1,
-			"transform.scaleY": 1,
-			"transform.rotate": 0,
-			opacity: 1,
-			blendMode: "normal",
-			"subtitle.role": "project-global",
-			"subtitle.maxCharsPerLine":
-				subtitles.maxCharsPerLine ??
-				DEFAULT_PROJECT_SUBTITLE_MAX_CHARS_PER_LINE,
-			"subtitle.lineBreakMode": subtitles.lineBreakMode,
-			"subtitle.highlightColor": "#93c5fd",
-		},
-		cues: track.cues,
-	}));
+	const defaultStyleParams = buildDefaultProjectSubtitleStyleParams({
+		canvasSize,
+	});
+	const styleParams = subtitles.styleParams ?? {};
+	const requestedPositionY = styleParams["transform.positionY"];
+	const basePositionY =
+		typeof requestedPositionY === "number"
+			? requestedPositionY
+			: Number(defaultStyleParams["transform.positionY"]);
+
+	return tracks.map((track, trackIndex) => {
+		const stackOffset =
+			trackIndex * canvasSize.height * PROJECT_SUBTITLE_STACK_OFFSET_RATIO;
+		return {
+			id: `project-global-subtitles-${track.id}`,
+			type: "subtitle",
+			name: track.label,
+			startTime: 0 as MediaTime,
+			duration: duration as MediaTime,
+			trimStart: 0 as MediaTime,
+			trimEnd: 0 as MediaTime,
+			sourceDuration: duration as MediaTime,
+			revealMode: subtitles.revealMode,
+			params: {
+				...defaultStyleParams,
+				...styleParams,
+				"transform.positionY": basePositionY - stackOffset,
+				"subtitle.role": "project-global",
+				"subtitle.maxCharsPerLine":
+					subtitles.maxCharsPerLine ??
+					DEFAULT_PROJECT_SUBTITLE_MAX_CHARS_PER_LINE,
+				"subtitle.lineBreakMode": subtitles.lineBreakMode,
+			},
+			cues: track.cues,
+		};
+	});
 }
 
 export function buildProjectSubtitleElement({
@@ -124,6 +151,10 @@ export function buildProjectSubtitleElement({
 	);
 }
 
-export function cueStartToMediaTime({ seconds }: { seconds: number }): MediaTime {
+export function cueStartToMediaTime({
+	seconds,
+}: {
+	seconds: number;
+}): MediaTime {
 	return mediaTimeFromSeconds({ seconds });
 }
