@@ -102,4 +102,18 @@ describe("subtitle timing bindings", () => {
 			}),
 		).toBe(12);
 	});
+
+	test("falls back to the earliest whole-second cue start for legacy tracks", () => {
+		const {
+			sourceTimelineStartTimeSeconds: _sourceTimelineStartTimeSeconds,
+			...legacyTrack
+		} = subtitleTrack();
+		const timelineTrack = getTimelineSubtitleTrack({
+			track: legacyTrack,
+			tracks: sceneTracks({ clipStartSeconds: 10 }),
+		});
+
+		expect(timelineTrack.cues[0]?.startTime).toBe(11);
+		expect(timelineTrack.cues[0]?.tokens?.[1]?.startTime).toBe(12);
+	});
 });

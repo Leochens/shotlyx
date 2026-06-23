@@ -460,6 +460,9 @@ export function Captions() {
 						audioRangeStartSeconds: startTimeSeconds,
 						audioRangeDurationSeconds: durationSeconds,
 						audioRangeTrackId: audioTrack.trackRef.trackId,
+						...(audioTrack.elementRef
+							? { audioRangeElementId: audioTrack.elementRef.elementId }
+							: {}),
 					},
 					onProgress: (event) => {
 						if (event.status === "running") {

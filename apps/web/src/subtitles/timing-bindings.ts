@@ -3,6 +3,8 @@ import type { SubtitleLayerCue, SubtitleToken } from "@/subtitles/types";
 import type { SceneTracks, TimelineElement, TimelineTrack } from "@/timeline";
 import { mediaTimeToSeconds } from "@/wasm/media-time";
 
+const LEGACY_ZERO_START_CUE_THRESHOLD_SECONDS = 5;
+
 function getAllTracks({ tracks }: { tracks: SceneTracks }): TimelineTrack[] {
 	return [...tracks.overlay, tracks.main, ...tracks.audio];
 }
@@ -43,6 +45,33 @@ function earliestElementStartSeconds({
 	);
 }
 
+function earliestCueStartSeconds({
+	track,
+}: {
+	track: TProjectSubtitleTrack;
+}): number | null {
+	const starts = track.cues.flatMap((cue) => [
+		cue.startTime,
+		...(cue.tokens?.map((token) => token.startTime) ?? []),
+	]);
+	if (starts.length === 0) return null;
+	return Math.min(...starts);
+}
+
+function getSubtitleTrackSourceTimelineStartSeconds({
+	track,
+}: {
+	track: TProjectSubtitleTrack;
+}): number | null {
+	if (typeof track.sourceTimelineStartTimeSeconds === "number") {
+		return track.sourceTimelineStartTimeSeconds;
+	}
+	const earliestCueStart = earliestCueStartSeconds({ track });
+	if (earliestCueStart === null) return null;
+	if (earliestCueStart < LEGACY_ZERO_START_CUE_THRESHOLD_SECONDS) return 0;
+	return Math.max(0, Math.floor(earliestCueStart));
+}
+
 export function resolveSubtitleSourceTimelineStartSeconds({
 	sourceTrackId,
 	sourceElementId,
@@ -75,14 +104,16 @@ export function getSubtitleTrackTimelineOffsetSeconds({
 	tracks?: SceneTracks | null;
 }): number {
 	if (!tracks || !track.sourceTrackId) return 0;
-	if (typeof track.sourceTimelineStartTimeSeconds !== "number") return 0;
+	const sourceTimelineStartTimeSeconds =
+		getSubtitleTrackSourceTimelineStartSeconds({ track });
+	if (sourceTimelineStartTimeSeconds === null) return 0;
 	const currentStart = resolveSubtitleSourceTimelineStartSeconds({
 		sourceTrackId: track.sourceTrackId,
 		sourceElementId: track.sourceElementId,
 		tracks,
 	});
 	if (currentStart === null) return 0;
-	return currentStart - track.sourceTimelineStartTimeSeconds;
+	return currentStart - sourceTimelineStartTimeSeconds;
 }
 
 function shiftTokenTime({

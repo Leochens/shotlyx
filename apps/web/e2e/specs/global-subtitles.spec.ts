@@ -401,14 +401,21 @@ test.describe("global subtitles", () => {
 			(
 				window as typeof window & {
 					__globalSubtitleGenerateTrackIds?: string[];
+					__globalSubtitleGenerateElementIds?: string[];
 				}
 			).__globalSubtitleGenerateTrackIds = [];
+			(
+				window as typeof window & {
+					__globalSubtitleGenerateElementIds?: string[];
+				}
+			).__globalSubtitleGenerateElementIds = [];
 			editor.mcp.execute = async (request) => {
 				if (request.toolName !== "subtitles_generate_from_video") {
 					return originalExecute(request);
 				}
 				const params = request.params as {
 					audioRangeTrackId?: string;
+					audioRangeElementId?: string;
 					audioRangeStartSeconds?: number;
 				};
 				if (params.audioRangeTrackId) {
@@ -417,6 +424,15 @@ test.describe("global subtitles", () => {
 							__globalSubtitleGenerateTrackIds?: string[];
 						}
 					).__globalSubtitleGenerateTrackIds?.push(params.audioRangeTrackId);
+				}
+				if (params.audioRangeElementId) {
+					(
+						window as typeof window & {
+							__globalSubtitleGenerateElementIds?: string[];
+						}
+					).__globalSubtitleGenerateElementIds?.push(
+						params.audioRangeElementId,
+					);
 				}
 				await originalExecute({
 					toolName: "subtitles_import",
@@ -458,6 +474,18 @@ test.describe("global subtitles", () => {
 				),
 			)
 			.toBe(2);
+		await expect
+			.poll(async () =>
+				page.evaluate(
+					() =>
+						(
+							window as typeof window & {
+								__globalSubtitleGenerateElementIds?: string[];
+							}
+						).__globalSubtitleGenerateElementIds,
+				),
+			)
+			.toEqual(["voice-clip", "music-clip"]);
 		await expect(page.getByTestId("global-transcript-list")).toContainText(
 			"音乐轨道",
 		);
@@ -747,7 +775,6 @@ test.describe("global subtitles", () => {
 					format: "cues",
 					sourceTrackId: "voice-track",
 					sourceTrackName: "V1",
-					sourceElementId: "voice-clip",
 					cues: [
 						{
 							text: "移动以后",
@@ -761,6 +788,25 @@ test.describe("global subtitles", () => {
 							],
 						},
 					],
+				},
+			});
+			const subtitles = editor.project.getActive().settings.subtitles;
+			await editor.project.updateSettings({
+				pushHistory: false,
+				settings: {
+					subtitles: subtitles
+						? {
+								...subtitles,
+								tracks: subtitles.tracks?.map((track) => {
+									const {
+										sourceTimelineStartTimeSeconds:
+											_sourceTimelineStartTimeSeconds,
+										...legacyTrack
+									} = track;
+									return legacyTrack;
+								}),
+							}
+						: subtitles,
 				},
 			});
 			editor.timeline.updateElements({

@@ -237,6 +237,14 @@ export function getTranscriptionAudioTrackOptions({
 			duration: endTime - startTime,
 			label: track.name || track.id,
 			trackRef: { trackId: track.id },
+			...(audibleElements.length === 1
+				? {
+						elementRef: {
+							trackId: track.id,
+							elementId: audibleElements[0].id,
+						},
+					}
+				: {}),
 		});
 	}
 

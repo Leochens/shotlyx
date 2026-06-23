@@ -178,6 +178,7 @@ describe("getTranscriptionAudioTrackOptions", () => {
 				kind: "track",
 				label: "Main",
 				trackRef: { trackId: "main" },
+				elementRef: { trackId: "main", elementId: "video-1" },
 			}),
 			expect.objectContaining({
 				kind: "track",
