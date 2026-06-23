@@ -61,7 +61,7 @@ import type { TProjectSubtitleTrack, TProjectSubtitles } from "@/project/types";
 import type { SubtitleLayerCue } from "@/subtitles/types";
 import { createEmptyProjectSubtitles } from "@/subtitles/project-subtitles";
 import { mediaTimeFromSeconds, mediaTimeToSeconds } from "@/wasm/media-time";
-import type { TimelineTrack } from "@/timeline";
+import type { SceneTracks, TimelineTrack } from "@/timeline";
 import {
 	editTranscriptSelection,
 	findActiveTranscriptToken,
@@ -76,6 +76,7 @@ import {
 	getTimelineSubtitleTrack,
 	storedSubtitleSecondsToTimelineSeconds,
 } from "@/subtitles/timing-bindings";
+import { getSegmentTokenTimelineRange } from "@/subtitles/segment-bindings";
 
 const DIAGNOSTIC_BUTTON_VARIANT: Record<
 	DiagnosticSeverity,
@@ -241,6 +242,161 @@ function trackElementsOverlappingRange({
 		}));
 }
 
+function rebuildTrackCuesFromSegments({
+	track,
+}: {
+	track: TProjectSubtitleTrack;
+}): TProjectSubtitleTrack {
+	if (!track.segments || track.segments.length === 0) return track;
+	return {
+		...track,
+		cues: track.segments.flatMap((segment) => segment.cues),
+		updatedAt: new Date().toISOString(),
+	};
+}
+
+function editTranscriptSegmentSelection({
+	track,
+	displayTrack,
+	selection,
+	text,
+}: {
+	track: TProjectSubtitleTrack;
+	displayTrack: TProjectSubtitleTrack;
+	selection: TranscriptTokenSelection;
+	text: string;
+}): TProjectSubtitleTrack {
+	if (!track.segments || track.segments.length === 0) {
+		return editTranscriptSelection({ track, selection, text });
+	}
+	if (!isSingleCueSelection({ selection })) return track;
+	const { start, end } =
+		selection.anchor.cueIndex <= selection.focus.cueIndex ||
+		(selection.anchor.cueIndex === selection.focus.cueIndex &&
+			selection.anchor.tokenIndex <= selection.focus.tokenIndex)
+			? { start: selection.anchor, end: selection.focus }
+			: { start: selection.focus, end: selection.anchor };
+	const displayCue = displayTrack.cues[start.cueIndex];
+	if (!displayCue) return track;
+	const displayTokens = getTranscriptCueTokens({ cue: displayCue });
+	const startToken = displayTokens[start.tokenIndex];
+	const endToken = displayTokens[end.tokenIndex];
+	const sourceSegmentId =
+		startToken?.sourceSegmentId ?? displayCue.sourceSegmentId;
+	const sourceCueIndex =
+		typeof startToken?.sourceCueIndex === "number"
+			? startToken.sourceCueIndex
+			: displayCue.sourceCueIndex;
+	const startSourceTokenIndex = startToken?.sourceTokenIndex;
+	const endSourceTokenIndex = endToken?.sourceTokenIndex;
+	if (
+		!sourceSegmentId ||
+		typeof sourceCueIndex !== "number" ||
+		typeof startSourceTokenIndex !== "number" ||
+		typeof endSourceTokenIndex !== "number"
+	) {
+		return track;
+	}
+
+	const segments = track.segments.map((segment) => {
+		if (segment.id !== sourceSegmentId) return segment;
+		const segmentTrack = editTranscriptSelection({
+			track: {
+				...track,
+				cues: segment.cues,
+			},
+			selection: {
+				anchor: {
+					cueIndex: sourceCueIndex,
+					tokenIndex: startSourceTokenIndex,
+				},
+				focus: {
+					cueIndex: sourceCueIndex,
+					tokenIndex: endSourceTokenIndex,
+				},
+			},
+			text,
+		});
+		return {
+			...segment,
+			cues: segmentTrack.cues,
+			updatedAt: new Date().toISOString(),
+		};
+	});
+
+	return rebuildTrackCuesFromSegments({
+		track: {
+			...track,
+			segments,
+		},
+	});
+}
+
+function resolveSegmentSelectionTimelineRange({
+	track,
+	displayTrack,
+	sceneTracks,
+	selection,
+}: {
+	track: TProjectSubtitleTrack;
+	displayTrack: TProjectSubtitleTrack;
+	sceneTracks: SceneTracks;
+	selection: TranscriptTokenSelection;
+}): {
+	sourceTrackId: string;
+	sourceElementId: string;
+	startTime: number;
+	endTime: number;
+} | null {
+	if (!track.segments || track.segments.length === 0) return null;
+	if (!isSingleCueSelection({ selection })) return null;
+	const { start, end } =
+		selection.anchor.cueIndex <= selection.focus.cueIndex ||
+		(selection.anchor.cueIndex === selection.focus.cueIndex &&
+			selection.anchor.tokenIndex <= selection.focus.tokenIndex)
+			? { start: selection.anchor, end: selection.focus }
+			: { start: selection.focus, end: selection.anchor };
+	const displayCue = displayTrack.cues[start.cueIndex];
+	if (!displayCue) return null;
+	const displayTokens = getTranscriptCueTokens({ cue: displayCue });
+	const startToken = displayTokens[start.tokenIndex];
+	const endToken = displayTokens[end.tokenIndex];
+	const sourceSegmentId =
+		startToken?.sourceSegmentId ?? displayCue.sourceSegmentId;
+	const sourceCueIndex =
+		typeof startToken?.sourceCueIndex === "number"
+			? startToken.sourceCueIndex
+			: displayCue.sourceCueIndex;
+	if (!sourceSegmentId || typeof sourceCueIndex !== "number") return null;
+	const startRange = getSegmentTokenTimelineRange({
+		track,
+		tracks: sceneTracks,
+		sourceSegmentId,
+		sourceCueIndex,
+		sourceTokenIndex: startToken?.sourceTokenIndex,
+	});
+	const endRange = getSegmentTokenTimelineRange({
+		track,
+		tracks: sceneTracks,
+		sourceSegmentId,
+		sourceCueIndex,
+		sourceTokenIndex: endToken?.sourceTokenIndex,
+	});
+	if (!startRange || !endRange) return null;
+	if (
+		startRange.sourceTrackId !== endRange.sourceTrackId ||
+		startRange.sourceElementId !== endRange.sourceElementId
+	) {
+		return null;
+	}
+	return {
+		sourceTrackId: startRange.sourceTrackId,
+		sourceElementId: startRange.sourceElementId,
+		startTime: Math.min(startRange.startTime, endRange.startTime),
+		endTime: Math.max(startRange.endTime, endRange.endTime),
+	};
+}
+
 /* eslint-disable shotlyx/prefer-object-params -- React reducers must accept (state, action). */
 function processingReducer(
 	state: ProcessingState,
@@ -343,13 +499,13 @@ export function Captions() {
 		selectedTranscriptTrack?.renderEnabled !== false;
 	const selectedTokenRange = useMemo(
 		() =>
-			selectedTranscriptTrack
+			displayTranscriptTrack
 				? resolveTranscriptTokenRange({
-						track: selectedTranscriptTrack,
+						track: displayTranscriptTrack,
 						selection: tokenSelection,
 					})
 				: null,
-		[selectedTranscriptTrack, tokenSelection],
+		[displayTranscriptTrack, tokenSelection],
 	);
 
 	useEffect(() => {
@@ -748,8 +904,9 @@ export function Captions() {
 
 	const handleSaveEditSelection = () => {
 		if (!selectedTranscriptTrack || !tokenSelection) return;
-		const nextTrack = editTranscriptSelection({
+		const nextTrack = editTranscriptSegmentSelection({
 			track: selectedTranscriptTrack,
+			displayTrack: displayTranscriptTrack ?? selectedTranscriptTrack,
 			selection: tokenSelection,
 			text: editDraft,
 		});
@@ -763,6 +920,36 @@ export function Captions() {
 			return;
 		}
 		if (!isSingleCueSelection({ selection: tokenSelection })) return;
+		const segmentRange = resolveSegmentSelectionTimelineRange({
+			track: selectedTranscriptTrack,
+			displayTrack: displayTranscriptTrack ?? selectedTranscriptTrack,
+			sceneTracks,
+			selection: tokenSelection,
+		});
+		if (segmentRange) {
+			const startTime = mediaTimeFromSeconds({
+				seconds: segmentRange.startTime,
+			});
+			const endTime = mediaTimeFromSeconds({
+				seconds: segmentRange.endTime,
+			});
+			const didApply = editor.timeline.applySilenceCutPlan({
+				targets: [
+					{
+						trackId: segmentRange.sourceTrackId,
+						elementId: segmentRange.sourceElementId,
+						ranges: [{ startTime, endTime }],
+					},
+				],
+			});
+			if (!didApply) {
+				dispatch({ type: "fail", error: "剪辑没有产生可应用的时间线变更" });
+				return;
+			}
+			setTokenSelection(null);
+			seekToSeconds({ seconds: segmentRange.startTime });
+			return;
+		}
 		const sourceTrackId =
 			selectedTranscriptTrack.sourceTrackId ??
 			(selectedTrackId.startsWith("track:")

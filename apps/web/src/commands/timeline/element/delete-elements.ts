@@ -7,6 +7,7 @@ import {
 	buildSubtitleCutRangesFromElements,
 	getTimelineCutModeForCommand,
 	syncProjectSubtitlesForTimelineCuts,
+	syncProjectSubtitlesToTimelineFragments,
 } from "@/subtitles/timeline-sync";
 
 function removeTrackElements<TTrack extends TimelineTrack>({
@@ -46,19 +47,6 @@ export class DeleteElementsCommand extends Command {
 		const editor = EditorCore.getInstance();
 		this.savedState = editor.scenes.getActiveScene().tracks;
 		this.savedSubtitles = editor.project.getActiveOrNull()?.settings.subtitles;
-		const nextSubtitles = syncProjectSubtitlesForTimelineCuts({
-			subtitles: this.savedSubtitles,
-			timelineTracks: this.savedState,
-			ranges: buildSubtitleCutRangesFromElements({
-				tracks: this.savedState,
-				elements: this.elements,
-				mode: getTimelineCutModeForCommand({
-					rippleEnabled: editor.command.isRippleEnabled,
-				}),
-			}),
-		});
-		this.didUpdateSubtitles = nextSubtitles !== this.savedSubtitles;
-
 		const updatedTracks: SceneTracks = {
 			overlay: this.savedState.overlay.map((track) =>
 				removeTrackElements({ track, elements: this.elements }),
@@ -71,6 +59,26 @@ export class DeleteElementsCommand extends Command {
 				removeTrackElements({ track, elements: this.elements }),
 			),
 		};
+		const fragmentSyncedSubtitles = syncProjectSubtitlesToTimelineFragments({
+			subtitles: this.savedSubtitles,
+			beforeTracks: this.savedState,
+			afterTracks: updatedTracks,
+		});
+		const nextSubtitles =
+			fragmentSyncedSubtitles !== this.savedSubtitles
+				? fragmentSyncedSubtitles
+				: syncProjectSubtitlesForTimelineCuts({
+						subtitles: this.savedSubtitles,
+						timelineTracks: this.savedState,
+						ranges: buildSubtitleCutRangesFromElements({
+							tracks: this.savedState,
+							elements: this.elements,
+							mode: getTimelineCutModeForCommand({
+								rippleEnabled: editor.command.isRippleEnabled,
+							}),
+						}),
+					});
+		this.didUpdateSubtitles = nextSubtitles !== this.savedSubtitles;
 
 		editor.timeline.updateTracks(updatedTracks);
 		if (this.didUpdateSubtitles) {

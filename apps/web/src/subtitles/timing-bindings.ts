@@ -2,6 +2,7 @@ import type { TProjectSubtitleTrack } from "@/project/types";
 import type { SubtitleLayerCue, SubtitleToken } from "@/subtitles/types";
 import type { SceneTracks, TimelineElement, TimelineTrack } from "@/timeline";
 import { mediaTimeToSeconds } from "@/wasm/media-time";
+import { getTimelineSubtitleTrackFromSegments } from "@/subtitles/segment-bindings";
 
 const LEGACY_ZERO_START_CUE_THRESHOLD_SECONDS = 5;
 const SOURCE_RELATIVE_CUE_EPSILON_SECONDS = 0.001;
@@ -222,6 +223,13 @@ export function getTimelineSubtitleTrack({
 	track: TProjectSubtitleTrack;
 	tracks?: SceneTracks | null;
 }): TProjectSubtitleTrack {
+	if (track.segments && track.segments.length > 0) {
+		const timelineTrack = getTimelineSubtitleTrackFromSegments({
+			track,
+			tracks,
+		});
+		if (timelineTrack) return timelineTrack;
+	}
 	const offsetSeconds = getSubtitleTrackTimelineOffsetSeconds({
 		track,
 		tracks,

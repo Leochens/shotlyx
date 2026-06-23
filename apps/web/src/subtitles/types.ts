@@ -53,6 +53,9 @@ export interface SubtitleToken {
 	startTime: number;
 	duration: number;
 	confidence?: number;
+	sourceSegmentId?: string;
+	sourceCueIndex?: number;
+	sourceTokenIndex?: number;
 }
 
 export interface SubtitleCueTranslation {
@@ -66,6 +69,8 @@ export interface SubtitleLayerCue extends SubtitleCue {
 	id?: string;
 	tokens?: SubtitleToken[];
 	translations?: Record<string, SubtitleCueTranslation>;
+	sourceSegmentId?: string;
+	sourceCueIndex?: number;
 }
 
 export interface ParseSubtitleResult {

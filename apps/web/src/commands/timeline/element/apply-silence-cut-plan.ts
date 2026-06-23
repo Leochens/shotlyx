@@ -10,6 +10,7 @@ import type { SilenceCutTarget } from "@/silence";
 import {
 	buildSubtitleCutRangesFromTargets,
 	syncProjectSubtitlesForTimelineCuts,
+	syncProjectSubtitlesToTimelineFragments,
 } from "@/subtitles/timeline-sync";
 
 export class ApplySilenceCutPlanCommand extends Command {
@@ -45,14 +46,22 @@ export class ApplySilenceCutPlanCommand extends Command {
 	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();
 		this.beforeSubtitles = editor.project.getActiveOrNull()?.settings.subtitles;
-		const nextSubtitles = syncProjectSubtitlesForTimelineCuts({
+		const fragmentSyncedSubtitles = syncProjectSubtitlesToTimelineFragments({
 			subtitles: this.beforeSubtitles,
-			timelineTracks: this.before,
-			ranges: buildSubtitleCutRangesFromTargets({
-				targets: this.targets,
-				mode: "collapse",
-			}),
+			beforeTracks: this.before,
+			afterTracks: this.after,
 		});
+		const nextSubtitles =
+			fragmentSyncedSubtitles !== this.beforeSubtitles
+				? fragmentSyncedSubtitles
+				: syncProjectSubtitlesForTimelineCuts({
+						subtitles: this.beforeSubtitles,
+						timelineTracks: this.before,
+						ranges: buildSubtitleCutRangesFromTargets({
+							targets: this.targets,
+							mode: "collapse",
+						}),
+					});
 		this.didUpdateSubtitles = nextSubtitles !== this.beforeSubtitles;
 		editor.timeline.updateTracks(this.after);
 		if (this.didUpdateSubtitles) {

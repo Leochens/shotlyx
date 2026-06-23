@@ -896,6 +896,171 @@ test.describe("global subtitles", () => {
 		expect(runtimeErrors).toEqual([]);
 	});
 
+	test("orders segment-bound transcript text by the moved timeline clip order", async ({
+		page,
+	}) => {
+		const runtimeErrors = collectSubtitleRuntimeErrors({ page });
+		await setupEditorPage(page);
+
+		await page.evaluate(async () => {
+			const [{ EditorCore }, { mediaTimeFromSeconds }] = await Promise.all([
+				import("/src/core/index.ts"),
+				import("/src/wasm/media-time.ts"),
+			]);
+			const editor = EditorCore.getInstance();
+			const mediaManager = editor.media as typeof editor.media & {
+				assets: unknown[];
+				notify: () => void;
+			};
+			mediaManager.assets = [
+				...editor.media.getAssets(),
+				{
+					id: "clip-one-media",
+					name: "one.wav",
+					type: "audio",
+					file: new File(["one"], "one.wav", { type: "audio/wav" }),
+					hasAudio: true,
+				},
+				{
+					id: "clip-three-media",
+					name: "three.wav",
+					type: "audio",
+					file: new File(["three"], "three.wav", { type: "audio/wav" }),
+					hasAudio: true,
+				},
+			];
+			mediaManager.notify();
+			const scene = editor.scenes.getActiveScene();
+			scene.tracks.audio = [
+				{
+					id: "voice-track",
+					type: "audio",
+					name: "V1",
+					muted: false,
+					elements: [
+						{
+							id: "clip-one",
+							type: "audio",
+							name: "Clip One",
+							sourceType: "upload",
+							mediaId: "clip-one-media",
+							startTime: mediaTimeFromSeconds({ seconds: 0 }),
+							duration: mediaTimeFromSeconds({ seconds: 4 }),
+							trimStart: mediaTimeFromSeconds({ seconds: 0 }),
+							trimEnd: mediaTimeFromSeconds({ seconds: 0 }),
+							sourceDuration: mediaTimeFromSeconds({ seconds: 4 }),
+							params: {},
+						},
+						{
+							id: "clip-three",
+							type: "audio",
+							name: "Clip Three",
+							sourceType: "upload",
+							mediaId: "clip-three-media",
+							startTime: mediaTimeFromSeconds({ seconds: 10 }),
+							duration: mediaTimeFromSeconds({ seconds: 4 }),
+							trimStart: mediaTimeFromSeconds({ seconds: 0 }),
+							trimEnd: mediaTimeFromSeconds({ seconds: 0 }),
+							sourceDuration: mediaTimeFromSeconds({ seconds: 4 }),
+							params: {},
+						},
+					],
+				},
+			];
+			(editor.scenes as typeof editor.scenes & { notify: () => void }).notify();
+			(
+				editor.timeline as typeof editor.timeline & { notify: () => void }
+			).notify();
+			await editor.mcp.execute({
+				toolName: "subtitles_import",
+				params: {
+					format: "cues",
+					sourceTrackId: "voice-track",
+					sourceTrackName: "V1",
+					cues: [
+						{
+							text: "原第一段",
+							startTimeSeconds: 0,
+							durationSeconds: 1,
+							tokens: [{ text: "原第一段", startTime: 0, duration: 1 }],
+						},
+						{
+							text: "原第三段",
+							startTimeSeconds: 10,
+							durationSeconds: 1,
+							tokens: [{ text: "原第三段", startTime: 10, duration: 1 }],
+						},
+					],
+				},
+			});
+			editor.timeline.updateElements({
+				updates: [
+					{
+						trackId: "voice-track",
+						elementId: "clip-one",
+						patch: { startTime: mediaTimeFromSeconds({ seconds: 10 }) },
+					},
+					{
+						trackId: "voice-track",
+						elementId: "clip-three",
+						patch: { startTime: mediaTimeFromSeconds({ seconds: 0 }) },
+					},
+				],
+				pushHistory: false,
+			});
+		});
+
+		await page.getByRole("button", { name: /文字稿|Transcript/ }).click();
+		await expect(page.getByTestId("global-transcript-list")).toContainText(
+			"原第三段",
+		);
+		const transcriptText = await page
+			.getByTestId("global-transcript-list")
+			.innerText();
+		expect(transcriptText.indexOf("原第三段")).toBeLessThan(
+			transcriptText.indexOf("原第一段"),
+		);
+		await expect
+			.poll(async () =>
+				page.evaluate(async () => {
+					const [
+						{ EditorCore },
+						{ buildProjectSubtitleElements },
+						{ resolveSubtitleTextAtTime },
+						{ mediaTimeFromSeconds },
+					] = await Promise.all([
+						import("/src/core/index.ts"),
+						import("/src/subtitles/project-subtitles.ts"),
+						import("/src/subtitles/layer.ts"),
+						import("/src/wasm/media-time.ts"),
+					]);
+					const editor = EditorCore.getInstance();
+					const project = editor.project.getActive();
+					const element = buildProjectSubtitleElements({
+						subtitles: project.settings.subtitles,
+						canvasSize: project.settings.canvasSize,
+						duration: editor.timeline.getTotalDuration(),
+						timelineTracks: editor.scenes.getActiveScene().tracks,
+					})[0];
+					if (!element) return null;
+					return {
+						firstText:
+							resolveSubtitleTextAtTime({
+								element,
+								timelineTime: mediaTimeFromSeconds({ seconds: 0.2 }),
+							})?.text ?? null,
+						laterText:
+							resolveSubtitleTextAtTime({
+								element,
+								timelineTime: mediaTimeFromSeconds({ seconds: 10.2 }),
+							})?.text ?? null,
+					};
+				}),
+			)
+			.toEqual({ firstText: "原第三段", laterText: "原第一段" });
+		expect(runtimeErrors).toEqual([]);
+	});
+
 	test("auto-binds generated global subtitles to the single moved source clip", async ({
 		page,
 	}) => {
@@ -1063,7 +1228,7 @@ test.describe("global subtitles", () => {
 			)
 			.toEqual({
 				sourceTimelineStartTimeSeconds: 5,
-				cueStartTime: 5,
+				cueStartTime: 0,
 				elementStartTime: 5,
 				beforeText: null,
 				movedText: "先",
@@ -1282,19 +1447,21 @@ test.describe("global subtitles", () => {
 		await page.route("**/api/agent/subtitle-filler-analysis", async (route) => {
 			analysisCallCount += 1;
 			const body = route.request().postDataJSON() as {
-				candidates: Array<{ id: string; text: string }>;
+				candidates: Array<{ id: string; text: string; trackLabel: string }>;
 			};
 			expect(body.candidates).toEqual([
-				expect.objectContaining({ id: "track:voice-track:0:0", text: "嗯" }),
+				expect.objectContaining({ text: "嗯", trackLabel: "V1" }),
 			]);
+			const cutId = body.candidates[0]?.id;
+			expect(cutId).toBeTruthy();
 			await route.fulfill({
 				status: 200,
 				contentType: "application/json",
 				body: JSON.stringify({
-					cutIds: ["track:voice-track:0:0"],
+					cutIds: cutId ? [cutId] : [],
 					decisions: [
 						{
-							id: "track:voice-track:0:0",
+							id: cutId,
 							shouldCut: true,
 							reason: "AI selected standalone filler",
 						},

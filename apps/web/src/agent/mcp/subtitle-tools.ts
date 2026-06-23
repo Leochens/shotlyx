@@ -28,6 +28,10 @@ import {
 	resolveSubtitleSourceTimelineStartSeconds,
 	storedSubtitleSecondsToTimelineSeconds,
 } from "@/subtitles/timing-bindings";
+import {
+	buildSubtitleSegmentsFromTimelineCues,
+	getSegmentTokenTimelineRange,
+} from "@/subtitles/segment-bindings";
 import { generateUUID } from "@/utils/id";
 import type { Tool } from "./types";
 import {
@@ -1052,6 +1056,7 @@ interface FillerCutCandidate {
 	trackLabel: string;
 	sourceTrackId: string;
 	sourceElementId?: string;
+	sourceSegmentId?: string;
 	sourceTimelineStartTimeSeconds?: number;
 	cueIndex: number;
 	tokenIndex: number;
@@ -1134,6 +1139,52 @@ function findFillerCutCandidates({
 	limit: number;
 }): FillerCutCandidate[] {
 	const candidates = tracks.flatMap((track) => {
+		if (track.segments && track.segments.length > 0) {
+			return track.segments.flatMap((segment) =>
+				segment.cues.flatMap((cue, cueIndex) =>
+					getTranscriptCueTokens({ cue }).flatMap(
+						(token, tokenIndex, tokens) => {
+							if (!isPotentialFillerCandidate({ token })) return [];
+							const endTime = tokenEndTime({ token });
+							if (endTime <= token.startTime) return [];
+							const before = tokens
+								.slice(
+									Math.max(0, tokenIndex - FILLER_CONTEXT_TOKEN_COUNT),
+									tokenIndex,
+								)
+								.map((item) => item.text)
+								.join("");
+							const after = tokens
+								.slice(
+									tokenIndex + 1,
+									tokenIndex + 1 + FILLER_CONTEXT_TOKEN_COUNT,
+								)
+								.map((item) => item.text)
+								.join("");
+							return [
+								{
+									id: `${track.id}:${segment.id}:${cueIndex}:${tokenIndex}`,
+									trackId: track.id,
+									trackLabel: track.label,
+									sourceTrackId: segment.sourceTrackId,
+									sourceElementId: segment.sourceElementId,
+									sourceSegmentId: segment.id,
+									cueIndex,
+									tokenIndex,
+									text: token.text,
+									cueText: cue.text,
+									contextBefore: before,
+									contextAfter: after,
+									startTime: token.startTime,
+									endTime,
+									duration: endTime - token.startTime,
+								},
+							];
+						},
+					),
+				),
+			);
+		}
 		const sourceTrackId = track.sourceTrackId;
 		if (!sourceTrackId) return [];
 		return track.cues.flatMap((cue, cueIndex) =>
@@ -1234,6 +1285,32 @@ function getFillerCandidateTimelineRangeSeconds({
 	candidate: FillerCutCandidate;
 	paddingSeconds: number;
 }): { startSeconds: number; endSeconds: number } {
+	if (candidate.sourceSegmentId) {
+		const subtitles = editor.project.getActiveOrNull()?.settings.subtitles;
+		const transcriptTrack = subtitles
+			? getStoredProjectTranscriptTracks({ subtitles }).find(
+					(track) => track.id === candidate.trackId,
+				)
+			: null;
+		const segmentRange = transcriptTrack
+			? getSegmentTokenTimelineRange({
+					track: transcriptTrack,
+					tracks: editor.scenes.getActiveScene().tracks,
+					sourceSegmentId: candidate.sourceSegmentId,
+					sourceCueIndex: candidate.cueIndex,
+					sourceTokenIndex: candidate.tokenIndex,
+				})
+			: null;
+		if (segmentRange) {
+			return {
+				startSeconds: Math.max(0, segmentRange.startTime - paddingSeconds),
+				endSeconds: Math.max(
+					segmentRange.startTime,
+					segmentRange.endTime + paddingSeconds,
+				),
+			};
+		}
+	}
 	const subtitleTrack: TProjectSubtitleTrack = {
 		id: candidate.trackId,
 		label: candidate.trackLabel,
@@ -1835,15 +1912,27 @@ export function buildSubtitleTools({
 								...(subtitleAssetName ? { assetName: subtitleAssetName } : {}),
 							}
 						: {};
+					const segments = buildSubtitleSegmentsFromTimelineCues({
+						cues: layerCues,
+						sourceTrackId,
+						sourceElementId,
+						tracks: editor.scenes.getActiveScene().tracks,
+					});
 					const nextTrack: TProjectSubtitleTrack = {
 						id: trackIdForTranscript,
 						label:
 							sourceTrackName ??
 							(sourceTrackId ? `轨道 ${sourceTrackId}` : "全局字幕"),
-						cues: layerCues,
+						cues:
+							segments.length > 0
+								? segments.flatMap((segment) => segment.cues)
+								: layerCues,
+						...(segments.length > 0 ? { segments } : {}),
 						renderEnabled: previousTrack?.renderEnabled ?? true,
 						...(sourceTrackId ? { sourceTrackId } : {}),
-						...(sourceElementId ? { sourceElementId } : {}),
+						...(sourceElementId && segments.length <= 1
+							? { sourceElementId }
+							: {}),
 						...(resolvedSourceTimelineStartTimeSeconds !== null
 							? {
 									sourceTimelineStartTimeSeconds:

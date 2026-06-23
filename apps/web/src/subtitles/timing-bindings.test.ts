@@ -78,6 +78,63 @@ function subtitleTrack(): TProjectSubtitleTrack {
 }
 
 describe("subtitle timing bindings", () => {
+	test("derives segment-bound subtitles from the current clip order", () => {
+		const tracks: SceneTracks = {
+			overlay: [],
+			main: {
+				id: "voice-track",
+				name: "Voice",
+				type: "video",
+				muted: false,
+				hidden: false,
+				elements: [
+					videoElement({
+						id: "clip-3",
+						startTimeSeconds: 0,
+						durationSeconds: 5,
+					}),
+					videoElement({
+						id: "clip-1",
+						startTimeSeconds: 10,
+						durationSeconds: 5,
+					}),
+				],
+			},
+			audio: [],
+		};
+		const timelineTrack = getTimelineSubtitleTrack({
+			track: {
+				id: "track:voice-track",
+				label: "Voice",
+				sourceTrackId: "voice-track",
+				cues: [],
+				segments: [
+					{
+						id: "seg-1",
+						sourceTrackId: "voice-track",
+						sourceElementId: "clip-1",
+						sourceMediaId: "clip-1-media",
+						cues: [{ text: "原第一段", startTime: 1, duration: 1 }],
+					},
+					{
+						id: "seg-3",
+						sourceTrackId: "voice-track",
+						sourceElementId: "clip-3",
+						sourceMediaId: "clip-3-media",
+						cues: [{ text: "原第三段", startTime: 1, duration: 1 }],
+					},
+				],
+			},
+			tracks,
+		});
+
+		expect(timelineTrack.cues.map((cue) => cue.text)).toEqual([
+			"原第三段",
+			"原第一段",
+		]);
+		expect(timelineTrack.cues.map((cue) => cue.startTime)).toEqual([1, 11]);
+	});
+
 	test("shifts project subtitles by the current source clip offset", () => {
 		const tracks = sceneTracks({ clipStartSeconds: 10 });
 		const timelineTrack = getTimelineSubtitleTrack({

@@ -6,26 +6,33 @@ import { opencutWasmMock, wasmMock } from "@/test/wasm-mock";
 mock.module("@/wasm", () => wasmMock);
 mock.module("opencut-wasm", () => opencutWasmMock);
 
-const { syncProjectSubtitlesForTimelineCuts } = await import("./timeline-sync");
+const {
+	syncProjectSubtitlesForTimelineCuts,
+	syncProjectSubtitlesToTimelineFragments,
+} = await import("./timeline-sync");
 const { mediaTimeFromSeconds } = await import("@/wasm/media-time");
 
 function videoElement({
 	id,
 	startTimeSeconds,
 	durationSeconds,
+	trimStartSeconds = 0,
+	mediaId = `${id}-media`,
 }: {
 	id: string;
 	startTimeSeconds: number;
 	durationSeconds: number;
+	trimStartSeconds?: number;
+	mediaId?: string;
 }): VideoElement {
 	return {
 		id,
 		type: "video",
 		name: id,
-		mediaId: `${id}-media`,
+		mediaId,
 		startTime: mediaTimeFromSeconds({ seconds: startTimeSeconds }),
 		duration: mediaTimeFromSeconds({ seconds: durationSeconds }),
-		trimStart: mediaTimeFromSeconds({ seconds: 0 }),
+		trimStart: mediaTimeFromSeconds({ seconds: trimStartSeconds }),
 		trimEnd: mediaTimeFromSeconds({ seconds: 0 }),
 		params: {},
 	};
@@ -124,5 +131,72 @@ describe("subtitle timeline sync", () => {
 			text: "后",
 			startTime: 3,
 		});
+	});
+
+	test("splits segment-bound transcripts across the new timeline fragments", () => {
+		const before = sceneTracks();
+		const after: SceneTracks = {
+			...before,
+			main: {
+				...before.main,
+				elements: [
+					videoElement({
+						id: "voice-clip",
+						startTimeSeconds: 10,
+						durationSeconds: 2,
+					}),
+					videoElement({
+						id: "voice-clip-right",
+						startTimeSeconds: 12,
+						durationSeconds: 18,
+						trimStartSeconds: 2,
+						mediaId: "voice-clip-media",
+					}),
+				],
+			},
+		};
+		const result = syncProjectSubtitlesToTimelineFragments({
+			subtitles: {
+				...subtitles(),
+				tracks: [
+					{
+						id: "track:voice-track",
+						label: "Voice",
+						sourceTrackId: "voice-track",
+						sourceElementId: "voice-clip",
+						cues: [],
+						segments: [
+							{
+								id: "seg-voice",
+								sourceTrackId: "voice-track",
+								sourceElementId: "voice-clip",
+								sourceMediaId: "voice-clip-media",
+								cues: [
+									{
+										text: "前后",
+										startTime: 1,
+										duration: 3,
+										tokens: [
+											{ text: "前", startTime: 1, duration: 1 },
+											{ text: "后", startTime: 3, duration: 1 },
+										],
+									},
+								],
+							},
+						],
+					},
+				],
+			},
+			beforeTracks: before,
+			afterTracks: after,
+		});
+
+		expect(result?.tracks?.[0]?.segments).toHaveLength(2);
+		expect(
+			result?.tracks?.[0]?.segments?.map((segment) => segment.sourceElementId),
+		).toEqual(["voice-clip", "voice-clip-right"]);
+		expect(
+			result?.tracks?.[0]?.segments?.map((segment) => segment.cues[0]?.text),
+		).toEqual(["前", "后"]);
 	});
 });

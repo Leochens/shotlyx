@@ -94,12 +94,22 @@ export interface TProjectSubtitleTrack {
 	id: string;
 	label: string;
 	cues: SubtitleLayerCue[];
+	segments?: TProjectSubtitleSegment[];
 	renderEnabled?: boolean;
 	sourceTrackId?: string;
 	sourceElementId?: string;
 	sourceTimelineStartTimeSeconds?: number;
 	assetId?: string;
 	assetName?: string;
+	updatedAt?: string;
+}
+
+export interface TProjectSubtitleSegment {
+	id: string;
+	sourceTrackId: string;
+	sourceElementId: string;
+	sourceMediaId?: string;
+	cues: SubtitleLayerCue[];
 	updatedAt?: string;
 }
 

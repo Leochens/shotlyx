@@ -20,6 +20,7 @@ import {
 	buildSubtitleCutRangesFromSplit,
 	getTimelineCutModeForCommand,
 	syncProjectSubtitlesForTimelineCuts,
+	syncProjectSubtitlesToTimelineFragments,
 } from "@/subtitles/timeline-sync";
 
 export class SplitElementsCommand extends Command {
@@ -54,20 +55,6 @@ export class SplitElementsCommand extends Command {
 		const editor = EditorCore.getInstance();
 		this.savedState = editor.scenes.getActiveScene().tracks;
 		this.savedSubtitles = editor.project.getActiveOrNull()?.settings.subtitles;
-		const nextSubtitles = syncProjectSubtitlesForTimelineCuts({
-			subtitles: this.savedSubtitles,
-			timelineTracks: this.savedState,
-			ranges: buildSubtitleCutRangesFromSplit({
-				tracks: this.savedState,
-				elements: this.elements,
-				splitTime: this.splitTime,
-				retainSide: this.retainSide,
-				mode: getTimelineCutModeForCommand({
-					rippleEnabled: editor.command.isRippleEnabled,
-				}),
-			}),
-		});
-		this.didUpdateSubtitles = nextSubtitles !== this.savedSubtitles;
 		this.rightSideElements = [];
 
 		const splitTrack = <
@@ -219,6 +206,28 @@ export class SplitElementsCommand extends Command {
 			main: splitTrack(this.savedState.main),
 			audio: this.savedState.audio.map((track) => splitTrack(track)),
 		};
+		const fragmentSyncedSubtitles = syncProjectSubtitlesToTimelineFragments({
+			subtitles: this.savedSubtitles,
+			beforeTracks: this.savedState,
+			afterTracks: updatedTracks,
+		});
+		const nextSubtitles =
+			fragmentSyncedSubtitles !== this.savedSubtitles
+				? fragmentSyncedSubtitles
+				: syncProjectSubtitlesForTimelineCuts({
+						subtitles: this.savedSubtitles,
+						timelineTracks: this.savedState,
+						ranges: buildSubtitleCutRangesFromSplit({
+							tracks: this.savedState,
+							elements: this.elements,
+							splitTime: this.splitTime,
+							retainSide: this.retainSide,
+							mode: getTimelineCutModeForCommand({
+								rippleEnabled: editor.command.isRippleEnabled,
+							}),
+						}),
+					});
+		this.didUpdateSubtitles = nextSubtitles !== this.savedSubtitles;
 
 		editor.timeline.updateTracks(updatedTracks);
 		if (this.didUpdateSubtitles) {

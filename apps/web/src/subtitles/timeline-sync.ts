@@ -10,6 +10,7 @@ import {
 	removeTranscriptTrackByTimeRanges,
 } from "@/subtitles/transcript-editing";
 import { timelineSecondsToStoredSubtitleSeconds } from "@/subtitles/timing-bindings";
+import { syncSubtitleTrackSegmentsToTimelineFragments } from "@/subtitles/segment-bindings";
 
 export type SubtitleTimelineCutMode = "collapse" | "remove";
 
@@ -174,6 +175,47 @@ export function syncProjectSubtitlesForTimelineCuts({
 	};
 }
 
+export function syncProjectSubtitlesToTimelineFragments({
+	subtitles,
+	beforeTracks,
+	afterTracks,
+}: {
+	subtitles: TProjectSubtitles | null | undefined;
+	beforeTracks: SceneTracks;
+	afterTracks: SceneTracks;
+}): TProjectSubtitles | null | undefined {
+	if (!subtitles) return subtitles;
+	const tracks = getStoredProjectTranscriptTracks({ subtitles });
+	if (tracks.length === 0) return subtitles;
+	if (!tracks.some((track) => (track.segments?.length ?? 0) > 0)) {
+		return subtitles;
+	}
+
+	let didChange = false;
+	const nextTracks = tracks.map((track) => {
+		const nextTrack = syncSubtitleTrackSegmentsToTimelineFragments({
+			track,
+			beforeTracks,
+			afterTracks,
+		});
+		if (nextTrack !== track) didChange = true;
+		return nextTrack;
+	});
+	if (!didChange) return subtitles;
+
+	const isLegacyOnly =
+		(!subtitles.tracks || subtitles.tracks.length === 0) &&
+		nextTracks.length === 1 &&
+		nextTracks[0]?.id === "track:global";
+
+	return {
+		...subtitles,
+		tracks: nextTracks,
+		cues: isLegacyOnly ? (nextTracks[0]?.cues ?? []) : subtitles.cues,
+		updatedAt: new Date().toISOString(),
+	};
+}
+
 export function buildSubtitleCutRangesFromElements({
 	tracks,
 	elements,
@@ -190,15 +232,15 @@ export function buildSubtitleCutRangesFromElements({
 	for (const track of [tracks.main, ...tracks.overlay, ...tracks.audio]) {
 		for (const element of track.elements) {
 			if (!elementRefs.has(`${track.id}:${element.id}`)) continue;
-				result.push({
-					sourceTrackId: track.id,
-					startTime: element.startTime,
-					endTime: addMediaTime({
-						a: element.startTime,
-						b: element.duration,
-					}),
-					mode,
-				});
+			result.push({
+				sourceTrackId: track.id,
+				startTime: element.startTime,
+				endTime: addMediaTime({
+					a: element.startTime,
+					b: element.duration,
+				}),
+				mode,
+			});
 		}
 	}
 	return result;
@@ -223,14 +265,14 @@ export function buildSubtitleCutRangesFromSplit({
 	);
 	const result: SubtitleTimelineCutRange[] = [];
 	for (const track of [tracks.main, ...tracks.overlay, ...tracks.audio]) {
-			for (const element of track.elements) {
-				if (!elementRefs.has(`${track.id}:${element.id}`)) continue;
-				const elementStart = element.startTime;
-				const elementEnd = addMediaTime({
-					a: element.startTime,
-					b: element.duration,
-				});
-				if (splitTime <= elementStart || splitTime >= elementEnd) continue;
+		for (const element of track.elements) {
+			if (!elementRefs.has(`${track.id}:${element.id}`)) continue;
+			const elementStart = element.startTime;
+			const elementEnd = addMediaTime({
+				a: element.startTime,
+				b: element.duration,
+			});
+			if (splitTime <= elementStart || splitTime >= elementEnd) continue;
 			result.push({
 				sourceTrackId: track.id,
 				startTime: retainSide === "left" ? splitTime : elementStart,
