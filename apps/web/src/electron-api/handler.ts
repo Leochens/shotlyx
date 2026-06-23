@@ -10,6 +10,7 @@ import * as seedanceVideoDownloadRoute from "@/api/agent/creative/video/seedance
 import * as seedanceVideoRoute from "@/api/agent/creative/video/seedance/route";
 import * as stockDownloadRoute from "@/api/agent/stock/download/route";
 import * as stockSearchRoute from "@/api/agent/stock/search/route";
+import * as subtitleFillerAnalysisRoute from "@/api/agent/subtitle-filler-analysis/route";
 import * as subtitleTranslationRoute from "@/api/agent/subtitle-translation/route";
 import * as transcriptionRoute from "@/api/agent/transcription/route";
 import * as visionAnalyzeRoute from "@/api/agent/vision/analyze/route";
@@ -98,6 +99,7 @@ const staticRoutes = new Map<string, RouteModule>([
 	["/api/agent/creative/video/seedance/download", seedanceVideoDownloadRoute],
 	["/api/agent/stock/download", stockDownloadRoute],
 	["/api/agent/stock/search", stockSearchRoute],
+	["/api/agent/subtitle-filler-analysis", subtitleFillerAnalysisRoute],
 	["/api/agent/subtitle-translation", subtitleTranslationRoute],
 	["/api/agent/transcription", transcriptionRoute],
 	["/api/agent/vision/analyze", visionAnalyzeRoute],

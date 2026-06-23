@@ -736,6 +736,13 @@ test.describe("global subtitles", () => {
 		await expect(page.getByTestId("global-transcript-list")).toContainText(
 			"嗯大家好",
 		);
+		const routeProbe = await page.request.post(
+			"/api/agent/subtitle-filler-analysis",
+			{
+				data: { candidates: [] },
+			},
+		);
+		expect(routeProbe.status()).toBe(400);
 		let analysisCallCount = 0;
 		await page.route("**/api/agent/subtitle-filler-analysis", async (route) => {
 			analysisCallCount += 1;
