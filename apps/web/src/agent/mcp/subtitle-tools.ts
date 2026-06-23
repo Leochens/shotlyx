@@ -1016,8 +1016,32 @@ async function saveTranscriptTextAsset({
 	};
 }
 
-const DEFAULT_FILLER_ANALYSIS_CANDIDATE_LIMIT = 700;
+const DEFAULT_FILLER_ANALYSIS_CANDIDATE_LIMIT = 160;
 const FILLER_CONTEXT_TOKEN_COUNT = 4;
+const FILLER_ANALYSIS_TEXT_HINTS = new Set([
+	"啊",
+	"嗯",
+	"呃",
+	"额",
+	"哦",
+	"噢",
+	"喔",
+	"唔",
+	"呐",
+	"哈",
+	"哎",
+	"唉",
+	"um",
+	"uh",
+	"er",
+	"erm",
+	"ah",
+	"oh",
+]);
+const FILLER_ANALYSIS_TEXT_PATTERNS = [
+	/^[啊嗯呃额哦噢喔唔呐哈哎唉]+$/,
+	/^(?:u+h+|u+m+|e+r+m*|a+h+|o+h+)$/,
+];
 
 interface FillerCutCandidate {
 	id: string;
@@ -1049,8 +1073,12 @@ function isPotentialFillerCandidate({
 }): boolean {
 	const normalized = normalizeFillerText({ text: token.text });
 	if (normalized.length === 0) return false;
-	if (token.duration > 2.5) return false;
-	return Array.from(normalized).length <= 8;
+	if (token.duration > 1.2) return false;
+	if (Array.from(normalized).length > 4) return false;
+	return (
+		FILLER_ANALYSIS_TEXT_HINTS.has(normalized) ||
+		FILLER_ANALYSIS_TEXT_PATTERNS.some((pattern) => pattern.test(normalized))
+	);
 }
 
 function getStoredProjectTranscriptTracks({
@@ -1941,7 +1969,7 @@ export function buildSubtitleTools({
 				},
 				maxCandidates: {
 					type: "number",
-					description: "最多提交给 AI 分析的候选词数量，默认 700，最大 1500。",
+					description: "最多提交给 AI 分析的候选词数量，默认 160，最大 1500。",
 					optional: true,
 				},
 				paddingMs: {

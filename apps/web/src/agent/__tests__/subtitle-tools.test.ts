@@ -349,18 +349,12 @@ describe("subtitle tools", () => {
 				const body = JSON.parse(String(init?.body)) as {
 					candidates: Array<{ id: string; text: string }>;
 				};
-				expect(body.candidates).toEqual(
-					expect.arrayContaining([
-						expect.objectContaining({
-							id: "track:voice-track:0:0",
-							text: "嗯",
-						}),
-						expect.objectContaining({
-							id: "track:voice-track:1:0",
-							text: "好啊",
-						}),
-					]),
-				);
+				expect(body.candidates).toEqual([
+					expect.objectContaining({
+						id: "track:voice-track:0:0",
+						text: "嗯",
+					}),
+				]);
 				return new Response(
 					JSON.stringify({
 						cutIds: ["track:voice-track:0:0"],
@@ -442,7 +436,7 @@ describe("subtitle tools", () => {
 
 		expect(result).toMatchObject({
 			applied: true,
-			analyzedCandidateCount: 5,
+			analyzedCandidateCount: 1,
 			candidateCount: 1,
 			removedSeconds: 0.4,
 		});

@@ -749,15 +749,9 @@ test.describe("global subtitles", () => {
 			const body = route.request().postDataJSON() as {
 				candidates: Array<{ id: string; text: string }>;
 			};
-			expect(body.candidates).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({ id: "track:voice-track:0:0", text: "嗯" }),
-					expect.objectContaining({
-						id: "track:voice-track:1:0",
-						text: "好啊",
-					}),
-				]),
-			);
+			expect(body.candidates).toEqual([
+				expect.objectContaining({ id: "track:voice-track:0:0", text: "嗯" }),
+			]);
 			await route.fulfill({
 				status: 200,
 				contentType: "application/json",
