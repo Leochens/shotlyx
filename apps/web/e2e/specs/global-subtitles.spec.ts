@@ -1071,7 +1071,7 @@ test.describe("global subtitles", () => {
 		expect(runtimeErrors).toEqual([]);
 	});
 
-	test("repairs source-relative subtitles generated before binding fix", async ({
+	test("repairs unbound source-relative subtitles generated before binding fix", async ({
 		page,
 	}) => {
 		const runtimeErrors = collectSubtitleRuntimeErrors({ page });
@@ -1138,10 +1138,6 @@ test.describe("global subtitles", () => {
 						toolName: "subtitles_import",
 						params: {
 							format: "cues",
-							sourceTrackId: "legacy-voice-track",
-							sourceElementId: "legacy-voice-clip",
-							sourceTrackName: "Legacy Voice",
-							sourceTimelineStartTimeSeconds: 5,
 							cues: [
 								{
 									text: "旧字幕",

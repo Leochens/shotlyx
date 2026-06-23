@@ -153,4 +153,30 @@ describe("subtitle timing bindings", () => {
 			}),
 		).toBe(10.75);
 	});
+
+	test("repairs unbound global subtitles when there is only one moved media source", () => {
+		const {
+			sourceTrackId: _sourceTrackId,
+			sourceElementId: _sourceElementId,
+			sourceTimelineStartTimeSeconds: _sourceTimelineStartTimeSeconds,
+			...unboundTrack
+		} = subtitleTrack();
+		const timelineTrack = getTimelineSubtitleTrack({
+			track: {
+				...unboundTrack,
+				cues: [
+					{
+						text: "未绑定字幕",
+						startTime: 0,
+						duration: 1,
+						tokens: [{ text: "未", startTime: 0, duration: 0.5 }],
+					},
+				],
+			},
+			tracks: sceneTracks({ clipStartSeconds: 6 }),
+		});
+
+		expect(timelineTrack.cues[0]?.startTime).toBe(6);
+		expect(timelineTrack.cues[0]?.tokens?.[0]?.startTime).toBe(6);
+	});
 });

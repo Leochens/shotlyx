@@ -73,6 +73,41 @@ function getSubtitleTrackSourceTimelineStartSeconds({
 	return Math.max(0, Math.floor(earliestCueStart));
 }
 
+function isTimelineSourceTrack({ track }: { track: TimelineTrack }): boolean {
+	return track.type === "video" || track.type === "audio";
+}
+
+function inferSingleUnboundSourceTimelineStartSeconds({
+	tracks,
+}: {
+	tracks: SceneTracks;
+}): number | null {
+	const sourceTracks = getAllTracks({ tracks }).filter(
+		(track) => isTimelineSourceTrack({ track }) && track.elements.length > 0,
+	);
+	if (sourceTracks.length !== 1) return null;
+	return earliestElementStartSeconds({ track: sourceTracks[0] });
+}
+
+function getUnboundSubtitleTimelineOffsetSeconds({
+	track,
+	tracks,
+}: {
+	track: TProjectSubtitleTrack;
+	tracks: SceneTracks;
+}): number {
+	const inferredSourceStart = inferSingleUnboundSourceTimelineStartSeconds({
+		tracks,
+	});
+	if (inferredSourceStart === null || inferredSourceStart <= 0) return 0;
+	const earliestCueStart = earliestCueStartSeconds({ track });
+	if (earliestCueStart === null) return 0;
+	return earliestCueStart + SOURCE_RELATIVE_CUE_EPSILON_SECONDS <
+		inferredSourceStart
+		? inferredSourceStart
+		: 0;
+}
+
 function getStoredCueTimelineBaseOffsetSeconds({
 	track,
 }: {
@@ -130,7 +165,10 @@ export function getSubtitleTrackTimelineOffsetSeconds({
 	track: TProjectSubtitleTrack;
 	tracks?: SceneTracks | null;
 }): number {
-	if (!tracks || !track.sourceTrackId) return 0;
+	if (!tracks) return 0;
+	if (!track.sourceTrackId) {
+		return getUnboundSubtitleTimelineOffsetSeconds({ track, tracks });
+	}
 	const sourceTimelineStartTimeSeconds =
 		getSubtitleTrackSourceTimelineStartSeconds({ track });
 	if (sourceTimelineStartTimeSeconds === null) return 0;
