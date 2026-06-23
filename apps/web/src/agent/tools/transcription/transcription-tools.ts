@@ -23,6 +23,7 @@ import type { SubtitleToken } from "@/subtitles/types";
 import { formatSrt } from "@/subtitles/srt";
 import {
 	audioRangeToSeconds,
+	getTranscriptionAudioTrackOptions,
 	getTimelineAudioRange,
 	resolveSelectedTranscriptionAudioRange,
 	resolveTranscriptionAudioRangeByRef,
@@ -387,10 +388,11 @@ function resolveRequestedAudioRange({
 	editor: EditorCore;
 }): TranscriptionAudioRange {
 	const sceneTracks = editor.scenes.getActiveScene().tracks;
+	const mediaAssets = editor.media.getAssets();
 	if (input.audioRangeTrackId) {
 		const sourceRange = resolveTranscriptionAudioRangeByRef({
 			tracks: sceneTracks,
-			mediaAssets: editor.media.getAssets(),
+			mediaAssets,
 			trackId: input.audioRangeTrackId,
 			elementId: input.audioRangeElementId,
 		});
@@ -401,6 +403,13 @@ function resolveRequestedAudioRange({
 			});
 		}
 	}
+
+	const singleSourceRange = resolveSingleAudibleSourceRange({
+		input,
+		tracks: sceneTracks,
+		mediaAssets,
+	});
+	if (singleSourceRange) return singleSourceRange;
 
 	const totalDuration = editor.timeline.getTotalDuration();
 	if (
@@ -469,6 +478,23 @@ function resolveRequestedAudioRange({
 	}
 
 	return getTimelineAudioRange({ totalDuration });
+}
+
+function resolveSingleAudibleSourceRange({
+	input,
+	tracks,
+	mediaAssets,
+}: {
+	input: GenerateSubtitlesFromVideoInput;
+	tracks: SceneTracks;
+	mediaAssets: ReturnType<EditorCore["media"]["getAssets"]>;
+}): TranscriptionAudioRange | null {
+	const options = getTranscriptionAudioTrackOptions({ tracks, mediaAssets });
+	if (options.length !== 1) return null;
+	return constrainRequestedAudioRangeToSourceRange({
+		input,
+		sourceRange: options[0],
+	});
 }
 
 function constrainRequestedAudioRangeToSourceRange({

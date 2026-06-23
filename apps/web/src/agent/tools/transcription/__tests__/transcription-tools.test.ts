@@ -626,6 +626,107 @@ describe("transcription tools", () => {
 		);
 	});
 
+	test("client deps auto-bind a single moved audible source when no track id is provided", async () => {
+		const voiceElement = {
+			id: "voice-clip",
+			type: "video",
+			name: "Moved video",
+			sourceType: "upload",
+			mediaId: "voice-media",
+			startTime: 5 * MEDIA_TIME_TICKS_PER_SECOND,
+			duration: 3 * MEDIA_TIME_TICKS_PER_SECOND,
+			trimStart: 0,
+			trimEnd: 0,
+			sourceDuration: 3 * MEDIA_TIME_TICKS_PER_SECOND,
+			isSourceAudioEnabled: true,
+			params: {},
+		};
+		const execute = mock(async () => ({
+			status: "success" as const,
+			data: { imported: true, cueCount: 1, global: true },
+		}));
+		const editor = {
+			scenes: {
+				getActiveScene: () => ({
+					tracks: {
+						main: {
+							id: "video-track",
+							type: "video",
+							name: "Video track",
+							elements: [voiceElement],
+						},
+						overlay: [],
+						audio: [],
+					},
+				}),
+			},
+			project: { getActive: () => ({ metadata: { id: "project-1" } }) },
+			media: {
+				getAssets: () => [{ id: "voice-media", type: "video", hasAudio: true }],
+				addMediaAsset: mock(async () => null),
+			},
+			timeline: {
+				getTotalDuration: () => 12 * MEDIA_TIME_TICKS_PER_SECOND,
+			},
+			mcp: { execute },
+		} as unknown as EditorCore;
+		const extractTimelineAudioFn = mock(async () => {
+			return new Blob([new Uint8Array([1, 2, 3])], { type: "audio/wav" });
+		});
+		const fetchFn = mock(async () => {
+			return new Response(
+				JSON.stringify({
+					text: "自动绑定",
+					provider: "volcengine",
+					cues: [
+						{
+							text: "自动绑定",
+							startTimeSeconds: 0,
+							durationSeconds: 1,
+						},
+					],
+				}),
+				{ headers: { "Content-Type": "application/json" } },
+			);
+		});
+		const deps = createTranscriptionToolDeps({
+			editor,
+			fetchFn: fetchFn as unknown as typeof fetch,
+			extractTimelineAudioFn,
+		});
+
+		await deps.generateSubtitlesFromVideo({
+			source: "timeline",
+			provider: "volcengine",
+			audioRangeStartSeconds: 0,
+			audioRangeDurationSeconds: 12,
+			saveAsset: false,
+		});
+
+		expect(extractTimelineAudioFn).toHaveBeenCalledWith(
+			expect.objectContaining({
+				rangeStart: 5 * MEDIA_TIME_TICKS_PER_SECOND,
+				rangeDuration: 3 * MEDIA_TIME_TICKS_PER_SECOND,
+			}),
+		);
+		expect(execute).toHaveBeenCalledWith(
+			expect.objectContaining({
+				toolName: "subtitles_import",
+				params: expect.objectContaining({
+					sourceTrackId: "video-track",
+					sourceElementId: "voice-clip",
+					sourceTimelineStartTimeSeconds: 5,
+					cues: [
+						expect.objectContaining({
+							text: "自动绑定",
+							startTimeSeconds: 5,
+						}),
+					],
+				}),
+			}),
+		);
+	});
+
 	test("client deps isolate an explicit audio source element instead of transcribing every overlapping track", async () => {
 		const selectedElement = {
 			id: "voice-clip",

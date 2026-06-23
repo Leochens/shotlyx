@@ -896,7 +896,7 @@ test.describe("global subtitles", () => {
 		expect(runtimeErrors).toEqual([]);
 	});
 
-	test("generates global subtitles at the moved source clip start", async ({
+	test("auto-binds generated global subtitles to the single moved source clip", async ({
 		page,
 	}) => {
 		const runtimeErrors = collectSubtitleRuntimeErrors({ page });
@@ -979,6 +979,10 @@ test.describe("global subtitles", () => {
 					];
 					mediaManager.notify();
 					const scene = editor.scenes.getActiveScene();
+					scene.tracks.main = {
+						...scene.tracks.main,
+						elements: [],
+					};
 					scene.tracks.audio = [
 						{
 							id: "moved-voice-track",
@@ -1015,7 +1019,6 @@ test.describe("global subtitles", () => {
 							provider: "volcengine",
 							audioRangeStartSeconds: 0,
 							audioRangeDurationSeconds: 12,
-							audioRangeTrackId: "moved-voice-track",
 							saveAsset: false,
 						},
 					});
