@@ -97,6 +97,7 @@ export interface TProjectSubtitleTrack {
 	renderEnabled?: boolean;
 	sourceTrackId?: string;
 	sourceElementId?: string;
+	sourceTimelineStartTimeSeconds?: number;
 	assetId?: string;
 	assetName?: string;
 	updatedAt?: string;

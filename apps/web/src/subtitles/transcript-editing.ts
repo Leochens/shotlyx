@@ -221,6 +221,33 @@ export function cutTranscriptTrackByTimeRange({
 	};
 }
 
+export function removeTranscriptTrackByTimeRange({
+	track,
+	startTime,
+	endTime,
+}: {
+	track: TProjectSubtitleTrack;
+	startTime: number;
+	endTime: number;
+}): TProjectSubtitleTrack {
+	if (endTime <= startTime) return track;
+	const nextCues = track.cues.flatMap((cue) => {
+		const tokens = getTranscriptCueTokens({ cue });
+		const nextTokens = tokens.filter((token) => {
+			const tokenEnd = tokenEndTime({ token });
+			return tokenEnd <= startTime || token.startTime >= endTime;
+		});
+		const nextCue = buildCueFromTokens({ cue, tokens: nextTokens });
+		return nextCue ? [nextCue] : [];
+	});
+
+	return {
+		...track,
+		cues: nextCues,
+		updatedAt: new Date().toISOString(),
+	};
+}
+
 export function cutTranscriptTrackByTimeRanges({
 	track,
 	ranges,
@@ -240,6 +267,24 @@ export function cutTranscriptTrackByTimeRanges({
 			endTime: adjustedEndTime,
 		});
 	}, track);
+}
+
+export function removeTranscriptTrackByTimeRanges({
+	track,
+	ranges,
+}: {
+	track: TProjectSubtitleTrack;
+	ranges: Array<{ startTime: number; endTime: number }>;
+}): TProjectSubtitleTrack {
+	return normalizeTimeRanges({ ranges }).reduce(
+		(currentTrack, range) =>
+			removeTranscriptTrackByTimeRange({
+				track: currentTrack,
+				startTime: range.startTime,
+				endTime: range.endTime,
+			}),
+		track,
+	);
 }
 
 export function findActiveTranscriptToken({

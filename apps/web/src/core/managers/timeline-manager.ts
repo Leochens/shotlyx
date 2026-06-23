@@ -354,6 +354,7 @@ export class TimelineManager {
 		const command = new ApplySilenceCutPlanCommand({
 			before,
 			after,
+			targets,
 			selectedElements,
 		});
 		this.editor.command.execute({ command });

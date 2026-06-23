@@ -517,6 +517,7 @@ export function buildScene({
 		subtitles,
 		canvasSize,
 		duration,
+		timelineTracks: tracks,
 	});
 	for (const globalSubtitleElement of globalSubtitleElements) {
 		rootNode.add(

@@ -5,6 +5,7 @@ import {
 	cutTranscriptTrackByTimeRanges,
 	editTranscriptSelection,
 	findActiveTranscriptToken,
+	removeTranscriptTrackByTimeRange,
 	resolveTranscriptTokenRange,
 } from "./transcript-editing";
 
@@ -116,6 +117,20 @@ describe("transcript editing", () => {
 		expect(result.cues[1]?.tokens?.[0]).toMatchObject({
 			text: "面",
 			startTime: 3,
+		});
+	});
+
+	test("removes a transcript range without shifting later tokens", () => {
+		const result = removeTranscriptTrackByTimeRange({
+			track: track(),
+			startTime: 4,
+			endTime: 6,
+		});
+
+		expect(result.cues.map((cue) => cue.text)).toEqual(["这是错字", "面"]);
+		expect(result.cues[1]?.tokens?.[0]).toMatchObject({
+			text: "面",
+			startTime: 6,
 		});
 	});
 

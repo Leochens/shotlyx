@@ -63,7 +63,6 @@ import { createEmptyProjectSubtitles } from "@/subtitles/project-subtitles";
 import { mediaTimeFromSeconds, mediaTimeToSeconds } from "@/wasm/media-time";
 import type { TimelineTrack } from "@/timeline";
 import {
-	cutTranscriptTrackByTimeRange,
 	editTranscriptSelection,
 	findActiveTranscriptToken,
 	getTranscriptCueTokens,
@@ -73,6 +72,10 @@ import {
 	type TranscriptTokenAddress,
 	type TranscriptTokenSelection,
 } from "@/subtitles/transcript-editing";
+import {
+	getTimelineSubtitleTrack,
+	storedSubtitleSecondsToTimelineSeconds,
+} from "@/subtitles/timing-bindings";
 
 const DIAGNOSTIC_BUTTON_VARIANT: Record<
 	DiagnosticSeverity,
@@ -323,6 +326,18 @@ export function Captions() {
 		transcriptTrackChoices.find((track) => track.id === selectedTrackId) ??
 		transcriptTrackChoices[0] ??
 		null;
+	const selectedTimelineTranscriptTrack = useMemo(
+		() =>
+			selectedTranscriptTrack
+				? getTimelineSubtitleTrack({
+						track: selectedTranscriptTrack,
+						tracks: sceneTracks,
+					})
+				: null,
+		[selectedTranscriptTrack, sceneTracks],
+	);
+	const displayTranscriptTrack =
+		selectedTimelineTranscriptTrack ?? selectedTranscriptTrack;
 	const hasTranscript = (selectedTranscriptTrack?.cues.length ?? 0) > 0;
 	const isSelectedTrackRenderEnabled =
 		selectedTranscriptTrack?.renderEnabled !== false;
@@ -348,7 +363,7 @@ export function Captions() {
 	useEffect(() => {
 		const updateActiveToken = (time: number) => {
 			const nextAddress = findActiveTranscriptToken({
-				track: selectedTranscriptTrack,
+				track: selectedTimelineTranscriptTrack,
 				timeSeconds: mediaTimeToSeconds({ time }),
 			});
 			setActiveTokenAddress((previous) =>
@@ -369,7 +384,7 @@ export function Captions() {
 			unsubscribeSeek();
 			unsubscribePlayback();
 		};
-	}, [editor, selectedTranscriptTrack]);
+	}, [editor, selectedTimelineTranscriptTrack]);
 
 	useEffect(() => {
 		if (!activeTokenAddress || !containerRef.current) return;
@@ -769,11 +784,21 @@ export function Captions() {
 			return;
 		}
 
-		const startTime = mediaTimeFromSeconds({
+		const timelineStartSeconds = storedSubtitleSecondsToTimelineSeconds({
+			track: selectedTranscriptTrack,
+			tracks: sceneTracks,
 			seconds: selectedTokenRange.startTime,
 		});
-		const endTime = mediaTimeFromSeconds({
+		const timelineEndSeconds = storedSubtitleSecondsToTimelineSeconds({
+			track: selectedTranscriptTrack,
+			tracks: sceneTracks,
 			seconds: selectedTokenRange.endTime,
+		});
+		const startTime = mediaTimeFromSeconds({
+			seconds: timelineStartSeconds,
+		});
+		const endTime = mediaTimeFromSeconds({
+			seconds: timelineEndSeconds,
 		});
 		const targets = trackElementsOverlappingRange({
 			track: sourceTrack,
@@ -798,21 +823,8 @@ export function Captions() {
 			return;
 		}
 
-		const currentSubtitles =
-			editor.project.getActive().settings.subtitles ??
-			createEmptyProjectSubtitles();
-		updateTranscriptTracks({
-			tracks: getStoredTranscriptTracks({ subtitles: currentSubtitles }).map(
-				(track) =>
-					cutTranscriptTrackByTimeRange({
-						track,
-						startTime: selectedTokenRange.startTime,
-						endTime: selectedTokenRange.endTime,
-					}),
-			),
-		});
 		setTokenSelection(null);
-		seekToSeconds({ seconds: selectedTokenRange.startTime });
+		seekToSeconds({ seconds: timelineStartSeconds });
 	};
 
 	const seekToSeconds = ({ seconds }: { seconds: number }) => {
@@ -989,7 +1001,7 @@ export function Captions() {
 								className="space-y-2.5 pt-4 pb-3"
 								data-testid="global-transcript-list"
 							>
-								{selectedTranscriptTrack?.cues.map((cue, cueIndex) => (
+								{displayTranscriptTrack?.cues.map((cue, cueIndex) => (
 									<div
 										key={`${cue.startTime}:${cueIndex}`}
 										className="group relative grid grid-cols-[0.75rem_1fr] gap-1.5"

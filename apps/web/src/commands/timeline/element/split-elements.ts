@@ -15,9 +15,17 @@ import {
 	roundMediaTime,
 	subMediaTime,
 } from "@/wasm";
+import type { TProjectSubtitles } from "@/project/types";
+import {
+	buildSubtitleCutRangesFromSplit,
+	getTimelineCutModeForCommand,
+	syncProjectSubtitlesForTimelineCuts,
+} from "@/subtitles/timeline-sync";
 
 export class SplitElementsCommand extends Command {
 	private savedState: SceneTracks | null = null;
+	private savedSubtitles: TProjectSubtitles | null | undefined;
+	private didUpdateSubtitles = false;
 	private rightSideElements: { trackId: string; elementId: string }[] = [];
 	private readonly elements: { trackId: string; elementId: string }[];
 	private readonly splitTime: MediaTime;
@@ -45,6 +53,21 @@ export class SplitElementsCommand extends Command {
 	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();
 		this.savedState = editor.scenes.getActiveScene().tracks;
+		this.savedSubtitles = editor.project.getActiveOrNull()?.settings.subtitles;
+		const nextSubtitles = syncProjectSubtitlesForTimelineCuts({
+			subtitles: this.savedSubtitles,
+			timelineTracks: this.savedState,
+			ranges: buildSubtitleCutRangesFromSplit({
+				tracks: this.savedState,
+				elements: this.elements,
+				splitTime: this.splitTime,
+				retainSide: this.retainSide,
+				mode: getTimelineCutModeForCommand({
+					rippleEnabled: editor.command.isRippleEnabled,
+				}),
+			}),
+		});
+		this.didUpdateSubtitles = nextSubtitles !== this.savedSubtitles;
 		this.rightSideElements = [];
 
 		const splitTrack = <
@@ -198,6 +221,9 @@ export class SplitElementsCommand extends Command {
 		};
 
 		editor.timeline.updateTracks(updatedTracks);
+		if (this.didUpdateSubtitles) {
+			applyProjectSubtitles({ editor, subtitles: nextSubtitles });
+		}
 
 		if (this.rightSideElements.length > 0) {
 			return createElementSelectionResult(this.rightSideElements);
@@ -209,6 +235,33 @@ export class SplitElementsCommand extends Command {
 		if (this.savedState) {
 			const editor = EditorCore.getInstance();
 			editor.timeline.updateTracks(this.savedState);
+			if (this.didUpdateSubtitles) {
+				applyProjectSubtitles({ editor, subtitles: this.savedSubtitles });
+			}
 		}
 	}
+}
+
+function applyProjectSubtitles({
+	editor,
+	subtitles,
+}: {
+	editor: EditorCore;
+	subtitles: TProjectSubtitles | null | undefined;
+}): void {
+	const activeProject = editor.project.getActiveOrNull();
+	if (!activeProject) return;
+	editor.project.setActiveProject({
+		project: {
+			...activeProject,
+			settings: {
+				...activeProject.settings,
+				subtitles,
+			},
+			metadata: {
+				...activeProject.metadata,
+				updatedAt: new Date(),
+			},
+		},
+	});
 }

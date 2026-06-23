@@ -84,10 +84,12 @@ function buildEditSceneTracks({
 	subtitles,
 	canvasSize,
 	duration,
+	timelineTracks,
 }: {
 	subtitles: TProjectSubtitles;
 	canvasSize: { width: number; height: number };
 	duration: MediaTime;
+	timelineTracks: SceneTracks;
 }): SceneTracks {
 	return {
 		overlay: [
@@ -100,6 +102,7 @@ function buildEditSceneTracks({
 					subtitles,
 					canvasSize,
 					duration,
+					timelineTracks,
 				}),
 			},
 		],
@@ -131,6 +134,7 @@ export function ProjectSubtitleAdjustOverlay() {
 		(e) => e.project.getActive().settings.subtitles ?? null,
 	);
 	const currentTime = useEditor((e) => e.playback.getCurrentTime());
+	const timelineTracks = useEditor((e) => e.scenes.getActiveScene().tracks);
 	const mediaAssets = useEditor((e) => e.media.getAssets());
 	const dragSessionRef = useRef<DragSession | null>(null);
 
@@ -153,7 +157,12 @@ export function ProjectSubtitleAdjustOverlay() {
 		}),
 	});
 	const [selectedWithBounds] = getVisibleElementsWithBounds({
-		tracks: buildEditSceneTracks({ subtitles, canvasSize, duration }),
+		tracks: buildEditSceneTracks({
+			subtitles,
+			canvasSize,
+			duration,
+			timelineTracks,
+		}),
 		currentTime,
 		canvasSize,
 		mediaAssets,

@@ -43,6 +43,18 @@ function createMockEditor({
 	sceneTracks?: unknown;
 	projectSettings?: Partial<TProjectSettings>;
 } = {}): EditorCore {
+	const resolvedSceneTracks = sceneTracks ?? {
+		overlay: [],
+		main: {
+			id: "main",
+			name: "Main",
+			type: "video",
+			muted: false,
+			hidden: false,
+			elements: [],
+		},
+		audio: [],
+	};
 	const settings = {
 		canvasSize: { width: 1024, height: 768 },
 		subtitles: null,
@@ -76,12 +88,12 @@ function createMockEditor({
 			addMediaAsset,
 		},
 		scenes: {
-			getActiveSceneOrNull: () =>
-				sceneTracks
-					? {
-							tracks: sceneTracks,
-						}
-					: null,
+			getActiveScene: () => ({
+				tracks: resolvedSceneTracks,
+			}),
+			getActiveSceneOrNull: () => ({
+				tracks: resolvedSceneTracks,
+			}),
 		},
 		selection: {
 			getSelectedElements: () => [],
@@ -455,33 +467,7 @@ describe("subtitle tools", () => {
 				},
 			],
 		});
-		expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({
-			settings: {
-				subtitles: {
-					tracks: [
-						{
-							id: "track:voice-track",
-							cues: [
-								{
-									text: "大家好",
-									tokens: [
-										{ text: "大家", startTime: 0 },
-										{ text: "好", startTime: 0.9999999999999999 },
-									],
-								},
-								{
-									text: "好啊继续",
-									tokens: [
-										{ text: "好啊", startTime: 2.6 },
-										{ text: "继续", startTime: 3.4 },
-									],
-								},
-							],
-						},
-					],
-				},
-			},
-		});
+		expect(updateSettings).not.toHaveBeenCalled();
 	});
 
 	test("subtitles_import stores layer captions unwrapped so the panel can change wrapping later", () => {

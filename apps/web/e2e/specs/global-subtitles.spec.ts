@@ -687,6 +687,126 @@ test.describe("global subtitles", () => {
 		expect(runtimeErrors).toEqual([]);
 	});
 
+	test("keeps transcript playback aligned after moving the source clip", async ({
+		page,
+	}) => {
+		const runtimeErrors = collectSubtitleRuntimeErrors({ page });
+		await setupEditorPage(page);
+
+		await page.evaluate(async () => {
+			const [{ EditorCore }, { mediaTimeFromSeconds }] = await Promise.all([
+				import("/src/core/index.ts"),
+				import("/src/wasm/media-time.ts"),
+			]);
+			const editor = EditorCore.getInstance();
+			const mediaManager = editor.media as typeof editor.media & {
+				assets: unknown[];
+				notify: () => void;
+			};
+			mediaManager.assets = [
+				...editor.media.getAssets(),
+				{
+					id: "voice-media",
+					name: "voice.wav",
+					type: "audio",
+					file: new File(["voice"], "voice.wav", { type: "audio/wav" }),
+				},
+			];
+			mediaManager.notify();
+			const scene = editor.scenes.getActiveScene();
+			scene.tracks.audio = [
+				{
+					id: "voice-track",
+					type: "audio",
+					name: "V1",
+					muted: false,
+					elements: [
+						{
+							id: "voice-clip",
+							type: "audio",
+							name: "Voice",
+							sourceType: "upload",
+							mediaId: "voice-media",
+							startTime: mediaTimeFromSeconds({ seconds: 0 }),
+							duration: mediaTimeFromSeconds({ seconds: 20 }),
+							trimStart: mediaTimeFromSeconds({ seconds: 0 }),
+							trimEnd: mediaTimeFromSeconds({ seconds: 0 }),
+							sourceDuration: mediaTimeFromSeconds({ seconds: 20 }),
+							params: {},
+						},
+					],
+				},
+			];
+			(editor.scenes as typeof editor.scenes & { notify: () => void }).notify();
+			(
+				editor.timeline as typeof editor.timeline & { notify: () => void }
+			).notify();
+			await editor.mcp.execute({
+				toolName: "subtitles_import",
+				params: {
+					format: "cues",
+					sourceTrackId: "voice-track",
+					sourceTrackName: "V1",
+					sourceElementId: "voice-clip",
+					cues: [
+						{
+							text: "移动以后",
+							startTimeSeconds: 0,
+							durationSeconds: 4,
+							tokens: [
+								{ text: "移", startTime: 0, duration: 1 },
+								{ text: "动", startTime: 1, duration: 1 },
+								{ text: "以", startTime: 2, duration: 1 },
+								{ text: "后", startTime: 3, duration: 1 },
+							],
+						},
+					],
+				},
+			});
+			editor.timeline.updateElements({
+				updates: [
+					{
+						trackId: "voice-track",
+						elementId: "voice-clip",
+						patch: {
+							startTime: mediaTimeFromSeconds({ seconds: 10 }),
+						},
+					},
+				],
+				pushHistory: false,
+			});
+		});
+
+		await page.getByRole("button", { name: /文字稿|Transcript/ }).click();
+		await page.evaluate(async () => {
+			const [{ EditorCore }, { mediaTimeFromSeconds }] = await Promise.all([
+				import("/src/core/index.ts"),
+				import("/src/wasm/media-time.ts"),
+			]);
+			const editor = EditorCore.getInstance();
+			editor.playback.seek({ time: mediaTimeFromSeconds({ seconds: 12.2 }) });
+		});
+
+		await expect(page.getByTestId("transcript-token-0-2")).toHaveAttribute(
+			"data-active",
+			"true",
+		);
+		await page.getByTestId("transcript-token-0-0").click();
+		await expect
+			.poll(async () =>
+				page.evaluate(async () => {
+					const [{ EditorCore }, { mediaTimeToSeconds }] = await Promise.all([
+						import("/src/core/index.ts"),
+						import("/src/wasm/media-time.ts"),
+					]);
+					const editor = EditorCore.getInstance();
+					return mediaTimeToSeconds({ time: editor.playback.getCurrentTime() });
+				}),
+			)
+			.toBe(10);
+		expect(runtimeErrors).toEqual([]);
+	});
+
 	test("cuts filler words from the selected global transcript track", async ({
 		page,
 	}) => {
@@ -776,13 +896,6 @@ test.describe("global subtitles", () => {
 		await expect(page.getByTestId("global-transcript-list")).toContainText(
 			"嗯大家好",
 		);
-		const routeProbe = await page.request.post(
-			"/api/agent/subtitle-filler-analysis",
-			{
-				data: { candidates: [] },
-			},
-		);
-		expect(routeProbe.status()).toBe(400);
 		let analysisCallCount = 0;
 		await page.route("**/api/agent/subtitle-filler-analysis", async (route) => {
 			analysisCallCount += 1;

@@ -1,10 +1,55 @@
 import { describe, expect, mock, test } from "bun:test";
 import { opencutWasmMock, wasmMock } from "@/test/wasm-mock";
+import type { SceneTracks, VideoElement } from "@/timeline";
 
 mock.module("@/wasm", () => wasmMock);
 mock.module("opencut-wasm", () => opencutWasmMock);
 
 const { buildProjectSubtitleElements } = await import("./project-subtitles");
+const { mediaTimeFromSeconds } = await import("@/wasm/media-time");
+
+function videoElement({
+	id,
+	startTimeSeconds,
+	durationSeconds,
+}: {
+	id: string;
+	startTimeSeconds: number;
+	durationSeconds: number;
+}): VideoElement {
+	return {
+		id,
+		type: "video",
+		name: id,
+		mediaId: `${id}-media`,
+		startTime: mediaTimeFromSeconds({ seconds: startTimeSeconds }),
+		duration: mediaTimeFromSeconds({ seconds: durationSeconds }),
+		trimStart: mediaTimeFromSeconds({ seconds: 0 }),
+		trimEnd: mediaTimeFromSeconds({ seconds: 0 }),
+		params: {},
+	};
+}
+
+function sceneTracks(): SceneTracks {
+	return {
+		overlay: [],
+		main: {
+			id: "voice-track",
+			name: "Voice",
+			type: "video",
+			muted: false,
+			hidden: false,
+			elements: [
+				videoElement({
+					id: "voice-clip",
+					startTimeSeconds: 10,
+					durationSeconds: 20,
+				}),
+			],
+		},
+		audio: [],
+	};
+}
 
 describe("project subtitles", () => {
 	test("applies project-level subtitle style params to rendered subtitle elements", () => {
@@ -51,5 +96,43 @@ describe("project subtitles", () => {
 			},
 		});
 		expect(elements[1]?.params["transform.positionY"]).toBeCloseTo(424.4);
+	});
+
+	test("renders project subtitles at the current source clip offset", () => {
+		const elements = buildProjectSubtitleElements({
+			canvasSize: { width: 1920, height: 1080 },
+			duration: mediaTimeFromSeconds({ seconds: 30 }),
+			timelineTracks: sceneTracks(),
+			subtitles: {
+				enabled: true,
+				cues: [],
+				revealMode: "token",
+				lineBreakMode: "page",
+				maxCharsPerLine: 24,
+				tracks: [
+					{
+						id: "track:voice-track",
+						label: "Voice",
+						sourceTrackId: "voice-track",
+						sourceElementId: "voice-clip",
+						sourceTimelineStartTimeSeconds: 0,
+						cues: [
+							{
+								text: "你好",
+								startTime: 1,
+								duration: 2,
+								tokens: [
+									{ text: "你", startTime: 1, duration: 1 },
+									{ text: "好", startTime: 2, duration: 1 },
+								],
+							},
+						],
+					},
+				],
+			},
+		});
+
+		expect(elements[0]?.cues[0]?.startTime).toBe(11);
+		expect(elements[0]?.cues[0]?.tokens?.[1]?.startTime).toBe(12);
 	});
 });

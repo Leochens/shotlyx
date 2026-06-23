@@ -5,7 +5,8 @@ import type {
 	TProjectSubtitleTrack,
 	TProjectSubtitles,
 } from "@/project/types";
-import type { SubtitleElement } from "@/timeline/types";
+import type { SceneTracks, SubtitleElement } from "@/timeline/types";
+import { getTimelineSubtitleTrack } from "@/subtitles/timing-bindings";
 import { mediaTimeFromSeconds, type MediaTime } from "@/wasm/media-time";
 
 export const DEFAULT_PROJECT_SUBTITLE_MAX_CHARS_PER_LINE = 30;
@@ -85,10 +86,12 @@ export function buildProjectSubtitleElements({
 	subtitles,
 	canvasSize,
 	duration,
+	timelineTracks,
 }: {
 	subtitles: TProjectSubtitles | null | undefined;
 	canvasSize: TCanvasSize;
 	duration: MediaTime | number;
+	timelineTracks?: SceneTracks | null;
 }): SubtitleElement[] {
 	if (!subtitles?.enabled) return [];
 
@@ -105,7 +108,11 @@ export function buildProjectSubtitleElements({
 			? requestedPositionY
 			: Number(defaultStyleParams["transform.positionY"]);
 
-	return tracks.map((track, trackIndex) => {
+	return tracks.map((storedTrack, trackIndex) => {
+		const track = getTimelineSubtitleTrack({
+			track: storedTrack,
+			tracks: timelineTracks,
+		});
 		const stackOffset =
 			trackIndex * canvasSize.height * PROJECT_SUBTITLE_STACK_OFFSET_RATIO;
 		return {
@@ -137,16 +144,19 @@ export function buildProjectSubtitleElement({
 	subtitles,
 	canvasSize,
 	duration,
+	timelineTracks,
 }: {
 	subtitles: TProjectSubtitles | null | undefined;
 	canvasSize: TCanvasSize;
 	duration: MediaTime | number;
+	timelineTracks?: SceneTracks | null;
 }): SubtitleElement | null {
 	return (
 		buildProjectSubtitleElements({
 			subtitles,
 			canvasSize,
 			duration,
+			timelineTracks,
 		})[0] ?? null
 	);
 }

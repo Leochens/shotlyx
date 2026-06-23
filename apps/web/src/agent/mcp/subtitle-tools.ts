@@ -21,10 +21,13 @@ import type {
 	SubtitleToken,
 } from "@/subtitles/types";
 import {
-	cutTranscriptTrackByTimeRanges,
 	getTranscriptCueTokens,
 	tokenEndTime,
 } from "@/subtitles/transcript-editing";
+import {
+	resolveSubtitleSourceTimelineStartSeconds,
+	storedSubtitleSecondsToTimelineSeconds,
+} from "@/subtitles/timing-bindings";
 import { generateUUID } from "@/utils/id";
 import type { Tool } from "./types";
 import {
@@ -1048,6 +1051,8 @@ interface FillerCutCandidate {
 	trackId: string;
 	trackLabel: string;
 	sourceTrackId: string;
+	sourceElementId?: string;
+	sourceTimelineStartTimeSeconds?: number;
 	cueIndex: number;
 	tokenIndex: number;
 	text: string;
@@ -1153,6 +1158,15 @@ function findFillerCutCandidates({
 						trackId: track.id,
 						trackLabel: track.label,
 						sourceTrackId,
+						...(track.sourceElementId
+							? { sourceElementId: track.sourceElementId }
+							: {}),
+						...(typeof track.sourceTimelineStartTimeSeconds === "number"
+							? {
+									sourceTimelineStartTimeSeconds:
+										track.sourceTimelineStartTimeSeconds,
+								}
+							: {}),
 						cueIndex,
 						tokenIndex,
 						text: token.text,
@@ -1211,6 +1225,55 @@ function trackElementsOverlappingTimeRange({
 		}));
 }
 
+function getFillerCandidateTimelineRangeSeconds({
+	editor,
+	candidate,
+	paddingSeconds,
+}: {
+	editor: EditorCore;
+	candidate: FillerCutCandidate;
+	paddingSeconds: number;
+}): { startSeconds: number; endSeconds: number } {
+	const subtitleTrack: TProjectSubtitleTrack = {
+		id: candidate.trackId,
+		label: candidate.trackLabel,
+		cues: [],
+		sourceTrackId: candidate.sourceTrackId,
+		...(candidate.sourceElementId
+			? { sourceElementId: candidate.sourceElementId }
+			: {}),
+		...(typeof candidate.sourceTimelineStartTimeSeconds === "number"
+			? {
+					sourceTimelineStartTimeSeconds:
+						candidate.sourceTimelineStartTimeSeconds,
+				}
+			: {}),
+	};
+	const tracks = editor.scenes.getActiveScene().tracks;
+	const storedStartSeconds = Math.max(
+		0,
+		candidate.startTime - paddingSeconds,
+	);
+	const storedEndSeconds = Math.max(
+		storedStartSeconds,
+		candidate.endTime + paddingSeconds,
+	);
+	const startSeconds = storedSubtitleSecondsToTimelineSeconds({
+		track: subtitleTrack,
+		tracks,
+		seconds: storedStartSeconds,
+	});
+	const endSeconds = storedSubtitleSecondsToTimelineSeconds({
+		track: subtitleTrack,
+		tracks,
+		seconds: storedEndSeconds,
+	});
+	return {
+		startSeconds,
+		endSeconds: Math.max(startSeconds, endSeconds),
+	};
+}
+
 function buildFillerCutTargets({
 	editor,
 	mediaTimeFromSeconds,
@@ -1239,11 +1302,12 @@ function buildFillerCutTargets({
 			trackId: candidate.sourceTrackId,
 		});
 		if (!sourceTrack) continue;
-		const startSeconds = Math.max(0, candidate.startTime - paddingSeconds);
-		const endSeconds = Math.max(
-			startSeconds,
-			candidate.endTime + paddingSeconds,
-		);
+		const { startSeconds, endSeconds } =
+			getFillerCandidateTimelineRangeSeconds({
+				editor,
+				candidate,
+				paddingSeconds,
+			});
 		const startTime = mediaTimeFromSeconds({ seconds: startSeconds });
 		const endTime = mediaTimeFromSeconds({ seconds: endSeconds });
 		for (const elementRef of trackElementsOverlappingTimeRange({
@@ -1279,11 +1343,12 @@ function filterApplicableFillerCandidates({
 			trackId: candidate.sourceTrackId,
 		});
 		if (!sourceTrack) return false;
-		const startSeconds = Math.max(0, candidate.startTime - paddingSeconds);
-		const endSeconds = Math.max(
-			startSeconds,
-			candidate.endTime + paddingSeconds,
-		);
+		const { startSeconds, endSeconds } =
+			getFillerCandidateTimelineRangeSeconds({
+				editor,
+				candidate,
+				paddingSeconds,
+			});
 		const startTime = mediaTimeFromSeconds({ seconds: startSeconds });
 		const endTime = mediaTimeFromSeconds({ seconds: endSeconds });
 		return (
@@ -1725,6 +1790,12 @@ export function buildSubtitleTools({
 				const sourceTrackId = optionalStringParam(params, "sourceTrackId");
 				const sourceTrackName = optionalStringParam(params, "sourceTrackName");
 				const sourceElementId = optionalStringParam(params, "sourceElementId");
+				const resolvedSourceTimelineStartTimeSeconds =
+					resolveSubtitleSourceTimelineStartSeconds({
+						sourceTrackId,
+						sourceElementId,
+						tracks: editor.scenes.getActiveScene().tracks,
+					});
 				const styleParams = buildSubtitleStyleParams({
 					style,
 					placement,
@@ -1763,6 +1834,18 @@ export function buildSubtitleTools({
 						renderEnabled: previousTrack?.renderEnabled ?? true,
 						...(sourceTrackId ? { sourceTrackId } : {}),
 						...(sourceElementId ? { sourceElementId } : {}),
+						...(resolvedSourceTimelineStartTimeSeconds !== null
+							? {
+									sourceTimelineStartTimeSeconds:
+										resolvedSourceTimelineStartTimeSeconds,
+								}
+							: typeof previousTrack?.sourceTimelineStartTimeSeconds ===
+								  "number"
+								? {
+										sourceTimelineStartTimeSeconds:
+											previousTrack.sourceTimelineStartTimeSeconds,
+									}
+								: {}),
 						...assetFields,
 						updatedAt: new Date().toISOString(),
 					};
@@ -2081,34 +2164,6 @@ export function buildSubtitleTools({
 						endTime: candidate.endTime + paddingSeconds,
 					})),
 				});
-				const currentSubtitles =
-					editor.project.getActiveOrNull()?.settings.subtitles ?? subtitles;
-				const storedTracks = getStoredProjectTranscriptTracks({
-					subtitles: currentSubtitles,
-				});
-				const nextTracks = storedTracks.map((track) =>
-					cutTranscriptTrackByTimeRanges({
-						track,
-						ranges: cutRanges,
-					}),
-				);
-				const legacyOnly =
-					(!currentSubtitles.tracks || currentSubtitles.tracks.length === 0) &&
-					nextTracks.length === 1 &&
-					nextTracks[0]?.id === "track:global";
-				void editor.project.updateSettings({
-					settings: {
-						subtitles: {
-							...currentSubtitles,
-							tracks: nextTracks,
-							cues: legacyOnly
-								? (nextTracks[0]?.cues ?? [])
-								: currentSubtitles.cues,
-							updatedAt: new Date().toISOString(),
-						},
-					},
-				});
-
 				const removedSeconds = cutRanges.reduce(
 					(total, range) => total + (range.endTime - range.startTime),
 					0,
