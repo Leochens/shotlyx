@@ -27,6 +27,41 @@ import { KeyframeToggle } from "./keyframe-toggle";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/utils/ui";
 
+const NUMBER_PARAM_SHORT_LABELS: Record<string, string> = {
+	"transform.positionX": "X",
+	"transform.positionY": "Y",
+	"transform.scaleX": "SX",
+	"transform.scaleY": "SY",
+	"transform.rotate": "R",
+	opacity: "O",
+	volume: "V",
+	fontSize: "T",
+	letterSpacing: "LS",
+	lineHeight: "LH",
+	"background.cornerRadius": "R",
+	"background.paddingX": "PX",
+	"background.paddingY": "PY",
+	"background.offsetX": "OX",
+	"background.offsetY": "OY",
+	"subtitle.maxCharsPerLine": "#",
+};
+
+function getNumberParamIcon({
+	param,
+}: {
+	param: NumberParamDefinition;
+}): string {
+	if (param.shortLabel) return param.shortLabel;
+	const mapped = NUMBER_PARAM_SHORT_LABELS[param.key];
+	if (mapped) return mapped;
+	return param.label
+		.split(/\s+/)
+		.map((part) => part[0])
+		.join("")
+		.slice(0, 2)
+		.toUpperCase();
+}
+
 export function PropertyParamField({
 	param,
 	value,
@@ -275,7 +310,7 @@ function NumberParamField({
 
 	return (
 		<NumberField
-			icon={param.shortLabel}
+			icon={getNumberParamIcon({ param })}
 			value={draft.displayValue}
 			dragSensitivity="slow"
 			isDefault={value === param.default}

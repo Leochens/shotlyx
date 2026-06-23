@@ -12,6 +12,7 @@ import type { RootNode } from "@/services/renderer/nodes/root-node";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { PreviewOverlayLayer } from "./overlay-layer";
 import { PreviewInteractionOverlay } from "./preview-interaction-overlay";
+import { ProjectSubtitleAdjustOverlay } from "./project-subtitle-adjust-overlay";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import type {
 	PreviewOverlayControl,
@@ -378,6 +379,7 @@ function PreviewCanvas({
 									plane="under-interaction"
 								/>
 								{isAdjustingWatermark ? null : <PreviewInteractionOverlay />}
+								<ProjectSubtitleAdjustOverlay />
 								<WatermarkAdjustOverlay />
 								<PreviewOverlayLayer
 									instances={overlayInstances}

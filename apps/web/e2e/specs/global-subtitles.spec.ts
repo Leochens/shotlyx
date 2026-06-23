@@ -184,6 +184,43 @@ test.describe("global subtitles", () => {
 			.toBe(0);
 		await expect(page.getByLabel(/编辑第/)).toHaveCount(0);
 
+		await page.getByRole("button", { name: "字幕设置" }).click();
+		await expect(page.getByTestId("global-subtitle-properties")).toBeVisible();
+		await expect(
+			page.getByTestId("project-subtitle-selection-box"),
+		).toBeVisible();
+		const subtitleBox = await page
+			.getByTestId("project-subtitle-selection-box")
+			.boundingBox();
+		expect(subtitleBox).not.toBeNull();
+		if (subtitleBox) {
+			await page.mouse.move(
+				subtitleBox.x + subtitleBox.width / 2,
+				subtitleBox.y + subtitleBox.height / 2,
+			);
+			await page.mouse.down();
+			await page.mouse.move(
+				subtitleBox.x + subtitleBox.width / 2 + 48,
+				subtitleBox.y + subtitleBox.height / 2 + 24,
+			);
+			await page.mouse.up();
+		}
+		await expect
+			.poll(async () =>
+				page.evaluate(async () => {
+					const { EditorCore } = await import("/src/core/index.ts");
+					const editor = EditorCore.getInstance();
+					const styleParams =
+						editor.project.getActive().settings.subtitles?.styleParams ?? {};
+					return (
+						typeof styleParams["transform.positionX"] === "number" &&
+						styleParams["transform.positionX"] !== 0 &&
+						typeof styleParams["transform.positionY"] === "number"
+					);
+				}),
+			)
+			.toBe(true);
+
 		await page.evaluate(async () => {
 			const { EditorCore } = await import("/src/core/index.ts");
 			const editor = EditorCore.getInstance();
