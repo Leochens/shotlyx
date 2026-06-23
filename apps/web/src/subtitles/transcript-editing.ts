@@ -221,6 +221,27 @@ export function cutTranscriptTrackByTimeRange({
 	};
 }
 
+export function cutTranscriptTrackByTimeRanges({
+	track,
+	ranges,
+}: {
+	track: TProjectSubtitleTrack;
+	ranges: Array<{ startTime: number; endTime: number }>;
+}): TProjectSubtitleTrack {
+	const normalizedRanges = normalizeTimeRanges({ ranges });
+	let removedSeconds = 0;
+	return normalizedRanges.reduce((currentTrack, range) => {
+		const adjustedStartTime = range.startTime - removedSeconds;
+		const adjustedEndTime = range.endTime - removedSeconds;
+		removedSeconds += range.endTime - range.startTime;
+		return cutTranscriptTrackByTimeRange({
+			track: currentTrack,
+			startTime: adjustedStartTime,
+			endTime: adjustedEndTime,
+		});
+	}, track);
+}
+
 export function findActiveTranscriptToken({
 	track,
 	timeSeconds,
@@ -241,6 +262,31 @@ export function findActiveTranscriptToken({
 		}
 	}
 	return null;
+}
+
+function normalizeTimeRanges({
+	ranges,
+}: {
+	ranges: Array<{ startTime: number; endTime: number }>;
+}): Array<{ startTime: number; endTime: number }> {
+	const sortedRanges = ranges
+		.filter(
+			(range) =>
+				Number.isFinite(range.startTime) &&
+				Number.isFinite(range.endTime) &&
+				range.endTime > range.startTime,
+		)
+		.sort((left, right) => left.startTime - right.startTime);
+	const result: Array<{ startTime: number; endTime: number }> = [];
+	for (const range of sortedRanges) {
+		const lastRange = result.at(-1);
+		if (!lastRange || range.startTime > lastRange.endTime) {
+			result.push({ ...range });
+			continue;
+		}
+		lastRange.endTime = Math.max(lastRange.endTime, range.endTime);
+	}
+	return result;
 }
 
 function buildCueFromTokens({

@@ -646,4 +646,123 @@ test.describe("global subtitles", () => {
 			.toBe(960_000);
 		expect(runtimeErrors).toEqual([]);
 	});
+
+	test("cuts filler words from the selected global transcript track", async ({
+		page,
+	}) => {
+		const runtimeErrors = collectSubtitleRuntimeErrors({ page });
+		await setupEditorPage(page);
+
+		await page.evaluate(async () => {
+			const [{ EditorCore }, { mediaTimeFromSeconds }] = await Promise.all([
+				import("/src/core/index.ts"),
+				import("/src/wasm/media-time.ts"),
+			]);
+			const editor = EditorCore.getInstance();
+			const mediaManager = editor.media as typeof editor.media & {
+				assets: unknown[];
+				notify: () => void;
+			};
+			mediaManager.assets = [
+				...editor.media.getAssets(),
+				{
+					id: "voice-media",
+					name: "voice.wav",
+					type: "audio",
+					file: new File(["voice"], "voice.wav", { type: "audio/wav" }),
+				},
+			];
+			mediaManager.notify();
+			const scene = editor.scenes.getActiveScene();
+			scene.tracks.audio = [
+				{
+					id: "voice-track",
+					type: "audio",
+					name: "V1",
+					muted: false,
+					elements: [
+						{
+							id: "voice-clip",
+							type: "audio",
+							name: "Voice",
+							sourceType: "upload",
+							mediaId: "voice-media",
+							startTime: mediaTimeFromSeconds({ seconds: 0 }),
+							duration: mediaTimeFromSeconds({ seconds: 6 }),
+							trimStart: mediaTimeFromSeconds({ seconds: 0 }),
+							trimEnd: mediaTimeFromSeconds({ seconds: 0 }),
+							sourceDuration: mediaTimeFromSeconds({ seconds: 6 }),
+							params: {},
+						},
+					],
+				},
+			];
+			(editor.scenes as typeof editor.scenes & { notify: () => void }).notify();
+			(
+				editor.timeline as typeof editor.timeline & { notify: () => void }
+			).notify();
+			await editor.mcp.execute({
+				toolName: "subtitles_import",
+				params: {
+					format: "cues",
+					sourceTrackId: "voice-track",
+					sourceTrackName: "V1",
+					cues: [
+						{
+							text: "嗯大家好",
+							startTimeSeconds: 0,
+							durationSeconds: 2,
+							tokens: [
+								{ text: "嗯", startTime: 0, duration: 0.4 },
+								{ text: "大家", startTime: 0.4, duration: 0.8 },
+								{ text: "好", startTime: 1.2, duration: 0.4 },
+							],
+						},
+						{
+							text: "好啊继续",
+							startTimeSeconds: 2,
+							durationSeconds: 2,
+							tokens: [
+								{ text: "好啊", startTime: 2, duration: 0.8 },
+								{ text: "继续", startTime: 2.8, duration: 0.8 },
+							],
+						},
+					],
+				},
+			});
+		});
+
+		await page.getByRole("button", { name: /文字稿|Transcript/ }).click();
+		await expect(page.getByTestId("global-transcript-list")).toContainText(
+			"嗯大家好",
+		);
+		await page.getByRole("button", { name: "一键剪气口" }).click();
+		await expect(page.getByTestId("global-transcript-list")).not.toContainText(
+			"嗯",
+		);
+		await expect(page.getByTestId("global-transcript-list")).toContainText(
+			"大家好",
+		);
+		await expect(page.getByTestId("global-transcript-list")).toContainText(
+			"好啊继续",
+		);
+		await expect
+			.poll(async () =>
+				page.evaluate(async () => {
+					const { EditorCore } = await import("/src/core/index.ts");
+					const editor = EditorCore.getInstance();
+					const track = editor.timeline.getTrackById({
+						trackId: "voice-track",
+					});
+					if (!track) return null;
+					return Math.max(
+						...track.elements.map(
+							(element) => element.startTime + element.duration,
+						),
+					);
+				}),
+			)
+			.toBe(672_000);
+		expect(runtimeErrors).toEqual([]);
+	});
 });

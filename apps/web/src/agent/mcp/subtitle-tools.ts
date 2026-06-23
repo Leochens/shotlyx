@@ -7,7 +7,7 @@ import type {
 } from "@/timeline/types";
 import type { MediaAsset } from "@/media/types";
 import type { MediaTime } from "@/wasm/media-time";
-import type { TProjectSubtitleTrack } from "@/project/types";
+import type { TProjectSubtitleTrack, TProjectSubtitles } from "@/project/types";
 import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 import {
 	getSubtitleLayerDurationSeconds,
@@ -20,6 +20,11 @@ import type {
 	SubtitleRevealMode,
 	SubtitleToken,
 } from "@/subtitles/types";
+import {
+	cutTranscriptTrackByTimeRanges,
+	getTranscriptCueTokens,
+	tokenEndTime,
+} from "@/subtitles/transcript-editing";
 import { generateUUID } from "@/utils/id";
 import type { Tool } from "./types";
 import {
@@ -1011,6 +1016,264 @@ async function saveTranscriptTextAsset({
 	};
 }
 
+const DEFAULT_FILLER_WORDS = [
+	"啊",
+	"啊啊",
+	"嗯",
+	"嗯嗯",
+	"呃",
+	"呃呃",
+	"额",
+	"额额",
+	"哦",
+	"噢",
+	"喔",
+	"唔",
+	"唉",
+	"哎",
+	"呐",
+	"哈",
+	"呃嗯",
+	"um",
+	"uh",
+	"uhh",
+	"umm",
+	"er",
+	"erm",
+	"ah",
+	"oh",
+] as const;
+
+interface FillerCutCandidate {
+	trackId: string;
+	trackLabel: string;
+	sourceTrackId: string;
+	cueIndex: number;
+	tokenIndex: number;
+	text: string;
+	startTime: number;
+	endTime: number;
+	duration: number;
+}
+
+function normalizeFillerText({ text }: { text: string }): string {
+	return text
+		.toLowerCase()
+		.replace(/[\s，。！？、,.!?;；:：'"“”‘’（）()[\]{}<>《》…~·\-—_]/g, "")
+		.trim();
+}
+
+function resolveFillerWords({
+	value,
+}: {
+	value: unknown;
+}): Set<string> {
+	const customWords = Array.isArray(value)
+		? value.filter((item): item is string => typeof item === "string")
+		: [];
+	return new Set(
+		[...DEFAULT_FILLER_WORDS, ...customWords]
+			.map((word) => normalizeFillerText({ text: word }))
+			.filter((word) => word.length > 0),
+	);
+}
+
+function getStoredProjectTranscriptTracks({
+	subtitles,
+}: {
+	subtitles: TProjectSubtitles;
+}): TProjectSubtitleTrack[] {
+	if (subtitles.tracks && subtitles.tracks.length > 0) {
+		return subtitles.tracks;
+	}
+	if (subtitles.cues.length === 0) return [];
+	return [
+		{
+			id: "track:global",
+			label: "全局字幕",
+			cues: subtitles.cues,
+			updatedAt: subtitles.updatedAt,
+		},
+	];
+}
+
+function resolveFillerCutTracks({
+	subtitles,
+	params,
+}: {
+	subtitles: TProjectSubtitles;
+	params: Record<string, unknown>;
+}): TProjectSubtitleTrack[] {
+	const tracks = getStoredProjectTranscriptTracks({ subtitles });
+	if (optionalBooleanParam(params, "allTracks") === true) {
+		return tracks;
+	}
+	const requestedTrackId =
+		optionalStringParam(params, "transcriptTrackId") ??
+		optionalStringParam(params, "trackId") ??
+		subtitles.selectedTrackId;
+	if (requestedTrackId) {
+		return tracks.filter((track) => track.id === requestedTrackId);
+	}
+	return tracks.slice(0, 1);
+}
+
+function findFillerCutCandidates({
+	tracks,
+	fillerWords,
+}: {
+	tracks: TProjectSubtitleTrack[];
+	fillerWords: Set<string>;
+}): FillerCutCandidate[] {
+	return tracks.flatMap((track) => {
+		const sourceTrackId = track.sourceTrackId;
+		if (!sourceTrackId) return [];
+		return track.cues.flatMap((cue, cueIndex) =>
+			getTranscriptCueTokens({ cue }).flatMap((token, tokenIndex) => {
+				const normalized = normalizeFillerText({ text: token.text });
+				if (!fillerWords.has(normalized)) return [];
+				const endTime = tokenEndTime({ token });
+				if (endTime <= token.startTime) return [];
+				return [
+					{
+						trackId: track.id,
+						trackLabel: track.label,
+						sourceTrackId,
+						cueIndex,
+						tokenIndex,
+						text: token.text,
+						startTime: token.startTime,
+						endTime,
+						duration: endTime - token.startTime,
+					},
+				];
+			}),
+		);
+	});
+}
+
+function mergeSecondRanges({
+	ranges,
+}: {
+	ranges: Array<{ startTime: number; endTime: number }>;
+}): Array<{ startTime: number; endTime: number }> {
+	const sortedRanges = ranges
+		.filter((range) => range.endTime > range.startTime)
+		.sort((left, right) => left.startTime - right.startTime);
+	const result: Array<{ startTime: number; endTime: number }> = [];
+	for (const range of sortedRanges) {
+		const previous = result.at(-1);
+		if (!previous || range.startTime > previous.endTime) {
+			result.push({ ...range });
+			continue;
+		}
+		previous.endTime = Math.max(previous.endTime, range.endTime);
+	}
+	return result;
+}
+
+function trackElementsOverlappingTimeRange({
+	track,
+	startTime,
+	endTime,
+}: {
+	track: TimelineTrack;
+	startTime: MediaTime;
+	endTime: MediaTime;
+}): Array<{ trackId: string; elementId: string }> {
+	return track.elements
+		.filter((element) => {
+			const elementStart = element.startTime;
+			const elementEnd = element.startTime + element.duration;
+			return elementStart < endTime && elementEnd > startTime;
+		})
+		.map((element) => ({
+			trackId: track.id,
+			elementId: element.id,
+		}));
+}
+
+function buildFillerCutTargets({
+	editor,
+	mediaTimeFromSeconds,
+	candidates,
+	paddingSeconds,
+}: {
+	editor: EditorCore;
+	mediaTimeFromSeconds: (args: { seconds: number }) => MediaTime;
+	candidates: FillerCutCandidate[];
+	paddingSeconds: number;
+}): Array<{
+	trackId: string;
+	elementId: string;
+	ranges: Array<{ startTime: MediaTime; endTime: MediaTime }>;
+}> {
+	const targetsByElement = new Map<
+		string,
+		{
+			trackId: string;
+			elementId: string;
+			ranges: Array<{ startTime: MediaTime; endTime: MediaTime }>;
+		}
+	>();
+	for (const candidate of candidates) {
+		const sourceTrack = editor.timeline.getTrackById({
+			trackId: candidate.sourceTrackId,
+		});
+		if (!sourceTrack) continue;
+		const startSeconds = Math.max(0, candidate.startTime - paddingSeconds);
+		const endSeconds = Math.max(startSeconds, candidate.endTime + paddingSeconds);
+		const startTime = mediaTimeFromSeconds({ seconds: startSeconds });
+		const endTime = mediaTimeFromSeconds({ seconds: endSeconds });
+		for (const elementRef of trackElementsOverlappingTimeRange({
+			track: sourceTrack,
+			startTime,
+			endTime,
+		})) {
+			const key = `${elementRef.trackId}:${elementRef.elementId}`;
+			const target =
+				targetsByElement.get(key) ??
+				{
+					...elementRef,
+					ranges: [],
+				};
+			target.ranges.push({ startTime, endTime });
+			targetsByElement.set(key, target);
+		}
+	}
+	return Array.from(targetsByElement.values());
+}
+
+function filterApplicableFillerCandidates({
+	editor,
+	mediaTimeFromSeconds,
+	candidates,
+	paddingSeconds,
+}: {
+	editor: EditorCore;
+	mediaTimeFromSeconds: (args: { seconds: number }) => MediaTime;
+	candidates: FillerCutCandidate[];
+	paddingSeconds: number;
+}): FillerCutCandidate[] {
+	return candidates.filter((candidate) => {
+		const sourceTrack = editor.timeline.getTrackById({
+			trackId: candidate.sourceTrackId,
+		});
+		if (!sourceTrack) return false;
+		const startSeconds = Math.max(0, candidate.startTime - paddingSeconds);
+		const endSeconds = Math.max(startSeconds, candidate.endTime + paddingSeconds);
+		const startTime = mediaTimeFromSeconds({ seconds: startSeconds });
+		const endTime = mediaTimeFromSeconds({ seconds: endSeconds });
+		return (
+			trackElementsOverlappingTimeRange({
+				track: sourceTrack,
+				startTime,
+				endTime,
+			}).length > 0
+		);
+	});
+}
+
 export function buildSubtitleTools({
 	editor,
 	deps,
@@ -1569,6 +1832,186 @@ export function buildSubtitleTools({
 					warnings,
 					style,
 					placement,
+				};
+			},
+		},
+		{
+			name: "subtitles_cut_filler_words",
+			description:
+				"基于项目级全局文字稿识别并直接剪除独立气口词/口头气声，如“啊、嗯、呃、哦、额”。用于子 Agent 在生成全局字幕后做一键剪气口；如果还没有全局文字稿，先调用 subtitles_generate_from_video。",
+			parameters: {
+				transcriptTrackId: {
+					type: "string",
+					description:
+						"要处理的全局文字稿轨道 ID。省略时使用当前选中的文字稿轨道。",
+					optional: true,
+				},
+				trackId: {
+					type: "string",
+					description: "transcriptTrackId 的兼容别名。",
+					optional: true,
+				},
+				allTracks: {
+					type: "boolean",
+					description:
+						"是否处理所有带 sourceTrackId 的文字稿轨道。默认 false，只处理当前轨道。",
+					optional: true,
+				},
+				fillerWords: {
+					type: "array",
+					description:
+						"额外气口词数组。工具默认已包含 啊、嗯、呃、哦、额、um、uh 等保守词表。",
+					items: { type: "string", description: "气口词" },
+					optional: true,
+				},
+				paddingMs: {
+					type: "number",
+					description:
+						"每个气口词两侧额外剪掉的毫秒数，默认 0。通常保持 0，避免误伤语义。",
+					optional: true,
+				},
+			},
+			mutating: true,
+			// eslint-disable-next-line shotlyx/prefer-object-params -- MCP tool handlers receive positional params/context.
+			handler: (params, context) => {
+				const subtitles = editor.project.getActiveOrNull()?.settings.subtitles;
+				if (!subtitles) {
+					throw new Error("当前项目还没有全局文字稿，请先生成字幕");
+				}
+				const candidateTracks = resolveFillerCutTracks({ subtitles, params });
+				if (candidateTracks.length === 0) {
+					throw new Error("没有找到可处理的文字稿轨道");
+				}
+				const paddingSeconds =
+					Math.max(0, optionalNumberParam(params, "paddingMs") ?? 0) / 1000;
+				const candidates = findFillerCutCandidates({
+					tracks: candidateTracks,
+					fillerWords: resolveFillerWords({ value: params.fillerWords }),
+				});
+
+				if (candidates.length === 0) {
+					return {
+						applied: false,
+						candidateCount: 0,
+						removedSeconds: 0,
+						message: "没有识别到可剪除的独立气口词。",
+					};
+				}
+
+				context?.onProgress?.({
+					stage: "subtitle-filler-cut",
+					label: "正在剪除气口",
+					status: "running",
+					detail: `${candidates.length} tokens`,
+				});
+
+				const applicableCandidates = filterApplicableFillerCandidates({
+					editor,
+					mediaTimeFromSeconds,
+					candidates,
+					paddingSeconds,
+				});
+
+				if (applicableCandidates.length === 0) {
+					return {
+						applied: false,
+						candidateCount: candidates.length,
+						removedSeconds: 0,
+						message: "识别到了气口词，但没有命中对应素材片段。",
+					};
+				}
+
+				const targets = buildFillerCutTargets({
+					editor,
+					mediaTimeFromSeconds,
+					candidates: applicableCandidates,
+					paddingSeconds,
+				});
+
+				if (targets.length === 0) {
+					return {
+						applied: false,
+						candidateCount: applicableCandidates.length,
+						removedSeconds: 0,
+						message: "识别到了气口词，但没有命中对应素材片段。",
+					};
+				}
+
+				const didApply = editor.timeline.applySilenceCutPlan({ targets });
+				if (!didApply) {
+					return {
+						applied: false,
+						candidateCount: candidates.length,
+						removedSeconds: 0,
+						message: "剪气口没有产生可应用的时间线变化。",
+					};
+				}
+
+				const cutRanges = mergeSecondRanges({
+					ranges: applicableCandidates.map((candidate) => ({
+						startTime: Math.max(0, candidate.startTime - paddingSeconds),
+						endTime: candidate.endTime + paddingSeconds,
+					})),
+				});
+				const currentSubtitles =
+					editor.project.getActiveOrNull()?.settings.subtitles ?? subtitles;
+				const storedTracks = getStoredProjectTranscriptTracks({
+					subtitles: currentSubtitles,
+				});
+				const nextTracks = storedTracks.map((track) =>
+					cutTranscriptTrackByTimeRanges({
+						track,
+						ranges: cutRanges,
+					}),
+				);
+				const legacyOnly =
+					(!currentSubtitles.tracks || currentSubtitles.tracks.length === 0) &&
+					nextTracks.length === 1 &&
+					nextTracks[0]?.id === "track:global";
+				void editor.project.updateSettings({
+					settings: {
+						subtitles: {
+							...currentSubtitles,
+							tracks: nextTracks,
+							cues: legacyOnly
+								? (nextTracks[0]?.cues ?? [])
+								: currentSubtitles.cues,
+							updatedAt: new Date().toISOString(),
+						},
+					},
+				});
+
+				const removedSeconds = cutRanges.reduce(
+					(total, range) => total + (range.endTime - range.startTime),
+					0,
+				);
+				context?.onProgress?.({
+					stage: "subtitle-filler-cut",
+					label: "气口剪除完成",
+					status: "success",
+					detail: `${candidates.length} tokens`,
+				});
+
+				return {
+					applied: true,
+					candidateCount: applicableCandidates.length,
+					rangeCount: cutRanges.length,
+					targetCount: targets.length,
+					removedSeconds,
+					tracks: Array.from(
+						new Set(applicableCandidates.map((candidate) => candidate.trackId)),
+					),
+					candidates: applicableCandidates
+						.slice(0, 20)
+						.map((candidate) => ({
+							text: candidate.text,
+							trackId: candidate.trackId,
+							sourceTrackId: candidate.sourceTrackId,
+							startTimeSeconds: candidate.startTime,
+							endTimeSeconds: candidate.endTime,
+						})),
+					truncatedCandidates: applicableCandidates.length > 20,
+					message: `已剪掉 ${applicableCandidates.length} 个气口词，时间线缩短约 ${removedSeconds.toFixed(2)} 秒。`,
 				};
 			},
 		},

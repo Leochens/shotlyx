@@ -27,6 +27,7 @@ function createMockEditor({
 	updateElements = mock(() => {}),
 	updateSettings = mock(() => {}),
 	getTrackById = mock(() => null),
+	applySilenceCutPlan = mock(() => true),
 	mediaAssets = [],
 	sceneTracks,
 	projectSettings,
@@ -37,6 +38,7 @@ function createMockEditor({
 	updateElements?: ReturnType<typeof mock>;
 	updateSettings?: ReturnType<typeof mock>;
 	getTrackById?: ReturnType<typeof mock>;
+	applySilenceCutPlan?: ReturnType<typeof mock>;
 	mediaAssets?: unknown[];
 	sceneTracks?: unknown;
 	projectSettings?: Partial<TProjectSettings>;
@@ -52,6 +54,7 @@ function createMockEditor({
 			insertElement,
 			updateElements,
 			getTrackById,
+			applySilenceCutPlan,
 		},
 		project: {
 			getActiveOrNull: () => ({
@@ -328,6 +331,127 @@ describe("subtitle tools", () => {
 							cues: [
 								{
 									text: "新字幕",
+								},
+							],
+						},
+					],
+				},
+			},
+		});
+	});
+
+	test("subtitles_cut_filler_words trims filler tokens from a project-global transcript", () => {
+		const updateSettings = mock(() => {});
+		const applySilenceCutPlan = mock(() => true);
+		const voiceTrack = {
+			id: "voice-track",
+			type: "audio",
+			elements: [
+				{
+					id: "voice-clip",
+					type: "audio",
+					startTime: mockMediaTimeFromSeconds({ seconds: 0 }),
+					duration: mockMediaTimeFromSeconds({ seconds: 6 }),
+					trimStart: 0,
+					trimEnd: 0,
+					params: {},
+				},
+			],
+		};
+		const editor = createMockEditor({
+			updateSettings,
+			applySilenceCutPlan,
+			getTrackById: mock(({ trackId }: { trackId: string }) =>
+				trackId === "voice-track" ? voiceTrack : null,
+			),
+			projectSettings: {
+				subtitles: {
+					enabled: true,
+					cues: [],
+					revealMode: "token",
+					lineBreakMode: "page",
+					maxCharsPerLine: 30,
+					selectedTrackId: "track:voice-track",
+					tracks: [
+						{
+							id: "track:voice-track",
+							label: "Voice",
+							sourceTrackId: "voice-track",
+							cues: [
+								{
+									text: "嗯大家好",
+									startTime: 0,
+									duration: 3,
+									tokens: [
+										{ text: "嗯", startTime: 0, duration: 0.4 },
+										{ text: "大家", startTime: 0.4, duration: 1 },
+										{ text: "好", startTime: 1.4, duration: 0.6 },
+									],
+								},
+								{
+									text: "好啊继续",
+									startTime: 3,
+									duration: 2,
+									tokens: [
+										{ text: "好啊", startTime: 3, duration: 0.8 },
+										{ text: "继续", startTime: 3.8, duration: 0.8 },
+									],
+								},
+							],
+						},
+					],
+				},
+			},
+		});
+		const tools = buildSubtitleTools({
+			editor,
+			deps: { mediaTimeFromSeconds: mockMediaTimeFromSeconds },
+		});
+		const tool = tools.find(
+			(item) => item.name === "subtitles_cut_filler_words",
+		);
+
+		const result = tool?.handler({});
+
+		expect(result).toMatchObject({
+			applied: true,
+			candidateCount: 1,
+			removedSeconds: 0.4,
+		});
+		expect(applySilenceCutPlan.mock.calls[0]?.[0]).toEqual({
+			targets: [
+				{
+					trackId: "voice-track",
+					elementId: "voice-clip",
+					ranges: [
+						{
+							startTime: mockMediaTimeFromSeconds({ seconds: 0 }),
+							endTime: mockMediaTimeFromSeconds({ seconds: 0.4 }),
+						},
+					],
+				},
+			],
+		});
+		expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({
+			settings: {
+				subtitles: {
+					tracks: [
+						{
+							id: "track:voice-track",
+							cues: [
+								{
+									text: "大家好",
+									tokens: [
+										{ text: "大家", startTime: 0 },
+										{ text: "好", startTime: 0.9999999999999999 },
+									],
+								},
+								{
+									text: "好啊继续",
+									tokens: [
+										{ text: "好啊", startTime: 2.6 },
+										{ text: "继续", startTime: 3.4 },
+									],
 								},
 							],
 						},

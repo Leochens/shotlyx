@@ -51,7 +51,9 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain("Do not use karaoke or token reveal modes");
 		expect(prompt).toContain("Use project_update_watermark");
 		expect(prompt).toContain("global watermark");
-		expect(prompt).toContain("Use rough_cut_create_review");
+		expect(prompt).toContain("Use subtitles_cut_filler_words");
+		expect(prompt).toContain("project-level global transcript");
+		expect(prompt).toContain("Use rough_cut_create_review only");
 		expect(prompt).toContain("subtitles_update_style");
 		expect(prompt).toContain("Use agent_generate_voiceover");
 		expect(prompt).toContain("自动配音");

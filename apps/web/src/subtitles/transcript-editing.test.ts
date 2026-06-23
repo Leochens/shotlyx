@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { TProjectSubtitleTrack } from "@/project/types";
 import {
 	cutTranscriptTrackByTimeRange,
+	cutTranscriptTrackByTimeRanges,
 	editTranscriptSelection,
 	findActiveTranscriptToken,
 	resolveTranscriptTokenRange,
@@ -96,6 +97,25 @@ describe("transcript editing", () => {
 		expect(result.cues[1]?.tokens?.[0]).toMatchObject({
 			text: "面",
 			startTime: 4,
+		});
+	});
+
+	test("cuts multiple original-time ranges and keeps transcript timing aligned", () => {
+		const result = cutTranscriptTrackByTimeRanges({
+			track: track(),
+			ranges: [
+				{ startTime: 1, endTime: 2 },
+				{ startTime: 4, endTime: 6 },
+			],
+		});
+
+		expect(result.cues.map((cue) => cue.text)).toEqual(["这错字", "面"]);
+		expect(result.cues[0]?.tokens?.map((token) => token.startTime)).toEqual([
+			0, 1, 2,
+		]);
+		expect(result.cues[1]?.tokens?.[0]).toMatchObject({
+			text: "面",
+			startTime: 3,
 		});
 	});
 

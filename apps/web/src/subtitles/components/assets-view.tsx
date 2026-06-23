@@ -53,7 +53,7 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Scissors, Trash2 } from "lucide-react";
 import type { DiagnosticSeverity } from "@/diagnostics/types";
 import type { TProjectSubtitleTrack, TProjectSubtitles } from "@/project/types";
 import type { SubtitleLayerCue } from "@/subtitles/types";
@@ -471,6 +471,43 @@ export function Captions() {
 
 	const handleGenerateTranscript = () => {
 		void runGenerateAllTranscripts();
+	};
+
+	const handleCutFillerWords = async () => {
+		if (!selectedTranscriptTrack) return;
+		dispatch({
+			type: "start",
+			step: "正在分析并剪除气口...",
+		});
+		const result = await editor.mcp.execute({
+			toolName: "subtitles_cut_filler_words",
+			params: {
+				transcriptTrackId: selectedTranscriptTrack.id,
+			},
+			onProgress: (event) => {
+				if (event.status === "running") {
+					dispatch({
+						type: "update_step",
+						step: event.label,
+					});
+				}
+			},
+		});
+		if (result.status === "error") {
+			dispatch({
+				type: "fail",
+				error: result.error ?? "剪气口失败",
+			});
+			return;
+		}
+		const message =
+			typeof result.data === "object" &&
+			result.data !== null &&
+			"message" in result.data &&
+			typeof result.data.message === "string"
+				? result.data.message
+				: "剪气口完成";
+		dispatch({ type: "succeed", warnings: [message] });
 	};
 
 	const handleImportClick = () => {
@@ -1079,14 +1116,26 @@ export function Captions() {
 								<span>{processing.step}</span>
 							</div>
 						)}
-						<Button
-							type="button"
-							className="w-full"
-							onClick={handleGenerateTranscript}
-							disabled={isProcessing || audioTrackOptions.length === 0}
-						>
-							Generate all tracks
-						</Button>
+						<div className="grid grid-cols-2 gap-2">
+							<Button
+								type="button"
+								variant="outline"
+								className="w-full"
+								onClick={() => void handleCutFillerWords()}
+								disabled={isProcessing || !hasTranscript}
+							>
+								<Scissors className="h-4 w-4" />
+								一键剪气口
+							</Button>
+							<Button
+								type="button"
+								className="w-full"
+								onClick={handleGenerateTranscript}
+								disabled={isProcessing || audioTrackOptions.length === 0}
+							>
+								Generate all tracks
+							</Button>
+						</div>
 					</div>
 					{error && (
 						<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
