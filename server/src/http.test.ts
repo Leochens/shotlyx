@@ -431,4 +431,128 @@ describe("Shotlyx server HTTP app", () => {
 		expect(ledger.entries[0].externalPaymentId).toBe("zpay-trade-1");
 		expect(ledger.entries[0].balanceAfter).toBe(20_500);
 	});
+
+	test("exposes commercial config and lets users buy catalog products", async () => {
+		const app = createServerApp({
+			store: new InMemoryShotlyxStore(),
+			newApi: createFakeNewApi(),
+			initialQuota: 500,
+			adminToken: "admin-secret",
+			zpay: {
+				pid: "zpay-pid",
+				key: "zpay-secret",
+				publicBaseUrl: "https://shotlyx.example.com",
+				submitUrl: "https://zpayz.cn/submit.php",
+			},
+		});
+		const registerResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/auth/register", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					email: "catalog-buyer@example.com",
+					password: "123456",
+					name: "Catalog Buyer",
+				}),
+			}),
+		);
+		const registered = await registerResponse.json();
+		const authorization = `Bearer ${registered.session.token}`;
+
+		const commercialConfigResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/admin/commercial-config", {
+				headers: { "x-shotlyx-admin-token": "admin-secret" },
+			}),
+		);
+		expect(commercialConfigResponse.status).toBe(200);
+		const commercialConfig = await commercialConfigResponse.json();
+		expect(commercialConfig.catalog.plans[0].code).toBe("creator_monthly");
+		expect(commercialConfig.objectStorage.driver).toBe("local");
+
+		const storageResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/account/storage/config", {
+				headers: { authorization },
+			}),
+		);
+		expect(storageResponse.status).toBe(200);
+		expect((await storageResponse.json()).storage.localPreviewRecommended).toBe(
+			true,
+		);
+
+		const uploadResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/account/uploads/initiate", {
+				method: "POST",
+				headers: {
+					authorization,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
+					fileName: "demo video.mp4",
+					mimeType: "video/mp4",
+					sizeBytes: 1024,
+				}),
+			}),
+		);
+		expect(uploadResponse.status).toBe(200);
+		const upload = await uploadResponse.json();
+		expect(upload.upload.mode).toBe("local-preview");
+		expect(upload.upload.objectKey).toContain("/users/");
+
+		const checkoutResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/account/billing/checkout", {
+				method: "POST",
+				headers: {
+					authorization,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
+					productType: "credit_package",
+					productCode: "credits_500k",
+					type: "alipay",
+				}),
+			}),
+		);
+		expect(checkoutResponse.status).toBe(201);
+		const checkout = await checkoutResponse.json();
+		expect(checkout.order.credits).toBe(550_000);
+		expect(checkout.order.money).toBe("45.00");
+		expect(checkout.order.product).toEqual({
+			type: "credit_package",
+			code: "credits_500k",
+			name: "50 万积分包",
+		});
+
+		const notifyParams = {
+			pid: "zpay-pid",
+			type: "alipay",
+			out_trade_no: checkout.order.outTradeNo,
+			trade_no: "zpay-catalog-trade-1",
+			name: "50 万积分包",
+			money: "45.00",
+			trade_status: "TRADE_SUCCESS",
+		};
+		const signedNotifyParams = new URLSearchParams({
+			...notifyParams,
+			sign: signZpayParams(notifyParams, "zpay-secret"),
+			sign_type: "MD5",
+		});
+		const notifyResponse = await app.fetch(
+			new Request(
+				`http://shotlyx.test/api/callbacks/zpay?${signedNotifyParams}`,
+			),
+		);
+		expect(notifyResponse.status).toBe(200);
+
+		const billingStateResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/account/billing-state", {
+				headers: { authorization },
+			}),
+		);
+		expect(billingStateResponse.status).toBe(200);
+		const billingState = await billingStateResponse.json();
+		expect(billingState.wallet.availableCredits).toBe(550_500);
+		expect(billingState.creditBreakdown.creditPackageCredits).toBe(550_000);
+		expect(billingState.creditBreakdown.adminCredits).toBe(500);
+		expect(billingState.catalog.creditPackages).toHaveLength(3);
+	});
 });

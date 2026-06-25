@@ -1,4 +1,10 @@
 import type { createBillingService } from "./billing";
+import {
+	getBillingProduct,
+	getProductGrantedCredits,
+	type BillingProduct,
+	type BillingProductType,
+} from "./product-catalog";
 import type {
 	PaymentOrder,
 	PaymentOrderPayType,
@@ -23,6 +29,13 @@ export type ZpayPaymentConfig = {
 export type CreateCreditPaymentInput = {
 	user: PublicUser;
 	credits: number;
+	type: PaymentOrderPayType;
+};
+
+export type CreateProductPaymentInput = {
+	user: PublicUser;
+	productType: BillingProductType;
+	productCode: string;
 	type: PaymentOrderPayType;
 };
 
@@ -107,6 +120,29 @@ function createProductName(credits: number): string {
 	return `Shotlyx API 额度充值 ${new Intl.NumberFormat("en-US").format(credits)} credits`;
 }
 
+function getCheckoutProductName(order: PaymentOrder): string {
+	const productName = order.meta?.productName;
+	return typeof productName === "string" && productName.trim()
+		? productName
+		: createProductName(order.credits);
+}
+
+function createProductOrderMeta({
+	user,
+	product,
+}: {
+	user: PublicUser;
+	product: BillingProduct;
+}) {
+	return {
+		userEmail: user.email,
+		productType: product.type,
+		productCode: product.code,
+		productName: product.name,
+		productPriceCents: product.priceCents,
+	};
+}
+
 export function createPaymentService({
 	store,
 	billing,
@@ -158,6 +194,37 @@ export function createPaymentService({
 			};
 		},
 
+		async createProductCheckout(input: CreateProductPaymentInput) {
+			if (!isZpayConfigured(zpay)) {
+				throw new Error("zpay_not_configured");
+			}
+			const product = getBillingProduct({
+				type: input.productType,
+				code: input.productCode,
+			});
+			if (!product) throw new Error("billing_product_not_found");
+
+			const timestamp = now().toISOString();
+			const order: PaymentOrder = {
+				id: `pay_${crypto.randomUUID()}`,
+				provider: "zpay",
+				userId: input.user.id,
+				outTradeNo: createOutTradeNo(),
+				credits: getProductGrantedCredits(product),
+				moneyCents: product.priceCents,
+				payType: normalizePayType(input.type),
+				status: "pending",
+				createdAt: timestamp,
+				updatedAt: timestamp,
+				meta: createProductOrderMeta({ user: input.user, product }),
+			};
+			await store.createPaymentOrder(order);
+			return {
+				order,
+				checkoutUrl: `/api/account/credits/payments/${order.outTradeNo}/checkout`,
+			};
+		},
+
 		async renderCheckout(outTradeNo: string): Promise<string> {
 			if (!isZpayConfigured(zpay)) {
 				throw new Error("zpay_not_configured");
@@ -172,7 +239,7 @@ export function createPaymentService({
 					outTradeNo: order.outTradeNo,
 					notifyUrl: `${baseUrl}/api/callbacks/zpay`,
 					returnUrl: `${baseUrl}/projects`,
-					name: createProductName(order.credits),
+					name: getCheckoutProductName(order),
 					money: formatMoneyFromCents(order.moneyCents),
 					param: order.id,
 				},
@@ -213,8 +280,12 @@ export function createPaymentService({
 				amount: order.credits,
 				idempotencyKey: `zpay:${order.outTradeNo}`,
 				externalPaymentId: String(params.trade_no ?? "") || undefined,
-				note: "ZPAY self-service recharge",
+				note:
+					typeof order.meta?.productName === "string"
+						? `ZPAY self-service purchase: ${order.meta.productName}`
+						: "ZPAY self-service recharge",
 				meta: {
+					...order.meta,
 					paymentOrderId: order.id,
 					provider: "zpay",
 					payType: order.payType,

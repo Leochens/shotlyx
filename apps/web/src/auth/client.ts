@@ -68,8 +68,96 @@ export type CreditTopUpPayment = {
 		status: "pending" | "paid" | "failed";
 		createdAt?: string;
 		paidAt?: string;
+		product?: {
+			type: BillingProductType;
+			code: string;
+			name: string;
+		} | null;
 	};
 	checkoutUrl: string;
+};
+
+export type BillingProductType = "plan" | "credit_package";
+
+export type BillingPlan = {
+	type: "plan";
+	code: string;
+	name: string;
+	description: string;
+	priceCents: number;
+	period: "month";
+	includedCredits: number;
+	features: string[];
+	highlight?: boolean;
+};
+
+export type BillingCreditPackage = {
+	type: "credit_package";
+	code: string;
+	name: string;
+	description: string;
+	priceCents: number;
+	credits: number;
+	bonusCredits: number;
+	highlight?: boolean;
+};
+
+export type UsagePricingRule = {
+	code: string;
+	name: string;
+	unit: string;
+	credits: number;
+	description: string;
+	adminConfigKey: string;
+};
+
+export type AccountBillingState = {
+	user: AuthUser;
+	wallet: {
+		availableCredits: number;
+		heldCredits: number;
+	};
+	creditBreakdown: {
+		subscriptionCredits: number;
+		creditPackageCredits: number;
+		adminCredits: number;
+		promoCredits: number;
+		refundAdjustmentCredits: number;
+		totalActiveCredits: number;
+	};
+	subscription: {
+		status: "none" | "active";
+		planCode?: string;
+		planName?: string;
+		includedCredits?: number;
+		latestGrantedAt?: string;
+	};
+	catalog: {
+		plans: BillingPlan[];
+		creditPackages: BillingCreditPackage[];
+	};
+	usagePricingRules: UsagePricingRule[];
+	newApiKey: NewApiKeySummary | null;
+	ledgerEntries: CreditLedgerEntry[];
+	billingCenter?: {
+		configured: boolean;
+		baseUrl?: string;
+		appCode?: string;
+		missing: string[];
+	};
+};
+
+export type ObjectStorageConfigStatus = {
+	driver: "local" | "cos" | "r2" | "s3";
+	configured: boolean;
+	productionReady: boolean;
+	keyPrefix: string;
+	bucket?: string;
+	endpoint?: string;
+	publicBaseUrl?: string;
+	missing: string[];
+	maxUploadSizeMb: number;
+	localPreviewRecommended: boolean;
 };
 
 export type AuthAccount = {
@@ -152,6 +240,12 @@ async function parseJsonResponse(response: Response): Promise<unknown> {
 	return response.json().catch(() => ({}));
 }
 
+function readRequiredToken(): string {
+	const token = readStoredToken();
+	if (!token) throw new Error("unauthorized");
+	return token;
+}
+
 function getErrorMessage(payload: unknown, fallback: string): string {
 	if (typeof payload === "object" && payload !== null) {
 		const error = Reflect.get(payload, "error");
@@ -230,8 +324,7 @@ export async function getCurrentAccount(): Promise<AuthAccount | null> {
 }
 
 export async function getCreditLedgerEntries(): Promise<CreditLedgerEntry[]> {
-	const token = readStoredToken();
-	if (!token) throw new Error("unauthorized");
+	const token = readRequiredToken();
 
 	const response = await fetch(buildApiUrl("/api/account/credits/ledger"), {
 		cache: "no-store",
@@ -259,8 +352,7 @@ export async function createCreditTopUpPayment({
 	credits: number;
 	type: "alipay" | "wxpay";
 }): Promise<CreditTopUpPayment> {
-	const token = readStoredToken();
-	if (!token) throw new Error("unauthorized");
+	const token = readRequiredToken();
 
 	const response = await fetch(buildApiUrl("/api/account/credits/payments"), {
 		method: "POST",
@@ -279,6 +371,73 @@ export async function createCreditTopUpPayment({
 		throw new Error(getErrorMessage(payload, "payment_request_failed"));
 	}
 	return payload as CreditTopUpPayment;
+}
+
+export async function getAccountBillingState(): Promise<AccountBillingState> {
+	const token = readRequiredToken();
+	const response = await fetch(buildApiUrl("/api/account/billing-state"), {
+		cache: "no-store",
+		headers: { authorization: `Bearer ${token}` },
+	});
+	if (response.status === 401) {
+		clearAuthSession();
+		throw new Error(mapAuthErrorMessage("unauthorized", "请重新登录"));
+	}
+	const payload = await parseJsonResponse(response);
+	if (!response.ok) {
+		throw new Error(getErrorMessage(payload, "billing_state_request_failed"));
+	}
+	return payload as AccountBillingState;
+}
+
+export async function createBillingCheckout({
+	productType,
+	productCode,
+	type,
+}: {
+	productType: BillingProductType;
+	productCode: string;
+	type: "alipay" | "wxpay";
+}): Promise<CreditTopUpPayment> {
+	const token = readRequiredToken();
+	const response = await fetch(buildApiUrl("/api/account/billing/checkout"), {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${token}`,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({ productType, productCode, type }),
+	});
+	if (response.status === 401) {
+		clearAuthSession();
+		throw new Error(mapAuthErrorMessage("unauthorized", "请重新登录"));
+	}
+	const payload = await parseJsonResponse(response);
+	if (!response.ok) {
+		throw new Error(getErrorMessage(payload, "billing_checkout_failed"));
+	}
+	return payload as CreditTopUpPayment;
+}
+
+export async function getObjectStorageConfigStatus(): Promise<ObjectStorageConfigStatus> {
+	const token = readRequiredToken();
+	const response = await fetch(buildApiUrl("/api/account/storage/config"), {
+		cache: "no-store",
+		headers: { authorization: `Bearer ${token}` },
+	});
+	if (response.status === 401) {
+		clearAuthSession();
+		throw new Error(mapAuthErrorMessage("unauthorized", "请重新登录"));
+	}
+	const payload = await parseJsonResponse(response);
+	if (!response.ok) {
+		throw new Error(getErrorMessage(payload, "storage_config_request_failed"));
+	}
+	if (typeof payload === "object" && payload !== null) {
+		const storage = Reflect.get(payload, "storage");
+		if (storage) return storage as ObjectStorageConfigStatus;
+	}
+	throw new Error("storage_config_request_failed");
 }
 
 export function useSession(): AuthState {

@@ -4,10 +4,13 @@ import { useState } from "react";
 import { Coins, KeyRound, Loader2, LogOut, ReceiptText } from "lucide-react";
 import {
 	clearAuthSession,
-	createCreditTopUpPayment,
-	getCreditLedgerEntries,
+	createBillingCheckout,
+	getAccountBillingState,
 	type AuthAccount,
 	type AuthUser,
+	type AccountBillingState,
+	type BillingCreditPackage,
+	type BillingPlan,
 	type CreditLedgerEntry,
 } from "@/auth/client";
 import { useRouter } from "@/platform/router";
@@ -84,17 +87,26 @@ export function getRecentCreditLedgerEntries(
 		.slice(0, 3);
 }
 
+export function formatProductPrice(cents: number): string {
+	return `¥${(cents / 100).toFixed(2)}`;
+}
+
+export function getCreditPackageGrantedCredits(
+	product: BillingCreditPackage,
+): number {
+	return product.credits + product.bonusCredits;
+}
+
 function getLatestBalance({
 	account,
-	ledgerEntries,
+	billingState,
 }: {
 	account: AuthAccount;
-	ledgerEntries: CreditLedgerEntry[];
+	billingState: AccountBillingState | null;
 }): number | null {
-	const latestAppliedEntry = getRecentCreditLedgerEntries(ledgerEntries).find(
-		(entry) => entry.status === "applied",
+	return (
+		billingState?.wallet.availableCredits ?? account.newApiKey?.quota ?? null
 	);
-	return latestAppliedEntry?.balanceAfter ?? account.newApiKey?.quota ?? null;
 }
 
 export function AccountCreditBadge({ account }: { account: AuthAccount }) {
@@ -114,22 +126,26 @@ export function AccountMenu({ account }: { account: AuthAccount }) {
 	const { user } = account;
 	const displayName =
 		user.name.trim() || user.email.split("@")[0] || user.email;
-	const [ledgerEntries, setLedgerEntries] = useState<CreditLedgerEntry[]>([]);
+	const [billingState, setBillingState] = useState<AccountBillingState | null>(
+		null,
+	);
 	const [ledgerState, setLedgerState] = useState<
 		"idle" | "loading" | "ready" | "error"
 	>("idle");
-	const [creatingPaymentCredits, setCreatingPaymentCredits] = useState<
-		number | null
-	>(null);
-	const latestBalance = getLatestBalance({ account, ledgerEntries });
+	const [creatingProductCode, setCreatingProductCode] = useState<string | null>(
+		null,
+	);
+	const latestBalance = getLatestBalance({ account, billingState });
+	const ledgerEntries = billingState?.ledgerEntries ?? [];
 	const recentEntries = getRecentCreditLedgerEntries(ledgerEntries);
-	const topUpPackages = [100_000, 500_000, 1_000_000];
+	const creditPackages = billingState?.catalog.creditPackages ?? [];
+	const plans = billingState?.catalog.plans ?? [];
 
-	const loadLedgerEntries = async () => {
+	const loadBillingState = async () => {
 		if (ledgerState === "loading") return;
 		setLedgerState("loading");
 		try {
-			setLedgerEntries(await getCreditLedgerEntries());
+			setBillingState(await getAccountBillingState());
 			setLedgerState("ready");
 		} catch {
 			setLedgerState("error");
@@ -141,12 +157,15 @@ export function AccountMenu({ account }: { account: AuthAccount }) {
 		router.replace("/login");
 	};
 
-	const handleCreateTopUpPayment = async (credits: number) => {
-		if (creatingPaymentCredits !== null) return;
-		setCreatingPaymentCredits(credits);
+	const handleCreateCheckout = async (
+		product: BillingPlan | BillingCreditPackage,
+	) => {
+		if (creatingProductCode !== null) return;
+		setCreatingProductCode(product.code);
 		try {
-			const payment = await createCreditTopUpPayment({
-				credits,
+			const payment = await createBillingCheckout({
+				productType: product.type,
+				productCode: product.code,
 				type: "alipay",
 			});
 			window.location.assign(payment.checkoutUrl);
@@ -156,14 +175,14 @@ export function AccountMenu({ account }: { account: AuthAccount }) {
 					error instanceof Error ? error.message : "请稍后再试或联系管理员",
 			});
 		} finally {
-			setCreatingPaymentCredits(null);
+			setCreatingProductCode(null);
 		}
 	};
 
 	return (
 		<DropdownMenu
 			onOpenChange={(open) => {
-				if (open && ledgerState === "idle") void loadLedgerEntries();
+				if (open && ledgerState === "idle") void loadBillingState();
 			}}
 		>
 			<DropdownMenuTrigger asChild>
@@ -181,7 +200,7 @@ export function AccountMenu({ account }: { account: AuthAccount }) {
 					</Avatar>
 				</Button>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align="end" className="w-56">
+			<DropdownMenuContent align="end" className="w-[360px]">
 				<div className="px-2 py-1.5">
 					<p className="truncate font-medium text-sm">{displayName}</p>
 					<p className="truncate text-muted-foreground text-xs">{user.email}</p>
@@ -205,22 +224,101 @@ export function AccountMenu({ account }: { account: AuthAccount }) {
 								: "尚未绑定 New API Key"}
 						</span>
 					</div>
-					<div className="mt-3 grid grid-cols-3 gap-1">
-						{topUpPackages.map((credits) => (
-							<button
-								key={credits}
-								type="button"
-								disabled={creatingPaymentCredits !== null}
-								onClick={() => void handleCreateTopUpPayment(credits)}
-								className="flex h-8 items-center justify-center rounded-sm border border-border/70 bg-background px-2 font-medium text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-							>
-								{creatingPaymentCredits === credits ? (
-									<Loader2 className="size-3.5 animate-spin" />
-								) : (
-									formatCreditPackageLabel(credits)
+					{billingState?.subscription.status === "active" ? (
+						<div className="mt-3 rounded-sm bg-emerald-500/10 px-2 py-1.5 text-emerald-700 text-xs dark:text-emerald-300">
+							{billingState.subscription.planName} · 每月{" "}
+							{formatCreditPackageLabel(
+								billingState.subscription.includedCredits ?? 0,
+							)}{" "}
+							积分
+						</div>
+					) : null}
+					<div className="mt-3 grid grid-cols-3 gap-1 text-xs">
+						<div>
+							<p className="text-muted-foreground">套餐</p>
+							<p className="font-medium">
+								{formatCreditAmount(
+									billingState?.creditBreakdown.subscriptionCredits ?? 0,
 								)}
-							</button>
-						))}
+							</p>
+						</div>
+						<div>
+							<p className="text-muted-foreground">积分包</p>
+							<p className="font-medium">
+								{formatCreditAmount(
+									billingState?.creditBreakdown.creditPackageCredits ?? 0,
+								)}
+							</p>
+						</div>
+						<div>
+							<p className="text-muted-foreground">手动</p>
+							<p className="font-medium">
+								{formatCreditAmount(
+									billingState?.creditBreakdown.adminCredits ?? 0,
+								)}
+							</p>
+						</div>
+					</div>
+					<div className="mt-3 space-y-1.5">
+						<p className="font-medium text-xs">订阅套餐</p>
+						{plans.length === 0 && ledgerState === "loading" ? (
+							<div className="h-8 rounded-sm bg-background" />
+						) : (
+							plans.map((plan) => (
+								<button
+									key={plan.code}
+									type="button"
+									disabled={creatingProductCode !== null}
+									onClick={() => void handleCreateCheckout(plan)}
+									className="flex min-h-10 w-full items-center justify-between gap-3 rounded-sm border border-border/70 bg-background px-2 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+								>
+									<span className="min-w-0">
+										<span className="block truncate font-medium">
+											{plan.name}
+										</span>
+										<span className="block truncate text-muted-foreground">
+											{formatCreditPackageLabel(plan.includedCredits)} 积分
+										</span>
+									</span>
+									<span className="shrink-0 font-semibold">
+										{creatingProductCode === plan.code ? (
+											<Loader2 className="size-3.5 animate-spin" />
+										) : (
+											formatProductPrice(plan.priceCents)
+										)}
+									</span>
+								</button>
+							))
+						)}
+					</div>
+					<div className="mt-3 space-y-1.5">
+						<p className="font-medium text-xs">积分包</p>
+						<div className="grid grid-cols-3 gap-1">
+							{creditPackages.map((product) => (
+								<button
+									key={product.code}
+									type="button"
+									disabled={creatingProductCode !== null}
+									onClick={() => void handleCreateCheckout(product)}
+									className="flex min-h-12 flex-col items-center justify-center rounded-sm border border-border/70 bg-background px-2 font-medium text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+								>
+									{creatingProductCode === product.code ? (
+										<Loader2 className="size-3.5 animate-spin" />
+									) : (
+										<>
+											<span>
+												{formatCreditPackageLabel(
+													getCreditPackageGrantedCredits(product),
+												)}
+											</span>
+											<span className="font-normal text-muted-foreground">
+												{formatProductPrice(product.priceCents)}
+											</span>
+										</>
+									)}
+								</button>
+							))}
+						</div>
 					</div>
 				</div>
 				<DropdownMenuSeparator />

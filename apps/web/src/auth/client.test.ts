@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
 	clearAuthSession,
+	createBillingCheckout,
 	createCreditTopUpPayment,
+	getAccountBillingState,
+	getObjectStorageConfigStatus,
 	getCreditLedgerEntries,
 	loginWithEmail,
 	mapAuthErrorMessage,
@@ -267,6 +270,142 @@ describe("auth client errors", () => {
 					url: "/api/account/credits/payments",
 					authorization: "Bearer shotlyx_session_payment",
 					body: { credits: 100_000, type: "alipay" },
+				},
+			]);
+		} finally {
+			globalThis.fetch = previousFetch;
+			Object.defineProperty(globalThis, "window", {
+				configurable: true,
+				value: previousWindow,
+			});
+		}
+	});
+
+	test("loads billing state, creates product checkout, and reads storage config", async () => {
+		const storage = new Map<string, string>();
+		const previousWindow = globalThis.window;
+		const previousFetch = globalThis.fetch;
+		Object.defineProperty(globalThis, "window", {
+			configurable: true,
+			value: {
+				localStorage: {
+					getItem: (key: string) => storage.get(key) ?? null,
+					removeItem: (key: string) => storage.delete(key),
+					setItem: (key: string, value: string) => storage.set(key, value),
+				},
+			},
+		});
+		storage.set(
+			"shotlyx.auth.session.v1",
+			JSON.stringify({
+				token: "shotlyx_session_billing",
+				expiresAt: "2026-07-05T00:00:00.000Z",
+			}),
+		);
+		const requests: Array<{
+			url: string;
+			authorization: string | null;
+			body?: unknown;
+		}> = [];
+		globalThis.fetch = async (input, init) => {
+			const headers = new Headers(init?.headers);
+			const url = String(input);
+			requests.push({
+				url,
+				authorization: headers.get("authorization"),
+				body: init?.body ? JSON.parse(String(init.body)) : undefined,
+			});
+			if (url === "/api/account/billing-state") {
+				return new Response(
+					JSON.stringify({
+						user: { id: "user-1", email: "buyer@example.com", name: "Buyer" },
+						wallet: { availableCredits: 550_000, heldCredits: 0 },
+						creditBreakdown: {
+							subscriptionCredits: 0,
+							creditPackageCredits: 550_000,
+							adminCredits: 0,
+							promoCredits: 0,
+							refundAdjustmentCredits: 0,
+							totalActiveCredits: 550_000,
+						},
+						subscription: { status: "none" },
+						catalog: { plans: [], creditPackages: [] },
+						usagePricingRules: [],
+						newApiKey: null,
+						ledgerEntries: [],
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				);
+			}
+			if (url === "/api/account/storage/config") {
+				return new Response(
+					JSON.stringify({
+						storage: {
+							driver: "local",
+							configured: true,
+							productionReady: true,
+							keyPrefix: "shotlyx",
+							missing: [],
+							maxUploadSizeMb: 512,
+							localPreviewRecommended: true,
+						},
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				);
+			}
+			return new Response(
+				JSON.stringify({
+					order: {
+						id: "pay-1",
+						outTradeNo: "sx_catalog_order",
+						credits: 550_000,
+						money: "45.00",
+						type: "alipay",
+						status: "pending",
+						product: {
+							type: "credit_package",
+							code: "credits_500k",
+							name: "50 万积分包",
+						},
+					},
+					checkoutUrl:
+						"/api/account/credits/payments/sx_catalog_order/checkout",
+				}),
+				{ status: 201, headers: { "content-type": "application/json" } },
+			);
+		};
+
+		try {
+			const billingState = await getAccountBillingState();
+			const storageConfig = await getObjectStorageConfigStatus();
+			const checkout = await createBillingCheckout({
+				productType: "credit_package",
+				productCode: "credits_500k",
+				type: "alipay",
+			});
+
+			expect(billingState.wallet.availableCredits).toBe(550_000);
+			expect(storageConfig.driver).toBe("local");
+			expect(checkout.order.product?.code).toBe("credits_500k");
+			expect(requests).toEqual([
+				{
+					url: "/api/account/billing-state",
+					authorization: "Bearer shotlyx_session_billing",
+					body: undefined,
+				},
+				{
+					url: "/api/account/storage/config",
+					authorization: "Bearer shotlyx_session_billing",
+					body: undefined,
+				},
+				{
+					url: "/api/account/billing/checkout",
+					authorization: "Bearer shotlyx_session_billing",
+					body: {
+						productType: "credit_package",
+						productCode: "credits_500k",
+						type: "alipay",
+					},
 				},
 			]);
 		} finally {

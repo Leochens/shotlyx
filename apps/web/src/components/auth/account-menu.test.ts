@@ -3,7 +3,9 @@ import {
 	formatCreditAmount,
 	formatCreditPackageLabel,
 	formatLedgerTimestamp,
+	formatProductPrice,
 	getAccountInitials,
+	getCreditPackageGrantedCredits,
 	getCreditLedgerStatusLabel,
 	getRecentCreditLedgerEntries,
 } from "./account-menu";
@@ -37,6 +39,21 @@ describe("account menu", () => {
 		expect(formatCreditPackageLabel(100_000)).toBe("10万");
 		expect(formatCreditPackageLabel(1_000_000)).toBe("100万");
 		expect(formatCreditPackageLabel(12_500)).toBe("12,500");
+	});
+
+	test("formats catalog products for billing controls", () => {
+		expect(formatProductPrice(4500)).toBe("¥45.00");
+		expect(
+			getCreditPackageGrantedCredits({
+				type: "credit_package",
+				code: "credits_500k",
+				name: "50 万积分包",
+				description: "test",
+				priceCents: 4500,
+				credits: 500_000,
+				bonusCredits: 50_000,
+			}),
+		).toBe(550_000);
 	});
 
 	test("labels ledger statuses in Chinese", () => {

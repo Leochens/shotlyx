@@ -1,8 +1,21 @@
+import { buildAccountBillingState } from "./account-billing";
 import { createAuthService } from "./auth";
 import { createBillingService } from "./billing";
+import { inspectBillingCenterConfig } from "./billing-center";
 import type { NewApiGateway } from "./new-api";
 import { createNewApiGateway } from "./new-api";
+import {
+	inspectObjectStorageConfig,
+	type ObjectStorageConfigStatus,
+} from "./object-storage-config";
 import { createPaymentService, type ZpayPaymentConfig } from "./payments";
+import {
+	getBillingCatalog,
+	getUsagePricingRules,
+	type BillingCreditPackage,
+	type BillingPlan,
+	type UsagePricingRule,
+} from "./product-catalog";
 import {
 	createDefaultShotlyxStore,
 	resolveDefaultStoreMode,
@@ -123,6 +136,9 @@ function toAccountResponse(
 }
 
 function toPaymentOrderResponse(order: PaymentOrder) {
+	const productType = order.meta?.productType;
+	const productCode = order.meta?.productCode;
+	const productName = order.meta?.productName;
 	return {
 		id: order.id,
 		provider: order.provider,
@@ -133,11 +149,56 @@ function toPaymentOrderResponse(order: PaymentOrder) {
 		status: order.status,
 		createdAt: order.createdAt,
 		paidAt: order.paidAt,
+		product:
+			typeof productType === "string" &&
+			typeof productCode === "string" &&
+			typeof productName === "string"
+				? { type: productType, code: productCode, name: productName }
+				: null,
 	};
 }
 
 function formatPaymentMoney(moneyCents: number): string {
 	return (moneyCents / 100).toFixed(2);
+}
+
+function formatCredits(value: number): string {
+	return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatCny(cents: number): string {
+	return `¥${(cents / 100).toFixed(2)}`;
+}
+
+function renderPlansTable(plans: BillingPlan[]): string {
+	return plans
+		.map(
+			(plan) =>
+				`<tr><td>${escapeHtml(plan.name)}</td><td><code>${escapeHtml(plan.code)}</code></td><td>${formatCny(plan.priceCents)} / 月</td><td>${formatCredits(plan.includedCredits)}</td><td>${escapeHtml(plan.features.join("、"))}</td></tr>`,
+		)
+		.join("");
+}
+
+function renderCreditPackagesTable(products: BillingCreditPackage[]): string {
+	return products
+		.map(
+			(product) =>
+				`<tr><td>${escapeHtml(product.name)}</td><td><code>${escapeHtml(product.code)}</code></td><td>${formatCny(product.priceCents)}</td><td>${formatCredits(product.credits + product.bonusCredits)}</td><td>${product.bonusCredits ? `含赠送 ${formatCredits(product.bonusCredits)}` : "无赠送"}</td></tr>`,
+		)
+		.join("");
+}
+
+function renderUsageRulesTable(rules: UsagePricingRule[]): string {
+	return rules
+		.map(
+			(rule) =>
+				`<tr><td>${escapeHtml(rule.name)}</td><td><code>${escapeHtml(rule.code)}</code></td><td>${escapeHtml(rule.unit)}</td><td>${formatCredits(rule.credits)}</td><td><code>${escapeHtml(rule.adminConfigKey)}</code></td></tr>`,
+		)
+		.join("");
+}
+
+function renderStatus(value: boolean): string {
+	return value ? "已配置" : "未配置";
 }
 
 function adminLoginPage({ error }: { error?: string } = {}): string {
@@ -177,12 +238,20 @@ function adminPage({
 	users,
 	logs,
 	settings,
+	catalog,
+	usagePricingRules,
+	objectStorage,
+	billingCenter,
 	flash,
 	error,
 }: {
 	users: Array<{ email: string; name: string; createdAt: string }>;
 	logs: Array<{ type: string; message: string; createdAt: string }>;
 	settings: ServerSettings;
+	catalog: ReturnType<typeof getBillingCatalog>;
+	usagePricingRules: UsagePricingRule[];
+	objectStorage: ObjectStorageConfigStatus;
+	billingCenter: ReturnType<typeof inspectBillingCenterConfig>;
 	flash?: string;
 	error?: string;
 }): string {
@@ -257,6 +326,37 @@ function adminPage({
       <h2>API Key 设置</h2>
       <p>New API Base URL: <code>${escapeHtml(settings.newApiBaseUrl || "未配置")}</code></p>
       <p>Initial Quota: <code>${settings.initialQuota}</code></p>
+    </section>
+    <section>
+      <h2>套餐与积分规则</h2>
+      <h3>订阅套餐</h3>
+      <table><thead><tr><th>名称</th><th>Code</th><th>价格</th><th>包含积分</th><th>权益</th></tr></thead><tbody>
+        ${renderPlansTable(catalog.plans)}
+      </tbody></table>
+      <h3>积分包</h3>
+      <table><thead><tr><th>名称</th><th>Code</th><th>价格</th><th>到账积分</th><th>说明</th></tr></thead><tbody>
+        ${renderCreditPackagesTable(catalog.creditPackages)}
+      </tbody></table>
+      <h3>消耗规则</h3>
+      <table><thead><tr><th>能力</th><th>Code</th><th>单位</th><th>积分</th><th>配置项</th></tr></thead><tbody>
+        ${renderUsageRulesTable(usagePricingRules)}
+      </tbody></table>
+    </section>
+    <section>
+      <h2>对象存储配置</h2>
+      <p>Driver: <code>${escapeHtml(objectStorage.driver)}</code></p>
+      <p>状态: <code>${renderStatus(objectStorage.configured)}</code> · 生产可用: <code>${renderStatus(objectStorage.productionReady)}</code></p>
+      <p>Bucket: <code>${escapeHtml(objectStorage.bucket || "本地存储")}</code></p>
+      <p>Endpoint: <code>${escapeHtml(objectStorage.endpoint || "未配置")}</code></p>
+      <p>Key Prefix: <code>${escapeHtml(objectStorage.keyPrefix)}</code> · 上传上限: <code>${objectStorage.maxUploadSizeMb} MB</code></p>
+      <p>缺失配置: <code>${escapeHtml(objectStorage.missing.join(", ") || "无")}</code></p>
+    </section>
+    <section>
+      <h2>Billing Center 接入</h2>
+      <p>状态: <code>${renderStatus(billingCenter.configured)}</code></p>
+      <p>Base URL: <code>${escapeHtml(billingCenter.baseUrl || "未配置")}</code></p>
+      <p>App Code: <code>${escapeHtml(billingCenter.appCode || "未配置")}</code></p>
+      <p>缺失配置: <code>${escapeHtml(billingCenter.missing.join(", ") || "无")}</code></p>
     </section>
     <section>
       <h2>回调管理</h2>
@@ -349,11 +449,16 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 			store.listLogs(),
 			store.getSettings(),
 		]);
+		const catalog = getBillingCatalog();
 		return html(
 			adminPage({
 				users,
 				logs,
 				settings,
+				catalog,
+				usagePricingRules: getUsagePricingRules(),
+				objectStorage: inspectObjectStorageConfig(),
+				billingCenter: inspectBillingCenterConfig(),
 				flash,
 				error,
 			}),
@@ -451,6 +556,90 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 				}
 
 				if (
+					url.pathname === "/api/account/billing-state" &&
+					request.method === "GET"
+				) {
+					const account = await requireAccount(request);
+					if (!account) return json({ error: "unauthorized" }, { status: 401 });
+					return json({
+						...(await buildAccountBillingState({ store, account })),
+						billingCenter: inspectBillingCenterConfig(),
+					});
+				}
+
+				if (
+					url.pathname === "/api/account/billing/catalog" &&
+					request.method === "GET"
+				) {
+					const account = await requireAccount(request);
+					if (!account) return json({ error: "unauthorized" }, { status: 401 });
+					return json({
+						catalog: getBillingCatalog(),
+						usagePricingRules: getUsagePricingRules(),
+					});
+				}
+
+				if (
+					url.pathname === "/api/account/storage/config" &&
+					request.method === "GET"
+				) {
+					const account = await requireAccount(request);
+					if (!account) return json({ error: "unauthorized" }, { status: 401 });
+					return json({ storage: inspectObjectStorageConfig() });
+				}
+
+				if (
+					url.pathname === "/api/account/uploads/initiate" &&
+					request.method === "POST"
+				) {
+					const account = await requireAccount(request);
+					if (!account) return json({ error: "unauthorized" }, { status: 401 });
+					const body = await readJson(request);
+					const fileName = readString(body, "fileName", "upload.bin").trim();
+					const mimeType = readString(
+						body,
+						"mimeType",
+						"application/octet-stream",
+					);
+					const sizeBytes =
+						typeof body.sizeBytes === "number"
+							? body.sizeBytes
+							: Number(readString(body, "sizeBytes"));
+					const storage = inspectObjectStorageConfig();
+					const maxBytes = storage.maxUploadSizeMb * 1024 * 1024;
+					if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+						return json({ error: "invalid_upload_size" }, { status: 400 });
+					}
+					if (sizeBytes > maxBytes) {
+						return json(
+							{
+								error: "upload_too_large",
+								maxUploadSizeMb: storage.maxUploadSizeMb,
+							},
+							{ status: 413 },
+						);
+					}
+					const safeName = fileName.replace(/[^a-zA-Z0-9._-]+/g, "-");
+					const objectKey = `${storage.keyPrefix}/users/${account.user.id}/${crypto.randomUUID()}-${safeName}`;
+					return json({
+						upload: {
+							mode:
+								storage.driver === "local"
+									? "local-preview"
+									: "direct-upload-pending",
+							objectKey,
+							fileName,
+							mimeType,
+							sizeBytes,
+							uploadUrl: null,
+							readUrl: null,
+							localPreviewRecommended: storage.localPreviewRecommended,
+						},
+						storage,
+					});
+				}
+
+				if (
 					url.pathname === "/api/account/api-key" &&
 					request.method === "GET"
 				) {
@@ -499,6 +688,34 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 					);
 				}
 
+				if (
+					url.pathname === "/api/account/billing/checkout" &&
+					request.method === "POST"
+				) {
+					const account = await requireAccount(request);
+					if (!account) return json({ error: "unauthorized" }, { status: 401 });
+					const body = await readJson(request);
+					const productType = readString(body, "productType");
+					const type =
+						readString(body, "type") === "wxpay" ? "wxpay" : "alipay";
+					if (productType !== "plan" && productType !== "credit_package") {
+						return json({ error: "invalid_product_type" }, { status: 400 });
+					}
+					const payment = await payments.createProductCheckout({
+						user: account.user,
+						productType,
+						productCode: readString(body, "productCode"),
+						type,
+					});
+					return json(
+						{
+							order: toPaymentOrderResponse(payment.order),
+							checkoutUrl: payment.checkoutUrl,
+						},
+						{ status: 201 },
+					);
+				}
+
 				const checkoutMatch =
 					/^\/api\/account\/credits\/payments\/([^/]+)\/checkout$/.exec(
 						url.pathname,
@@ -535,6 +752,21 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 						return json({ error: "forbidden" }, { status: 403 });
 					}
 					return json({ logs: await store.listLogs() });
+				}
+
+				if (
+					url.pathname === "/api/admin/commercial-config" &&
+					request.method === "GET"
+				) {
+					if (!requireAdmin(request)) {
+						return json({ error: "forbidden" }, { status: 403 });
+					}
+					return json({
+						catalog: getBillingCatalog(),
+						usagePricingRules: getUsagePricingRules(),
+						objectStorage: inspectObjectStorageConfig(),
+						billingCenter: inspectBillingCenterConfig(),
+					});
 				}
 
 				if (
