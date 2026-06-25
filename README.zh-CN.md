@@ -176,10 +176,16 @@ bun run build:web
 Docker：
 
 ```bash
-docker compose up --build
+docker compose up --build -d db redis serverless-redis-http server web
 ```
 
-Compose 文件主要面向本地/自托管开发。任何真实部署前，请替换所有占位 secret。
+默认入口：
+
+- Web：`http://localhost:3100/projects`
+- Server：`http://localhost:8787/api/health`
+- Admin：`http://localhost:8787/admin`
+
+Compose 文件主要面向本地/自托管开发。任何真实部署前，请替换所有占位 secret。`VITE_SHOTLYX_SERVER_URL` 是 Web 镜像构建期变量，修改后需要重新构建 `web` 服务。
 
 Cloudflare/OpenNext：
 

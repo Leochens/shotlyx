@@ -1,4 +1,4 @@
-FROM oven/bun:alpine AS base
+FROM oven/bun:1.2.18-alpine AS base
 
 FROM base AS builder
 
@@ -7,12 +7,15 @@ WORKDIR /app
 ARG FREESOUND_CLIENT_ID
 ARG FREESOUND_API_KEY
 ARG VITE_MARBLE_API_URL=https://api.marblecms.com
+ARG VITE_SHOTLYX_SERVER_URL=http://localhost:8787
 ARG MARBLE_WORKSPACE_KEY=build-placeholder
 
 COPY package.json package.json
 COPY bun.lock bun.lock
 COPY turbo.json turbo.json
+COPY apps/client/package.json apps/client/package.json
 COPY apps/web/package.json apps/web/package.json
+COPY server/package.json server/package.json
 RUN bun install
 
 COPY apps/web/ apps/web/
@@ -25,6 +28,7 @@ ENV BETTER_AUTH_SECRET="build-time-secret"
 ENV UPSTASH_REDIS_REST_URL="http://localhost:8079"
 ENV UPSTASH_REDIS_REST_TOKEN="example_token"
 ENV VITE_SITE_URL="http://localhost:3000"
+ENV VITE_SHOTLYX_SERVER_URL=$VITE_SHOTLYX_SERVER_URL
 ENV VITE_MARBLE_API_URL=$VITE_MARBLE_API_URL
 ENV MARBLE_WORKSPACE_KEY=$MARBLE_WORKSPACE_KEY
 

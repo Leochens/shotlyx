@@ -191,10 +191,16 @@ bun run build:web
 Docker:
 
 ```bash
-docker compose up --build
+docker compose up --build -d db redis serverless-redis-http server web
 ```
 
-The compose file is intended for local/self-hosted development. Replace all placeholder secrets before using it for any real deployment.
+Default entry points:
+
+- Web: `http://localhost:3100/projects`
+- Server: `http://localhost:8787/api/health`
+- Admin: `http://localhost:8787/admin`
+
+The compose file is intended for local/self-hosted development. Replace all placeholder secrets before using it for any real deployment. `VITE_SHOTLYX_SERVER_URL` is baked into the web image at build time, so rebuild the `web` service after changing it.
 
 Cloudflare/OpenNext:
 

@@ -52,9 +52,10 @@ services:
       context: .
       dockerfile: ./apps/web/Dockerfile
       args:
-        - FREESOUND_CLIENT_ID=${FREESOUND_CLIENT_ID}
-        - FREESOUND_API_KEY=${FREESOUND_API_KEY}
+        - FREESOUND_CLIENT_ID=${FREESOUND_CLIENT_ID:-}
+        - FREESOUND_API_KEY=${FREESOUND_API_KEY:-}
         - VITE_MARBLE_API_URL=${VITE_MARBLE_API_URL:-https://api.marblecms.com}
+        - VITE_SHOTLYX_SERVER_URL=${VITE_SHOTLYX_SERVER_URL:-http://localhost:8787}
         - MARBLE_WORKSPACE_KEY=${MARBLE_WORKSPACE_KEY:-build-placeholder}
     restart: unless-stopped
     ports:
@@ -68,19 +69,84 @@ services:
       - VITE_SITE_URL=http://localhost:3100
       - VITE_MARBLE_API_URL=https://api.marblecms.com
       - MARBLE_WORKSPACE_KEY=${MARBLE_WORKSPACE_KEY:-placeholder}
-      - FREESOUND_CLIENT_ID=${FREESOUND_CLIENT_ID}
-      - FREESOUND_API_KEY=${FREESOUND_API_KEY}
+      - FREESOUND_CLIENT_ID=${FREESOUND_CLIENT_ID:-}
+      - FREESOUND_API_KEY=${FREESOUND_API_KEY:-}
     depends_on:
-      db:
-        condition: service_healthy
-      serverless-redis-http:
+      server:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "bun -e \"const r=await fetch('http://127.0.0.1:3000/'); process.exit(r.ok?0:1)\"",
+        ]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 30s
+
+  server:
+    build:
+      context: .
+      dockerfile: ./server/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      - NODE_ENV=production
+      - PORT=8787
+      - DATABASE_URL=postgresql://shotlyx:${POSTGRES_PASSWORD:-shotlyx}@db:5432/shotlyx
+      - SHOTLYX_ADMIN_TOKEN=${SHOTLYX_ADMIN_TOKEN:-local-dev-admin-token}
+      - SHOTLYX_INITIAL_QUOTA=${SHOTLYX_INITIAL_QUOTA:-100000}
+      - SHOTLYX_NEW_API_BASE_URL=${SHOTLYX_NEW_API_BASE_URL:-}
+      - SHOTLYX_NEW_API_ADMIN_TOKEN=${SHOTLYX_NEW_API_ADMIN_TOKEN:-}
+      - SHOTLYX_NEW_API_DEFAULT_GROUP=${SHOTLYX_NEW_API_DEFAULT_GROUP:-default}
+      - SHOTLYX_ZPAY_PID=${SHOTLYX_ZPAY_PID:-}
+      - SHOTLYX_ZPAY_KEY=${SHOTLYX_ZPAY_KEY:-}
+      - SHOTLYX_ZPAY_SUBMIT_URL=${SHOTLYX_ZPAY_SUBMIT_URL:-https://zpayz.cn/submit.php}
+      - SHOTLYX_SERVER_PUBLIC_URL=${SHOTLYX_SERVER_PUBLIC_URL:-http://localhost:8787}
+      - SHOTLYX_CREDITS_PER_CNY=${SHOTLYX_CREDITS_PER_CNY:-10000}
+      - BILLING_CENTER_BASE_URL=${BILLING_CENTER_BASE_URL:-https://pay.guantou.site}
+      - BILLING_CENTER_API_KEY=${BILLING_CENTER_API_KEY:-}
+      - BILLING_CENTER_APP_CODE=${BILLING_CENTER_APP_CODE:-shotlyx}
+      - USAGE_CREDITS_ASR_TRANSCRIPTION_MINUTE=${USAGE_CREDITS_ASR_TRANSCRIPTION_MINUTE:-1200}
+      - USAGE_CREDITS_LLM_AGENT_TURN=${USAGE_CREDITS_LLM_AGENT_TURN:-800}
+      - USAGE_CREDITS_VOICEOVER_1K_CHARS=${USAGE_CREDITS_VOICEOVER_1K_CHARS:-2000}
+      - USAGE_CREDITS_IMAGE_GENERATION=${USAGE_CREDITS_IMAGE_GENERATION:-5000}
+      - USAGE_CREDITS_MG_GENERATION=${USAGE_CREDITS_MG_GENERATION:-8000}
+      - USAGE_CREDITS_STOCK_IMPORT=${USAGE_CREDITS_STOCK_IMPORT:-500}
+      - STORAGE_DRIVER=${STORAGE_DRIVER:-local}
+      - STORAGE_KEY_PREFIX=${STORAGE_KEY_PREFIX:-shotlyx}
+      - STORAGE_MAX_UPLOAD_SIZE_MB=${STORAGE_MAX_UPLOAD_SIZE_MB:-512}
+      - ALLOW_LOCAL_STORAGE_IN_PRODUCTION=${ALLOW_LOCAL_STORAGE_IN_PRODUCTION:-true}
+      - COS_REGION=${COS_REGION:-}
+      - COS_BUCKET=${COS_BUCKET:-}
+      - COS_SECRET_ID=${COS_SECRET_ID:-}
+      - COS_SECRET_KEY=${COS_SECRET_KEY:-}
+      - COS_PUBLIC_BASE_URL=${COS_PUBLIC_BASE_URL:-}
+      - R2_ENDPOINT=${R2_ENDPOINT:-}
+      - R2_BUCKET=${R2_BUCKET:-}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY:-}
+      - R2_PUBLIC_BASE_URL=${R2_PUBLIC_BASE_URL:-}
+      - S3_ENDPOINT=${S3_ENDPOINT:-}
+      - S3_BUCKET=${S3_BUCKET:-}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-}
+      - S3_PUBLIC_BASE_URL=${S3_PUBLIC_BASE_URL:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bun -e \"const r=await fetch('http://127.0.0.1:8787/api/health'); process.exit(r.ok?0:1)\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
 
 volumes:
   postgres_data:

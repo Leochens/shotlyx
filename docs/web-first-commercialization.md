@@ -95,3 +95,36 @@ Web 端可以优先用用户本地文件预览，不必每次都从对象存储�
 5. 页面关闭、素材替换或项目卸载时调用 `URL.revokeObjectURL()`。
 
 如果要进一步增强粘性，可以把原始文件句柄或切片缓存放到 OPFS/IndexedDB，但项目持久化仍应以对象存储 key 为准，不能把 blob URL 写进长期项目文件。
+
+## Docker 访问方式
+
+本地完整 Web 优先链路可以直接用 Docker Compose 启动：
+
+```bash
+docker compose up --build -d db redis serverless-redis-http server web
+```
+
+默认访问地址：
+
+| 服务 | 地址 | 说明 |
+| --- | --- | --- |
+| Web | `http://localhost:3100/projects` | 注册、登录、进入项目和购买入口 |
+| Server | `http://localhost:8787/api/health` | 后端健康检查 |
+| Admin | `http://localhost:8787/admin` | 管理端，默认本地 token 是 `local-dev-admin-token` |
+
+生产部署时至少要覆盖这些环境变量：
+
+| 环境变量 | 用途 |
+| --- | --- |
+| `VITE_SHOTLYX_SERVER_URL` | 浏览器访问后端的公网地址，构建 Web 镜像时写入 |
+| `SHOTLYX_SERVER_PUBLIC_URL` | ZPAY 回调和返回地址使用的后端公网地址 |
+| `SHOTLYX_ADMIN_TOKEN` | 管理端登录 Token |
+| `DATABASE_URL` 或 `POSTGRES_PASSWORD` | 数据库连接或 compose 内置 Postgres 密码 |
+| `SHOTLYX_ZPAY_PID` / `SHOTLYX_ZPAY_KEY` | ZPAY 支付配置 |
+| `STORAGE_DRIVER` 和对应云存储密钥 | 生产对象存储配置 |
+
+如果修改了 `VITE_SHOTLYX_SERVER_URL`，必须重新构建 Web 镜像：
+
+```bash
+docker compose up --build -d web
+```
