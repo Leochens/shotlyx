@@ -6,6 +6,7 @@ import { generateUUID } from "@/utils/id";
 import { videoCache } from "@/services/video-cache/service";
 import { waveformCache } from "@/services/waveform-cache/service";
 import { BatchCommand, RemoveMediaAssetCommand } from "@/commands";
+import { uploadMediaAssetToCloud } from "@/media/cloud-upload";
 
 export class MediaManager {
 	private assets: MediaAsset[] = [];
@@ -34,6 +35,7 @@ export class MediaManager {
 			this.editor.project.ratchetFpsForImportedMedia({
 				importedAssets: [newAsset],
 			});
+			this.syncMediaAssetToCloud({ projectId, asset: newAsset });
 			return newAsset;
 		} catch (error) {
 			console.error("Failed to save media asset:", error);
@@ -48,6 +50,30 @@ export class MediaManager {
 
 			return null;
 		}
+	}
+
+	private syncMediaAssetToCloud({
+		projectId,
+		asset,
+	}: {
+		projectId: string;
+		asset: MediaAsset;
+	}): void {
+		uploadMediaAssetToCloud({ projectId, asset })
+			.then(async (cloudState) => {
+				await storageService.updateMediaAssetCloudState({
+					projectId,
+					id: asset.id,
+					updates: cloudState,
+				});
+				this.assets = this.assets.map((item) =>
+					item.id === asset.id ? { ...item, ...cloudState } : item,
+				);
+				this.notify();
+			})
+			.catch((error) => {
+				console.warn("Failed to sync media asset to cloud:", error);
+			});
 	}
 
 	removeMediaAsset({ projectId, id }: { projectId: string; id: string }): void {

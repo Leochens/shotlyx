@@ -9,6 +9,8 @@ import type {
 	PaymentOrderStatus,
 	PaymentProvider,
 	ServerSettings,
+	SyncedMediaAsset,
+	SyncedProject,
 	ShotlyxLogEntry,
 	ShotlyxSession,
 	ShotlyxStore,
@@ -83,6 +85,10 @@ function readPaymentPayType(row: Row): PaymentOrderPayType {
 
 function readJsonMeta(row: Row): Record<string, unknown> | undefined {
 	const value = row.meta_json;
+	return readJsonRecord(value);
+}
+
+function readJsonRecord(value: unknown): Record<string, unknown> | undefined {
 	if (typeof value === "object" && value !== null && !Array.isArray(value)) {
 		return value as Record<string, unknown>;
 	}
@@ -176,6 +182,40 @@ function toPaymentOrder(row: Row): PaymentOrder {
 		updatedAt: readString(row, "updated_at"),
 		paidAt: readOptionalString(row, "paid_at"),
 		meta: readJsonMeta(row),
+	};
+}
+
+function toSyncedProject(row: Row): SyncedProject {
+	return {
+		id: readString(row, "id"),
+		userId: readString(row, "user_id"),
+		name: readString(row, "name"),
+		metadata: readJsonRecord(row.metadata_json) ?? {},
+		project: readJsonRecord(row.project_json) ?? {},
+		createdAt: readString(row, "created_at"),
+		updatedAt: readString(row, "updated_at"),
+	};
+}
+
+function toSyncedMediaAsset(row: Row): SyncedMediaAsset {
+	const status = readString(row, "upload_status");
+	return {
+		id: readString(row, "id"),
+		userId: readString(row, "user_id"),
+		projectId: readString(row, "project_id"),
+		name: readString(row, "name"),
+		mediaType: readString(row, "media_type"),
+		mimeType: readString(row, "mime_type"),
+		sizeBytes: readNumber(row, "size_bytes"),
+		objectKey: readOptionalString(row, "object_key"),
+		uploadStatus:
+			status === "uploading" || status === "uploaded" || status === "failed"
+				? status
+				: "local-only",
+		createdAt: readString(row, "created_at"),
+		updatedAt: readString(row, "updated_at"),
+		uploadedAt: readOptionalString(row, "uploaded_at"),
+		expiresAt: readOptionalString(row, "expires_at"),
 	};
 }
 
@@ -642,6 +682,205 @@ export class PostgresShotlyxStore implements ShotlyxStore {
 			ORDER BY created_at ASC
 		`;
 		return rows.map(toPaymentOrder);
+	}
+
+	async upsertProject(project: SyncedProject): Promise<void> {
+		await this.ensureReady();
+		await this.sql`
+			INSERT INTO shotlyx_projects (
+				id,
+				user_id,
+				name,
+				metadata_json,
+				project_json,
+				created_at,
+				updated_at
+			)
+			VALUES (
+				${project.id},
+				${project.userId},
+				${project.name},
+				${JSON.stringify(project.metadata)}::jsonb,
+				${JSON.stringify(project.project)}::jsonb,
+				${project.createdAt},
+				${project.updatedAt}
+			)
+			ON CONFLICT (id)
+			DO UPDATE SET
+				name = EXCLUDED.name,
+				metadata_json = EXCLUDED.metadata_json,
+				project_json = EXCLUDED.project_json,
+				updated_at = EXCLUDED.updated_at
+			WHERE shotlyx_projects.user_id = EXCLUDED.user_id
+		`;
+	}
+
+	async findProjectByUserId({
+		userId,
+		projectId,
+	}: {
+		userId: string;
+		projectId: string;
+	}): Promise<SyncedProject | null> {
+		await this.ensureReady();
+		const rows = await this.sql`
+			SELECT id, user_id, name, metadata_json, project_json, created_at, updated_at
+			FROM shotlyx_projects
+			WHERE user_id = ${userId} AND id = ${projectId}
+			LIMIT 1
+		`;
+		return rows[0] ? toSyncedProject(rows[0]) : null;
+	}
+
+	async listProjectsByUserId(userId: string): Promise<SyncedProject[]> {
+		await this.ensureReady();
+		const rows = await this.sql`
+			SELECT id, user_id, name, metadata_json, project_json, created_at, updated_at
+			FROM shotlyx_projects
+			WHERE user_id = ${userId}
+			ORDER BY updated_at DESC
+		`;
+		return rows.map(toSyncedProject);
+	}
+
+	async deleteProjectByUserId({
+		userId,
+		projectId,
+	}: {
+		userId: string;
+		projectId: string;
+	}): Promise<void> {
+		await this.ensureReady();
+		await this.sql`
+			DELETE FROM shotlyx_projects
+			WHERE user_id = ${userId} AND id = ${projectId}
+		`;
+		await this.deleteMediaAssetsByProjectId({ userId, projectId });
+	}
+
+	async upsertMediaAsset(asset: SyncedMediaAsset): Promise<void> {
+		await this.ensureReady();
+		await this.sql`
+			INSERT INTO shotlyx_media_assets (
+				id,
+				user_id,
+				project_id,
+				name,
+				media_type,
+				mime_type,
+				size_bytes,
+				object_key,
+				upload_status,
+				created_at,
+				updated_at,
+				uploaded_at,
+				expires_at
+			)
+			VALUES (
+				${asset.id},
+				${asset.userId},
+				${asset.projectId},
+				${asset.name},
+				${asset.mediaType},
+				${asset.mimeType},
+				${asset.sizeBytes},
+				${asset.objectKey ?? null},
+				${asset.uploadStatus},
+				${asset.createdAt},
+				${asset.updatedAt},
+				${asset.uploadedAt ?? null},
+				${asset.expiresAt ?? null}
+			)
+			ON CONFLICT (id)
+			DO UPDATE SET
+				name = EXCLUDED.name,
+				media_type = EXCLUDED.media_type,
+				mime_type = EXCLUDED.mime_type,
+				size_bytes = EXCLUDED.size_bytes,
+				object_key = EXCLUDED.object_key,
+				upload_status = EXCLUDED.upload_status,
+				updated_at = EXCLUDED.updated_at,
+				uploaded_at = EXCLUDED.uploaded_at,
+				expires_at = EXCLUDED.expires_at
+			WHERE shotlyx_media_assets.user_id = EXCLUDED.user_id
+				AND shotlyx_media_assets.project_id = EXCLUDED.project_id
+		`;
+	}
+
+	async findMediaAssetByUserId({
+		userId,
+		projectId,
+		assetId,
+	}: {
+		userId: string;
+		projectId: string;
+		assetId: string;
+	}): Promise<SyncedMediaAsset | null> {
+		await this.ensureReady();
+		const rows = await this.sql`
+			SELECT
+				id,
+				user_id,
+				project_id,
+				name,
+				media_type,
+				mime_type,
+				size_bytes,
+				object_key,
+				upload_status,
+				created_at,
+				updated_at,
+				uploaded_at,
+				expires_at
+			FROM shotlyx_media_assets
+			WHERE user_id = ${userId} AND project_id = ${projectId} AND id = ${assetId}
+			LIMIT 1
+		`;
+		return rows[0] ? toSyncedMediaAsset(rows[0]) : null;
+	}
+
+	async listMediaAssetsByProjectId({
+		userId,
+		projectId,
+	}: {
+		userId: string;
+		projectId: string;
+	}): Promise<SyncedMediaAsset[]> {
+		await this.ensureReady();
+		const rows = await this.sql`
+			SELECT
+				id,
+				user_id,
+				project_id,
+				name,
+				media_type,
+				mime_type,
+				size_bytes,
+				object_key,
+				upload_status,
+				created_at,
+				updated_at,
+				uploaded_at,
+				expires_at
+			FROM shotlyx_media_assets
+			WHERE user_id = ${userId} AND project_id = ${projectId}
+			ORDER BY updated_at DESC
+		`;
+		return rows.map(toSyncedMediaAsset);
+	}
+
+	async deleteMediaAssetsByProjectId({
+		userId,
+		projectId,
+	}: {
+		userId: string;
+		projectId: string;
+	}): Promise<void> {
+		await this.ensureReady();
+		await this.sql`
+			DELETE FROM shotlyx_media_assets
+			WHERE user_id = ${userId} AND project_id = ${projectId}
+		`;
 	}
 
 	async getSettings(): Promise<ServerSettings> {

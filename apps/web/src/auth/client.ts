@@ -158,6 +158,64 @@ export type ObjectStorageConfigStatus = {
 	missing: string[];
 	maxUploadSizeMb: number;
 	localPreviewRecommended: boolean;
+	signedUrlTtlSeconds?: number;
+	cosUploadStsTtlSeconds?: number;
+	cosUploadSliceSizeMb?: number;
+};
+
+export type CloudUploadStatus =
+	| "local-only"
+	| "uploading"
+	| "uploaded"
+	| "failed";
+
+export type CloudProjectRecord = {
+	id: string;
+	userId: string;
+	name: string;
+	metadata: Record<string, unknown>;
+	project: Record<string, unknown>;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type CloudMediaAssetRecord = {
+	id: string;
+	userId: string;
+	projectId: string;
+	name: string;
+	mediaType: string;
+	mimeType: string;
+	sizeBytes: number;
+	objectKey?: string;
+	uploadStatus: CloudUploadStatus;
+	createdAt: string;
+	updatedAt: string;
+	uploadedAt?: string;
+	expiresAt?: string;
+};
+
+export type DirectUploadSession = {
+	mode: "local-preview" | "cos";
+	provider: "local" | "cos";
+	bucket?: string;
+	region?: string;
+	key: string;
+	objectKey: string;
+	uploadToken: string;
+	fileName: string;
+	mimeType: string;
+	sizeBytes: number;
+	maxSizeBytes: number;
+	sliceSizeBytes: number;
+	startTime: number;
+	expiredTime: number;
+	credentials?: {
+		tmpSecretId: string;
+		tmpSecretKey: string;
+		sessionToken: string;
+	};
+	localPreviewRecommended: boolean;
 };
 
 export type AuthAccount = {
@@ -244,6 +302,40 @@ function readRequiredToken(): string {
 	const token = readStoredToken();
 	if (!token) throw new Error("unauthorized");
 	return token;
+}
+
+export function hasStoredAuthSession(): boolean {
+	return Boolean(readStoredToken());
+}
+
+async function requestAuthenticatedJson({
+	path,
+	method = "GET",
+	body,
+}: {
+	path: string;
+	method?: "GET" | "POST" | "PUT" | "DELETE";
+	body?: Record<string, unknown>;
+}): Promise<unknown> {
+	const token = readRequiredToken();
+	const response = await fetch(buildApiUrl(path), {
+		method,
+		cache: method === "GET" ? "no-store" : undefined,
+		headers: {
+			authorization: `Bearer ${token}`,
+			...(body ? { "content-type": "application/json" } : {}),
+		},
+		body: body ? JSON.stringify(body) : undefined,
+	});
+	if (response.status === 401) {
+		clearAuthSession();
+		throw new Error(mapAuthErrorMessage("unauthorized", "请重新登录"));
+	}
+	const payload = await parseJsonResponse(response);
+	if (!response.ok) {
+		throw new Error(getErrorMessage(payload, "request_failed"));
+	}
+	return payload;
 }
 
 function getErrorMessage(payload: unknown, fallback: string): string {
@@ -420,24 +512,140 @@ export async function createBillingCheckout({
 }
 
 export async function getObjectStorageConfigStatus(): Promise<ObjectStorageConfigStatus> {
-	const token = readRequiredToken();
-	const response = await fetch(buildApiUrl("/api/account/storage/config"), {
-		cache: "no-store",
-		headers: { authorization: `Bearer ${token}` },
+	const payload = await requestAuthenticatedJson({
+		path: "/api/account/storage/config",
 	});
-	if (response.status === 401) {
-		clearAuthSession();
-		throw new Error(mapAuthErrorMessage("unauthorized", "请重新登录"));
-	}
-	const payload = await parseJsonResponse(response);
-	if (!response.ok) {
-		throw new Error(getErrorMessage(payload, "storage_config_request_failed"));
-	}
 	if (typeof payload === "object" && payload !== null) {
 		const storage = Reflect.get(payload, "storage");
 		if (storage) return storage as ObjectStorageConfigStatus;
 	}
 	throw new Error("storage_config_request_failed");
+}
+
+export async function listCloudProjects(): Promise<CloudProjectRecord[]> {
+	const payload = await requestAuthenticatedJson({ path: "/api/account/projects" });
+	if (typeof payload === "object" && payload !== null) {
+		const projects = Reflect.get(payload, "projects");
+		if (Array.isArray(projects)) return projects as CloudProjectRecord[];
+	}
+	return [];
+}
+
+export async function getCloudProject({
+	projectId,
+}: {
+	projectId: string;
+}): Promise<{
+	project: CloudProjectRecord;
+	assets: CloudMediaAssetRecord[];
+} | null> {
+	const payload = await requestAuthenticatedJson({
+		path: `/api/account/projects/${encodeURIComponent(projectId)}`,
+	});
+	if (typeof payload !== "object" || payload === null) return null;
+	const project = Reflect.get(payload, "project");
+	const assets = Reflect.get(payload, "assets");
+	if (!project) return null;
+	return {
+		project: project as CloudProjectRecord,
+		assets: Array.isArray(assets) ? (assets as CloudMediaAssetRecord[]) : [],
+	};
+}
+
+export async function upsertCloudProject({
+	project,
+}: {
+	project: Record<string, unknown>;
+}): Promise<CloudProjectRecord> {
+	const payload = await requestAuthenticatedJson({
+		path: "/api/account/projects",
+		method: "POST",
+		body: { project },
+	});
+	if (typeof payload === "object" && payload !== null) {
+		const record = Reflect.get(payload, "project");
+		if (record) return record as CloudProjectRecord;
+	}
+	throw new Error("cloud_project_sync_failed");
+}
+
+export async function deleteCloudProjects({
+	ids,
+}: {
+	ids: string[];
+}): Promise<void> {
+	await requestAuthenticatedJson({
+		path: "/api/account/projects",
+		method: "DELETE",
+		body: { ids },
+	});
+}
+
+export async function initiateCloudAssetUpload({
+	projectId,
+	assetId,
+	fileName,
+	mimeType,
+	mediaType,
+	sizeBytes,
+}: {
+	projectId: string;
+	assetId: string;
+	fileName: string;
+	mimeType: string;
+	mediaType: string;
+	sizeBytes: number;
+}): Promise<{
+	upload: DirectUploadSession;
+	asset: CloudMediaAssetRecord;
+	storage: ObjectStorageConfigStatus;
+}> {
+	const payload = await requestAuthenticatedJson({
+		path: `/api/account/projects/${encodeURIComponent(projectId)}/assets/initiate`,
+		method: "POST",
+		body: { assetId, fileName, mimeType, mediaType, sizeBytes },
+	});
+	return payload as {
+		upload: DirectUploadSession;
+		asset: CloudMediaAssetRecord;
+		storage: ObjectStorageConfigStatus;
+	};
+}
+
+export async function completeCloudAssetUpload({
+	projectId,
+	assetId,
+	uploadToken,
+}: {
+	projectId: string;
+	assetId: string;
+	uploadToken: string;
+}): Promise<{
+	asset: CloudMediaAssetRecord;
+	readUrl: string | null;
+}> {
+	const payload = await requestAuthenticatedJson({
+		path: `/api/account/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/complete`,
+		method: "POST",
+		body: { uploadToken },
+	});
+	return payload as {
+		asset: CloudMediaAssetRecord;
+		readUrl: string | null;
+	};
+}
+
+export async function getCloudAssetReadUrl({
+	projectId,
+	assetId,
+}: {
+	projectId: string;
+	assetId: string;
+}): Promise<{ readUrl: string | null; asset: CloudMediaAssetRecord }> {
+	const payload = await requestAuthenticatedJson({
+		path: `/api/account/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/read-url`,
+	});
+	return payload as { readUrl: string | null; asset: CloudMediaAssetRecord };
 }
 
 export function useSession(): AuthState {

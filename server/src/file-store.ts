@@ -5,6 +5,8 @@ import type {
 	NewApiKeyBinding,
 	PaymentOrder,
 	ServerSettings,
+	SyncedMediaAsset,
+	SyncedProject,
 	ShotlyxLogEntry,
 	ShotlyxSession,
 	ShotlyxStore,
@@ -25,6 +27,8 @@ type FileStoreData = {
 	logs: ShotlyxLogEntry[];
 	creditLedger: CreditLedgerEntry[];
 	paymentOrders: PaymentOrder[];
+	projects: SyncedProject[];
+	mediaAssets: SyncedMediaAsset[];
 	settings: ServerSettings;
 };
 
@@ -37,6 +41,8 @@ function createEmptyData(): FileStoreData {
 		logs: [],
 		creditLedger: [],
 		paymentOrders: [],
+		projects: [],
+		mediaAssets: [],
 		settings: { ...DEFAULT_SETTINGS },
 	};
 }
@@ -66,6 +72,10 @@ function normalizeData(value: unknown): FileStoreData {
 			: [],
 		paymentOrders: Array.isArray(value.paymentOrders)
 			? clone(value.paymentOrders)
+			: [],
+		projects: Array.isArray(value.projects) ? clone(value.projects) : [],
+		mediaAssets: Array.isArray(value.mediaAssets)
+			? clone(value.mediaAssets)
 			: [],
 		settings: {
 			...DEFAULT_SETTINGS,
@@ -286,6 +296,114 @@ export class FileShotlyxStore implements ShotlyxStore {
 			.filter((order) => order.userId === userId)
 			.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 			.map((order) => clone(order));
+	}
+
+	async upsertProject(project: SyncedProject): Promise<void> {
+		await this.updateData((data) => {
+			const existingIndex = data.projects.findIndex(({ id }) => id === project.id);
+			if (existingIndex >= 0) {
+				data.projects[existingIndex] = clone(project);
+				return;
+			}
+			data.projects.push(clone(project));
+		});
+	}
+
+	async findProjectByUserId({
+		userId,
+		projectId,
+	}: {
+		userId: string;
+		projectId: string;
+	}): Promise<SyncedProject | null> {
+		const data = await this.readData();
+		const project = data.projects.find(
+			(candidate) => candidate.userId === userId && candidate.id === projectId,
+		);
+		return project ? clone(project) : null;
+	}
+
+	async listProjectsByUserId(userId: string): Promise<SyncedProject[]> {
+		const data = await this.readData();
+		return data.projects
+			.filter((project) => project.userId === userId)
+			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+			.map((project) => clone(project));
+	}
+
+	async deleteProjectByUserId({
+		userId,
+		projectId,
+	}: {
+		userId: string;
+		projectId: string;
+	}): Promise<void> {
+		await this.updateData((data) => {
+			data.projects = data.projects.filter(
+				(project) => project.userId !== userId || project.id !== projectId,
+			);
+			data.mediaAssets = data.mediaAssets.filter(
+				(asset) => asset.userId !== userId || asset.projectId !== projectId,
+			);
+		});
+	}
+
+	async upsertMediaAsset(asset: SyncedMediaAsset): Promise<void> {
+		await this.updateData((data) => {
+			const existingIndex = data.mediaAssets.findIndex(({ id }) => id === asset.id);
+			if (existingIndex >= 0) {
+				data.mediaAssets[existingIndex] = clone(asset);
+				return;
+			}
+			data.mediaAssets.push(clone(asset));
+		});
+	}
+
+	async findMediaAssetByUserId({
+		userId,
+		projectId,
+		assetId,
+	}: {
+		userId: string;
+		projectId: string;
+		assetId: string;
+	}): Promise<SyncedMediaAsset | null> {
+		const data = await this.readData();
+		const asset = data.mediaAssets.find(
+			(candidate) =>
+				candidate.userId === userId &&
+				candidate.projectId === projectId &&
+				candidate.id === assetId,
+		);
+		return asset ? clone(asset) : null;
+	}
+
+	async listMediaAssetsByProjectId({
+		userId,
+		projectId,
+	}: {
+		userId: string;
+		projectId: string;
+	}): Promise<SyncedMediaAsset[]> {
+		const data = await this.readData();
+		return data.mediaAssets
+			.filter((asset) => asset.userId === userId && asset.projectId === projectId)
+			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+			.map((asset) => clone(asset));
+	}
+
+	async deleteMediaAssetsByProjectId({
+		userId,
+		projectId,
+	}: {
+		userId: string;
+		projectId: string;
+	}): Promise<void> {
+		await this.updateData((data) => {
+			data.mediaAssets = data.mediaAssets.filter(
+				(asset) => asset.userId !== userId || asset.projectId !== projectId,
+			);
+		});
 	}
 
 	async getSettings(): Promise<ServerSettings> {

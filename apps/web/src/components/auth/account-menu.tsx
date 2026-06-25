@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Coins, KeyRound, Loader2, LogOut, ReceiptText } from "lucide-react";
+import {
+	CloudUpload,
+	Coins,
+	KeyRound,
+	Loader2,
+	LogOut,
+	ReceiptText,
+} from "lucide-react";
 import {
 	clearAuthSession,
 	createBillingCheckout,
@@ -135,6 +142,7 @@ export function AccountMenu({ account }: { account: AuthAccount }) {
 	const [creatingProductCode, setCreatingProductCode] = useState<string | null>(
 		null,
 	);
+	const [isSyncingProjects, setIsSyncingProjects] = useState(false);
 	const latestBalance = getLatestBalance({ account, billingState });
 	const ledgerEntries = billingState?.ledgerEntries ?? [];
 	const recentEntries = getRecentCreditLedgerEntries(ledgerEntries);
@@ -176,6 +184,26 @@ export function AccountMenu({ account }: { account: AuthAccount }) {
 			});
 		} finally {
 			setCreatingProductCode(null);
+		}
+	};
+
+	const handleSyncLocalProjects = async () => {
+		if (isSyncingProjects) return;
+		setIsSyncingProjects(true);
+		try {
+			const { storageService } = await import("@/services/storage/service");
+			const syncedCount = await storageService.syncLocalProjectsToCloud();
+			toast.success("本地项目已同步", {
+				description: syncedCount
+					? `已同步 ${syncedCount} 个项目到当前账号`
+					: "没有发现需要同步的本地项目",
+			});
+		} catch (error) {
+			toast.error("本地项目同步失败", {
+				description: error instanceof Error ? error.message : "请稍后再试",
+			});
+		} finally {
+			setIsSyncingProjects(false);
 		}
 	};
 
@@ -373,6 +401,22 @@ export function AccountMenu({ account }: { account: AuthAccount }) {
 						</div>
 					)}
 				</div>
+				<DropdownMenuSeparator />
+				<DropdownMenuItem
+					icon={
+						isSyncingProjects ? (
+							<Loader2 className="animate-spin" />
+						) : (
+							<CloudUpload />
+						)
+					}
+					onSelect={(event) => {
+						event.preventDefault();
+						void handleSyncLocalProjects();
+					}}
+				>
+					同步本地项目到账号
+				</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				<DropdownMenuItem
 					variant="destructive"

@@ -555,4 +555,128 @@ describe("Shotlyx server HTTP app", () => {
 		expect(billingState.creditBreakdown.adminCredits).toBe(500);
 		expect(billingState.catalog.creditPackages).toHaveLength(3);
 	});
+
+	test("syncs account projects and local-preview media assets", async () => {
+		const app = createServerApp({
+			store: new InMemoryShotlyxStore(),
+			newApi: createFakeNewApi(),
+			initialQuota: 500,
+		});
+		const registerResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/auth/register", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					email: "project-sync@example.com",
+					password: "123456",
+					name: "Project Sync",
+				}),
+			}),
+		);
+		const registered = await registerResponse.json();
+		const authorization = `Bearer ${registered.session.token}`;
+		const project = {
+			metadata: {
+				id: "project-1",
+				name: "Cloud Project",
+				createdAt: "2026-06-25T00:00:00.000Z",
+				updatedAt: "2026-06-25T00:01:00.000Z",
+			},
+			scenes: [],
+			currentSceneId: "",
+			settings: {},
+			version: 31,
+		};
+
+		const saveResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/account/projects", {
+				method: "POST",
+				headers: {
+					authorization,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({ project }),
+			}),
+		);
+		expect(saveResponse.status).toBe(201);
+		expect((await saveResponse.json()).project.id).toBe("project-1");
+
+		const listResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/account/projects", {
+				headers: { authorization },
+			}),
+		);
+		expect(listResponse.status).toBe(200);
+		expect((await listResponse.json()).projects[0].name).toBe("Cloud Project");
+
+		const initiateResponse = await app.fetch(
+			new Request(
+				"http://shotlyx.test/api/account/projects/project-1/assets/initiate",
+				{
+					method: "POST",
+					headers: {
+						authorization,
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						assetId: "asset-1",
+						fileName: "demo.mp4",
+						mimeType: "video/mp4",
+						mediaType: "video",
+						sizeBytes: 1024,
+					}),
+				},
+			),
+		);
+		expect(initiateResponse.status).toBe(200);
+		const initiated = await initiateResponse.json();
+		expect(initiated.upload.mode).toBe("local-preview");
+		expect(initiated.asset.uploadStatus).toBe("local-only");
+		expect(initiated.asset.objectKey).toContain(
+			"shotlyx/users/",
+		);
+
+		const completeResponse = await app.fetch(
+			new Request(
+				"http://shotlyx.test/api/account/projects/project-1/assets/asset-1/complete",
+				{
+					method: "POST",
+					headers: {
+						authorization,
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						uploadToken: initiated.upload.uploadToken,
+					}),
+				},
+			),
+		);
+		expect(completeResponse.status).toBe(200);
+		const completed = await completeResponse.json();
+		expect(completed.asset.uploadStatus).toBe("uploaded");
+		expect(completed.readUrl).toBe(null);
+
+		const readUrlResponse = await app.fetch(
+			new Request(
+				"http://shotlyx.test/api/account/projects/project-1/assets/asset-1/read-url",
+				{ headers: { authorization } },
+			),
+		);
+		expect(readUrlResponse.status).toBe(200);
+
+		const deleteResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/account/projects/project-1", {
+				method: "DELETE",
+				headers: { authorization },
+			}),
+		);
+		expect(deleteResponse.status).toBe(200);
+
+		const missingResponse = await app.fetch(
+			new Request("http://shotlyx.test/api/account/projects/project-1", {
+				headers: { authorization },
+			}),
+		);
+		expect(missingResponse.status).toBe(404);
+	});
 });

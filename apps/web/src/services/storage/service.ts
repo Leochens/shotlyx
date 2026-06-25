@@ -20,6 +20,7 @@ import type {
 	AnimatedStickerAsset,
 	AnimatedStickerAssetData,
 	MediaAssetData,
+	StorageAdapter,
 	StorageConfig,
 	SerializedProject,
 	SerializedScene,
@@ -39,6 +40,17 @@ import type { Bookmark, SceneTracks, TScene } from "@/timeline";
 import { generateUUID } from "@/utils/id";
 import { MAIN_TRACK_NAME } from "@/timeline/placement/main-track";
 import { roundMediaTime } from "@/wasm";
+import {
+	deleteCloudProjects,
+	getCloudAssetReadUrl,
+	getCloudProject,
+	hasStoredAuthSession,
+	listCloudProjects,
+	upsertCloudProject,
+	type CloudProjectRecord,
+} from "@/auth/client";
+
+const LOCAL_MEDIA_CACHE_LIMIT_BYTES = 20 * 1024 * 1024 * 1024;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
@@ -128,6 +140,23 @@ function normalizeProjectTags({
 	).slice(0, 8);
 
 	return tags.length > 0 ? tags : undefined;
+}
+
+function normalizeMediaAssetType({
+	value,
+}: {
+	value: string;
+}): MediaAssetData["type"] {
+	if (
+		value === "image" ||
+		value === "video" ||
+		value === "audio" ||
+		value === "subtitle" ||
+		value === "text"
+	) {
+		return value;
+	}
+	return "video";
 }
 
 function normalizeProjectAssetSummary({
@@ -313,6 +342,104 @@ class StorageService {
 		return new OPFSAdapter(`media-files-${projectId}`);
 	}
 
+	private async syncProjectToCloud({
+		project,
+	}: {
+		project: SerializedProject;
+	}): Promise<void> {
+		if (!hasStoredAuthSession()) return;
+		try {
+			await upsertCloudProject({
+				project: project as unknown as Record<string, unknown>,
+			});
+		} catch (error) {
+			console.warn("Failed to sync project to cloud:", error);
+		}
+	}
+
+	private async loadCloudProject({
+		id,
+	}: {
+		id: string;
+	}): Promise<SerializedProject | null> {
+		if (!hasStoredAuthSession()) return null;
+		try {
+			const cloudProject = await getCloudProject({ projectId: id });
+			if (!cloudProject?.project.project) return null;
+			const { mediaMetadataAdapter } = this.getProjectMediaAdapters({
+				projectId: id,
+			});
+			await Promise.all(
+				cloudProject.assets.map((asset) =>
+					mediaMetadataAdapter.set({
+						key: asset.id,
+						value: {
+							id: asset.id,
+							name: asset.name,
+							type: normalizeMediaAssetType({ value: asset.mediaType }),
+							size: asset.sizeBytes,
+							lastModified: Date.parse(asset.updatedAt) || Date.now(),
+							cloudAssetId: asset.id,
+							uploadStatus: asset.uploadStatus,
+							objectKey: asset.objectKey,
+							uploadedAt: asset.uploadedAt,
+						},
+					}),
+				),
+			);
+			return cloudProject.project.project as unknown as SerializedProject;
+		} catch (error) {
+			console.warn("Failed to load cloud project:", error);
+			return null;
+		}
+	}
+
+	private cloudProjectToMetadata({
+		project,
+	}: {
+		project: CloudProjectRecord;
+	}): TProjectMetadata | null {
+		const metadata = project.metadata;
+		if (!metadata || typeof metadata.id !== "string") return null;
+		const createdAt = new Date(
+			typeof metadata.createdAt === "string" ? metadata.createdAt : project.createdAt,
+		);
+		const updatedAt = new Date(
+			typeof metadata.updatedAt === "string" ? metadata.updatedAt : project.updatedAt,
+		);
+		return {
+			id: metadata.id,
+			name: typeof metadata.name === "string" ? metadata.name : project.name,
+			thumbnail:
+				typeof metadata.thumbnail === "string" ? metadata.thumbnail : undefined,
+			duration:
+				typeof metadata.duration === "number"
+					? roundMediaTime({ time: metadata.duration })
+					: 0,
+			createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
+			updatedAt: Number.isNaN(updatedAt.getTime()) ? new Date() : updatedAt,
+			stage: normalizeProjectStage({ value: metadata.stage }),
+			note: normalizeProjectNote({ value: metadata.note }),
+			tags: normalizeProjectTags({ value: metadata.tags }),
+			assetSummary: normalizeProjectAssetSummary({
+				value: metadata.assetSummary,
+			}),
+		};
+	}
+
+	private async loadCloudProjectMetadata(): Promise<TProjectMetadata[]> {
+		if (!hasStoredAuthSession()) return [];
+		try {
+			const projects = await listCloudProjects();
+			return projects
+				.map((project) => this.cloudProjectToMetadata({ project }))
+				.filter((project): project is TProjectMetadata => Boolean(project));
+		} catch (error) {
+			console.warn("Failed to list cloud projects:", error);
+			return [];
+		}
+	}
+
 	async canStoreFile({
 		size,
 	}: {
@@ -390,6 +517,7 @@ class StorageService {
 			key: project.metadata.id,
 			value: serializedProject,
 		});
+		void this.syncProjectToCloud({ project: serializedProject });
 	}
 
 	async loadProject({
@@ -398,9 +526,13 @@ class StorageService {
 		id: string;
 	}): Promise<{ project: TProject } | null> {
 		await this.ensureMigrations();
-		const serializedProject = await this.projectsAdapter.get(id);
+		let serializedProject = await this.projectsAdapter.get(id);
 
-		if (!serializedProject) return null;
+		if (!serializedProject) {
+			serializedProject = await this.loadCloudProject({ id });
+			if (!serializedProject) return null;
+			await this.projectsAdapter.set({ key: id, value: serializedProject });
+		}
 
 		if (
 			typeof serializedProject !== "object" ||
@@ -566,13 +698,159 @@ class StorageService {
 			});
 		}
 
-		return metadata.sort(
+		const cloudMetadata = await this.loadCloudProjectMetadata();
+		const metadataById = new Map<string, TProjectMetadata>();
+		for (const item of [...metadata, ...cloudMetadata]) {
+			const existing = metadataById.get(item.id);
+			if (!existing || item.updatedAt.getTime() > existing.updatedAt.getTime()) {
+				metadataById.set(item.id, item);
+			}
+		}
+
+		return Array.from(metadataById.values()).sort(
 			(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
 		);
 	}
 
+	async syncLocalProjectsToCloud(): Promise<number> {
+		await this.ensureMigrations();
+		if (!hasStoredAuthSession()) return 0;
+		const serializedProjects = await this.projectsAdapter.getAll();
+		let syncedCount = 0;
+		for (const project of serializedProjects) {
+			if (!project?.metadata?.id) continue;
+			try {
+				await upsertCloudProject({
+					project: project as unknown as Record<string, unknown>,
+				});
+				syncedCount += 1;
+			} catch (error) {
+				console.warn("Failed to sync local project:", error);
+			}
+		}
+		return syncedCount;
+	}
+
 	async deleteProject({ id }: { id: string }): Promise<void> {
 		await this.projectsAdapter.remove(id);
+		if (hasStoredAuthSession()) {
+			deleteCloudProjects({ ids: [id] }).catch((error) => {
+				console.warn("Failed to delete cloud project:", error);
+			});
+		}
+	}
+
+	private async restoreAssetFileFromCloud({
+		projectId,
+		metadata,
+		mediaAssetsAdapter,
+	}: {
+		projectId: string;
+		metadata: MediaAssetData;
+		mediaAssetsAdapter: StorageAdapter<File>;
+	}): Promise<File | null> {
+		if (!metadata.objectKey && !metadata.cloudAssetId) return null;
+		try {
+			const readUrl =
+				metadata.readUrl ??
+				(
+					await getCloudAssetReadUrl({
+						projectId,
+						assetId: metadata.cloudAssetId ?? metadata.id,
+					})
+				).readUrl;
+			if (!readUrl) return null;
+			const response = await fetch(readUrl);
+			if (!response.ok) return null;
+			const blob = await response.blob();
+			const file = new File([blob], metadata.name, {
+				type: blob.type || undefined,
+				lastModified: metadata.lastModified || Date.now(),
+			});
+			await mediaAssetsAdapter.set({ key: metadata.id, value: file });
+			const { mediaMetadataAdapter } = this.getProjectMediaAdapters({
+				projectId,
+			});
+			await mediaMetadataAdapter.set({
+				key: metadata.id,
+				value: {
+					...metadata,
+					readUrl,
+					lastCacheAccessedAt: new Date().toISOString(),
+				},
+			});
+			return file;
+		} catch (error) {
+			console.warn("Failed to restore media asset from cloud:", error);
+			return null;
+		}
+	}
+
+	private async enforceProjectMediaCacheLimit({
+		projectId,
+		protectedId,
+	}: {
+		projectId: string;
+		protectedId: string;
+	}): Promise<void> {
+		if (this.usesDesktopMediaLibrary()) return;
+		const { mediaAssetsAdapter } = this.getProjectMediaAdapters({ projectId });
+		try {
+			const keys = await mediaAssetsAdapter.list();
+			const entries: Array<{ key: string; size: number; lastModified: number }> =
+				[];
+			let totalBytes = 0;
+			for (const key of keys) {
+				const file = await mediaAssetsAdapter.get(key);
+				if (!file) continue;
+				entries.push({
+					key,
+					size: file.size,
+					lastModified: file.lastModified,
+				});
+				totalBytes += file.size;
+			}
+			if (totalBytes <= LOCAL_MEDIA_CACHE_LIMIT_BYTES) return;
+			for (const entry of entries
+				.filter((entry) => entry.key !== protectedId)
+				.sort((a, b) => a.lastModified - b.lastModified)) {
+				if (totalBytes <= LOCAL_MEDIA_CACHE_LIMIT_BYTES) return;
+				await mediaAssetsAdapter.remove(entry.key);
+				totalBytes -= entry.size;
+			}
+		} catch (error) {
+			console.warn("Failed to enforce local media cache limit:", error);
+		}
+	}
+
+	async updateMediaAssetCloudState({
+		projectId,
+		id,
+		updates,
+	}: {
+		projectId: string;
+		id: string;
+		updates: Partial<
+			Pick<
+				MediaAssetData,
+				| "cloudAssetId"
+				| "uploadStatus"
+				| "objectKey"
+				| "readUrl"
+				| "uploadedAt"
+			>
+		>;
+	}): Promise<void> {
+		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({ projectId });
+		const metadata = await mediaMetadataAdapter.get(id);
+		if (!metadata) return;
+		await mediaMetadataAdapter.set({
+			key: id,
+			value: {
+				...metadata,
+				...updates,
+			},
+		});
 	}
 
 	async saveMediaAsset({
@@ -599,6 +877,12 @@ class StorageService {
 			thumbnailUrl: mediaAsset.thumbnailUrl,
 			ephemeral: mediaAsset.ephemeral,
 			externalSource: mediaAsset.externalSource,
+			cloudAssetId: mediaAsset.cloudAssetId,
+			uploadStatus: mediaAsset.uploadStatus,
+			objectKey: mediaAsset.objectKey,
+			readUrl: mediaAsset.readUrl,
+			uploadedAt: mediaAsset.uploadedAt,
+			lastCacheAccessedAt: new Date().toISOString(),
 		};
 
 		try {
@@ -610,11 +894,29 @@ class StorageService {
 				key: mediaAsset.id,
 				value: metadata,
 			});
+			await this.enforceProjectMediaCacheLimit({
+				projectId,
+				protectedId: mediaAsset.id,
+			});
 		} catch (error) {
 			try {
 				await mediaAssetsAdapter.remove(mediaAsset.id);
 			} catch {
 				// Ignore cleanup failures so the original storage error is preserved.
+			}
+
+			if (this.isQuotaExceededError({ error }) && hasStoredAuthSession()) {
+				await mediaMetadataAdapter.set({
+					key: mediaAsset.id,
+					value: {
+						...metadata,
+						uploadStatus: mediaAsset.uploadStatus ?? "uploading",
+					},
+				});
+				console.warn(
+					"Local media cache is full; keeping metadata so cloud upload can restore later.",
+				);
+				return;
 			}
 
 			if (this.isQuotaExceededError({ error })) {
@@ -656,6 +958,13 @@ class StorageService {
 					});
 			}
 		}
+		if (!file && metadata?.uploadStatus === "uploaded") {
+			file = await this.restoreAssetFileFromCloud({
+				projectId,
+				metadata,
+				mediaAssetsAdapter,
+			});
+		}
 
 		if (!file || !metadata) return null;
 
@@ -690,6 +999,12 @@ class StorageService {
 			thumbnailUrl: metadata.thumbnailUrl,
 			ephemeral: metadata.ephemeral,
 			externalSource: metadata.externalSource,
+			cloudAssetId: metadata.cloudAssetId,
+			uploadStatus: metadata.uploadStatus,
+			objectKey: metadata.objectKey,
+			readUrl: metadata.readUrl,
+			uploadedAt: metadata.uploadedAt,
+			lastCacheAccessedAt: new Date().toISOString(),
 		};
 	}
 

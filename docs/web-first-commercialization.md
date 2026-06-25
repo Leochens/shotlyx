@@ -15,6 +15,8 @@
 | Payment adapter       | `server/src/payments.ts`                        | ZPAY 下单、回调验签、支付入账        |
 | Billing Center status | `server/src/billing-center.ts`                  | 外部 Billing Center 配置检查         |
 | Object storage status | `server/src/object-storage-config.ts`           | local/COS/R2/S3 配置检查与上传前校验 |
+| Cloud storage         | `server/src/cloud-storage.ts`                   | COS STS 直传、完成校验、签名读取 URL |
+| Project sync          | `shotlyx_projects` / `shotlyx_media_assets`     | 账号下项目 JSON 和云端素材索引       |
 | Web billing client    | `apps/web/src/auth/client.ts`                   | 账户账单状态、checkout、存储配置 API |
 | Web account menu      | `apps/web/src/components/auth/account-menu.tsx` | 套餐购买、积分包购买、余额拆分、流水 |
 
@@ -27,6 +29,12 @@
 | `POST /api/account/billing/checkout` | Bearer session     | 根据 `productType` + `productCode` 创建支付订单      |
 | `GET /api/account/storage/config`    | Bearer session     | 返回对象存储配置状态                                 |
 | `POST /api/account/uploads/initiate` | Bearer session     | 校验上传大小，返回 object key 和当前上传模式         |
+| `GET /api/account/projects`          | Bearer session     | 列出账号下云端项目                                   |
+| `POST /api/account/projects`         | Bearer session     | 保存/同步项目 JSON                                   |
+| `GET /api/account/projects/:id`      | Bearer session     | 读取项目 JSON 和素材索引                             |
+| `POST /api/account/projects/:id/assets/initiate` | Bearer session | 创建项目素材直传会话                      |
+| `POST /api/account/projects/:id/assets/:assetId/complete` | Bearer session | 校验 COS 对象并标记上传完成       |
+| `GET /api/account/projects/:id/assets/:assetId/read-url` | Bearer session | 返回素材签名读取 URL              |
 | `GET /api/admin/commercial-config`   | Admin token/cookie | 管理端查看套餐、消耗规则、存储和 Billing Center 状态 |
 
 ## 积分与套餐
@@ -76,25 +84,43 @@
 | `r2`    | `R2_ENDPOINT`、`R2_BUCKET`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY` |
 | `s3`    | `S3_ENDPOINT`、`S3_BUCKET`、`S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY` |
 
-上传初始化接口现在做三件事：
+项目级上传初始化接口现在做四件事：
 
 1. 校验登录和文件大小。
-2. 生成稳定 object key。
-3. 返回当前上传模式。
+2. 生成 `shotlyx/users/<userId>/projects/<projectId>/assets/<assetId>/<fileName>` object key。
+3. driver 为 COS 时签发短期 STS 凭证，前端用 COS SDK 分片直传。
+4. `complete` 阶段用 HEAD 校验对象大小、类型和归属后再标记 uploaded。
 
-当 driver 是 `local` 时返回 `local-preview`；远端 driver 配好后返回 `direct-upload-pending`，后续补签名直传 URL 即可。
+当 driver 是 `local` 时返回 `local-preview`，用于本地开发；生产 Web 应配置 `STORAGE_DRIVER=cos`。
+
+推荐 COS 配置：
+
+```env
+STORAGE_DRIVER=cos
+STORAGE_KEY_PREFIX=shotlyx
+STORAGE_MAX_UPLOAD_SIZE_MB=5120
+COS_REGION=ap-guangzhou
+COS_BUCKET=shotlyx-assets-1250000000
+COS_SECRET_ID=replace_with_cos_secret_id
+COS_SECRET_KEY=replace_with_cos_secret_key
+COS_SIGNED_URL_TTL_SECONDS=3600
+COS_UPLOAD_STS_TTL_SECONDS=1800
+COS_UPLOAD_SLICE_SIZE_MB=8
+```
 
 ## 本地预览策略
 
 Web 端可以优先用用户本地文件预览，不必每次都从对象存储拉：
 
 1. 用户选择文件后，立即用 `URL.createObjectURL(file)` 做编辑器预览。
-2. 对象存储上传在后台进行，完成后保存 `objectKey/readUrl` 到项目数据。
-3. 当前浏览器会话继续使用本地 object URL，减少首帧等待和带宽浪费。
-4. 刷新或跨设备打开时，使用对象存储 `readUrl` 或签名 URL 恢复素材。
-5. 页面关闭、素材替换或项目卸载时调用 `URL.revokeObjectURL()`。
+2. 文件先写入 OPFS 本地缓存；如果本地配额不足但用户已登录，则保留当前会话文件并继续云端上传。
+3. 对象存储上传在后台进行，完成后保存 `objectKey/readUrl/uploadStatus` 到 IndexedDB 和后端素材表。
+4. 当前浏览器会话继续使用本地 object URL，减少首帧等待和带宽浪费。
+5. 刷新时先读 OPFS；本地缺失时再用签名 URL 下载回 OPFS 并重建 `blob:` URL。
+6. 跨设备打开时，先拉后端项目 JSON 和素材索引，再按需恢复素材。
+7. 页面关闭、素材替换或项目卸载时调用 `URL.revokeObjectURL()`。
 
-如果要进一步增强粘性，可以把原始文件句柄或切片缓存放到 OPFS/IndexedDB，但项目持久化仍应以对象存储 key 为准，不能把 blob URL 写进长期项目文件。
+OPFS 是缓存层，COS 才是云端资产源；项目持久化不能把 blob URL 写进长期项目文件。
 
 ## Docker 访问方式
 

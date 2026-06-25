@@ -52,6 +52,12 @@ export interface MediaAssetData {
 	ephemeral?: boolean;
 	thumbnailUrl?: string;
 	externalSource?: ExternalMediaSource;
+	cloudAssetId?: string;
+	uploadStatus?: "local-only" | "uploading" | "uploaded" | "failed";
+	objectKey?: string;
+	readUrl?: string;
+	uploadedAt?: string;
+	lastCacheAccessedAt?: string;
 }
 
 export interface AnimatedStickerAssetData {

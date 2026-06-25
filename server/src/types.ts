@@ -62,6 +62,34 @@ export type PaymentOrder = {
 	meta?: Record<string, unknown>;
 };
 
+export type SyncedProject = {
+	id: string;
+	userId: string;
+	name: string;
+	metadata: Record<string, unknown>;
+	project: Record<string, unknown>;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type MediaAssetUploadStatus = "local-only" | "uploading" | "uploaded" | "failed";
+
+export type SyncedMediaAsset = {
+	id: string;
+	userId: string;
+	projectId: string;
+	name: string;
+	mediaType: string;
+	mimeType: string;
+	sizeBytes: number;
+	objectKey?: string;
+	uploadStatus: MediaAssetUploadStatus;
+	createdAt: string;
+	updatedAt: string;
+	uploadedAt?: string;
+	expiresAt?: string;
+};
+
 export type ShotlyxLogEntry = {
 	id: string;
 	type: string;
@@ -109,6 +137,32 @@ export type ShotlyxStore = {
 	): Promise<PaymentOrder | null>;
 	updatePaymentOrder(order: PaymentOrder): Promise<PaymentOrder>;
 	listPaymentOrdersByUserId(userId: string): Promise<PaymentOrder[]>;
+
+	upsertProject(project: SyncedProject): Promise<void>;
+	findProjectByUserId(params: {
+		userId: string;
+		projectId: string;
+	}): Promise<SyncedProject | null>;
+	listProjectsByUserId(userId: string): Promise<SyncedProject[]>;
+	deleteProjectByUserId(params: {
+		userId: string;
+		projectId: string;
+	}): Promise<void>;
+
+	upsertMediaAsset(asset: SyncedMediaAsset): Promise<void>;
+	findMediaAssetByUserId(params: {
+		userId: string;
+		projectId: string;
+		assetId: string;
+	}): Promise<SyncedMediaAsset | null>;
+	listMediaAssetsByProjectId(params: {
+		userId: string;
+		projectId: string;
+	}): Promise<SyncedMediaAsset[]>;
+	deleteMediaAssetsByProjectId(params: {
+		userId: string;
+		projectId: string;
+	}): Promise<void>;
 
 	getSettings(): Promise<ServerSettings>;
 	updateSettings(settings: Partial<ServerSettings>): Promise<ServerSettings>;

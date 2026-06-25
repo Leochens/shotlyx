@@ -57,6 +57,7 @@
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
 		"cmdk": "^1.0.0",
+		"cos-js-sdk-v5": "^1.10.1",
 		"culori": "^4.0.2",
 		"drizzle-orm": "^0.44.2",
 		"embla-carousel-react": "^8.5.1",

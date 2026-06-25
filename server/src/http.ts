@@ -2,6 +2,7 @@ import { buildAccountBillingState } from "./account-billing";
 import { createAuthService } from "./auth";
 import { createBillingService } from "./billing";
 import { inspectBillingCenterConfig } from "./billing-center";
+import { createCloudStorageService } from "./cloud-storage";
 import type { NewApiGateway } from "./new-api";
 import { createNewApiGateway } from "./new-api";
 import {
@@ -21,7 +22,13 @@ import {
 	resolveDefaultStoreMode,
 	type DefaultStoreMode,
 } from "./store-factory";
-import type { PaymentOrder, ServerSettings, ShotlyxStore } from "./types";
+import type {
+	PaymentOrder,
+	ServerSettings,
+	ShotlyxStore,
+	SyncedMediaAsset,
+	SyncedProject,
+} from "./types";
 
 export type ServerApp = {
 	fetch(request: Request): Promise<Response>;
@@ -79,6 +86,26 @@ function readString(
 ): string {
 	const value = body[key];
 	return typeof value === "string" ? value : fallback;
+}
+
+function readObject(
+	body: Record<string, unknown>,
+	key: string,
+): Record<string, unknown> | null {
+	const value = body[key];
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function readNumberValue(value: unknown): number {
+	if (typeof value === "number") return value;
+	if (typeof value === "string") return Number(value);
+	return Number.NaN;
+}
+
+function nowIso(): string {
+	return new Date().toISOString();
 }
 
 function getBearerToken(request: Request): string | null {
@@ -160,6 +187,74 @@ function toPaymentOrderResponse(order: PaymentOrder) {
 
 function formatPaymentMoney(moneyCents: number): string {
 	return (moneyCents / 100).toFixed(2);
+}
+
+function readProjectId(project: Record<string, unknown>, fallback = ""): string {
+	const metadata = readObject(project, "metadata");
+	const metadataId = metadata ? readString(metadata, "id") : "";
+	return readString(project, "id", metadataId || fallback).trim();
+}
+
+function readProjectName(project: Record<string, unknown>): string {
+	const metadata = readObject(project, "metadata");
+	return (metadata ? readString(metadata, "name") : "").trim() || "Untitled";
+}
+
+function readProjectTimestamp({
+	project,
+	key,
+	fallback,
+}: {
+	project: Record<string, unknown>;
+	key: "createdAt" | "updatedAt";
+	fallback: string;
+}): string {
+	const metadata = readObject(project, "metadata");
+	const value = metadata ? readString(metadata, key) : "";
+	if (!value) return fallback;
+	const parsed = new Date(value);
+	return Number.isNaN(parsed.getTime()) ? fallback : parsed.toISOString();
+}
+
+function toSyncedProjectResponse(project: SyncedProject) {
+	return {
+		id: project.id,
+		userId: project.userId,
+		name: project.name,
+		metadata: project.metadata,
+		project: project.project,
+		createdAt: project.createdAt,
+		updatedAt: project.updatedAt,
+	};
+}
+
+function toSyncedMediaAssetResponse(asset: SyncedMediaAsset) {
+	return {
+		id: asset.id,
+		userId: asset.userId,
+		projectId: asset.projectId,
+		name: asset.name,
+		mediaType: asset.mediaType,
+		mimeType: asset.mimeType,
+		sizeBytes: asset.sizeBytes,
+		objectKey: asset.objectKey,
+		uploadStatus: asset.uploadStatus,
+		createdAt: asset.createdAt,
+		updatedAt: asset.updatedAt,
+		uploadedAt: asset.uploadedAt,
+		expiresAt: asset.expiresAt,
+	};
+}
+
+function isSupportedUploadMime(mimeType: string): boolean {
+	return (
+		mimeType.startsWith("video/") ||
+		mimeType.startsWith("image/") ||
+		mimeType.startsWith("audio/") ||
+		mimeType === "text/plain" ||
+		mimeType === "text/vtt" ||
+		mimeType === "application/octet-stream"
+	);
 }
 
 function formatCredits(value: number): string {
@@ -414,6 +509,7 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 		billing,
 		zpay: config.zpay,
 	});
+	const cloudStorage = createCloudStorageService();
 
 	async function requireAccount(request: Request) {
 		const token = getBearerToken(request);
@@ -585,7 +681,288 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 				) {
 					const account = await requireAccount(request);
 					if (!account) return json({ error: "unauthorized" }, { status: 401 });
-					return json({ storage: inspectObjectStorageConfig() });
+					return json({ storage: cloudStorage.configStatus() });
+				}
+
+				if (url.pathname === "/api/account/projects") {
+					const account = await requireAccount(request);
+					if (!account) return json({ error: "unauthorized" }, { status: 401 });
+
+					if (request.method === "GET") {
+						const projects = await store.listProjectsByUserId(account.user.id);
+						return json({
+							projects: projects.map(toSyncedProjectResponse),
+						});
+					}
+
+					if (request.method === "POST") {
+						const body = await readJson(request);
+						const project = readObject(body, "project");
+						if (!project) {
+							return json({ error: "invalid_project" }, { status: 400 });
+						}
+						const projectId = readProjectId(project);
+						if (!projectId) {
+							return json({ error: "invalid_project_id" }, { status: 400 });
+						}
+						const metadata = readObject(project, "metadata") ?? {};
+						const timestamp = nowIso();
+						const record: SyncedProject = {
+							id: projectId,
+							userId: account.user.id,
+							name: readProjectName(project),
+							metadata,
+							project,
+							createdAt: readProjectTimestamp({
+								project,
+								key: "createdAt",
+								fallback: timestamp,
+							}),
+							updatedAt: readProjectTimestamp({
+								project,
+								key: "updatedAt",
+								fallback: timestamp,
+							}),
+						};
+						await store.upsertProject(record);
+						return json({ project: toSyncedProjectResponse(record) }, { status: 201 });
+					}
+
+					if (request.method === "DELETE") {
+						const body = await readJson(request);
+						const ids = Array.isArray(body.ids)
+							? body.ids.filter((id): id is string => typeof id === "string")
+							: [];
+						await Promise.all(
+							ids.map((projectId) =>
+								store.deleteProjectByUserId({
+									userId: account.user.id,
+									projectId,
+								}),
+							),
+						);
+						return json({ ok: true, deleted: ids });
+					}
+				}
+
+				const projectMatch = /^\/api\/account\/projects\/([^/]+)$/.exec(
+					url.pathname,
+				);
+				if (projectMatch) {
+					const account = await requireAccount(request);
+					if (!account) return json({ error: "unauthorized" }, { status: 401 });
+					const projectId = decodeURIComponent(projectMatch[1] ?? "");
+
+					if (request.method === "GET") {
+						const project = await store.findProjectByUserId({
+							userId: account.user.id,
+							projectId,
+						});
+						if (!project) {
+							return json({ error: "project_not_found" }, { status: 404 });
+						}
+						const assets = await store.listMediaAssetsByProjectId({
+							userId: account.user.id,
+							projectId,
+						});
+						return json({
+							project: toSyncedProjectResponse(project),
+							assets: assets.map(toSyncedMediaAssetResponse),
+						});
+					}
+
+					if (request.method === "PUT") {
+						const body = await readJson(request);
+						const project = readObject(body, "project");
+						if (!project) {
+							return json({ error: "invalid_project" }, { status: 400 });
+						}
+						const payloadProjectId = readProjectId(project, projectId);
+						if (payloadProjectId !== projectId) {
+							return json({ error: "project_id_mismatch" }, { status: 400 });
+						}
+						const metadata = readObject(project, "metadata") ?? {};
+						const timestamp = nowIso();
+						const existing = await store.findProjectByUserId({
+							userId: account.user.id,
+							projectId,
+						});
+						const record: SyncedProject = {
+							id: projectId,
+							userId: account.user.id,
+							name: readProjectName(project),
+							metadata,
+							project,
+							createdAt:
+								existing?.createdAt ??
+								readProjectTimestamp({
+									project,
+									key: "createdAt",
+									fallback: timestamp,
+								}),
+							updatedAt: readProjectTimestamp({
+								project,
+								key: "updatedAt",
+								fallback: timestamp,
+							}),
+						};
+						await store.upsertProject(record);
+						return json({ project: toSyncedProjectResponse(record) });
+					}
+
+					if (request.method === "DELETE") {
+						await store.deleteProjectByUserId({
+							userId: account.user.id,
+							projectId,
+						});
+						return json({ ok: true });
+					}
+				}
+
+				const assetInitiateMatch =
+					/^\/api\/account\/projects\/([^/]+)\/assets\/initiate$/.exec(
+						url.pathname,
+					);
+				if (assetInitiateMatch && request.method === "POST") {
+					const account = await requireAccount(request);
+					if (!account) return json({ error: "unauthorized" }, { status: 401 });
+					const projectId = decodeURIComponent(assetInitiateMatch[1] ?? "");
+					const body = await readJson(request);
+					const assetId = readString(body, "assetId").trim();
+					const fileName = readString(body, "fileName", "upload.bin").trim();
+					const mimeType = readString(
+						body,
+						"mimeType",
+						"application/octet-stream",
+					);
+					const mediaType = readString(body, "mediaType", "video");
+					const sizeBytes = readNumberValue(body.sizeBytes);
+					if (!assetId || !projectId) {
+						return json({ error: "invalid_asset_scope" }, { status: 400 });
+					}
+					if (!isSupportedUploadMime(mimeType)) {
+						return json({ error: "unsupported_upload_mime" }, { status: 415 });
+					}
+
+					try {
+						const upload = await cloudStorage.createDirectUploadSession({
+							userId: account.user.id,
+							projectId,
+							assetId,
+							fileName,
+							mimeType,
+							sizeBytes,
+						});
+						const timestamp = nowIso();
+						const asset: SyncedMediaAsset = {
+							id: assetId,
+							userId: account.user.id,
+							projectId,
+							name: fileName,
+							mediaType,
+							mimeType,
+							sizeBytes,
+							objectKey: upload.objectKey,
+							uploadStatus:
+								upload.mode === "local-preview" ? "local-only" : "uploading",
+							createdAt: timestamp,
+							updatedAt: timestamp,
+							expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+						};
+						await store.upsertMediaAsset(asset);
+						return json({
+							upload,
+							asset: toSyncedMediaAssetResponse(asset),
+							storage: cloudStorage.configStatus(),
+						});
+					} catch (error) {
+						if (error instanceof Error && error.message === "upload_too_large") {
+							return json(
+								{
+									error: "upload_too_large",
+									maxUploadSizeMb: cloudStorage.configStatus().maxUploadSizeMb,
+								},
+								{ status: 413 },
+							);
+						}
+						if (
+							error instanceof Error &&
+							error.message === "invalid_upload_size"
+						) {
+							return json({ error: "invalid_upload_size" }, { status: 400 });
+						}
+						throw error;
+					}
+				}
+
+				const assetCompleteMatch =
+					/^\/api\/account\/projects\/([^/]+)\/assets\/([^/]+)\/complete$/.exec(
+						url.pathname,
+					);
+				if (assetCompleteMatch && request.method === "POST") {
+					const account = await requireAccount(request);
+					if (!account) return json({ error: "unauthorized" }, { status: 401 });
+					const projectId = decodeURIComponent(assetCompleteMatch[1] ?? "");
+					const assetId = decodeURIComponent(assetCompleteMatch[2] ?? "");
+					const asset = await store.findMediaAssetByUserId({
+						userId: account.user.id,
+						projectId,
+						assetId,
+					});
+					if (!asset) {
+						return json({ error: "asset_not_found" }, { status: 404 });
+					}
+					const body = await readJson(request);
+					const payload = await cloudStorage.completeDirectUpload({
+						userId: account.user.id,
+						projectId,
+						assetId,
+						uploadToken: readString(body, "uploadToken"),
+					});
+					const timestamp = nowIso();
+					const nextAsset: SyncedMediaAsset = {
+						...asset,
+						objectKey: payload.objectKey,
+						uploadStatus: "uploaded",
+						updatedAt: timestamp,
+						uploadedAt: timestamp,
+					};
+					await store.upsertMediaAsset(nextAsset);
+					const readUrl = await cloudStorage.createReadUrl({
+						objectKey: payload.objectKey,
+					});
+					return json({
+						asset: toSyncedMediaAssetResponse(nextAsset),
+						readUrl,
+					});
+				}
+
+				const assetReadUrlMatch =
+					/^\/api\/account\/projects\/([^/]+)\/assets\/([^/]+)\/read-url$/.exec(
+						url.pathname,
+					);
+				if (assetReadUrlMatch && request.method === "GET") {
+					const account = await requireAccount(request);
+					if (!account) return json({ error: "unauthorized" }, { status: 401 });
+					const projectId = decodeURIComponent(assetReadUrlMatch[1] ?? "");
+					const assetId = decodeURIComponent(assetReadUrlMatch[2] ?? "");
+					const asset = await store.findMediaAssetByUserId({
+						userId: account.user.id,
+						projectId,
+						assetId,
+					});
+					if (!asset) {
+						return json({ error: "asset_not_found" }, { status: 404 });
+					}
+					if (!asset.objectKey || asset.uploadStatus !== "uploaded") {
+						return json({ error: "asset_not_uploaded" }, { status: 409 });
+					}
+					return json({
+						readUrl: await cloudStorage.createReadUrl({
+							objectKey: asset.objectKey,
+						}),
+						asset: toSyncedMediaAssetResponse(asset),
+					});
 				}
 
 				if (

@@ -3,6 +3,8 @@ import type {
 	NewApiKeyBinding,
 	PaymentOrder,
 	ServerSettings,
+	SyncedMediaAsset,
+	SyncedProject,
 	ShotlyxLogEntry,
 	ShotlyxSession,
 	ShotlyxStore,
@@ -24,6 +26,8 @@ export class InMemoryShotlyxStore implements ShotlyxStore {
 	private readonly creditLedgerById = new Map<string, CreditLedgerEntry>();
 	private readonly creditLedgerIdsByIdempotencyKey = new Map<string, string>();
 	private readonly paymentOrdersByOutTradeNo = new Map<string, PaymentOrder>();
+	private readonly projectsById = new Map<string, SyncedProject>();
+	private readonly mediaAssetsById = new Map<string, SyncedMediaAsset>();
 	private settings: ServerSettings;
 
 	constructor(settings: Partial<ServerSettings> = {}) {
@@ -136,6 +140,102 @@ export class InMemoryShotlyxStore implements ShotlyxStore {
 			.filter((order) => order.userId === userId)
 			.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 			.map((order) => ({ ...order }));
+	}
+
+	async upsertProject(project: SyncedProject): Promise<void> {
+		this.projectsById.set(project.id, {
+			...project,
+			metadata: { ...project.metadata },
+			project: { ...project.project },
+		});
+	}
+
+	async findProjectByUserId({
+		userId,
+		projectId,
+	}: {
+		userId: string;
+		projectId: string;
+	}): Promise<SyncedProject | null> {
+		const project = this.projectsById.get(projectId);
+		if (!project || project.userId !== userId) return null;
+		return {
+			...project,
+			metadata: { ...project.metadata },
+			project: { ...project.project },
+		};
+	}
+
+	async listProjectsByUserId(userId: string): Promise<SyncedProject[]> {
+		return Array.from(this.projectsById.values())
+			.filter((project) => project.userId === userId)
+			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+			.map((project) => ({
+				...project,
+				metadata: { ...project.metadata },
+				project: { ...project.project },
+			}));
+	}
+
+	async deleteProjectByUserId({
+		userId,
+		projectId,
+	}: {
+		userId: string;
+		projectId: string;
+	}): Promise<void> {
+		const project = this.projectsById.get(projectId);
+		if (project?.userId === userId) {
+			this.projectsById.delete(projectId);
+		}
+		await this.deleteMediaAssetsByProjectId({ userId, projectId });
+	}
+
+	async upsertMediaAsset(asset: SyncedMediaAsset): Promise<void> {
+		this.mediaAssetsById.set(asset.id, { ...asset });
+	}
+
+	async findMediaAssetByUserId({
+		userId,
+		projectId,
+		assetId,
+	}: {
+		userId: string;
+		projectId: string;
+		assetId: string;
+	}): Promise<SyncedMediaAsset | null> {
+		const asset = this.mediaAssetsById.get(assetId);
+		if (!asset || asset.userId !== userId || asset.projectId !== projectId) {
+			return null;
+		}
+		return { ...asset };
+	}
+
+	async listMediaAssetsByProjectId({
+		userId,
+		projectId,
+	}: {
+		userId: string;
+		projectId: string;
+	}): Promise<SyncedMediaAsset[]> {
+		return Array.from(this.mediaAssetsById.values())
+			.filter((asset) => asset.userId === userId && asset.projectId === projectId)
+			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+			.map((asset) => ({ ...asset }));
+	}
+
+	async deleteMediaAssetsByProjectId({
+		userId,
+		projectId,
+	}: {
+		userId: string;
+		projectId: string;
+	}): Promise<void> {
+		for (const [id, asset] of this.mediaAssetsById.entries()) {
+			if (asset.userId === userId && asset.projectId === projectId) {
+				this.mediaAssetsById.delete(id);
+			}
+		}
 	}
 
 	async getSettings(): Promise<ServerSettings> {

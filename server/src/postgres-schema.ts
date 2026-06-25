@@ -6,6 +6,8 @@ export const REQUIRED_SHOTLYX_TABLES = [
 	"shotlyx_new_api_key_bindings",
 	"shotlyx_payment_orders",
 	"shotlyx_credit_ledger",
+	"shotlyx_projects",
+	"shotlyx_media_assets",
 	"shotlyx_logs",
 	"shotlyx_server_settings",
 ] as const;
@@ -69,6 +71,34 @@ export const CREATE_SHOTLYX_SCHEMA_STATEMENTS = [
 	)`,
 	`CREATE INDEX IF NOT EXISTS shotlyx_credit_ledger_user_id_idx
 		ON shotlyx_credit_ledger(user_id, created_at ASC)`,
+	`CREATE TABLE IF NOT EXISTS shotlyx_projects (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL REFERENCES shotlyx_users(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		metadata_json JSONB NOT NULL,
+		project_json JSONB NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL,
+		updated_at TIMESTAMPTZ NOT NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS shotlyx_projects_user_id_updated_at_idx
+		ON shotlyx_projects(user_id, updated_at DESC)`,
+	`CREATE TABLE IF NOT EXISTS shotlyx_media_assets (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL REFERENCES shotlyx_users(id) ON DELETE CASCADE,
+		project_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		media_type TEXT NOT NULL,
+		mime_type TEXT NOT NULL,
+		size_bytes BIGINT NOT NULL,
+		object_key TEXT,
+		upload_status TEXT NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL,
+		updated_at TIMESTAMPTZ NOT NULL,
+		uploaded_at TIMESTAMPTZ,
+		expires_at TIMESTAMPTZ
+	)`,
+	`CREATE INDEX IF NOT EXISTS shotlyx_media_assets_project_id_idx
+		ON shotlyx_media_assets(user_id, project_id, updated_at DESC)`,
 	`CREATE TABLE IF NOT EXISTS shotlyx_logs (
 		id TEXT PRIMARY KEY,
 		type TEXT NOT NULL,

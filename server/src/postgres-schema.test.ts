@@ -12,6 +12,8 @@ describe("Shotlyx Postgres schema", () => {
 			"shotlyx_new_api_key_bindings",
 			"shotlyx_payment_orders",
 			"shotlyx_credit_ledger",
+			"shotlyx_projects",
+			"shotlyx_media_assets",
 			"shotlyx_logs",
 			"shotlyx_server_settings",
 		]);
@@ -40,5 +42,16 @@ describe("Shotlyx Postgres schema", () => {
 		expect(CREATE_SHOTLYX_SCHEMA_SQL).toContain(
 			"CREATE TABLE IF NOT EXISTS shotlyx_credit_ledger",
 		);
+	});
+
+	test("adds cloud project and media asset sync tables", () => {
+		expect(CREATE_SHOTLYX_SCHEMA_SQL).toContain(
+			"CREATE TABLE IF NOT EXISTS shotlyx_projects",
+		);
+		expect(CREATE_SHOTLYX_SCHEMA_SQL).toContain("project_json JSONB NOT NULL");
+		expect(CREATE_SHOTLYX_SCHEMA_SQL).toContain(
+			"CREATE TABLE IF NOT EXISTS shotlyx_media_assets",
+		);
+		expect(CREATE_SHOTLYX_SCHEMA_SQL).toContain("object_key TEXT");
 	});
 });

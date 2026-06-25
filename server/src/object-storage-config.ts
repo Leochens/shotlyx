@@ -11,10 +11,31 @@ export type ObjectStorageConfigStatus = {
 	missing: string[];
 	maxUploadSizeMb: number;
 	localPreviewRecommended: boolean;
+	signedUrlTtlSeconds: number;
+	cosUploadStsTtlSeconds: number;
+	cosUploadSliceSizeMb: number;
 };
 
 const DEFAULT_KEY_PREFIX = "shotlyx";
-const DEFAULT_MAX_UPLOAD_SIZE_MB = 512;
+const DEFAULT_MAX_UPLOAD_SIZE_MB = 5120;
+const DEFAULT_SIGNED_URL_TTL_SECONDS = 3600;
+const DEFAULT_COS_UPLOAD_STS_TTL_SECONDS = 1800;
+const DEFAULT_COS_UPLOAD_SLICE_SIZE_MB = 8;
+
+export type ResolvedCosStorageConfig = {
+	driver: "cos";
+	region: string;
+	bucket: string;
+	endpoint: string;
+	secretId: string;
+	secretKey: string;
+	keyPrefix: string;
+	publicBaseUrl?: string;
+	maxUploadSizeMb: number;
+	signedUrlTtlSeconds: number;
+	cosUploadStsTtlSeconds: number;
+	cosUploadSliceSizeMb: number;
+};
 
 function clean(value: string | undefined): string {
 	return value?.trim() ?? "";
@@ -68,6 +89,21 @@ export function inspectObjectStorageConfig(
 			missing: [],
 			maxUploadSizeMb,
 			localPreviewRecommended: true,
+			signedUrlTtlSeconds: readPositiveInt(
+				env,
+				"COS_SIGNED_URL_TTL_SECONDS",
+				DEFAULT_SIGNED_URL_TTL_SECONDS,
+			),
+			cosUploadStsTtlSeconds: readPositiveInt(
+				env,
+				"COS_UPLOAD_STS_TTL_SECONDS",
+				DEFAULT_COS_UPLOAD_STS_TTL_SECONDS,
+			),
+			cosUploadSliceSizeMb: readPositiveInt(
+				env,
+				"COS_UPLOAD_SLICE_SIZE_MB",
+				DEFAULT_COS_UPLOAD_SLICE_SIZE_MB,
+			),
 		};
 	}
 
@@ -111,5 +147,64 @@ export function inspectObjectStorageConfig(
 		missing: missingNames,
 		maxUploadSizeMb,
 		localPreviewRecommended: true,
+		signedUrlTtlSeconds: readPositiveInt(
+			env,
+			"COS_SIGNED_URL_TTL_SECONDS",
+			DEFAULT_SIGNED_URL_TTL_SECONDS,
+		),
+		cosUploadStsTtlSeconds: readPositiveInt(
+			env,
+			"COS_UPLOAD_STS_TTL_SECONDS",
+			DEFAULT_COS_UPLOAD_STS_TTL_SECONDS,
+		),
+		cosUploadSliceSizeMb: readPositiveInt(
+			env,
+			"COS_UPLOAD_SLICE_SIZE_MB",
+			DEFAULT_COS_UPLOAD_SLICE_SIZE_MB,
+		),
+	};
+}
+
+export function normalizeObjectPrefix(prefix: string | undefined): string {
+	return normalizePrefix(prefix);
+}
+
+export function buildObjectKey({
+	keyPrefix,
+	relativePath,
+}: {
+	keyPrefix: string;
+	relativePath: string;
+}): string {
+	return [normalizePrefix(keyPrefix), relativePath.replace(/^\/+/, "")]
+		.filter(Boolean)
+		.join("/");
+}
+
+export function resolveCosStorageConfig(
+	env: NodeJS.ProcessEnv = process.env,
+): ResolvedCosStorageConfig {
+	const status = inspectObjectStorageConfig(env);
+	if (status.driver !== "cos") {
+		throw new Error("cos_storage_not_enabled");
+	}
+	if (!status.configured) {
+		throw new Error(`cos_storage_missing_config:${status.missing.join(",")}`);
+	}
+	const region = clean(env.COS_REGION);
+	const bucket = clean(env.COS_BUCKET);
+	return {
+		driver: "cos",
+		region,
+		bucket,
+		endpoint: clean(env.COS_ENDPOINT) || `https://cos.${region}.myqcloud.com`,
+		secretId: clean(env.COS_SECRET_ID),
+		secretKey: clean(env.COS_SECRET_KEY),
+		keyPrefix: status.keyPrefix,
+		publicBaseUrl: status.publicBaseUrl,
+		maxUploadSizeMb: status.maxUploadSizeMb,
+		signedUrlTtlSeconds: status.signedUrlTtlSeconds,
+		cosUploadStsTtlSeconds: status.cosUploadStsTtlSeconds,
+		cosUploadSliceSizeMb: status.cosUploadSliceSizeMb,
 	};
 }
