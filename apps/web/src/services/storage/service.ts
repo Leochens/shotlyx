@@ -383,6 +383,8 @@ class StorageService {
 							uploadStatus: asset.uploadStatus,
 							objectKey: asset.objectKey,
 							uploadedAt: asset.uploadedAt,
+							uploadProgress: asset.uploadStatus === "uploaded" ? 1 : undefined,
+							uploadResumable: asset.uploadStatus !== "uploaded",
 						},
 					}),
 				),
@@ -836,10 +838,14 @@ class StorageService {
 				| "cloudAssetId"
 				| "uploadStatus"
 				| "objectKey"
-				| "readUrl"
-				| "uploadedAt"
-			>
-		>;
+					| "readUrl"
+					| "uploadedAt"
+					| "uploadTaskId"
+					| "uploadProgress"
+					| "uploadResumable"
+					| "uploadError"
+				>
+			>;
 	}): Promise<void> {
 		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({ projectId });
 		const metadata = await mediaMetadataAdapter.get(id);
@@ -880,10 +886,14 @@ class StorageService {
 			cloudAssetId: mediaAsset.cloudAssetId,
 			uploadStatus: mediaAsset.uploadStatus,
 			objectKey: mediaAsset.objectKey,
-			readUrl: mediaAsset.readUrl,
-			uploadedAt: mediaAsset.uploadedAt,
-			lastCacheAccessedAt: new Date().toISOString(),
-		};
+				readUrl: mediaAsset.readUrl,
+				uploadedAt: mediaAsset.uploadedAt,
+				uploadTaskId: mediaAsset.uploadTaskId,
+				uploadProgress: mediaAsset.uploadProgress,
+				uploadResumable: mediaAsset.uploadResumable,
+				uploadError: mediaAsset.uploadError,
+				lastCacheAccessedAt: new Date().toISOString(),
+			};
 
 		try {
 			await mediaAssetsAdapter.set({
@@ -958,39 +968,49 @@ class StorageService {
 					});
 			}
 		}
-		if (!file && metadata?.uploadStatus === "uploaded") {
-			file = await this.restoreAssetFileFromCloud({
-				projectId,
-				metadata,
-				mediaAssetsAdapter,
-			});
-		}
-
-		if (!file || !metadata) return null;
-
-		let url: string;
-		if (metadata.type === "image" && (!file.type || file.type === "")) {
-			try {
-				const text = await file.text();
-				if (text.trim().startsWith("<svg")) {
-					const svgBlob = new Blob([text], { type: "image/svg+xml" });
-					url = URL.createObjectURL(svgBlob);
-				} else {
-					url = URL.createObjectURL(file);
-				}
-			} catch {
-				url = URL.createObjectURL(file);
+			if (!file && metadata?.uploadStatus === "uploaded") {
+				file = await this.restoreAssetFileFromCloud({
+					projectId,
+					metadata,
+					mediaAssetsAdapter,
+				});
 			}
-		} else {
-			url = URL.createObjectURL(file);
-		}
+
+			if (!file || !metadata) return null;
+			const stableFile =
+				file.name === metadata.name && file.lastModified === metadata.lastModified
+					? file
+					: new File([file], metadata.name, {
+							type: file.type || undefined,
+							lastModified: metadata.lastModified || file.lastModified,
+						});
+
+			let url: string;
+			if (
+				metadata.type === "image" &&
+				(!stableFile.type || stableFile.type === "")
+			) {
+				try {
+					const text = await stableFile.text();
+					if (text.trim().startsWith("<svg")) {
+						const svgBlob = new Blob([text], { type: "image/svg+xml" });
+						url = URL.createObjectURL(svgBlob);
+					} else {
+						url = URL.createObjectURL(stableFile);
+					}
+				} catch {
+					url = URL.createObjectURL(stableFile);
+				}
+			} else {
+				url = URL.createObjectURL(stableFile);
+			}
 
 		return {
-			id: metadata.id,
-			name: metadata.name,
-			type: metadata.type,
-			file,
-			url,
+				id: metadata.id,
+				name: metadata.name,
+				type: metadata.type,
+				file: stableFile,
+				url,
 			width: metadata.width,
 			height: metadata.height,
 			duration: metadata.duration,
@@ -1002,10 +1022,14 @@ class StorageService {
 			cloudAssetId: metadata.cloudAssetId,
 			uploadStatus: metadata.uploadStatus,
 			objectKey: metadata.objectKey,
-			readUrl: metadata.readUrl,
-			uploadedAt: metadata.uploadedAt,
-			lastCacheAccessedAt: new Date().toISOString(),
-		};
+				readUrl: metadata.readUrl,
+				uploadedAt: metadata.uploadedAt,
+				uploadTaskId: metadata.uploadTaskId,
+				uploadProgress: metadata.uploadProgress,
+				uploadResumable: metadata.uploadResumable,
+				uploadError: metadata.uploadError,
+				lastCacheAccessedAt: new Date().toISOString(),
+			};
 	}
 
 	async loadAllMediaAssets({

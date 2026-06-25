@@ -58,6 +58,10 @@ export interface MediaAssetData {
 	readUrl?: string;
 	uploadedAt?: string;
 	lastCacheAccessedAt?: string;
+	uploadTaskId?: string;
+	uploadProgress?: number;
+	uploadResumable?: boolean;
+	uploadError?: string;
 }
 
 export interface AnimatedStickerAssetData {

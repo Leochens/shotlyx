@@ -192,6 +192,13 @@ export function MediaView() {
 		invokeAction("remove-media-assets", {
 			projectId: activeProject.metadata.id,
 			assetIds: ids,
+			});
+	};
+	const handleRetryCloudUpload = ({ id }: { id: string }) => {
+		if (!activeProject) return;
+		editor.media.retryCloudUpload({
+			projectId: activeProject.metadata.id,
+			id,
 		});
 	};
 
@@ -301,11 +308,12 @@ export function MediaView() {
 								/>
 							) : null}
 							{filteredMediaItems.length > 0 ? (
-								<GroupedMediaItemList
-									items={filteredMediaItems}
-									mode={mediaViewMode}
-									onRemove={handleRemove}
-								/>
+									<GroupedMediaItemList
+										items={filteredMediaItems}
+										mode={mediaViewMode}
+										onRemove={handleRemove}
+										onRetryCloudUpload={handleRetryCloudUpload}
+									/>
 							) : null}
 						</div>
 					</SelectableSurface>
@@ -645,6 +653,7 @@ function MediaItemWithContextMenu({
 	item,
 	children,
 	onRemove,
+	onRetryCloudUpload,
 }: {
 	item: MediaAsset;
 	children: React.ReactNode;
@@ -654,7 +663,8 @@ function MediaItemWithContextMenu({
 	}: {
 		event: React.MouseEvent;
 		ids: string[];
-	}) => void;
+		}) => void;
+	onRetryCloudUpload: ({ id }: { id: string }) => void;
 }) {
 	const { copy } = useAppLocale();
 	const { isSelected, selectedIds } = useSelection();
@@ -671,13 +681,18 @@ function MediaItemWithContextMenu({
 		<ContextMenu>
 			<ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
 			<ContextMenuContent>
-				{isTimelineMediaAsset(item) ? (
-					<ContextMenuItem>
-						{copy.editor.assets.context.exportClips}
-					</ContextMenuItem>
-				) : null}
-				<ContextMenuItem
-					variant="destructive"
+					{isTimelineMediaAsset(item) ? (
+						<ContextMenuItem>
+							{copy.editor.assets.context.exportClips}
+						</ContextMenuItem>
+					) : null}
+					{item.uploadStatus === "failed" && item.uploadResumable !== false ? (
+						<ContextMenuItem onClick={() => onRetryCloudUpload({ id: item.id })}>
+							继续上传
+						</ContextMenuItem>
+					) : null}
+					<ContextMenuItem
+						variant="destructive"
 					onClick={(event: React.MouseEvent<HTMLDivElement>) =>
 						onRemove({ event, ids: idsToDelete })
 					}
@@ -693,6 +708,7 @@ function GroupedMediaItemList({
 	items,
 	mode,
 	onRemove,
+	onRetryCloudUpload,
 }: {
 	items: MediaAsset[];
 	mode: MediaViewMode;
@@ -702,7 +718,8 @@ function GroupedMediaItemList({
 	}: {
 		event: React.MouseEvent;
 		ids: string[];
-	}) => void;
+		}) => void;
+	onRetryCloudUpload: ({ id }: { id: string }) => void;
 }) {
 	const isGrid = mode === "grid";
 	const { copy } = useAppLocale();
@@ -723,11 +740,12 @@ function GroupedMediaItemList({
 							{group.items.length}
 						</span>
 					</div>
-					<MediaItemList
-						items={group.items}
-						onRemove={onRemove}
-						isGrid={isGrid}
-					/>
+						<MediaItemList
+							items={group.items}
+							onRemove={onRemove}
+							onRetryCloudUpload={onRetryCloudUpload}
+							isGrid={isGrid}
+						/>
 				</section>
 			))}
 		</div>
@@ -737,6 +755,7 @@ function GroupedMediaItemList({
 function MediaItemList({
 	items,
 	onRemove,
+	onRetryCloudUpload,
 	isGrid,
 }: {
 	items: MediaAsset[];
@@ -746,7 +765,8 @@ function MediaItemList({
 	}: {
 		event: React.MouseEvent;
 		ids: string[];
-	}) => void;
+		}) => void;
+	onRetryCloudUpload: ({ id }: { id: string }) => void;
 	isGrid: boolean;
 }) {
 	const pointSelectEnabled = useAgentContextStore(
@@ -762,8 +782,13 @@ function MediaItemList({
 				isGrid ? { gridTemplateColumns: "repeat(auto-fill, 7rem)" } : undefined
 			}
 		>
-			{items.map((item) => (
-				<MediaItemWithContextMenu item={item} onRemove={onRemove} key={item.id}>
+				{items.map((item) => (
+					<MediaItemWithContextMenu
+						item={item}
+						onRemove={onRemove}
+						onRetryCloudUpload={onRetryCloudUpload}
+						key={item.id}
+					>
 					<SelectableItem
 						className={cn(
 							!isGrid && "w-full",
@@ -817,20 +842,50 @@ function MediaAssetItem({
 			) : (
 				<StaticMediaAssetItem item={item} preview={preview} variant={variant} />
 			)}
-			<div className="absolute right-1.5 top-1.5 z-10 opacity-0 transition group-hover:opacity-100">
-				<AssetIconButton
-					label={`预览 ${item.name}`}
-					onClick={() => setIsPreviewing(true)}
-				>
-					<Eye className="size-3.5" />
-				</AssetIconButton>
-			</div>
-			<MediaAssetPreviewDialog
-				open={isPreviewing}
-				onOpenChange={setIsPreviewing}
+				<div className="absolute right-1.5 top-1.5 z-10 opacity-0 transition group-hover:opacity-100">
+					<AssetIconButton
+						label={`预览 ${item.name}`}
+						onClick={() => setIsPreviewing(true)}
+					>
+						<Eye className="size-3.5" />
+					</AssetIconButton>
+				</div>
+				<CloudUploadStatusBadge item={item} />
+				<MediaAssetPreviewDialog
+					open={isPreviewing}
+					onOpenChange={setIsPreviewing}
 				item={item}
 			/>
 		</div>
+	);
+}
+
+function CloudUploadStatusBadge({ item }: { item: MediaAsset }) {
+	if (!item.uploadStatus || item.uploadStatus === "local-only") return null;
+	const percent =
+		typeof item.uploadProgress === "number"
+			? `${Math.round(item.uploadProgress * 100)}%`
+			: null;
+	const badge =
+		item.uploadStatus === "uploaded"
+			? { label: "云端", className: "bg-emerald-600 text-white" }
+			: item.uploadStatus === "failed"
+				? { label: "可续传", className: "bg-amber-600 text-white" }
+				: {
+						label: percent ? `上传 ${percent}` : "上传中",
+						className: "bg-sky-600 text-white",
+					};
+
+	return (
+		<span
+			className={cn(
+				"pointer-events-none absolute bottom-1.5 left-1.5 z-10 max-w-[calc(100%-0.75rem)] truncate rounded px-1.5 py-0.5 text-[0.62rem] leading-none shadow-sm",
+				badge.className,
+			)}
+			title={item.uploadError || badge.label}
+		>
+			{badge.label}
+		</span>
 	);
 }
 

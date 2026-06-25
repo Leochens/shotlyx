@@ -6,12 +6,16 @@ import { generateUUID } from "@/utils/id";
 import { videoCache } from "@/services/video-cache/service";
 import { waveformCache } from "@/services/waveform-cache/service";
 import { BatchCommand, RemoveMediaAssetCommand } from "@/commands";
-import { uploadMediaAssetToCloud } from "@/media/cloud-upload";
+import {
+	uploadMediaAssetToCloud,
+	type MediaAssetCloudState,
+} from "@/media/cloud-upload";
 
 export class MediaManager {
 	private assets: MediaAsset[] = [];
 	private isLoading = false;
 	private listeners = new Set<() => void>();
+	private cloudSyncingAssetIds = new Set<string>();
 
 	constructor(private editor: EditorCore) {}
 
@@ -35,7 +39,7 @@ export class MediaManager {
 			this.editor.project.ratchetFpsForImportedMedia({
 				importedAssets: [newAsset],
 			});
-			this.syncMediaAssetToCloud({ projectId, asset: newAsset });
+			void this.syncMediaAssetToCloud({ projectId, asset: newAsset });
 			return newAsset;
 		} catch (error) {
 			console.error("Failed to save media asset:", error);
@@ -52,28 +56,116 @@ export class MediaManager {
 		}
 	}
 
-	private syncMediaAssetToCloud({
+	private async applyCloudState({
+		projectId,
+		assetId,
+		state,
+		persist = true,
+	}: {
+		projectId: string;
+		assetId: string;
+		state: Partial<MediaAssetCloudState>;
+		persist?: boolean;
+	}): Promise<void> {
+		if (persist) {
+			await storageService.updateMediaAssetCloudState({
+				projectId,
+				id: assetId,
+				updates: state,
+			});
+		}
+		this.assets = this.assets.map((item) =>
+			item.id === assetId ? { ...item, ...state } : item,
+		);
+		this.notify();
+	}
+
+	private async syncMediaAssetToCloud({
 		projectId,
 		asset,
 	}: {
 		projectId: string;
 		asset: MediaAsset;
-	}): void {
-		uploadMediaAssetToCloud({ projectId, asset })
-			.then(async (cloudState) => {
-				await storageService.updateMediaAssetCloudState({
-					projectId,
-					id: asset.id,
-					updates: cloudState,
-				});
-				this.assets = this.assets.map((item) =>
-					item.id === asset.id ? { ...item, ...cloudState } : item,
-				);
-				this.notify();
-			})
-			.catch((error) => {
-				console.warn("Failed to sync media asset to cloud:", error);
+	}): Promise<void> {
+		if (this.cloudSyncingAssetIds.has(asset.id)) return;
+		this.cloudSyncingAssetIds.add(asset.id);
+		try {
+			const cloudState = await uploadMediaAssetToCloud({
+				projectId,
+				asset,
+				onStateChange: async (state) => {
+					await this.applyCloudState({
+						projectId,
+						assetId: asset.id,
+						state,
+					});
+				},
+				onProgress: (progress) => {
+					void this.applyCloudState({
+						projectId,
+						assetId: asset.id,
+						state: {
+							uploadStatus: "uploading",
+							uploadProgress: progress.percent,
+							uploadResumable: true,
+						},
+						persist: false,
+					});
+				},
 			});
+			await storageService.updateMediaAssetCloudState({
+				projectId,
+				id: asset.id,
+				updates: cloudState,
+			});
+			this.assets = this.assets.map((item) =>
+				item.id === asset.id ? { ...item, ...cloudState } : item,
+			);
+			this.notify();
+		} catch (error) {
+			console.warn("Failed to sync media asset to cloud:", error);
+			await storageService.updateMediaAssetCloudState({
+				projectId,
+				id: asset.id,
+				updates: {
+					uploadStatus: "failed",
+					uploadResumable: true,
+					uploadError:
+						error instanceof Error ? error.message : "cloud_upload_failed",
+				},
+			});
+			this.assets = this.assets.map((item) =>
+				item.id === asset.id
+					? {
+							...item,
+							uploadStatus: "failed",
+							uploadResumable: true,
+							uploadError:
+								error instanceof Error ? error.message : "cloud_upload_failed",
+						}
+					: item,
+			);
+			this.notify();
+		} finally {
+			this.cloudSyncingAssetIds.delete(asset.id);
+		}
+	}
+
+	private resumePendingCloudUploads({ projectId }: { projectId: string }): void {
+		for (const asset of this.assets) {
+			if (
+				(asset.uploadStatus === "uploading" || asset.uploadStatus === "failed") &&
+				asset.uploadResumable !== false
+			) {
+				void this.syncMediaAssetToCloud({ projectId, asset });
+			}
+		}
+	}
+
+	retryCloudUpload({ projectId, id }: { projectId: string; id: string }): void {
+		const asset = this.assets.find((item) => item.id === id);
+		if (!asset || asset.uploadStatus === "uploaded") return;
+		void this.syncMediaAssetToCloud({ projectId, asset });
 	}
 
 	removeMediaAsset({ projectId, id }: { projectId: string; id: string }): void {
@@ -121,6 +213,7 @@ export class MediaManager {
 			});
 			this.assets = mediaAssets;
 			this.notify();
+			this.resumePendingCloudUploads({ projectId });
 		} catch (error) {
 			console.error("Failed to load media assets:", error);
 		} finally {
