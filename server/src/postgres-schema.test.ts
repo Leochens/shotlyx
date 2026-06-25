@@ -52,6 +52,7 @@ describe("Shotlyx Postgres schema", () => {
 		expect(CREATE_SHOTLYX_SCHEMA_SQL).toContain(
 			"CREATE TABLE IF NOT EXISTS shotlyx_media_assets",
 		);
+		expect(CREATE_SHOTLYX_SCHEMA_SQL).toContain("metadata_json JSONB");
 		expect(CREATE_SHOTLYX_SCHEMA_SQL).toContain("object_key TEXT");
 	});
 });

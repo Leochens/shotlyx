@@ -42,6 +42,14 @@ const initiateCloudAssetUploadMock = mock(
 			mediaType: string;
 			mimeType: string;
 			sizeBytes: number;
+			metadata?: {
+				width?: number;
+				height?: number;
+				duration?: number;
+				fps?: number;
+				hasAudio?: boolean;
+				thumbnailUrl?: string;
+			};
 			objectKey?: string;
 			uploadStatus: "uploading";
 			createdAt: string;
@@ -175,6 +183,12 @@ describe("cloud media upload", () => {
 				type: "video/mp4",
 				lastModified: 123,
 			}),
+			width: 1920,
+			height: 1080,
+			duration: 10,
+			fps: 30,
+			hasAudio: true,
+			thumbnailUrl: "data:image/jpeg;base64,thumb",
 		};
 
 		try {
@@ -185,6 +199,16 @@ describe("cloud media upload", () => {
 				cosConstructor: FakeCos as never,
 			});
 			expect(failedState.uploadStatus).toBe("failed");
+			expect(initiateCloudAssetUploadMock.mock.calls[0]?.[0]).toMatchObject({
+				metadata: {
+					width: 1920,
+					height: 1080,
+					duration: 10,
+					fps: 30,
+					hasAudio: true,
+					thumbnailUrl: "data:image/jpeg;base64,thumb",
+				},
+			});
 			expect(taskStore.records.get("project-1:asset-1")?.uploadId).toBe("u-1");
 
 			const uploadedState = await uploadMediaAssetToCloud({

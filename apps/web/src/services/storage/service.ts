@@ -47,8 +47,11 @@ import {
 	hasStoredAuthSession,
 	listCloudProjects,
 	upsertCloudProject,
+	type CloudMediaAssetMetadata,
+	type CloudMediaAssetRecord,
 	type CloudProjectRecord,
 } from "@/auth/client";
+import { deriveCloudMediaAssetMetadata } from "@/media/metadata";
 
 const LOCAL_MEDIA_CACHE_LIMIT_BYTES = 20 * 1024 * 1024 * 1024;
 
@@ -157,6 +160,49 @@ function normalizeMediaAssetType({
 		return value;
 	}
 	return "video";
+}
+
+function normalizeCloudMediaMetadata({
+	metadata,
+}: {
+	metadata?: CloudMediaAssetRecord["metadata"];
+}): CloudMediaAssetMetadata {
+	if (!metadata || typeof metadata !== "object") return {};
+	return {
+		width: typeof metadata.width === "number" ? metadata.width : undefined,
+		height: typeof metadata.height === "number" ? metadata.height : undefined,
+		duration:
+			typeof metadata.duration === "number" ? metadata.duration : undefined,
+		fps: typeof metadata.fps === "number" ? metadata.fps : undefined,
+		hasAudio:
+			typeof metadata.hasAudio === "boolean" ? metadata.hasAudio : undefined,
+		thumbnailUrl:
+			typeof metadata.thumbnailUrl === "string"
+				? metadata.thumbnailUrl
+				: undefined,
+	};
+}
+
+function shouldDeriveMediaMetadata({
+	metadata,
+}: {
+	metadata: MediaAssetData;
+}): boolean {
+	if (metadata.type === "image") {
+		return !metadata.thumbnailUrl || !metadata.width || !metadata.height;
+	}
+	if (metadata.type === "video") {
+		return (
+			!metadata.thumbnailUrl ||
+			!metadata.width ||
+			!metadata.height ||
+			metadata.duration === undefined
+		);
+	}
+	if (metadata.type === "audio") {
+		return metadata.duration === undefined;
+	}
+	return false;
 }
 
 function normalizeProjectAssetSummary({
@@ -370,8 +416,11 @@ class StorageService {
 				projectId: id,
 			});
 			await Promise.all(
-				cloudProject.assets.map((asset) =>
-					mediaMetadataAdapter.set({
+				cloudProject.assets.map((asset) => {
+					const mediaMetadata = normalizeCloudMediaMetadata({
+						metadata: asset.metadata,
+					});
+					return mediaMetadataAdapter.set({
 						key: asset.id,
 						value: {
 							id: asset.id,
@@ -379,6 +428,12 @@ class StorageService {
 							type: normalizeMediaAssetType({ value: asset.mediaType }),
 							size: asset.sizeBytes,
 							lastModified: Date.parse(asset.updatedAt) || Date.now(),
+							width: mediaMetadata.width,
+							height: mediaMetadata.height,
+							duration: mediaMetadata.duration,
+							fps: mediaMetadata.fps,
+							hasAudio: mediaMetadata.hasAudio,
+							thumbnailUrl: mediaMetadata.thumbnailUrl,
 							cloudAssetId: asset.id,
 							uploadStatus: asset.uploadStatus,
 							objectKey: asset.objectKey,
@@ -386,8 +441,8 @@ class StorageService {
 							uploadProgress: asset.uploadStatus === "uploaded" ? 1 : undefined,
 							uploadResumable: asset.uploadStatus !== "uploaded",
 						},
-					}),
-				),
+					});
+				}),
 			);
 			return cloudProject.project.project as unknown as SerializedProject;
 		} catch (error) {
@@ -773,10 +828,24 @@ class StorageService {
 			const { mediaMetadataAdapter } = this.getProjectMediaAdapters({
 				projectId,
 			});
+			let derivedMetadata: Partial<MediaAssetData> = {};
+			try {
+				derivedMetadata = Object.fromEntries(
+					Object.entries(
+						await deriveCloudMediaAssetMetadata({
+							file,
+							type: metadata.type,
+						}),
+					).filter(([, value]) => value !== undefined),
+				) as Partial<MediaAssetData>;
+			} catch (error) {
+				console.warn("Failed to derive restored media metadata:", error);
+			}
 			await mediaMetadataAdapter.set({
 				key: metadata.id,
 				value: {
 					...metadata,
+					...derivedMetadata,
 					readUrl,
 					lastCacheAccessedAt: new Date().toISOString(),
 				},
@@ -886,14 +955,14 @@ class StorageService {
 			cloudAssetId: mediaAsset.cloudAssetId,
 			uploadStatus: mediaAsset.uploadStatus,
 			objectKey: mediaAsset.objectKey,
-				readUrl: mediaAsset.readUrl,
-				uploadedAt: mediaAsset.uploadedAt,
-				uploadTaskId: mediaAsset.uploadTaskId,
-				uploadProgress: mediaAsset.uploadProgress,
-				uploadResumable: mediaAsset.uploadResumable,
-				uploadError: mediaAsset.uploadError,
-				lastCacheAccessedAt: new Date().toISOString(),
-			};
+			readUrl: mediaAsset.readUrl,
+			uploadedAt: mediaAsset.uploadedAt,
+			uploadTaskId: mediaAsset.uploadTaskId,
+			uploadProgress: mediaAsset.uploadProgress,
+			uploadResumable: mediaAsset.uploadResumable,
+			uploadError: mediaAsset.uploadError,
+			lastCacheAccessedAt: new Date().toISOString(),
+		};
 
 		try {
 			await mediaAssetsAdapter.set({
@@ -949,7 +1018,7 @@ class StorageService {
 		const { mediaMetadataAdapter, mediaAssetsAdapter } =
 			this.getProjectMediaAdapters({ projectId });
 
-		const metadata = await mediaMetadataAdapter.get(id);
+		let metadata = await mediaMetadataAdapter.get(id);
 		let file = await mediaAssetsAdapter.get(id);
 		if (!file && metadata && this.usesDesktopMediaLibrary()) {
 			const legacyAdapter = this.getLegacyProjectMediaFilesAdapter({
@@ -968,49 +1037,73 @@ class StorageService {
 					});
 			}
 		}
-			if (!file && metadata?.uploadStatus === "uploaded") {
-				file = await this.restoreAssetFileFromCloud({
-					projectId,
-					metadata,
-					mediaAssetsAdapter,
-				});
+		if (!file && metadata?.uploadStatus === "uploaded") {
+			file = await this.restoreAssetFileFromCloud({
+				projectId,
+				metadata,
+				mediaAssetsAdapter,
+			});
+			metadata = await mediaMetadataAdapter.get(id);
+		}
+
+		if (!file || !metadata) return null;
+		const stableFile =
+			file.name === metadata.name && file.lastModified === metadata.lastModified
+				? file
+				: new File([file], metadata.name, {
+						type: file.type || undefined,
+						lastModified: metadata.lastModified || file.lastModified,
+					});
+
+		if (shouldDeriveMediaMetadata({ metadata })) {
+			try {
+				const derivedMetadata = Object.fromEntries(
+					Object.entries(
+						await deriveCloudMediaAssetMetadata({
+							file: stableFile,
+							type: metadata.type,
+						}),
+					).filter(([, value]) => value !== undefined),
+				) as Partial<MediaAssetData>;
+				if (Object.keys(derivedMetadata).length > 0) {
+					metadata = {
+						...metadata,
+						...derivedMetadata,
+						lastCacheAccessedAt: new Date().toISOString(),
+					};
+					await mediaMetadataAdapter.set({ key: id, value: metadata });
+				}
+			} catch (error) {
+				console.warn("Failed to derive media metadata:", error);
 			}
+		}
 
-			if (!file || !metadata) return null;
-			const stableFile =
-				file.name === metadata.name && file.lastModified === metadata.lastModified
-					? file
-					: new File([file], metadata.name, {
-							type: file.type || undefined,
-							lastModified: metadata.lastModified || file.lastModified,
-						});
-
-			let url: string;
-			if (
-				metadata.type === "image" &&
-				(!stableFile.type || stableFile.type === "")
-			) {
-				try {
-					const text = await stableFile.text();
-					if (text.trim().startsWith("<svg")) {
-						const svgBlob = new Blob([text], { type: "image/svg+xml" });
-						url = URL.createObjectURL(svgBlob);
-					} else {
-						url = URL.createObjectURL(stableFile);
-					}
-				} catch {
+		let url: string;
+		if (
+			metadata.type === "image" &&
+			(!stableFile.type || stableFile.type === "")
+		) {
+			try {
+				const text = await stableFile.text();
+				if (text.trim().startsWith("<svg")) {
+					const svgBlob = new Blob([text], { type: "image/svg+xml" });
+					url = URL.createObjectURL(svgBlob);
+				} else {
 					url = URL.createObjectURL(stableFile);
 				}
-			} else {
+			} catch {
 				url = URL.createObjectURL(stableFile);
 			}
+		} else {
+			url = URL.createObjectURL(stableFile);
+		}
 
 		return {
-				id: metadata.id,
-				name: metadata.name,
-				type: metadata.type,
-				file: stableFile,
-				url,
+			id: metadata.id,
+			name: metadata.name,
+			type: metadata.type,
+			file: stableFile,
+			url,
 			width: metadata.width,
 			height: metadata.height,
 			duration: metadata.duration,
@@ -1022,14 +1115,14 @@ class StorageService {
 			cloudAssetId: metadata.cloudAssetId,
 			uploadStatus: metadata.uploadStatus,
 			objectKey: metadata.objectKey,
-				readUrl: metadata.readUrl,
-				uploadedAt: metadata.uploadedAt,
-				uploadTaskId: metadata.uploadTaskId,
-				uploadProgress: metadata.uploadProgress,
-				uploadResumable: metadata.uploadResumable,
-				uploadError: metadata.uploadError,
-				lastCacheAccessedAt: new Date().toISOString(),
-			};
+			readUrl: metadata.readUrl,
+			uploadedAt: metadata.uploadedAt,
+			uploadTaskId: metadata.uploadTaskId,
+			uploadProgress: metadata.uploadProgress,
+			uploadResumable: metadata.uploadResumable,
+			uploadError: metadata.uploadError,
+			lastCacheAccessedAt: new Date().toISOString(),
+		};
 	}
 
 	async loadAllMediaAssets({

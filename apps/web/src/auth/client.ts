@@ -179,6 +179,15 @@ export type CloudProjectRecord = {
 	updatedAt: string;
 };
 
+export type CloudMediaAssetMetadata = {
+	width?: number;
+	height?: number;
+	duration?: number;
+	fps?: number;
+	hasAudio?: boolean;
+	thumbnailUrl?: string;
+};
+
 export type CloudMediaAssetRecord = {
 	id: string;
 	userId: string;
@@ -187,6 +196,7 @@ export type CloudMediaAssetRecord = {
 	mediaType: string;
 	mimeType: string;
 	sizeBytes: number;
+	metadata?: CloudMediaAssetMetadata;
 	objectKey?: string;
 	uploadStatus: CloudUploadStatus;
 	createdAt: string;
@@ -588,6 +598,7 @@ export async function initiateCloudAssetUpload({
 	mimeType,
 	mediaType,
 	sizeBytes,
+	metadata,
 }: {
 	projectId: string;
 	assetId: string;
@@ -595,6 +606,7 @@ export async function initiateCloudAssetUpload({
 	mimeType: string;
 	mediaType: string;
 	sizeBytes: number;
+	metadata?: CloudMediaAssetMetadata;
 }): Promise<{
 	upload: DirectUploadSession;
 	asset: CloudMediaAssetRecord;
@@ -603,7 +615,7 @@ export async function initiateCloudAssetUpload({
 	const payload = await requestAuthenticatedJson({
 		path: `/api/account/projects/${encodeURIComponent(projectId)}/assets/initiate`,
 		method: "POST",
-		body: { assetId, fileName, mimeType, mediaType, sizeBytes },
+		body: { assetId, fileName, mimeType, mediaType, sizeBytes, metadata },
 	});
 	return payload as {
 		upload: DirectUploadSession;

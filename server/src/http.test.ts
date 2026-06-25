@@ -624,6 +624,14 @@ describe("Shotlyx server HTTP app", () => {
 						mimeType: "video/mp4",
 						mediaType: "video",
 						sizeBytes: 1024,
+						metadata: {
+							width: 1920,
+							height: 1080,
+							duration: 12.5,
+							fps: 30,
+							hasAudio: true,
+							thumbnailUrl: "data:image/jpeg;base64,thumb",
+						},
 					}),
 				},
 			),
@@ -635,6 +643,14 @@ describe("Shotlyx server HTTP app", () => {
 		expect(initiated.asset.objectKey).toContain(
 			"shotlyx/users/",
 		);
+		expect(initiated.asset.metadata).toMatchObject({
+			width: 1920,
+			height: 1080,
+			duration: 12.5,
+			fps: 30,
+			hasAudio: true,
+			thumbnailUrl: "data:image/jpeg;base64,thumb",
+		});
 
 		const completeResponse = await app.fetch(
 			new Request(

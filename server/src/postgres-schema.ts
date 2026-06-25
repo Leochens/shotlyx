@@ -90,6 +90,7 @@ export const CREATE_SHOTLYX_SCHEMA_STATEMENTS = [
 		media_type TEXT NOT NULL,
 		mime_type TEXT NOT NULL,
 		size_bytes BIGINT NOT NULL,
+		metadata_json JSONB NOT NULL DEFAULT '{}',
 		object_key TEXT,
 		upload_status TEXT NOT NULL,
 		created_at TIMESTAMPTZ NOT NULL,
@@ -97,6 +98,8 @@ export const CREATE_SHOTLYX_SCHEMA_STATEMENTS = [
 		uploaded_at TIMESTAMPTZ,
 		expires_at TIMESTAMPTZ
 	)`,
+	`ALTER TABLE shotlyx_media_assets
+		ADD COLUMN IF NOT EXISTS metadata_json JSONB NOT NULL DEFAULT '{}'`,
 	`CREATE INDEX IF NOT EXISTS shotlyx_media_assets_project_id_idx
 		ON shotlyx_media_assets(user_id, project_id, updated_at DESC)`,
 	`CREATE TABLE IF NOT EXISTS shotlyx_logs (

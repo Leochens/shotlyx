@@ -2,6 +2,7 @@ import {
 	completeCloudAssetUpload,
 	hasStoredAuthSession,
 	initiateCloudAssetUpload,
+	type CloudMediaAssetMetadata,
 	type CloudUploadStatus,
 	type DirectUploadSession,
 } from "@/auth/client";
@@ -80,6 +81,24 @@ type UploadMediaAssetOptions = {
 	onStateChange?: (state: MediaAssetCloudState) => void | Promise<void>;
 	onProgress?: (progress: CloudUploadTaskProgress) => void;
 };
+
+function buildCloudMediaAssetMetadata({
+	asset,
+}: {
+	asset: Pick<
+		MediaAsset,
+		"width" | "height" | "duration" | "fps" | "hasAudio" | "thumbnailUrl"
+	>;
+}): CloudMediaAssetMetadata {
+	return {
+		width: asset.width,
+		height: asset.height,
+		duration: asset.duration,
+		fps: asset.fps,
+		hasAudio: asset.hasAudio,
+		thumbnailUrl: asset.thumbnailUrl,
+	};
+}
 
 function getMediaMimeType(asset: MediaAsset): string {
 	if (asset.file.type) return asset.file.type;
@@ -308,6 +327,7 @@ export async function uploadMediaAssetToCloud({
 		mimeType,
 		mediaType: asset.type,
 		sizeBytes: uploadFile.size,
+		metadata: buildCloudMediaAssetMetadata({ asset }),
 	});
 	const taskId = buildCloudUploadTaskId({ projectId, assetId: asset.id });
 	const existingTask = await taskStore.getTask({

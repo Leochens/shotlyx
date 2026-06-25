@@ -237,6 +237,7 @@ function toSyncedMediaAssetResponse(asset: SyncedMediaAsset) {
 		mediaType: asset.mediaType,
 		mimeType: asset.mimeType,
 		sizeBytes: asset.sizeBytes,
+		metadata: asset.metadata ?? {},
 		objectKey: asset.objectKey,
 		uploadStatus: asset.uploadStatus,
 		createdAt: asset.createdAt,
@@ -244,6 +245,26 @@ function toSyncedMediaAssetResponse(asset: SyncedMediaAsset) {
 		uploadedAt: asset.uploadedAt,
 		expiresAt: asset.expiresAt,
 	};
+}
+
+function readMediaAssetMetadata(
+	body: Record<string, unknown>,
+): Record<string, unknown> {
+	const metadata = readObject(body, "metadata");
+	if (!metadata) return {};
+	const next: Record<string, unknown> = {};
+	for (const key of ["width", "height", "duration", "fps"] as const) {
+		const value = readNumberValue(metadata[key]);
+		if (Number.isFinite(value) && value >= 0) next[key] = value;
+	}
+	if (typeof metadata.hasAudio === "boolean") {
+		next.hasAudio = metadata.hasAudio;
+	}
+	const thumbnailUrl = readString(metadata, "thumbnailUrl");
+	if (thumbnailUrl && thumbnailUrl.length <= 750_000) {
+		next.thumbnailUrl = thumbnailUrl;
+	}
+	return next;
 }
 
 function isSupportedUploadMime(mimeType: string): boolean {
@@ -837,6 +858,7 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 					);
 					const mediaType = readString(body, "mediaType", "video");
 					const sizeBytes = readNumberValue(body.sizeBytes);
+					const metadata = readMediaAssetMetadata(body);
 					if (!assetId || !projectId) {
 						return json({ error: "invalid_asset_scope" }, { status: 400 });
 					}
@@ -862,6 +884,7 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 							mediaType,
 							mimeType,
 							sizeBytes,
+							metadata,
 							objectKey: upload.objectKey,
 							uploadStatus:
 								upload.mode === "local-preview" ? "local-only" : "uploading",

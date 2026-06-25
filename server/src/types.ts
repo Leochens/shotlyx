@@ -82,6 +82,7 @@ export type SyncedMediaAsset = {
 	mediaType: string;
 	mimeType: string;
 	sizeBytes: number;
+	metadata?: Record<string, unknown>;
 	objectKey?: string;
 	uploadStatus: MediaAssetUploadStatus;
 	createdAt: string;
