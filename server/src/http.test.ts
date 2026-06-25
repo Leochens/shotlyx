@@ -507,19 +507,19 @@ describe("Shotlyx server HTTP app", () => {
 				},
 				body: JSON.stringify({
 					productType: "credit_package",
-					productCode: "credits_500k",
+					productCode: "points_3000",
 					type: "alipay",
 				}),
 			}),
 		);
 		expect(checkoutResponse.status).toBe(201);
 		const checkout = await checkoutResponse.json();
-		expect(checkout.order.credits).toBe(550_000);
-		expect(checkout.order.money).toBe("45.00");
+		expect(checkout.order.credits).toBe(3_000);
+		expect(checkout.order.money).toBe("30.00");
 		expect(checkout.order.product).toEqual({
 			type: "credit_package",
-			code: "credits_500k",
-			name: "50 万积分包",
+			code: "points_3000",
+			name: "3000 点数包",
 		});
 
 		const notifyParams = {
@@ -527,8 +527,8 @@ describe("Shotlyx server HTTP app", () => {
 			type: "alipay",
 			out_trade_no: checkout.order.outTradeNo,
 			trade_no: "zpay-catalog-trade-1",
-			name: "50 万积分包",
-			money: "45.00",
+			name: "3000 点数包",
+			money: "30.00",
 			trade_status: "TRADE_SUCCESS",
 		};
 		const signedNotifyParams = new URLSearchParams({
@@ -550,10 +550,10 @@ describe("Shotlyx server HTTP app", () => {
 		);
 		expect(billingStateResponse.status).toBe(200);
 		const billingState = await billingStateResponse.json();
-		expect(billingState.wallet.availableCredits).toBe(550_500);
-		expect(billingState.creditBreakdown.creditPackageCredits).toBe(550_000);
+		expect(billingState.wallet.availableCredits).toBe(3_500);
+		expect(billingState.creditBreakdown.creditPackageCredits).toBe(3_000);
 		expect(billingState.creditBreakdown.adminCredits).toBe(500);
-		expect(billingState.catalog.creditPackages).toHaveLength(3);
+		expect(billingState.catalog.creditPackages).toHaveLength(5);
 	});
 
 	test("syncs account projects and local-preview media assets", async () => {

@@ -36,8 +36,8 @@ describe("account menu", () => {
 	});
 
 	test("formats top-up packages for compact buttons", () => {
-		expect(formatCreditPackageLabel(100_000)).toBe("10万");
-		expect(formatCreditPackageLabel(1_000_000)).toBe("100万");
+		expect(formatCreditPackageLabel(1000)).toBe("1,000");
+		expect(formatCreditPackageLabel(30_000)).toBe("3万");
 		expect(formatCreditPackageLabel(12_500)).toBe("12,500");
 	});
 
@@ -46,14 +46,14 @@ describe("account menu", () => {
 		expect(
 			getCreditPackageGrantedCredits({
 				type: "credit_package",
-				code: "credits_500k",
-				name: "50 万积分包",
+				code: "points_3000",
+				name: "3000 点数包",
 				description: "test",
-				priceCents: 4500,
-				credits: 500_000,
-				bonusCredits: 50_000,
+				priceCents: 3000,
+				credits: 3_000,
+				bonusCredits: 0,
 			}),
-		).toBe(550_000);
+		).toBe(3_000);
 	});
 
 	test("labels ledger statuses in Chinese", () => {

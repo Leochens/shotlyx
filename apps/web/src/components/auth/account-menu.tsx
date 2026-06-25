@@ -123,7 +123,7 @@ export function AccountCreditBadge({ account }: { account: AuthAccount }) {
 			<span className="font-medium text-foreground">
 				{formatCreditAmount(account.newApiKey?.quota)}
 			</span>
-			<span>credits</span>
+			<span>points</span>
 		</div>
 	);
 }
@@ -258,7 +258,7 @@ export function AccountMenu({ account }: { account: AuthAccount }) {
 							{formatCreditPackageLabel(
 								billingState.subscription.includedCredits ?? 0,
 							)}{" "}
-							积分
+							点
 						</div>
 					) : null}
 					<div className="mt-3 grid grid-cols-3 gap-1 text-xs">
@@ -271,7 +271,7 @@ export function AccountMenu({ account }: { account: AuthAccount }) {
 							</p>
 						</div>
 						<div>
-							<p className="text-muted-foreground">积分包</p>
+							<p className="text-muted-foreground">点数包</p>
 							<p className="font-medium">
 								{formatCreditAmount(
 									billingState?.creditBreakdown.creditPackageCredits ?? 0,
@@ -305,7 +305,7 @@ export function AccountMenu({ account }: { account: AuthAccount }) {
 											{plan.name}
 										</span>
 										<span className="block truncate text-muted-foreground">
-											{formatCreditPackageLabel(plan.includedCredits)} 积分
+											{formatCreditPackageLabel(plan.includedCredits)} 点
 										</span>
 									</span>
 									<span className="shrink-0 font-semibold">
@@ -320,7 +320,7 @@ export function AccountMenu({ account }: { account: AuthAccount }) {
 						)}
 					</div>
 					<div className="mt-3 space-y-1.5">
-						<p className="font-medium text-xs">积分包</p>
+						<p className="font-medium text-xs">点数包</p>
 						<div className="grid grid-cols-3 gap-1">
 							{creditPackages.map((product) => (
 								<button

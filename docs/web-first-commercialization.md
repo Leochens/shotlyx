@@ -2,29 +2,29 @@
 
 ## 目标
 
-当前阶段客户端先不考虑，Web 端优先完成账号、积分、套餐、支付、上传配置这条闭环。核心原则是：前端只展示后端给出的产品和账户状态，不在浏览器里推断套餐、积分来源或消耗规则。
+当前阶段客户端先不考虑，Web 端优先完成账号、点数、套餐、支付、上传配置这条闭环。核心原则是：前端只展示后端给出的产品和账户状态，不在浏览器里推断套餐、点数来源或消耗规则。
 
 ## 模块边界
 
 | 模块                  | 位置                                            | 职责                                 |
 | --------------------- | ----------------------------------------------- | ------------------------------------ |
 | Auth                  | `server/src/auth.ts`                            | 注册、登录、会话、New API key 绑定   |
-| Billing ledger        | `server/src/billing.ts`                         | 积分入账、幂等、New API quota 同步   |
-| Product catalog       | `server/src/product-catalog.ts`                 | 套餐、积分包、消耗规则               |
-| Account billing       | `server/src/account-billing.ts`                 | 用户余额、积分来源拆分、订阅状态     |
+| Billing ledger        | `server/src/billing.ts`                         | 点数入账、幂等、New API quota 同步   |
+| Product catalog       | `server/src/product-catalog.ts`                 | 套餐、点数包、消耗规则               |
+| Account billing       | `server/src/account-billing.ts`                 | 用户余额、点数来源拆分、订阅状态     |
 | Payment adapter       | `server/src/payments.ts`                        | ZPAY 下单、回调验签、支付入账        |
 | Billing Center status | `server/src/billing-center.ts`                  | 外部 Billing Center 配置检查         |
 | Object storage status | `server/src/object-storage-config.ts`           | local/COS/R2/S3 配置检查与上传前校验 |
 | Cloud storage         | `server/src/cloud-storage.ts`                   | COS STS 直传、完成校验、签名读取 URL |
 | Project sync          | `shotlyx_projects` / `shotlyx_media_assets`     | 账号下项目 JSON 和云端素材索引       |
 | Web billing client    | `apps/web/src/auth/client.ts`                   | 账户账单状态、checkout、存储配置 API |
-| Web account menu      | `apps/web/src/components/auth/account-menu.tsx` | 套餐购买、积分包购买、余额拆分、流水 |
+| Web account menu      | `apps/web/src/components/auth/account-menu.tsx` | 套餐购买、点数包购买、余额拆分、流水 |
 
 ## 后端 API
 
 | API                                  | 鉴权               | 用途                                                 |
 | ------------------------------------ | ------------------ | ---------------------------------------------------- |
-| `GET /api/account/billing-state`     | Bearer session     | 用户余额、积分拆分、套餐目录、消耗规则、流水         |
+| `GET /api/account/billing-state`     | Bearer session     | 用户余额、点数拆分、套餐目录、消耗规则、流水         |
 | `GET /api/account/billing/catalog`   | Bearer session     | 套餐和消耗规则                                       |
 | `POST /api/account/billing/checkout` | Bearer session     | 根据 `productType` + `productCode` 创建支付订单      |
 | `GET /api/account/storage/config`    | Bearer session     | 返回对象存储配置状态                                 |
@@ -37,41 +37,109 @@
 | `GET /api/account/projects/:id/assets/:assetId/read-url` | Bearer session | 返回素材签名读取 URL              |
 | `GET /api/admin/commercial-config`   | Admin token/cookie | 管理端查看套餐、消耗规则、存储和 Billing Center 状态 |
 
-## 积分与套餐
+## 点数与套餐
 
 默认产品在 `server/src/product-catalog.ts`：
 
-| 类型   | Code              | 价格     | 到账积分  |
-| ------ | ----------------- | -------- | --------- |
-| 订阅   | `creator_monthly` | 39 元/月 | 500,000   |
-| 订阅   | `studio_monthly`  | 99 元/月 | 1,800,000 |
-| 积分包 | `credits_100k`    | 10 元    | 100,000   |
-| 积分包 | `credits_500k`    | 45 元    | 550,000   |
-| 积分包 | `credits_1m`      | 85 元    | 1,150,000 |
+| 类型   | Code              | 价格      | 到账点数 |
+| ------ | ----------------- | --------- | -------- |
+| 订阅   | `creator_monthly` | 39 元/月  | 3,000    |
+| 订阅   | `pro_monthly`     | 99 元/月  | 10,000   |
+| 订阅   | `team_monthly`    | 299 元/月 | 33,000   |
+| 点数包 | `points_1000`     | 10 元     | 1,000    |
+| 点数包 | `points_3000`     | 30 元     | 3,000    |
+| 点数包 | `points_7000`     | 69 元     | 7,000    |
+| 点数包 | `points_12000`    | 119 元    | 12,000   |
+| 点数包 | `points_30000`    | 299 元    | 30,000   |
 
 消耗规则通过环境变量覆盖：
 
-| 环境变量                                 | 默认值 |
-| ---------------------------------------- | ------ |
-| `USAGE_CREDITS_ASR_TRANSCRIPTION_MINUTE` | 1200   |
-| `USAGE_CREDITS_LLM_AGENT_TURN`           | 800    |
-| `USAGE_CREDITS_VOICEOVER_1K_CHARS`       | 2000   |
-| `USAGE_CREDITS_IMAGE_GENERATION`         | 5000   |
-| `USAGE_CREDITS_MG_GENERATION`            | 8000   |
-| `USAGE_CREDITS_STOCK_IMPORT`             | 500    |
+| Code                            | 环境变量                                      | 默认点数 |
+| ------------------------------- | --------------------------------------------- | -------- |
+| `llm_agent_turn`                | `USAGE_CREDITS_LLM_AGENT_TURN`                | 20       |
+| `llm_agent_long_turn`           | `USAGE_CREDITS_LLM_AGENT_LONG_TURN`           | 80       |
+| `asr_transcription_minute`      | `USAGE_CREDITS_ASR_TRANSCRIPTION_MINUTE`      | 8        |
+| `asr_context_minute`            | `USAGE_CREDITS_ASR_CONTEXT_MINUTE`            | 12       |
+| `tts_1k_chars`                  | `USAGE_CREDITS_TTS_1K_CHARS`                  | 200      |
+| `voice_clone_tts_1k_chars`      | `USAGE_CREDITS_VOICE_CLONE_TTS_1K_CHARS`      | 300      |
+| `voice_clone_training`          | `USAGE_CREDITS_VOICE_CLONE_TRAINING`          | 1,000    |
+| `image_generation`              | `USAGE_CREDITS_IMAGE_GENERATION`              | 150      |
+| `mg_generation`                 | `USAGE_CREDITS_MG_GENERATION`                 | 200      |
+| `video_understanding_base`      | `USAGE_CREDITS_VIDEO_UNDERSTANDING_BASE`      | 50       |
+| `video_understanding_minute`    | `USAGE_CREDITS_VIDEO_UNDERSTANDING_MINUTE`    | 15       |
+| `video_generation_5s_720p`      | `USAGE_CREDITS_VIDEO_GENERATION_5S_720P`      | 1,200    |
+| `video_generation_5s_1080p`     | `USAGE_CREDITS_VIDEO_GENERATION_5S_1080P`     | 2,000    |
+| `stock_import`                  | `USAGE_CREDITS_STOCK_IMPORT`                  | 5        |
 
-支付成功后，账本 `meta` 会记录 `productType`、`productCode`、`productName`。账户状态的 `creditBreakdown` 按这些字段拆分订阅积分、积分包积分和管理员手动积分。
+支付成功后，账本 `meta` 会记录 `productType`、`productCode`、`productName`。账户状态的 `creditBreakdown` 按这些字段拆分订阅点数、点数包余额和管理员手动点数。
+
+## 70% 毛利公式
+
+Shotlyx 的用户可见货币口径是：
+
+```txt
+1 元 = 100 点
+1 点 = 0.01 元
+目标毛利 = 70%
+```
+
+所以每个点数最多承载：
+
+```txt
+max_provider_cost_per_point = 0.01 * (1 - 0.70) = 0.003 元
+```
+
+每个能力的定价公式：
+
+```txt
+provider_cost = provider_unit_price * quantity
+infra_cost = provider_cost * 0.10
+risk_cost = provider_cost * retry_factor
+total_cost = provider_cost + infra_cost + risk_cost
+points = ceil(total_cost / 0.003)
+final_points = max(points, value_floor_points)
+```
+
+建议 `retry_factor`：
+
+| 能力类型 | retry_factor |
+| -------- | ------------ |
+| DeepSeek V4 Pro Agent | 0.10-0.20 |
+| volc.seedasr.auc ASR | 0.10 |
+| TTS / 声音复刻 | 0.10-0.15 |
+| 生图 | 0.20 |
+| 视频生成 | 0.25-0.35 |
+
+模型默认选择：
+
+| 场景 | 默认供应商/模型 | 说明 |
+| ---- | --------------- | ---- |
+| Agent 对话与工具规划 | DeepSeek V4 Pro | 统一默认，不再用 Flash 做主路径 |
+| 字幕识别 | 火山 `volc.seedasr.auc` | ASR，不是 TTS，适合字幕和语义粗剪 |
+| 普通配音 | 火山 `seed-tts` | 按 1000 字扣点 |
+| 克隆音色配音 | 火山 `seed-icl` / 声音复刻音色 | 按 1000 字高价扣点 |
+| 视频理解 | ASR-first，再抽帧视觉，最后整段视频理解 | 避免一上来使用高成本视频模型 |
+| 视频生成 | Seedance / Wan | 必须预扣，不纳入无限权益 |
 
 ## Billing Center 接入策略
 
-`https://pay.guantou.site/integration` 当前可作为外部 Billing Center 参考系统。Shotlyx 现在先把接入边界预留出来：
+`https://pay.guantou.site/integration` 当前可作为外部 Billing Center 参考系统。Shotlyx 的推荐切换策略：
 
 - 配置项：`BILLING_CENTER_BASE_URL`、`BILLING_CENTER_API_KEY`、`BILLING_CENTER_APP_CODE`
-- 管理端展示配置状态和缺失项
-- 前端和账本只依赖 Shotlyx 自己的 `billing-state` 与 `checkout` API
-- 后续切换时只需要新增 Billing Center payment adapter，不需要改账户菜单和积分拆账结构
+- Billing Center 建立同名 `app_code=shotlyx`
+- Billing Center 配置上方套餐、点数包、usage rules
+- Shotlyx 本地 `product-catalog.ts` 只作为 Billing Center 不可用时的 fallback
+- 前端继续只依赖 Shotlyx 自己的 `billing-state` 与 `checkout` API
+- 高成本能力接入 Billing Center 的 `reserve -> finalize/cancel`
 
-在正式 API 文档和密钥确认前，生产购买仍走现有 ZPAY 适配器更稳。
+正式切换后，Shotlyx 侧适配顺序：
+
+1. `GET /api/account/billing-state` 优先透传 Billing Center 返回的余额、订阅和 `credit_breakdown`。
+2. `GET /api/account/billing/catalog` 优先读取 Billing Center catalog。
+3. `POST /api/account/billing/checkout` 改为向 Billing Center 创建订单。
+4. ASR、LLM、TTS、图片、视频生成等任务调用前先 `reserve`。
+5. 任务成功按真实用量 `finalize`，失败或取消则 `cancel`。
+6. 仅在 Billing Center 未配置的本地开发环境使用当前 ZPAY 和本地账本 fallback。
 
 ## 对象存储与上传
 

@@ -319,14 +319,14 @@ describe("auth client errors", () => {
 				return new Response(
 					JSON.stringify({
 						user: { id: "user-1", email: "buyer@example.com", name: "Buyer" },
-						wallet: { availableCredits: 550_000, heldCredits: 0 },
+						wallet: { availableCredits: 3_000, heldCredits: 0 },
 						creditBreakdown: {
 							subscriptionCredits: 0,
-							creditPackageCredits: 550_000,
+							creditPackageCredits: 3_000,
 							adminCredits: 0,
 							promoCredits: 0,
 							refundAdjustmentCredits: 0,
-							totalActiveCredits: 550_000,
+							totalActiveCredits: 3_000,
 						},
 						subscription: { status: "none" },
 						catalog: { plans: [], creditPackages: [] },
@@ -358,14 +358,14 @@ describe("auth client errors", () => {
 					order: {
 						id: "pay-1",
 						outTradeNo: "sx_catalog_order",
-						credits: 550_000,
-						money: "45.00",
+						credits: 3_000,
+						money: "30.00",
 						type: "alipay",
 						status: "pending",
 						product: {
 							type: "credit_package",
-							code: "credits_500k",
-							name: "50 万积分包",
+							code: "points_3000",
+							name: "3000 点数包",
 						},
 					},
 					checkoutUrl:
@@ -380,13 +380,13 @@ describe("auth client errors", () => {
 			const storageConfig = await getObjectStorageConfigStatus();
 			const checkout = await createBillingCheckout({
 				productType: "credit_package",
-				productCode: "credits_500k",
+				productCode: "points_3000",
 				type: "alipay",
 			});
 
-			expect(billingState.wallet.availableCredits).toBe(550_000);
+			expect(billingState.wallet.availableCredits).toBe(3_000);
 			expect(storageConfig.driver).toBe("local");
-			expect(checkout.order.product?.code).toBe("credits_500k");
+			expect(checkout.order.product?.code).toBe("points_3000");
 			expect(requests).toEqual([
 				{
 					url: "/api/account/billing-state",
@@ -403,7 +403,7 @@ describe("auth client errors", () => {
 					authorization: "Bearer shotlyx_session_billing",
 					body: {
 						productType: "credit_package",
-						productCode: "credits_500k",
+						productCode: "points_3000",
 						type: "alipay",
 					},
 				},

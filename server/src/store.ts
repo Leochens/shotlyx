@@ -13,7 +13,7 @@ import type {
 
 const DEFAULT_SETTINGS: ServerSettings = {
 	newApiBaseUrl: "",
-	initialQuota: 100_000,
+	initialQuota: 100,
 	callbackSecretSet: false,
 };
 

@@ -43,7 +43,7 @@ export type ServerAppConfig = {
 	zpay?: ZpayPaymentConfig;
 };
 
-const DEFAULT_INITIAL_QUOTA = 100_000;
+const DEFAULT_INITIAL_QUOTA = 100;
 const ADMIN_COOKIE_NAME = "shotlyx_admin_token";
 
 function json(data: unknown, init: ResponseInit = {}): Response {
@@ -423,17 +423,17 @@ function adminPage({
       <p>Initial Quota: <code>${settings.initialQuota}</code></p>
     </section>
     <section>
-      <h2>套餐与积分规则</h2>
+      <h2>套餐与点数规则</h2>
       <h3>订阅套餐</h3>
-      <table><thead><tr><th>名称</th><th>Code</th><th>价格</th><th>包含积分</th><th>权益</th></tr></thead><tbody>
+      <table><thead><tr><th>名称</th><th>Code</th><th>价格</th><th>包含点数</th><th>权益</th></tr></thead><tbody>
         ${renderPlansTable(catalog.plans)}
       </tbody></table>
-      <h3>积分包</h3>
-      <table><thead><tr><th>名称</th><th>Code</th><th>价格</th><th>到账积分</th><th>说明</th></tr></thead><tbody>
+      <h3>点数包</h3>
+      <table><thead><tr><th>名称</th><th>Code</th><th>价格</th><th>到账点数</th><th>说明</th></tr></thead><tbody>
         ${renderCreditPackagesTable(catalog.creditPackages)}
       </tbody></table>
       <h3>消耗规则</h3>
-      <table><thead><tr><th>能力</th><th>Code</th><th>单位</th><th>积分</th><th>配置项</th></tr></thead><tbody>
+      <table><thead><tr><th>能力</th><th>Code</th><th>单位</th><th>点数</th><th>配置项</th></tr></thead><tbody>
         ${renderUsageRulesTable(usagePricingRules)}
       </tbody></table>
     </section>
