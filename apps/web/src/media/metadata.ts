@@ -67,6 +67,80 @@ function generateImageMetadata({
 	});
 }
 
+function generateVideoElementMetadata({
+	file,
+}: {
+	file: File;
+}): Promise<CloudMediaAssetMetadata> {
+	return new Promise((resolve, reject) => {
+		const video = document.createElement("video");
+		const objectUrl = URL.createObjectURL(file);
+		let settled = false;
+
+		const cleanup = () => {
+			URL.revokeObjectURL(objectUrl);
+			video.removeAttribute("src");
+			video.load();
+			video.remove();
+		};
+
+		const fail = (error: Error) => {
+			if (settled) return;
+			settled = true;
+			cleanup();
+			reject(error);
+		};
+
+		const finish = () => {
+			if (settled) return;
+			try {
+				const width = video.videoWidth || undefined;
+				const height = video.videoHeight || undefined;
+				const duration = Number.isFinite(video.duration)
+					? video.duration
+					: undefined;
+				const thumbnailUrl =
+					width && height
+						? renderThumbnailDataUrl({
+								width,
+								height,
+								draw: ({ context, width: targetWidth, height: targetHeight }) => {
+									context.drawImage(video, 0, 0, targetWidth, targetHeight);
+								},
+							})
+						: undefined;
+				settled = true;
+				cleanup();
+				resolve({ width, height, duration, thumbnailUrl });
+			} catch (error) {
+				fail(error instanceof Error ? error : new Error("video_thumbnail_failed"));
+			}
+		};
+
+		video.muted = true;
+		video.playsInline = true;
+		video.preload = "metadata";
+		video.addEventListener("error", () => fail(new Error("video_metadata_failed")));
+		video.addEventListener("loadeddata", finish, { once: true });
+		video.addEventListener(
+			"loadedmetadata",
+			() => {
+				const duration = Number.isFinite(video.duration) ? video.duration : 0;
+				const targetTime = Math.min(0.1, Math.max(0, duration / 2));
+				if (targetTime > 0) {
+					video.currentTime = targetTime;
+				} else {
+					finish();
+				}
+			},
+			{ once: true },
+		);
+		video.addEventListener("seeked", finish, { once: true });
+		video.src = objectUrl;
+		video.load();
+	});
+}
+
 export async function deriveCloudMediaAssetMetadata({
 	file,
 	type,
@@ -79,15 +153,20 @@ export async function deriveCloudMediaAssetMetadata({
 	}
 
 	if (type === "video") {
-		const video = await readVideoFile({ file });
-		return {
-			width: video.width,
-			height: video.height,
-			duration: video.duration,
-			fps: Number.isFinite(video.fps) ? Math.round(video.fps) : undefined,
-			hasAudio: video.hasAudio,
-			thumbnailUrl: video.thumbnailUrl ?? undefined,
-		};
+		try {
+			const video = await readVideoFile({ file });
+			return {
+				width: video.width,
+				height: video.height,
+				duration: video.duration,
+				fps: Number.isFinite(video.fps) ? Math.round(video.fps) : undefined,
+				hasAudio: video.hasAudio,
+				thumbnailUrl: video.thumbnailUrl ?? undefined,
+			};
+		} catch (error) {
+			console.warn("Falling back to browser video metadata:", error);
+			return generateVideoElementMetadata({ file });
+		}
 	}
 
 	if (type === "audio") {
