@@ -46,6 +46,7 @@ import {
 	getCloudProject,
 	hasStoredAuthSession,
 	listCloudProjects,
+	updateCloudAssetMetadata,
 	upsertCloudProject,
 	type CloudMediaAssetMetadata,
 	type CloudMediaAssetRecord,
@@ -203,6 +204,29 @@ function shouldDeriveMediaMetadata({
 		return metadata.duration === undefined;
 	}
 	return false;
+}
+
+function buildCloudMediaMetadataPatch({
+	metadata,
+}: {
+	metadata: MediaAssetData;
+}): CloudMediaAssetMetadata {
+	return {
+		width: metadata.width,
+		height: metadata.height,
+		duration: metadata.duration,
+		fps: metadata.fps,
+		hasAudio: metadata.hasAudio,
+		thumbnailUrl: metadata.thumbnailUrl,
+	};
+}
+
+function hasCloudMediaMetadataPatch({
+	metadata,
+}: {
+	metadata: CloudMediaAssetMetadata;
+}): boolean {
+	return Object.values(metadata).some((value) => value !== undefined);
 }
 
 function normalizeProjectAssetSummary({
@@ -807,6 +831,17 @@ class StorageService {
 		mediaAssetsAdapter: StorageAdapter<File>;
 	}): Promise<File | null> {
 		if (!metadata.objectKey && !metadata.cloudAssetId) return null;
+		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({
+			projectId,
+		});
+		await mediaMetadataAdapter.set({
+			key: metadata.id,
+			value: {
+				...metadata,
+				cacheStatus: "restoring",
+				cacheError: undefined,
+			},
+		});
 		try {
 			const readUrl =
 				metadata.readUrl ??
@@ -816,18 +851,36 @@ class StorageService {
 						assetId: metadata.cloudAssetId ?? metadata.id,
 					})
 				).readUrl;
-			if (!readUrl) return null;
+			if (!readUrl) {
+				await mediaMetadataAdapter.set({
+					key: metadata.id,
+					value: {
+						...metadata,
+						cacheStatus: "restore-failed",
+						cacheError: "read_url_unavailable",
+					},
+				});
+				return null;
+			}
 			const response = await fetch(readUrl);
-			if (!response.ok) return null;
+			if (!response.ok) {
+				await mediaMetadataAdapter.set({
+					key: metadata.id,
+					value: {
+						...metadata,
+						readUrl,
+						cacheStatus: "restore-failed",
+						cacheError: `restore_http_${response.status}`,
+					},
+				});
+				return null;
+			}
 			const blob = await response.blob();
 			const file = new File([blob], metadata.name, {
 				type: blob.type || undefined,
 				lastModified: metadata.lastModified || Date.now(),
 			});
 			await mediaAssetsAdapter.set({ key: metadata.id, value: file });
-			const { mediaMetadataAdapter } = this.getProjectMediaAdapters({
-				projectId,
-			});
 			let derivedMetadata: Partial<MediaAssetData> = {};
 			try {
 				derivedMetadata = Object.fromEntries(
@@ -847,13 +900,60 @@ class StorageService {
 					...metadata,
 					...derivedMetadata,
 					readUrl,
+					cacheStatus: "cached",
+					cacheError: undefined,
 					lastCacheAccessedAt: new Date().toISOString(),
 				},
 			});
 			return file;
 		} catch (error) {
 			console.warn("Failed to restore media asset from cloud:", error);
+			await mediaMetadataAdapter.set({
+				key: metadata.id,
+				value: {
+					...metadata,
+					cacheStatus: "restore-failed",
+					cacheError: error instanceof Error ? error.message : "restore_failed",
+				},
+			});
 			return null;
+		}
+	}
+
+	private async syncMediaAssetMetadataToCloud({
+		projectId,
+		metadata,
+		mediaMetadataAdapter,
+	}: {
+		projectId: string;
+		metadata: MediaAssetData;
+		mediaMetadataAdapter: StorageAdapter<MediaAssetData>;
+	}): Promise<void> {
+		if (!hasStoredAuthSession()) return;
+		if (!metadata.cloudAssetId || metadata.uploadStatus !== "uploaded") return;
+		if (metadata.cloudMetadataSyncedAt) return;
+		if (metadata.type === "audio") {
+			if (metadata.duration === undefined) return;
+		} else if (!metadata.thumbnailUrl) {
+			return;
+		}
+		const patch = buildCloudMediaMetadataPatch({ metadata });
+		if (!hasCloudMediaMetadataPatch({ metadata: patch })) return;
+		try {
+			await updateCloudAssetMetadata({
+				projectId,
+				assetId: metadata.cloudAssetId,
+				metadata: patch,
+			});
+			await mediaMetadataAdapter.set({
+				key: metadata.id,
+				value: {
+					...metadata,
+					cloudMetadataSyncedAt: new Date().toISOString(),
+				},
+			});
+		} catch (error) {
+			console.warn("Failed to sync media metadata to cloud:", error);
 		}
 	}
 
@@ -957,6 +1057,9 @@ class StorageService {
 			objectKey: mediaAsset.objectKey,
 			readUrl: mediaAsset.readUrl,
 			uploadedAt: mediaAsset.uploadedAt,
+			cacheStatus: mediaAsset.cacheStatus,
+			cacheError: mediaAsset.cacheError,
+			cloudMetadataSyncedAt: mediaAsset.cloudMetadataSyncedAt,
 			uploadTaskId: mediaAsset.uploadTaskId,
 			uploadProgress: mediaAsset.uploadProgress,
 			uploadResumable: mediaAsset.uploadResumable,
@@ -1046,6 +1149,18 @@ class StorageService {
 			metadata = await mediaMetadataAdapter.get(id);
 		}
 
+		if (!file && metadata?.uploadStatus === "uploaded") {
+			file = new File([], metadata.name, {
+				type:
+					metadata.type === "video"
+						? "video/mp4"
+						: metadata.type === "audio"
+							? "audio/mpeg"
+							: undefined,
+				lastModified: metadata.lastModified || Date.now(),
+			});
+		}
+
 		if (!file || !metadata) return null;
 		const stableFile =
 			file.name === metadata.name && file.lastModified === metadata.lastModified
@@ -1055,7 +1170,7 @@ class StorageService {
 						lastModified: metadata.lastModified || file.lastModified,
 					});
 
-		if (shouldDeriveMediaMetadata({ metadata })) {
+		if (stableFile.size > 0 && shouldDeriveMediaMetadata({ metadata })) {
 			try {
 				const derivedMetadata = Object.fromEntries(
 					Object.entries(
@@ -1077,6 +1192,13 @@ class StorageService {
 				console.warn("Failed to derive media metadata:", error);
 			}
 		}
+		this.syncMediaAssetMetadataToCloud({
+			projectId,
+			metadata,
+			mediaMetadataAdapter,
+		}).catch((error) => {
+			console.warn("Failed to schedule media metadata cloud sync:", error);
+		});
 
 		let url: string;
 		if (
@@ -1117,6 +1239,9 @@ class StorageService {
 			objectKey: metadata.objectKey,
 			readUrl: metadata.readUrl,
 			uploadedAt: metadata.uploadedAt,
+			cacheStatus: metadata.cacheStatus ?? (file.size > 0 ? "cached" : undefined),
+			cacheError: metadata.cacheError,
+			cloudMetadataSyncedAt: metadata.cloudMetadataSyncedAt,
 			uploadTaskId: metadata.uploadTaskId,
 			uploadProgress: metadata.uploadProgress,
 			uploadResumable: metadata.uploadResumable,

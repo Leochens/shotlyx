@@ -960,6 +960,41 @@ export function createServerApp(config: ServerAppConfig = {}): ServerApp {
 					});
 				}
 
+				const assetMetadataMatch =
+					/^\/api\/account\/projects\/([^/]+)\/assets\/([^/]+)\/metadata$/.exec(
+						url.pathname,
+					);
+				if (assetMetadataMatch && request.method === "PUT") {
+					const account = await requireAccount(request);
+					if (!account) return json({ error: "unauthorized" }, { status: 401 });
+					const projectId = decodeURIComponent(assetMetadataMatch[1] ?? "");
+					const assetId = decodeURIComponent(assetMetadataMatch[2] ?? "");
+					const asset = await store.findMediaAssetByUserId({
+						userId: account.user.id,
+						projectId,
+						assetId,
+					});
+					if (!asset) {
+						return json({ error: "asset_not_found" }, { status: 404 });
+					}
+					const body = await readJson(request);
+					const metadata = readMediaAssetMetadata(body);
+					if (Object.keys(metadata).length === 0) {
+						return json({ error: "invalid_metadata" }, { status: 400 });
+					}
+					const timestamp = nowIso();
+					const nextAsset: SyncedMediaAsset = {
+						...asset,
+						metadata: {
+							...(asset.metadata ?? {}),
+							...metadata,
+						},
+						updatedAt: timestamp,
+					};
+					await store.upsertMediaAsset(nextAsset);
+					return json({ asset: toSyncedMediaAssetResponse(nextAsset) });
+				}
+
 				const assetReadUrlMatch =
 					/^\/api\/account\/projects\/([^/]+)\/assets\/([^/]+)\/read-url$/.exec(
 						url.pathname,

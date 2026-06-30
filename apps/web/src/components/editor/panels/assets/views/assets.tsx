@@ -861,6 +861,26 @@ function MediaAssetItem({
 }
 
 function CloudUploadStatusBadge({ item }: { item: MediaAsset }) {
+	if (item.cacheStatus === "restoring") {
+		return (
+			<span
+				className="pointer-events-none absolute bottom-1.5 left-1.5 z-10 max-w-[calc(100%-0.75rem)] truncate rounded bg-violet-600 px-1.5 py-0.5 text-[0.62rem] text-white leading-none shadow-sm"
+				title="本地缓存缺失，正在从云端恢复"
+			>
+				恢复中
+			</span>
+		);
+	}
+	if (item.cacheStatus === "restore-failed") {
+		return (
+			<span
+				className="pointer-events-none absolute bottom-1.5 left-1.5 z-10 max-w-[calc(100%-0.75rem)] truncate rounded bg-red-600 px-1.5 py-0.5 text-[0.62rem] text-white leading-none shadow-sm"
+				title={item.cacheError || "云端素材恢复失败"}
+			>
+				恢复失败
+			</span>
+		);
+	}
 	if (!item.uploadStatus || item.uploadStatus === "local-only") return null;
 	const percent =
 		typeof item.uploadProgress === "number"

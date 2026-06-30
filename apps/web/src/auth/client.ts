@@ -647,6 +647,23 @@ export async function completeCloudAssetUpload({
 	};
 }
 
+export async function updateCloudAssetMetadata({
+	projectId,
+	assetId,
+	metadata,
+}: {
+	projectId: string;
+	assetId: string;
+	metadata: CloudMediaAssetMetadata;
+}): Promise<{ asset: CloudMediaAssetRecord }> {
+	const payload = await requestAuthenticatedJson({
+		path: `/api/account/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/metadata`,
+		method: "PUT",
+		body: { metadata },
+	});
+	return payload as { asset: CloudMediaAssetRecord };
+}
+
 export async function getCloudAssetReadUrl({
 	projectId,
 	assetId,

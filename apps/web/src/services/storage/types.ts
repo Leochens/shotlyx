@@ -58,6 +58,9 @@ export interface MediaAssetData {
 	readUrl?: string;
 	uploadedAt?: string;
 	lastCacheAccessedAt?: string;
+	cacheStatus?: "cached" | "restoring" | "restore-failed";
+	cacheError?: string;
+	cloudMetadataSyncedAt?: string;
 	uploadTaskId?: string;
 	uploadProgress?: number;
 	uploadResumable?: boolean;

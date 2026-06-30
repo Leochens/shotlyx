@@ -652,6 +652,35 @@ describe("Shotlyx server HTTP app", () => {
 			thumbnailUrl: "data:image/jpeg;base64,thumb",
 		});
 
+		const metadataResponse = await app.fetch(
+			new Request(
+				"http://shotlyx.test/api/account/projects/project-1/assets/asset-1/metadata",
+				{
+					method: "PUT",
+					headers: {
+						authorization,
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						metadata: {
+							duration: 13,
+							thumbnailUrl: "data:image/jpeg;base64,new-thumb",
+						},
+					}),
+				},
+			),
+		);
+		expect(metadataResponse.status).toBe(200);
+		const updatedMetadata = await metadataResponse.json();
+		expect(updatedMetadata.asset.metadata).toMatchObject({
+			width: 1920,
+			height: 1080,
+			duration: 13,
+			fps: 30,
+			hasAudio: true,
+			thumbnailUrl: "data:image/jpeg;base64,new-thumb",
+		});
+
 		const completeResponse = await app.fetch(
 			new Request(
 				"http://shotlyx.test/api/account/projects/project-1/assets/asset-1/complete",
