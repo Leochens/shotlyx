@@ -503,7 +503,7 @@ describe("transcription tools", () => {
 		);
 		expect(result.metadata).toMatchObject({
 			audioRange: {
-				kind: "element",
+				kind: "selection",
 				startTimeSeconds: 5,
 				durationSeconds: 2,
 			},
@@ -626,7 +626,7 @@ describe("transcription tools", () => {
 		);
 	});
 
-	test("client deps auto-bind a single moved audible source when no track id is provided", async () => {
+	test("client deps transcribe the full timeline by default even with one audible source", async () => {
 		const voiceElement = {
 			id: "voice-clip",
 			type: "video",
@@ -705,26 +705,28 @@ describe("transcription tools", () => {
 
 		expect(extractTimelineAudioFn).toHaveBeenCalledWith(
 			expect.objectContaining({
-				rangeStart: 5 * MEDIA_TIME_TICKS_PER_SECOND,
-				rangeDuration: 3 * MEDIA_TIME_TICKS_PER_SECOND,
+				rangeStart: 0,
+				rangeDuration: 12 * MEDIA_TIME_TICKS_PER_SECOND,
 			}),
 		);
 		expect(execute).toHaveBeenCalledWith(
 			expect.objectContaining({
 				toolName: "subtitles_import",
 				params: expect.objectContaining({
-					sourceTrackId: "video-track",
-					sourceElementId: "voice-clip",
-					sourceTimelineStartTimeSeconds: 5,
 					cues: [
 						expect.objectContaining({
 							text: "自动绑定",
-							startTimeSeconds: 5,
+							startTimeSeconds: 0,
 						}),
 					],
 				}),
 			}),
 		);
+		const importCall = execute.mock.calls[0]?.[0] as {
+			params: Record<string, unknown>;
+		};
+		expect(importCall.params.sourceTrackId).toBeUndefined();
+		expect(importCall.params.sourceElementId).toBeUndefined();
 	});
 
 	test("client deps isolate an explicit audio source element instead of transcribing every overlapping track", async () => {

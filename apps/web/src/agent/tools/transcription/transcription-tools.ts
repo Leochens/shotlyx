@@ -23,7 +23,6 @@ import type { SubtitleToken } from "@/subtitles/types";
 import { formatSrt } from "@/subtitles/srt";
 import {
 	audioRangeToSeconds,
-	getTranscriptionAudioTrackOptions,
 	getTimelineAudioRange,
 	resolveSelectedTranscriptionAudioRange,
 	resolveTranscriptionAudioRangeByRef,
@@ -408,13 +407,6 @@ function resolveRequestedAudioRange({
 		}
 	}
 
-	const singleSourceRange = resolveSingleAudibleSourceRange({
-		input,
-		tracks: sceneTracks,
-		mediaAssets,
-	});
-	if (singleSourceRange) return singleSourceRange;
-
 	const totalDuration = editor.timeline.getTotalDuration();
 	if (
 		typeof input.audioRangeStartSeconds === "number" &&
@@ -429,20 +421,30 @@ function resolveRequestedAudioRange({
 					trackId: input.audioRangeTrackId,
 				})
 			: null;
-		const rangeKind = input.audioRangeTrackId
-			? input.audioRangeElementId
-				? "element"
-				: "track"
-			: "element";
+		const requestedStartTime = Math.round(
+			Math.max(0, input.audioRangeStartSeconds) * MEDIA_TIME_TICKS_PER_SECOND,
+		);
+		const requestedDuration = Math.round(
+			input.audioRangeDurationSeconds * MEDIA_TIME_TICKS_PER_SECOND,
+		);
+		const isFullTimelineRange =
+			!input.audioRangeTrackId &&
+			requestedStartTime === 0 &&
+			requestedDuration >= totalDuration;
+		const rangeKind = isFullTimelineRange
+			? "timeline"
+			: input.audioRangeTrackId
+				? input.audioRangeElementId
+					? "element"
+					: "track"
+				: "selection";
 		return {
 			kind: rangeKind,
-			startTime: Math.round(
-				Math.max(0, input.audioRangeStartSeconds) * MEDIA_TIME_TICKS_PER_SECOND,
-			),
-			duration: Math.round(
-				input.audioRangeDurationSeconds * MEDIA_TIME_TICKS_PER_SECOND,
-			),
-			label: explicitTrack?.name ?? "Selected range mixed audio",
+			startTime: requestedStartTime,
+			duration: Math.min(requestedDuration, totalDuration - requestedStartTime),
+			label: isFullTimelineRange
+				? "Full timeline mixed audio"
+				: (explicitTrack?.name ?? "Selected range mixed audio"),
 			...(input.audioRangeTrackId && input.audioRangeElementId
 				? {
 						elementRef: {
@@ -482,23 +484,6 @@ function resolveRequestedAudioRange({
 	}
 
 	return getTimelineAudioRange({ totalDuration });
-}
-
-function resolveSingleAudibleSourceRange({
-	input,
-	tracks,
-	mediaAssets,
-}: {
-	input: GenerateSubtitlesFromVideoInput;
-	tracks: SceneTracks;
-	mediaAssets: ReturnType<EditorCore["media"]["getAssets"]>;
-}): TranscriptionAudioRange | null {
-	const options = getTranscriptionAudioTrackOptions({ tracks, mediaAssets });
-	if (options.length !== 1) return null;
-	return constrainRequestedAudioRangeToSourceRange({
-		input,
-		sourceRange: options[0],
-	});
 }
 
 function constrainRequestedAudioRangeToSourceRange({
