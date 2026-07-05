@@ -177,7 +177,7 @@ async function writeFileToPath({
 	await fs.writeFile(filePath, Buffer.from(await file.arrayBuffer()));
 }
 
-async function normalizeLargeAudioForAsr({ audio }: { audio: File }): Promise<File> {
+async function normalizeLargeAudioForAsr(audio: File): Promise<File> {
 	const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "shotlyx-asr-"));
 	try {
 		const inputPath = path.join(
