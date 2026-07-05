@@ -1,5 +1,6 @@
 import {
 	chmodSync,
+	createWriteStream,
 	existsSync,
 	mkdirSync,
 	readFileSync,
@@ -8,6 +9,8 @@ import {
 import fs from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 export interface DesktopMediaLibraryConfigFile {
 	version: 1;
@@ -286,7 +289,7 @@ export async function saveDesktopMediaAssetFile({
 	const fileName = buildStoredMediaFileName({ assetId, name });
 	const filePath = path.join(mediaDirectory, fileName);
 	assertInsideDirectory({ childPath: filePath, parentPath: libraryDirectory });
-	await fs.writeFile(filePath, Buffer.from(await blob.arrayBuffer()));
+	await writeBlobToFile({ blob, filePath });
 	const stat = await fs.stat(filePath);
 	return {
 		filePath,
@@ -294,6 +297,75 @@ export async function saveDesktopMediaAssetFile({
 		size: stat.size,
 		type: blob.type || getMimeTypeFromFileName(fileName),
 	};
+}
+
+export async function saveDesktopMediaAssetStream({
+	assetId,
+	contentType,
+	name,
+	projectId,
+	stream,
+}: {
+	assetId: string;
+	contentType?: string;
+	name: string;
+	projectId: string;
+	stream: ReadableStream<Uint8Array>;
+}): Promise<DesktopMediaLibraryFileInfo> {
+	const libraryDirectory = getDesktopMediaLibraryDirectory();
+	const mediaDirectory = getProjectMediaDirectory({ libraryDirectory, projectId });
+	await fs.mkdir(mediaDirectory, { recursive: true });
+
+	const fileName = buildStoredMediaFileName({ assetId, name });
+	const filePath = path.join(mediaDirectory, fileName);
+	const tempPath = path.join(
+		mediaDirectory,
+		`.${fileName}.${process.pid}.${Date.now()}.tmp`,
+	);
+	assertInsideDirectory({ childPath: filePath, parentPath: libraryDirectory });
+	assertInsideDirectory({ childPath: tempPath, parentPath: libraryDirectory });
+
+	try {
+		await writeWebStreamToFile({ filePath: tempPath, stream });
+		await deleteDesktopMediaAssetFile({ assetId, projectId });
+		await fs.rename(tempPath, filePath);
+		const stat = await fs.stat(filePath);
+		return {
+			filePath,
+			name: fileName,
+			size: stat.size,
+			type: contentType || getMimeTypeFromFileName(fileName),
+		};
+	} catch (error) {
+		await fs.rm(tempPath, { force: true }).catch(() => {});
+		throw error;
+	}
+}
+
+async function writeBlobToFile({
+	blob,
+	filePath,
+}: {
+	blob: Blob;
+	filePath: string;
+}): Promise<void> {
+	await writeWebStreamToFile({
+		filePath,
+		stream: blob.stream() as ReadableStream<Uint8Array>,
+	});
+}
+
+export async function writeWebStreamToFile({
+	filePath,
+	stream,
+}: {
+	filePath: string;
+	stream: ReadableStream<Uint8Array>;
+}): Promise<void> {
+	await pipeline(
+		Readable.fromWeb(stream),
+		createWriteStream(filePath, { flags: "wx" }),
+	);
 }
 
 export async function deleteDesktopMediaAssetFile({

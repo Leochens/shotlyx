@@ -11,6 +11,7 @@ import { renderThumbnailDataUrl } from "./thumbnail";
 export type ProcessedMediaAsset = Omit<MediaAsset, "id">;
 
 const DESKTOP_VIDEO_PREPARE_ENDPOINT = "/api/desktop/media/prepare-video";
+const MAX_DESKTOP_PREPARE_VIDEO_BYTES = 512 * 1024 * 1024;
 
 const getUnsupportedVideoDescription = ({
 	codec,
@@ -109,6 +110,12 @@ async function readPreviewableVideoFile({ file }: { file: File }): Promise<{
 }> {
 	const videoData = await readVideoFile({ file });
 	if (videoData.canDecode || !isDesktopMode()) {
+		return { file, videoData, wasPrepared: false };
+	}
+	if (file.size > MAX_DESKTOP_PREPARE_VIDEO_BYTES) {
+		console.info(
+			`Skipping desktop preview preparation for large video: ${file.name}`,
+		);
 		return { file, videoData, wasPrepared: false };
 	}
 

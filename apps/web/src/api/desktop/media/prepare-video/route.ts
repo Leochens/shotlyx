@@ -1,8 +1,11 @@
 import fs from "node:fs/promises";
+import { createReadStream } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { z } from "zod";
 import { isDesktopMode } from "@/desktop/config/server";
+import { writeWebStreamToFile } from "@/desktop/media-library/server";
 import {
 	resolveFfmpegPaths,
 	runFfprobeJson,
@@ -13,6 +16,8 @@ import { ApiRequest, ApiResponse } from "@/platform/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const MAX_DESKTOP_PREPARE_VIDEO_BYTES = 512 * 1024 * 1024;
 
 const querySchema = z.object({
 	name: z.string().min(1),
@@ -79,9 +84,19 @@ export async function POST(request: ApiRequest | Request) {
 		return ApiResponse.json({ error: "Invalid input" }, { status: 400 });
 	}
 
-	const blob = await request.blob();
-	if (blob.size <= 0) {
+	if (!request.body) {
 		return ApiResponse.json({ error: "Video file is empty" }, { status: 400 });
+	}
+	const contentLength = Number(request.headers.get("Content-Length") ?? "0");
+	if (contentLength > MAX_DESKTOP_PREPARE_VIDEO_BYTES) {
+		return ApiResponse.json(
+			{
+				error: "desktop_video_prepare_too_large",
+				message:
+					"Video is too large for desktop preview preparation. Importing the original file instead.",
+			},
+			{ status: 413 },
+		);
 	}
 
 	const tempDirectory = await fs.mkdtemp(
@@ -92,7 +107,23 @@ export async function POST(request: ApiRequest | Request) {
 			tempDirectory,
 			`input${safeExtension({ name: query.value.name })}`,
 		);
-		await fs.writeFile(inputPath, Buffer.from(await blob.arrayBuffer()));
+		await writeWebStreamToFile({ filePath: inputPath, stream: request.body });
+		const inputStat = await fs.stat(inputPath);
+		if (inputStat.size <= 0) {
+			await fs.rm(tempDirectory, { recursive: true, force: true });
+			return ApiResponse.json({ error: "Video file is empty" }, { status: 400 });
+		}
+		if (inputStat.size > MAX_DESKTOP_PREPARE_VIDEO_BYTES) {
+			await fs.rm(tempDirectory, { recursive: true, force: true });
+			return ApiResponse.json(
+				{
+					error: "desktop_video_prepare_too_large",
+					message:
+						"Video is too large for desktop preview preparation. Importing the original file instead.",
+				},
+				{ status: 413 },
+			);
+		}
 		const ffmpegPaths = resolveFfmpegPaths();
 		const plan = selectBrowserVideoTranscodePlan({
 			probe: await runFfprobeJson({
@@ -111,16 +142,21 @@ export async function POST(request: ApiRequest | Request) {
 			outputPath,
 			target: plan.target,
 		});
-		const bytes = await fs.readFile(outputPath);
-		return new Response(bytes, {
+		const outputStat = await fs.stat(outputPath);
+		const outputStream = createReadStream(outputPath);
+		outputStream.on("close", () => {
+			fs.rm(tempDirectory, { recursive: true, force: true }).catch(() => {});
+		});
+		return new Response(Readable.toWeb(outputStream), {
 			headers: {
 				"Content-Disposition": `inline; filename="${encodeURIComponent(outputName)}"`,
-				"Content-Length": String(bytes.byteLength),
+				"Content-Length": String(outputStat.size),
 				"Content-Type": plan.contentType,
 				"X-Shotlyx-Filename": encodeURIComponent(outputName),
 			},
 		});
-	} finally {
+	} catch (error) {
 		await fs.rm(tempDirectory, { recursive: true, force: true });
+		throw error;
 	}
 }

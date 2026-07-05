@@ -105,3 +105,29 @@ test("desktop import prepares unsupported videos before creating the asset", asy
 	expect(assets[0]?.file.type).toBe("video/webm");
 	expect(toastErrorMock).not.toHaveBeenCalled();
 });
+
+test("desktop import skips preview preparation for very large unsupported videos", async () => {
+	const source = new File(["mov bytes"], "large-hevc.mov", {
+		type: "video/quicktime",
+	});
+	Object.defineProperty(source, "size", {
+		value: 2 * 1024 * 1024 * 1024,
+	});
+
+	const assets = await processMediaAssets({ files: [source] });
+
+	expect(globalThis.fetch).not.toHaveBeenCalled();
+	expect(readVideoFileMock).toHaveBeenCalledTimes(1);
+	expect(assets).toHaveLength(1);
+	expect(assets[0]).toMatchObject({
+		name: "large-hevc.mov",
+		type: "video",
+		duration: 2,
+		width: 640,
+		height: 480,
+		fps: 30,
+		hasAudio: true,
+	});
+	expect(assets[0]?.file).toBe(source);
+	expect(toastErrorMock).toHaveBeenCalledTimes(1);
+});

@@ -4,10 +4,11 @@ import {
 	clearDesktopProjectMediaFiles,
 	deleteDesktopMediaAssetFile,
 	findDesktopMediaAssetFile,
-	saveDesktopMediaAssetFile,
+	saveDesktopMediaAssetStream,
 } from "@/desktop/media-library/server";
 import { ApiRequest, ApiResponse } from "@/platform/http";
-import fs from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,8 +68,7 @@ export async function GET(request: ApiRequest | Request) {
 		return ApiResponse.json({ error: "Media file not found" }, { status: 404 });
 	}
 
-	const bytes = await fs.readFile(file.filePath);
-	return new Response(bytes, {
+	return new Response(Readable.toWeb(createReadStream(file.filePath)), {
 		headers: {
 			"Content-Disposition": `inline; filename="${encodeURIComponent(file.name)}"`,
 			"Content-Length": String(file.size),
@@ -89,16 +89,23 @@ export async function POST(request: ApiRequest | Request) {
 		return ApiResponse.json({ error: "Missing media name" }, { status: 400 });
 	}
 
-	const blob = await request.blob();
-	if (blob.size <= 0) {
+	if (!request.body) {
 		return ApiResponse.json({ error: "Media file is empty" }, { status: 400 });
 	}
-	const saved = await saveDesktopMediaAssetFile({
+	const saved = await saveDesktopMediaAssetStream({
 		assetId: query.value.id,
-		blob,
+		contentType: request.headers.get("Content-Type") ?? undefined,
 		name: query.value.name,
 		projectId: query.value.projectId,
+		stream: request.body,
 	});
+	if (saved.size <= 0) {
+		await deleteDesktopMediaAssetFile({
+			assetId: query.value.id,
+			projectId: query.value.projectId,
+		});
+		return ApiResponse.json({ error: "Media file is empty" }, { status: 400 });
+	}
 	return ApiResponse.json({
 		id: query.value.id,
 		...saved,
