@@ -1040,6 +1040,117 @@ describe("transcription tools", () => {
 		}
 	});
 
+	test("client deps chunk long cloud ASR audio and merge cues back to timeline", async () => {
+		const execute = mock(async () => ({
+			status: "success" as const,
+			data: { imported: true, cueCount: 3 },
+		}));
+		const editor = {
+			scenes: {
+				getActiveScene: () => ({
+					tracks: {
+						main: { id: "main", elements: [] },
+						overlay: [],
+						audio: [],
+					},
+				}),
+			},
+			project: { getActive: () => ({ metadata: { id: "project-1" } }) },
+			media: {
+				getAssets: () => [],
+				addMediaAsset: mock(async () => null),
+			},
+			timeline: {
+				getTotalDuration: () => 650 * MEDIA_TIME_TICKS_PER_SECOND,
+			},
+			mcp: { execute },
+		} as unknown as EditorCore;
+		let fetchCount = 0;
+		const fetchFn = mock(async () => {
+			const cueTexts = ["第一段", "第二段", "第三段"];
+			const cueStarts = [10, 2, 3];
+			const index = fetchCount;
+			fetchCount += 1;
+			return Response.json({
+				text: cueTexts[index],
+				provider: "volcengine",
+				cues: [
+					{
+						text: cueTexts[index],
+						startTimeSeconds: cueStarts[index],
+						durationSeconds: 1,
+					},
+				],
+			});
+		});
+		const extractTimelineAudioFn = mock(
+			async ({ rangeDuration }: { rangeDuration: number }) => {
+				return wavBlob({
+					durationSeconds: rangeDuration / MEDIA_TIME_TICKS_PER_SECOND,
+					sampleRate: 100,
+					channels: 1,
+				});
+			},
+		);
+		const deps = createTranscriptionToolDeps({
+			editor,
+			fetchFn: fetchFn as unknown as typeof fetch,
+			extractTimelineAudioFn,
+		});
+
+		const result = await deps.generateSubtitlesFromVideo({
+			source: "timeline",
+			provider: "volcengine",
+			audioRangeDurationSeconds: 650,
+			saveAsset: false,
+		});
+
+		expect(fetchFn).toHaveBeenCalledTimes(3);
+		expect(extractTimelineAudioFn).toHaveBeenCalledTimes(3);
+		expect(extractTimelineAudioFn.mock.calls[0]?.[0]).toMatchObject({
+			rangeStart: 0,
+			rangeDuration: 241.2 * MEDIA_TIME_TICKS_PER_SECOND,
+		});
+		expect(extractTimelineAudioFn.mock.calls[1]?.[0]).toMatchObject({
+			rangeStart: 238.8 * MEDIA_TIME_TICKS_PER_SECOND,
+			rangeDuration: 242.4 * MEDIA_TIME_TICKS_PER_SECOND,
+		});
+		expect(extractTimelineAudioFn.mock.calls[2]?.[0]).toMatchObject({
+			rangeStart: 478.8 * MEDIA_TIME_TICKS_PER_SECOND,
+			rangeDuration: 171.2 * MEDIA_TIME_TICKS_PER_SECOND,
+		});
+		expect(execute).toHaveBeenCalledWith(
+			expect.objectContaining({
+				toolName: "subtitles_import",
+				params: expect.objectContaining({
+					cues: [
+						expect.objectContaining({
+							text: "第一段",
+							startTimeSeconds: 10,
+						}),
+						expect.objectContaining({
+							text: "第二段",
+							startTimeSeconds: 240.8,
+						}),
+						expect.objectContaining({
+							text: "第三段",
+							startTimeSeconds: 481.8,
+						}),
+					],
+				}),
+			}),
+		);
+		expect(result).toMatchObject({
+			imported: true,
+			provider: "volcengine",
+			cueCount: 3,
+			metadata: {
+				chunked: true,
+				chunkCount: 3,
+			},
+		});
+	});
+
 	test("client deps emit cloud ASR recognition progress while the request is pending", async () => {
 		const addMediaAsset = mock(
 			async ({ asset }: { asset: { name: string } }) => ({

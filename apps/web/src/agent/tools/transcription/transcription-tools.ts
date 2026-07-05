@@ -30,6 +30,10 @@ import {
 	type TranscriptionAudioRange,
 } from "@/transcription/audio-range";
 import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
+import {
+	shouldChunkCloudAsr,
+	transcribeTimelineWithChunkedApi,
+} from "./chunked-cloud-asr";
 
 const DEFAULT_TRANSCRIPTION_SOURCE = "timeline";
 const DEFAULT_TRANSCRIPTION_PROVIDER = "volcengine";
@@ -820,66 +824,116 @@ export function createTranscriptionToolDeps({
 				tracks: editor.scenes.getActiveScene().tracks,
 				audioRange,
 			});
-			const audioBlob = await audioExtractor({
-				tracks,
-				mediaAssets: editor.media.getAssets(),
-				totalDuration: editor.timeline.getTotalDuration(),
-				rangeStart: audioRange.startTime,
-				rangeDuration: audioRange.duration,
-			});
-			const payloadDiagnostics = await readAudioPayloadDiagnostics({
-				audio: audioBlob,
-			});
-			console.info("[Shotlyx transcription] extracted ASR audio payload", {
+			const mediaAssets = editor.media.getAssets();
+			const totalDuration = editor.timeline.getTotalDuration();
+			const timelineTranscription = shouldChunkCloudAsr({
 				provider,
-				audioRangeKind: audioRange.kind,
-				audioRangeLabel: audioRange.label,
-				requestedStartSeconds: audioRangeSeconds.startTimeSeconds,
-				requestedDurationSeconds: audioRangeSeconds.durationSeconds,
-				payloadDurationSeconds: payloadDiagnostics.durationSeconds,
-				payloadBytes: payloadDiagnostics.byteLength,
-				mimeType: payloadDiagnostics.mimeType,
-				elementRef: audioRange.elementRef,
-			});
-			input.onProgress?.({
-				stage: "audio-extract",
-				label: "音频已提取",
-				status: "success",
-				detail: audioRange.label,
-			});
-
-			input.onProgress?.({
-				stage: "asr-provider",
-				label: provider === "local" ? "正在本地识别字幕" : "正在请求 ASR 服务",
-				status: "running",
-				detail: provider,
-				...(provider === "local" ? {} : { current: 5, total: 100 }),
-			});
-			const rawTranscription =
-				provider === "local"
-					? await transcribeWithLocalWhisper({
-							audioBlob,
-							language: input.language,
-							model: input.model,
-							onProgress: input.onProgress,
-						})
-					: await transcribeWithApi({
-							audioBlob,
-							provider,
-							language: input.language,
-							model: input.model,
-							referenceText: input.referenceText,
-							fetchFn,
-							abortSignal: input.abortSignal,
-							onProgress: input.onProgress,
-							progressIntervalMs: cloudAsrProgressIntervalMs,
+				durationSeconds: audioRangeSeconds.durationSeconds,
+			})
+				? await transcribeTimelineWithChunkedApi({
+						audioExtractor,
+						tracks,
+						mediaAssets,
+						totalDuration,
+						audioRange,
+						audioRangeSeconds,
+						provider,
+						language: input.language,
+						model: input.model,
+						transcribeAudio: async ({ audioBlob, onProgress }) =>
+							sanitizeGeneratedTranscription({
+								transcription: await transcribeWithApi({
+									audioBlob,
+									provider,
+									language: input.language,
+									model: input.model,
+									referenceText: input.referenceText,
+									fetchFn,
+									abortSignal: input.abortSignal,
+									onProgress,
+									progressIntervalMs: cloudAsrProgressIntervalMs,
+								}),
+							}),
+						abortSignal: input.abortSignal,
+						onProgress: input.onProgress,
+					})
+				: await (async () => {
+						const audioBlob = await audioExtractor({
+							tracks,
+							mediaAssets,
+							totalDuration,
+							rangeStart: audioRange.startTime,
+							rangeDuration: audioRange.duration,
 						});
-			const transcription = sanitizeGeneratedTranscription({
-				transcription: rawTranscription,
-			});
-			const timelineTranscription = shiftGeneratedTranscription({
-				transcription,
-				offsetSeconds: audioRangeSeconds.startTimeSeconds,
+						const payloadDiagnostics = await readAudioPayloadDiagnostics({
+							audio: audioBlob,
+						});
+						console.info(
+							"[Shotlyx transcription] extracted ASR audio payload",
+							{
+								provider,
+								audioRangeKind: audioRange.kind,
+								audioRangeLabel: audioRange.label,
+								requestedStartSeconds: audioRangeSeconds.startTimeSeconds,
+								requestedDurationSeconds: audioRangeSeconds.durationSeconds,
+								payloadDurationSeconds: payloadDiagnostics.durationSeconds,
+								payloadBytes: payloadDiagnostics.byteLength,
+								mimeType: payloadDiagnostics.mimeType,
+								elementRef: audioRange.elementRef,
+							},
+						);
+						input.onProgress?.({
+							stage: "audio-extract",
+							label: "音频已提取",
+							status: "success",
+							detail: audioRange.label,
+						});
+
+						input.onProgress?.({
+							stage: "asr-provider",
+							label:
+								provider === "local"
+									? "正在本地识别字幕"
+									: "正在请求 ASR 服务",
+							status: "running",
+							detail: provider,
+							...(provider === "local" ? {} : { current: 5, total: 100 }),
+						});
+						const rawTranscription =
+							provider === "local"
+								? await transcribeWithLocalWhisper({
+										audioBlob,
+										language: input.language,
+										model: input.model,
+										onProgress: input.onProgress,
+									})
+								: await transcribeWithApi({
+										audioBlob,
+										provider,
+										language: input.language,
+										model: input.model,
+										referenceText: input.referenceText,
+										fetchFn,
+										abortSignal: input.abortSignal,
+										onProgress: input.onProgress,
+										progressIntervalMs: cloudAsrProgressIntervalMs,
+									});
+						const transcription = sanitizeGeneratedTranscription({
+							transcription: rawTranscription,
+						});
+						return shiftGeneratedTranscription({
+							transcription,
+							offsetSeconds: audioRangeSeconds.startTimeSeconds,
+						});
+					})();
+			console.info("[Shotlyx transcription] prepared ASR subtitle cues", {
+				provider: timelineTranscription.provider,
+				cueCount: timelineTranscription.cues.length,
+				firstCueStartSeconds: timelineTranscription.cues[0]?.startTimeSeconds,
+				lastCueStartSeconds:
+					timelineTranscription.cues[timelineTranscription.cues.length - 1]
+						?.startTimeSeconds,
+				chunked: timelineTranscription.metadata?.chunked === true,
 			});
 			input.onProgress?.({
 				stage: "asr-provider",
