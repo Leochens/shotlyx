@@ -3,6 +3,7 @@ import { describe, expect, mock, test } from "bun:test";
 import {
 	ASR_PROVIDER_CONFIGS,
 	OpenAICompatibleAsrProvider,
+	VolcengineAsrProvider,
 	createAsrProviderRegistry,
 	transcribeAudio,
 } from "@/agent/tools/transcription/providers";
@@ -411,5 +412,86 @@ describe("ASR providers", () => {
 				},
 			}),
 		).rejects.toThrow("missing VOLCENGINE_ASR_API_KEY");
+	});
+
+	test("Volcengine provider normalizes large audio before sending base64 data", async () => {
+		const fetchFn = mock(async () => {
+			return new Response(
+				JSON.stringify({
+					result: {
+						text: "大音频",
+						utterances: [
+							{
+								start_time: 0,
+								end_time: 1000,
+								text: "大音频",
+							},
+						],
+					},
+				}),
+				{
+					headers: {
+						"Content-Type": "application/json",
+						"X-Api-Status-Code": "20000000",
+					},
+				},
+			);
+		});
+		const normalizeAudioForAsr = mock(async () => {
+			return new File([new Uint8Array([2, 3])], "normalized.wav", {
+				type: "audio/wav",
+			});
+		});
+		const audio = new File([new Uint8Array([1])], "large.wav", {
+			type: "audio/wav",
+		});
+		Object.defineProperty(audio, "size", {
+			value: 64 * 1024 * 1024,
+		});
+		const provider = new VolcengineAsrProvider({
+			env: { VOLCENGINE_ASR_API_KEY: "test-key" },
+			fetchFn: fetchFn as unknown as typeof fetch,
+			normalizeAudioForAsr,
+		});
+
+		await provider.transcribe({ audio });
+
+		expect(normalizeAudioForAsr).toHaveBeenCalledWith(audio);
+		const fetchCalls = fetchFn.mock.calls as unknown as Array<
+			[unknown, RequestInit]
+		>;
+		const body =
+			typeof fetchCalls[0]?.[1]?.body === "string"
+				? JSON.parse(fetchCalls[0][1].body)
+				: null;
+		expect(body?.audio?.data).toBe("AgM=");
+	});
+
+	test("Volcengine provider includes HTTP status and body snippet in provider errors", async () => {
+		const provider = new VolcengineAsrProvider({
+			env: { VOLCENGINE_ASR_API_KEY: "test-key" },
+			fetchFn: (async () =>
+				new Response(
+					JSON.stringify({
+						message: "payload too large",
+					}),
+					{
+						status: 413,
+						headers: {
+							"Content-Type": "application/json",
+						},
+					},
+				)) as typeof fetch,
+		});
+
+		await expect(
+			provider.transcribe({
+				audio: new File([new Uint8Array([1])], "audio.wav", {
+					type: "audio/wav",
+				}),
+			}),
+		).rejects.toThrow(
+			'provider_error: Volcengine ASR failed with HTTP 413: {"message":"payload too large"}',
+		);
 	});
 });

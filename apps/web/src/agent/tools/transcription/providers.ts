@@ -8,7 +8,14 @@ import type {
 } from "./types";
 import type { SubtitleToken } from "@/subtitles/types";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { getRuntimeEnv } from "@/desktop/config/server";
+import {
+	extractAudioForAsr,
+	resolveFfmpegPaths,
+} from "@/desktop/media/ffmpeg";
 
 const DEFAULT_ASR_PROVIDER: AsrProviderId = "volcengine";
 const DEFAULT_ASR_BASE_URL = "https://api.openai.com/v1";
@@ -19,6 +26,7 @@ const DEFAULT_VOLCENGINE_FLASH_RESOURCE_ID = "volc.bigasr.auc_turbo";
 const MAX_ASR_REFERENCE_TEXT_CHARS = 4000;
 const MAX_VOLCENGINE_HOTWORDS = 64;
 const MAX_VOLCENGINE_HOTWORD_CHARS = 80;
+const VOLCENGINE_ASR_NORMALIZE_THRESHOLD_BYTES = 32 * 1024 * 1024;
 
 export const ASR_PROVIDER_CONFIGS: AsrProviderConfig[] = [
 	{
@@ -66,6 +74,7 @@ export interface OpenAICompatibleAsrProviderDeps {
 export interface VolcengineAsrProviderDeps {
 	fetchFn?: typeof fetch;
 	env?: Record<string, string | undefined>;
+	normalizeAudioForAsr?: (audio: File) => Promise<File>;
 }
 
 function normalizeBaseUrl(value: string): string {
@@ -148,6 +157,80 @@ function buildVolcengineCorpus({
 	return {
 		context: JSON.stringify({ hotwords }),
 	};
+}
+
+function safeAudioExtension({ name }: { name: string }): string {
+	const extension = path
+		.extname(name)
+		.toLowerCase()
+		.replace(/[^a-z0-9.]/g, "");
+	return extension || ".wav";
+}
+
+async function writeFileToPath({
+	file,
+	filePath,
+}: {
+	file: File;
+	filePath: string;
+}): Promise<void> {
+	await fs.writeFile(filePath, Buffer.from(await file.arrayBuffer()));
+}
+
+async function normalizeLargeAudioForAsr({ audio }: { audio: File }): Promise<File> {
+	const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "shotlyx-asr-"));
+	try {
+		const inputPath = path.join(
+			tempDirectory,
+			`input${safeAudioExtension({ name: audio.name })}`,
+		);
+		const outputPath = path.join(tempDirectory, "asr-16k-mono.wav");
+		await writeFileToPath({ file: audio, filePath: inputPath });
+		await extractAudioForAsr({
+			ffmpegPath: resolveFfmpegPaths().ffmpegPath,
+			filePath: inputPath,
+			outputPath,
+		});
+		const bytes = await fs.readFile(outputPath);
+		return new File([bytes], "shotlyx-asr-16k-mono.wav", {
+			type: "audio/wav",
+		});
+	} finally {
+		await fs.rm(tempDirectory, { recursive: true, force: true }).catch(() => {});
+	}
+}
+
+async function readResponseErrorSnippet({
+	response,
+}: {
+	response: Response;
+}): Promise<string> {
+	try {
+		const text = await response.text();
+		return text.replace(/\s+/g, " ").trim().slice(0, 300);
+	} catch {
+		return "";
+	}
+}
+
+async function prepareVolcengineAudioFile({
+	audio,
+	normalizeAudioForAsr = normalizeLargeAudioForAsr,
+}: {
+	audio: File;
+	normalizeAudioForAsr?: (audio: File) => Promise<File>;
+}): Promise<File> {
+	if (audio.size <= VOLCENGINE_ASR_NORMALIZE_THRESHOLD_BYTES) {
+		return audio;
+	}
+	const normalized = await normalizeAudioForAsr(audio);
+	console.info("[Shotlyx transcription] normalized large ASR audio payload", {
+		beforeBytes: audio.size,
+		afterBytes: normalized.size,
+		beforeName: audio.name,
+		afterName: normalized.name,
+	});
+	return normalized;
 }
 
 function normalizeTokens({
@@ -483,7 +566,11 @@ export class VolcengineAsrProvider implements AsrProvider {
 		const corpus = buildVolcengineCorpus({
 			referenceText: input.referenceText,
 		});
-		const audioData = Buffer.from(await input.audio.arrayBuffer()).toString(
+		const audio = await prepareVolcengineAudioFile({
+			audio: input.audio,
+			normalizeAudioForAsr: this.deps.normalizeAudioForAsr,
+		});
+		const audioData = Buffer.from(await audio.arrayBuffer()).toString(
 			"base64",
 		);
 		const response = await (this.deps.fetchFn ?? fetch)(
@@ -512,9 +599,12 @@ export class VolcengineAsrProvider implements AsrProvider {
 		const statusCode = response.headers.get("X-Api-Status-Code");
 		const statusMessage = response.headers.get("X-Api-Message") ?? "";
 		if (!response.ok || (statusCode && statusCode !== "20000000")) {
+			const bodySnippet = await readResponseErrorSnippet({ response });
 			throw new Error(
 				`provider_error: Volcengine ASR failed${
 					statusCode ? ` (${statusCode} ${statusMessage})` : ""
+				} with HTTP ${response.status}${
+					bodySnippet ? `: ${bodySnippet}` : ""
 				}`,
 			);
 		}
