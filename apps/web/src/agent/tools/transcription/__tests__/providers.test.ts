@@ -494,4 +494,26 @@ describe("ASR providers", () => {
 			'provider_error: Volcengine ASR failed with HTTP 413: {"message":"payload too large"}',
 		);
 	});
+
+	test("Volcengine provider reports large audio normalization failures", async () => {
+		const audio = new File([new Uint8Array([1])], "large.wav", {
+			type: "audio/wav",
+		});
+		Object.defineProperty(audio, "size", {
+			value: 64 * 1024 * 1024,
+		});
+		const provider = new VolcengineAsrProvider({
+			env: { VOLCENGINE_ASR_API_KEY: "test-key" },
+			fetchFn: mock(async () => {
+				throw new Error("should not call provider");
+			}) as unknown as typeof fetch,
+			normalizeAudioForAsr: async () => {
+				throw new Error("ffmpeg_failed: invalid audio stream");
+			},
+		});
+
+		await expect(provider.transcribe({ audio })).rejects.toThrow(
+			"provider_error: ASR audio normalization failed: ffmpeg_failed: invalid audio stream",
+		);
+	});
 });

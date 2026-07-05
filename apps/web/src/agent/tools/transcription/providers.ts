@@ -223,7 +223,15 @@ async function prepareVolcengineAudioFile({
 	if (audio.size <= VOLCENGINE_ASR_NORMALIZE_THRESHOLD_BYTES) {
 		return audio;
 	}
-	const normalized = await normalizeAudioForAsr(audio);
+	let normalized: File;
+	try {
+		normalized = await normalizeAudioForAsr(audio);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(
+			`provider_error: ASR audio normalization failed: ${message}`,
+		);
+	}
 	console.info("[Shotlyx transcription] normalized large ASR audio payload", {
 		beforeBytes: audio.size,
 		afterBytes: normalized.size,
