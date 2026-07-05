@@ -496,6 +496,13 @@ export function Captions() {
 	const hasTranscript = (selectedTranscriptTrack?.cues.length ?? 0) > 0;
 	const isSelectedTrackRenderEnabled =
 		selectedTranscriptTrack?.renderEnabled !== false;
+	const visibleTranscriptTrackCount = storedTranscriptTracks.filter(
+		(track) => track.cues.length > 0 && track.renderEnabled !== false,
+	).length;
+	const canShowOnlySelectedTrack =
+		!!selectedTranscriptTrack &&
+		selectedTranscriptTrack.cues.length > 0 &&
+		(visibleTranscriptTrackCount !== 1 || !isSelectedTrackRenderEnabled);
 	const selectedTokenRange = useMemo(
 		() =>
 			displayTranscriptTrack
@@ -844,6 +851,28 @@ export function Captions() {
 		});
 	};
 
+	const handleShowOnlySelectedTrack = () => {
+		if (!selectedTranscriptTrack) return;
+		const currentSubtitles =
+			editor.project.getActive().settings.subtitles ??
+			createEmptyProjectSubtitles();
+		const tracks = getStoredTranscriptTracks({ subtitles: currentSubtitles });
+		void editor.project.updateSettings({
+			settings: {
+				subtitles: {
+					...currentSubtitles,
+					enabled: true,
+					tracks: tracks.map((track) => ({
+						...track,
+						renderEnabled: track.id === selectedTranscriptTrack.id,
+					})),
+					selectedTrackId: selectedTranscriptTrack.id,
+					updatedAt: new Date().toISOString(),
+				},
+			},
+		});
+	};
+
 	const handleTokenPointerDown = ({
 		address,
 	}: {
@@ -1038,7 +1067,7 @@ export function Captions() {
 							value={selectedTrackId}
 							onValueChange={(value) => handleSelectedTrackChange({ value })}
 						>
-							<SelectTrigger className="h-8 w-[6.5rem]" aria-label="选择轨道">
+							<SelectTrigger className="h-8 w-[9rem]" aria-label="选择轨道">
 								<SelectValue placeholder="选择轨道" />
 							</SelectTrigger>
 							<SelectContent>
@@ -1145,11 +1174,20 @@ export function Captions() {
 												isSelectedTrackRenderEnabled
 													? "正在显示字幕"
 													: "字幕显示已关闭"
-											}`
+											}，当前显示 ${visibleTranscriptTrackCount} 条字幕轨`
 										: "生成后会按轨道出现在这里"}
 								</div>
 							</div>
 							<div className="flex shrink-0 flex-col items-end gap-2">
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={handleShowOnlySelectedTrack}
+									disabled={!canShowOnlySelectedTrack}
+								>
+									只显示当前
+								</Button>
 								<div className="flex items-center gap-2">
 									<span className="text-muted-foreground text-xs">
 										全部字幕

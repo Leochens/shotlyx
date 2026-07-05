@@ -99,6 +99,38 @@ describe("project subtitles", () => {
 		expect(elements[1]?.params["transform.positionY"]).toBeCloseTo(424.4);
 	});
 
+	test("skips subtitle tracks whose rendering is turned off", () => {
+		const elements = buildProjectSubtitleElements({
+			canvasSize: { width: 1920, height: 1080 },
+			duration: 120_000,
+			subtitles: {
+				enabled: true,
+				cues: [],
+				revealMode: "line",
+				lineBreakMode: "page",
+				maxCharsPerLine: 24,
+				tracks: [
+					{
+						id: "track:hidden",
+						label: "Hidden",
+						renderEnabled: false,
+						cues: [{ text: "不显示", startTime: 0, duration: 1 }],
+					},
+					{
+						id: "track:visible",
+						label: "Visible",
+						renderEnabled: true,
+						cues: [{ text: "显示这一条", startTime: 0, duration: 1 }],
+					},
+				],
+			},
+		});
+
+		expect(elements).toHaveLength(1);
+		expect(elements[0]?.name).toBe("Visible");
+		expect(elements[0]?.cues[0]?.text).toBe("显示这一条");
+	});
+
 	test("renders project subtitles at the current source clip offset", () => {
 		const elements = buildProjectSubtitleElements({
 			canvasSize: { width: 1920, height: 1080 },

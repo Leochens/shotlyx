@@ -286,7 +286,7 @@ describe("subtitle tools", () => {
 		});
 	});
 
-	test("subtitles_import preserves a disabled transcript track render state", () => {
+	test("subtitles_import makes the imported transcript track the only rendered track", () => {
 		const updateSettings = mock(() => {});
 		const editor = createMockEditor({
 			updateSettings,
@@ -307,6 +307,18 @@ describe("subtitle tools", () => {
 							cues: [
 								{
 									text: "旧字幕",
+									startTime: 0,
+									duration: 1,
+								},
+							],
+						},
+						{
+							id: "track:old",
+							label: "旧版本",
+							renderEnabled: true,
+							cues: [
+								{
+									text: "旧版本字幕",
 									startTime: 0,
 									duration: 1,
 								},
@@ -340,8 +352,12 @@ describe("subtitle tools", () => {
 				subtitles: {
 					tracks: [
 						{
-							id: "track:voice-track",
+							id: "track:old",
 							renderEnabled: false,
+						},
+						{
+							id: "track:voice-track",
+							renderEnabled: true,
 							cues: [
 								{
 									text: "新字幕",

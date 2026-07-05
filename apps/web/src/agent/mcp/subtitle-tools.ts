@@ -1928,7 +1928,7 @@ export function buildSubtitleTools({
 								? segments.flatMap((segment) => segment.cues)
 								: layerCues,
 						...(segments.length > 0 ? { segments } : {}),
-						renderEnabled: previousTrack?.renderEnabled ?? true,
+						renderEnabled: true,
 						...(sourceTrackId ? { sourceTrackId } : {}),
 						...(sourceElementId && segments.length <= 1
 							? { sourceElementId }
@@ -1949,9 +1949,12 @@ export function buildSubtitleTools({
 						updatedAt: new Date().toISOString(),
 					};
 					const nextTracks = [
-						...previousTracks.filter(
-							(track) => track.id !== trackIdForTranscript,
-						),
+						...previousTracks
+							.filter((track) => track.id !== trackIdForTranscript)
+							.map((track) => ({
+								...track,
+								renderEnabled: false,
+							})),
 						nextTrack,
 					];
 					void editor.project.updateSettings({
