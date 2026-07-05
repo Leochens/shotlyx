@@ -26,7 +26,6 @@ import type {
 	TranscriptionLanguage,
 } from "@/transcription/types";
 import {
-	audioRangeToSeconds,
 	type TranscriptionAudioTrackOption,
 	getTranscriptionAudioTrackOptions,
 } from "@/transcription/audio-range";
@@ -597,45 +596,34 @@ export function Captions() {
 			step: getCaptionProviderStartStep({ provider: selectedProvider }),
 		});
 		try {
-			for (const [index, audioTrack] of audioTrackOptions.entries()) {
-				const { startTimeSeconds, durationSeconds } = audioRangeToSeconds({
-					range: audioTrack,
-				});
+			dispatch({
+				type: "update_step",
+				step: "正在识别整条时间线音频...",
+			});
+			const result = await editor.mcp.execute({
+				toolName: "subtitles_generate_from_video",
+				params: {
+					source: "timeline",
+					provider: selectedProvider,
+					language: selectedLanguage,
+					style: "clean",
+					placement: "bottom",
+				},
+				onProgress: (event) => {
+					if (event.status === "running") {
+						dispatch({
+							type: "update_step",
+							step: event.label,
+						});
+					}
+				},
+			});
+			if (result.status === "error") {
 				dispatch({
-					type: "update_step",
-					step: `识别 ${index + 1}/${audioTrackOptions.length}: ${audioTrack.label}`,
+					type: "fail",
+					error: result.error ?? "Subtitle generation failed",
 				});
-				const result = await editor.mcp.execute({
-					toolName: "subtitles_generate_from_video",
-					params: {
-						source: "timeline",
-						provider: selectedProvider,
-						language: selectedLanguage,
-						style: "clean",
-						placement: "bottom",
-						audioRangeStartSeconds: startTimeSeconds,
-						audioRangeDurationSeconds: durationSeconds,
-						audioRangeTrackId: audioTrack.trackRef.trackId,
-						...(audioTrack.elementRef
-							? { audioRangeElementId: audioTrack.elementRef.elementId }
-							: {}),
-					},
-					onProgress: (event) => {
-						if (event.status === "running") {
-							dispatch({
-								type: "update_step",
-								step: `${audioTrack.label}: ${event.label}`,
-							});
-						}
-					},
-				});
-				if (result.status === "error") {
-					dispatch({
-						type: "fail",
-						error: result.error ?? "Subtitle generation failed",
-					});
-					return;
-				}
+				return;
 			}
 
 			dispatch({ type: "succeed", warnings: [] });
@@ -1359,7 +1347,7 @@ export function Captions() {
 								onClick={handleGenerateTranscript}
 								disabled={isProcessing || audioTrackOptions.length === 0}
 							>
-								Generate all tracks
+								生成整条时间线字幕
 							</Button>
 						</div>
 					</div>
