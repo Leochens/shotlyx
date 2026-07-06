@@ -23,11 +23,14 @@ import {
 	downloadBuffer,
 } from "@/export";
 import {
+	createDesktopExportStreamTarget,
 	isDesktopExportAvailable,
 	selectDesktopExportTarget,
-	writeDesktopExportFile,
 } from "@/export/desktop";
-import type { DesktopExportTarget } from "@/export/desktop";
+import type {
+	DesktopExportStreamTarget,
+	DesktopExportTarget,
+} from "@/export/desktop";
 import {
 	formatExportRemainingTime,
 	formatExportSubProgressLabel,
@@ -179,6 +182,7 @@ function ExportDialog({
 		})}`;
 		const shouldUseDesktopExport = isDesktopExportAvailable();
 		let desktopTarget: DesktopExportTarget | null = null;
+		let desktopStreamTarget: DesktopExportStreamTarget | null = null;
 		if (shouldUseDesktopExport) {
 			try {
 				desktopTarget = await selectDesktopExportTarget({
@@ -193,6 +197,11 @@ function ExportDialog({
 			}
 		}
 		if (shouldUseDesktopExport && !desktopTarget) return;
+		if (desktopTarget) {
+			desktopStreamTarget = createDesktopExportStreamTarget({
+				targetId: desktopTarget.id,
+			});
+		}
 
 		const result = await editor.project.export({
 			options: {
@@ -201,28 +210,30 @@ function ExportDialog({
 				fps: activeProject.settings.fps,
 				includeAudio: shouldIncludeAudio,
 			},
+			...(desktopStreamTarget
+				? { outputTarget: { target: desktopStreamTarget.target } }
+				: {}),
 		});
 
 		if (result.cancelled) {
+			await desktopStreamTarget?.abort().catch((error) => {
+				console.warn("Failed to abort desktop export target:", error);
+			});
 			editor.project.clearExportState();
 			return;
 		}
 
-		if (result.success && result.buffer) {
+		if (result.success) {
 			try {
-				if (desktopTarget) {
-					const writeResult = await writeDesktopExportFile({
-						buffer: result.buffer,
-						mimeType,
-						targetId: desktopTarget.id,
-					});
+				if (desktopTarget && desktopStreamTarget) {
+					const writeResult = await desktopStreamTarget.complete();
 					setExportSuccess({
 						kind: "desktop",
 						fileName: desktopTarget.fileName,
 						filePath: writeResult.filePath ?? desktopTarget.filePath,
 						sizeBytes: writeResult.sizeBytes,
 					});
-				} else {
+				} else if (result.buffer) {
 					downloadBuffer({
 						buffer: result.buffer,
 						filename,
@@ -232,10 +243,16 @@ function ExportDialog({
 						kind: "browser",
 						fileName: filename,
 					});
+				} else {
+					setDesktopExportError("Export failed to produce buffer");
+					return;
 				}
 
 				editor.project.clearExportState();
 			} catch (error) {
+				await desktopStreamTarget?.abort().catch((abortError) => {
+					console.warn("Failed to abort desktop export target:", abortError);
+				});
 				setDesktopExportError(
 					error instanceof Error ? error.message : dialogCopy.unknownError,
 				);

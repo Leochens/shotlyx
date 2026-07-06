@@ -81,6 +81,133 @@ test("desktop export target route selects a file before export and writes to tha
 	expect(reusedTargetResponse.status).toBe(404);
 });
 
+test("desktop export target route writes chunked export data by byte position", async () => {
+	const selectedPath = path.join(tempDir, "exports", "chunked");
+	process.env.SHOTLYX_DESKTOP_EXPORT_TEST_PATH = selectedPath;
+
+	const { POST: selectTarget } = await import("../select/route");
+	const selectResponse = await selectTarget(
+		new Request("http://localhost/api/desktop/export/select", {
+			body: JSON.stringify({
+				format: "mp4",
+				suggestedName: "chunked.mp4",
+			}),
+			headers: { "Content-Type": "application/json" },
+			method: "POST",
+		}) as Parameters<typeof selectTarget>[0],
+	);
+	const selected = (await selectResponse.json()) as {
+		cancelled: false;
+		target: { filePath: string; id: string };
+	};
+
+	const { POST: writeChunk } = await import("../chunk/route");
+	const firstChunk = await writeChunk(
+		new Request("http://localhost/api/desktop/export/chunk", {
+			body: new Uint8Array([4, 5, 6]),
+			headers: {
+				"Content-Type": "application/octet-stream",
+				"X-Shotlyx-Export-Position": "3",
+				"X-Shotlyx-Export-Target": selected.target.id,
+			},
+			method: "POST",
+		}) as Parameters<typeof writeChunk>[0],
+	);
+	expect(firstChunk.status).toBe(200);
+
+	const secondChunk = await writeChunk(
+		new Request("http://localhost/api/desktop/export/chunk", {
+			body: new Uint8Array([1, 2, 3]),
+			headers: {
+				"Content-Type": "application/octet-stream",
+				"X-Shotlyx-Export-Position": "0",
+				"X-Shotlyx-Export-Target": selected.target.id,
+			},
+			method: "POST",
+		}) as Parameters<typeof writeChunk>[0],
+	);
+	expect(secondChunk.status).toBe(200);
+
+	const { POST: complete } = await import("../complete/route");
+	const completeResponse = await complete(
+		new Request("http://localhost/api/desktop/export/complete", {
+			headers: {
+				"X-Shotlyx-Export-Target": selected.target.id,
+			},
+			method: "POST",
+		}) as Parameters<typeof complete>[0],
+	);
+
+	expect(completeResponse.status).toBe(200);
+	expect(await completeResponse.json()).toMatchObject({
+		desktop: true,
+		filePath: selected.target.filePath,
+		sizeBytes: 6,
+	});
+	expect(Array.from(readFileSync(selected.target.filePath))).toEqual([
+		1, 2, 3, 4, 5, 6,
+	]);
+
+	const reusedChunkResponse = await writeChunk(
+		new Request("http://localhost/api/desktop/export/chunk", {
+			body: new Uint8Array([7]),
+			headers: {
+				"X-Shotlyx-Export-Position": "6",
+				"X-Shotlyx-Export-Target": selected.target.id,
+			},
+			method: "POST",
+		}) as Parameters<typeof writeChunk>[0],
+	);
+	expect(reusedChunkResponse.status).toBe(404);
+});
+
+test("desktop export target route aborts chunked export and removes the partial file", async () => {
+	const selectedPath = path.join(tempDir, "exports", "aborted.mp4");
+	process.env.SHOTLYX_DESKTOP_EXPORT_TEST_PATH = selectedPath;
+
+	const { POST: selectTarget } = await import("../select/route");
+	const selectResponse = await selectTarget(
+		new Request("http://localhost/api/desktop/export/select", {
+			body: JSON.stringify({
+				format: "mp4",
+				suggestedName: "aborted.mp4",
+			}),
+			headers: { "Content-Type": "application/json" },
+			method: "POST",
+		}) as Parameters<typeof selectTarget>[0],
+	);
+	const selected = (await selectResponse.json()) as {
+		cancelled: false;
+		target: { filePath: string; id: string };
+	};
+
+	const { POST: writeChunk } = await import("../chunk/route");
+	await writeChunk(
+		new Request("http://localhost/api/desktop/export/chunk", {
+			body: new Uint8Array([1, 2, 3]),
+			headers: {
+				"Content-Type": "application/octet-stream",
+				"X-Shotlyx-Export-Position": "0",
+				"X-Shotlyx-Export-Target": selected.target.id,
+			},
+			method: "POST",
+		}) as Parameters<typeof writeChunk>[0],
+	);
+	expect(existsSync(selected.target.filePath)).toBe(true);
+
+	const { POST: abort } = await import("../abort/route");
+	const abortResponse = await abort(
+		new Request("http://localhost/api/desktop/export/abort", {
+			headers: {
+				"X-Shotlyx-Export-Target": selected.target.id,
+			},
+			method: "POST",
+		}) as Parameters<typeof abort>[0],
+	);
+	expect(abortResponse.status).toBe(200);
+	expect(existsSync(selected.target.filePath)).toBe(false);
+});
+
 test("desktop export target route can cancel before export starts", async () => {
 	process.env.SHOTLYX_DESKTOP_EXPORT_TEST_CANCEL = "1";
 

@@ -1,4 +1,5 @@
 import type { FrameRate } from "opencut-wasm";
+import type { Target } from "mediabunny";
 import { EXPORT_MIME_TYPES } from "./mime-types";
 
 export const EXPORT_QUALITY_VALUES = [
@@ -18,6 +19,10 @@ export interface ExportOptions {
 	quality: ExportQuality;
 	fps?: FrameRate;
 	includeAudio?: boolean;
+}
+
+export interface ExportOutputTarget {
+	target: Target;
 }
 
 export interface ExportResult {

@@ -12,6 +12,7 @@ import {
 	QUALITY_HIGH,
 	QUALITY_VERY_HIGH,
 } from "mediabunny";
+import type { Target } from "mediabunny";
 import type { FrameRate } from "opencut-wasm";
 import { mediaTimeToSeconds } from "opencut-wasm";
 import { TICKS_PER_SECOND } from "@/wasm";
@@ -92,8 +93,10 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 
 	async export({
 		rootNode,
+		target,
 	}: {
 		rootNode: RootNode;
+		target?: Target;
 	}): Promise<ArrayBuffer | null> {
 		const exportStartedAt = nowMs();
 		let renderMs = 0;
@@ -109,9 +112,10 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		const outputFormat =
 			this.format === "webm" ? new WebMOutputFormat() : new Mp4OutputFormat();
 
+		const bufferTarget = target ? null : new BufferTarget();
 		const output = new Output({
 			format: outputFormat,
-			target: new BufferTarget(),
+			target: target ?? bufferTarget,
 		});
 
 		const videoSource = new CanvasSource(this.renderer.getOutputCanvas(), {
@@ -187,8 +191,9 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		});
 		this.emit("progress", 1);
 
-		const buffer = output.target.buffer;
+		const buffer = bufferTarget?.buffer ?? null;
 		if (!buffer) {
+			if (target) return null;
 			this.emit("error", new Error("Failed to export video"));
 			return null;
 		}

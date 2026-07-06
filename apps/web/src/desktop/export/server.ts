@@ -8,6 +8,7 @@ type DesktopExportTarget = {
 	createdAt: number;
 	filePath: string;
 	id: string;
+	initialized: boolean;
 };
 
 export type DesktopExportTargetSelection =
@@ -113,6 +114,7 @@ function registerDesktopExportTarget({
 		createdAt: Date.now(),
 		filePath,
 		id,
+		initialized: false,
 	} satisfies DesktopExportTarget;
 	exportTargets.set(id, target);
 	return {
@@ -250,6 +252,82 @@ export async function writeDesktopExportTarget({
 		filePath: target.filePath,
 		sizeBytes: blob.size,
 	};
+}
+
+export async function writeDesktopExportTargetChunk({
+	chunk,
+	position,
+	targetId,
+}: {
+	chunk: ArrayBuffer;
+	position: number;
+	targetId: string;
+}): Promise<{ filePath: string; sizeBytes: number }> {
+	purgeExpiredExportTargets();
+	const target = exportTargets.get(targetId);
+	if (!target) {
+		throw new Error("desktop_export_target_not_found");
+	}
+	if (!Number.isSafeInteger(position) || position < 0) {
+		throw new Error("desktop_export_invalid_position");
+	}
+	if (chunk.byteLength <= 0) {
+		throw new Error("desktop_export_empty_chunk");
+	}
+
+	await fs.mkdir(path.dirname(target.filePath), { recursive: true });
+	const handle = await fs.open(target.filePath, target.initialized ? "r+" : "w+");
+	try {
+		target.initialized = true;
+		const buffer = Buffer.from(chunk);
+		await handle.write(buffer, 0, buffer.byteLength, position);
+	} finally {
+		await handle.close();
+	}
+
+	const stat = await fs.stat(target.filePath);
+	return {
+		filePath: target.filePath,
+		sizeBytes: stat.size,
+	};
+}
+
+export async function completeDesktopExportTarget({
+	targetId,
+}: {
+	targetId: string;
+}): Promise<{ filePath: string; sizeBytes: number }> {
+	purgeExpiredExportTargets();
+	const target = exportTargets.get(targetId);
+	if (!target) {
+		throw new Error("desktop_export_target_not_found");
+	}
+	if (!target.initialized) {
+		throw new Error("desktop_export_empty_file");
+	}
+
+	const stat = await fs.stat(target.filePath);
+	if (stat.size <= 0) {
+		throw new Error("desktop_export_empty_file");
+	}
+
+	exportTargets.delete(targetId);
+	return {
+		filePath: target.filePath,
+		sizeBytes: stat.size,
+	};
+}
+
+export async function abortDesktopExportTarget({
+	targetId,
+}: {
+	targetId: string;
+}): Promise<void> {
+	purgeExpiredExportTargets();
+	const target = exportTargets.get(targetId);
+	if (!target) return;
+	exportTargets.delete(targetId);
+	await fs.rm(target.filePath, { force: true });
 }
 
 export function clearDesktopExportTargetsForTests(): void {

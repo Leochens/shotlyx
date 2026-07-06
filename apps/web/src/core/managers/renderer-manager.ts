@@ -2,6 +2,7 @@ import type { EditorCore } from "@/core";
 import type { RootNode } from "@/services/renderer/nodes/root-node";
 import type {
 	ExportOptions,
+	ExportOutputTarget,
 	ExportProgressUpdate,
 	ExportResult,
 } from "@/export";
@@ -225,10 +226,12 @@ export class RendererManager {
 
 	async exportProject({
 		options,
+		outputTarget,
 		onProgress,
 		onCancel,
 	}: {
 		options: ExportOptions;
+		outputTarget?: ExportOutputTarget;
 		onProgress?: (update: ExportProgressUpdate) => void;
 		onCancel?: () => boolean;
 	}): Promise<ExportResult> {
@@ -428,7 +431,11 @@ export class RendererManager {
 				const buffer = await measureExportPhase({
 					name: "canvasEncode",
 					onMeasure: recordPhase,
-					fn: () => exporter.export({ rootNode: scene }),
+					fn: () =>
+						exporter.export({
+							rootNode: scene,
+							target: outputTarget?.target,
+						}),
 				});
 				clearInterval(cancelInterval);
 
@@ -436,13 +443,13 @@ export class RendererManager {
 					return { success: false, cancelled: true };
 				}
 
-				if (!buffer) {
+				if (!outputTarget && !buffer) {
 					return { success: false, error: "Export failed to produce buffer" };
 				}
 
 				return {
 					success: true,
-					buffer,
+					...(buffer ? { buffer } : {}),
 				};
 			} finally {
 				clearInterval(cancelInterval);

@@ -22,7 +22,12 @@ import type {
 } from "@/project/types";
 import { getProjectCoverThumbnail } from "@/project/cover";
 import { createEmptyProjectSubtitles } from "@/subtitles/project-subtitles";
-import type { ExportOptions, ExportResult, ExportState } from "@/export";
+import type {
+	ExportOptions,
+	ExportOutputTarget,
+	ExportResult,
+	ExportState,
+} from "@/export";
 import { estimateExportRemainingSeconds } from "@/export/progress";
 import { storageService } from "@/services/storage/service";
 import { toast } from "sonner";
@@ -310,7 +315,13 @@ export class ProjectManager {
 		}
 	}
 
-	async export({ options }: { options: ExportOptions }): Promise<ExportResult> {
+	async export({
+		options,
+		outputTarget,
+	}: {
+		options: ExportOptions;
+		outputTarget?: ExportOutputTarget;
+	}): Promise<ExportResult> {
 		this.exportCancelRequested = false;
 		this.exportState = {
 			estimatedRemainingSeconds: null,
@@ -325,6 +336,7 @@ export class ProjectManager {
 		const exportStartedAt = Date.now();
 		const result = await this.editor.renderer.exportProject({
 			options,
+			outputTarget,
 			onProgress: (update) => {
 				const { estimatedRemainingSeconds, progress, stage, subProgress } =
 					update;
