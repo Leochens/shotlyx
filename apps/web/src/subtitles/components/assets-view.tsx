@@ -73,7 +73,6 @@ import {
 } from "@/subtitles/transcript-editing";
 import {
 	getTimelineSubtitleTrack,
-	storedSubtitleSecondsToTimelineSeconds,
 } from "@/subtitles/timing-bindings";
 import { getSegmentTokenTimelineRange } from "@/subtitles/segment-bindings";
 
@@ -991,16 +990,10 @@ export function Captions() {
 			return;
 		}
 
-		const timelineStartSeconds = storedSubtitleSecondsToTimelineSeconds({
-			track: selectedTranscriptTrack,
-			tracks: sceneTracks,
-			seconds: selectedTokenRange.startTime,
-		});
-		const timelineEndSeconds = storedSubtitleSecondsToTimelineSeconds({
-			track: selectedTranscriptTrack,
-			tracks: sceneTracks,
-			seconds: selectedTokenRange.endTime,
-		});
+		// selectedTokenRange is resolved from the displayed transcript, whose cues
+		// are already aligned to the current timeline.
+		const timelineStartSeconds = selectedTokenRange.startTime;
+		const timelineEndSeconds = selectedTokenRange.endTime;
 		const startTime = mediaTimeFromSeconds({
 			seconds: timelineStartSeconds,
 		});
