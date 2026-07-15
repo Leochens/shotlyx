@@ -60,7 +60,7 @@ import type { TProjectSubtitleTrack, TProjectSubtitles } from "@/project/types";
 import type { SubtitleLayerCue } from "@/subtitles/types";
 import { createEmptyProjectSubtitles } from "@/subtitles/project-subtitles";
 import { mediaTimeFromSeconds, mediaTimeToSeconds } from "@/wasm/media-time";
-import type { SceneTracks, TimelineTrack } from "@/timeline";
+import type { SceneTracks } from "@/timeline";
 import {
 	editTranscriptSelection,
 	findActiveTranscriptToken,
@@ -71,10 +71,12 @@ import {
 	type TranscriptTokenAddress,
 	type TranscriptTokenSelection,
 } from "@/subtitles/transcript-editing";
-import {
-	getTimelineSubtitleTrack,
-} from "@/subtitles/timing-bindings";
+import { getTimelineSubtitleTrack } from "@/subtitles/timing-bindings";
 import { getSegmentTokenTimelineRange } from "@/subtitles/segment-bindings";
+import {
+	buildTranscriptDeletionTargets,
+	resolveTranscriptDeletionSourceTracks,
+} from "@/subtitles/deletion-targets";
 
 const DIAGNOSTIC_BUTTON_VARIANT: Record<
 	DiagnosticSeverity,
@@ -217,27 +219,6 @@ function getTokenSelectionPosition({
 	if (isStart) return "start";
 	if (isEnd) return "end";
 	return "middle";
-}
-
-function trackElementsOverlappingRange({
-	track,
-	startTime,
-	endTime,
-}: {
-	track: TimelineTrack;
-	startTime: number;
-	endTime: number;
-}): { trackId: string; elementId: string }[] {
-	return track.elements
-		.filter((element) => {
-			const elementStart = element.startTime;
-			const elementEnd = element.startTime + element.duration;
-			return elementStart < endTime && elementEnd > startTime;
-		})
-		.map((element) => ({
-			trackId: track.id,
-			elementId: element.id,
-		}));
 }
 
 function rebuildTrackCuesFromSegments({
@@ -966,26 +947,18 @@ export function Captions() {
 			seekToSeconds({ seconds: segmentRange.startTime });
 			return;
 		}
-		const sourceTrackId =
-			selectedTranscriptTrack.sourceTrackId ??
-			(selectedTrackId.startsWith("track:")
-				? selectedTrackId.slice("track:".length)
-				: null);
-		if (!sourceTrackId) {
-			dispatch({
-				type: "fail",
-				error: "当前文字稿没有绑定素材轨道，无法剪辑对应素材",
-			});
-			return;
-		}
-
-		const sourceTrack = editor.timeline.getTrackById({
-			trackId: sourceTrackId,
+		const sourceTracks = resolveTranscriptDeletionSourceTracks({
+			transcriptTrack: selectedTranscriptTrack,
+			selectedTrackId,
+			timelineTracks: sceneTracks,
+			audibleTrackIds: audioTrackOptions.map(
+				(option) => option.trackRef.trackId,
+			),
 		});
-		if (!sourceTrack) {
+		if (sourceTracks.length === 0) {
 			dispatch({
 				type: "fail",
-				error: "没有找到当前文字稿对应的素材轨道",
+				error: "当前文字稿没有绑定可用的素材轨道",
 			});
 			return;
 		}
@@ -1000,14 +973,11 @@ export function Captions() {
 		const endTime = mediaTimeFromSeconds({
 			seconds: timelineEndSeconds,
 		});
-		const targets = trackElementsOverlappingRange({
-			track: sourceTrack,
+		const targets = buildTranscriptDeletionTargets({
+			sourceTracks,
 			startTime,
 			endTime,
-		}).map((target) => ({
-			...target,
-			ranges: [{ startTime, endTime }],
-		}));
+		});
 
 		if (targets.length === 0) {
 			dispatch({
