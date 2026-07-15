@@ -1,5 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { TProjectSubtitles } from "@/project/types";
+import type {
+	TProjectSubtitles,
+	TProjectSubtitleTrack,
+} from "@/project/types";
 import type { SceneTracks, VideoElement } from "@/timeline";
 import { opencutWasmMock, wasmMock } from "@/test/wasm-mock";
 
@@ -91,6 +94,76 @@ function subtitles(): TProjectSubtitles {
 }
 
 describe("subtitle timeline sync", () => {
+	test("collapses legacy global transcript timing for timeline cuts", () => {
+		const result = syncProjectSubtitlesForTimelineCuts({
+			subtitles: {
+				enabled: true,
+				cues: [
+					{
+						text: "前中后",
+						startTime: 1,
+						duration: 3,
+						tokens: [
+							{ text: "前", startTime: 1, duration: 1 },
+							{ text: "中", startTime: 2, duration: 1 },
+							{ text: "后", startTime: 3, duration: 1 },
+						],
+					},
+				],
+				revealMode: "token",
+				lineBreakMode: "page",
+				maxCharsPerLine: 24,
+			},
+			timelineTracks: sceneTracks(),
+			ranges: [
+				{
+					sourceTrackId: "voice-track",
+					startTime: mediaTimeFromSeconds({ seconds: 12 }),
+					endTime: mediaTimeFromSeconds({ seconds: 13 }),
+					mode: "collapse",
+				},
+			],
+		});
+
+		expect(result?.cues[0]?.text).toBe("前后");
+		expect(result?.cues[0]?.tokens?.[1]).toMatchObject({
+			text: "后",
+			startTime: 2,
+		});
+		expect(result?.tracks?.[0]).toMatchObject({
+			id: "track:global",
+			cues: result?.cues,
+		});
+	});
+
+	test("keeps persisted global track and project cues in sync", () => {
+		const currentSubtitles = subtitles();
+		const globalTrack: TProjectSubtitleTrack = {
+			id: "track:global",
+			label: "全局字幕",
+			cues: currentSubtitles.tracks?.[0]?.cues ?? [],
+		};
+		const result = syncProjectSubtitlesForTimelineCuts({
+			subtitles: {
+				...currentSubtitles,
+				cues: globalTrack.cues,
+				tracks: [globalTrack],
+			},
+			timelineTracks: sceneTracks(),
+			ranges: [
+				{
+					sourceTrackId: "voice-track",
+					startTime: mediaTimeFromSeconds({ seconds: 12 }),
+					endTime: mediaTimeFromSeconds({ seconds: 13 }),
+					mode: "collapse",
+				},
+			],
+		});
+
+		expect(result?.tracks?.[0]?.cues[0]?.text).toBe("前后");
+		expect(result?.cues).toEqual(result?.tracks?.[0]?.cues);
+	});
+
 	test("collapses later transcript timing when timeline cuts close the gap", () => {
 		const result = syncProjectSubtitlesForTimelineCuts({
 			subtitles: subtitles(),

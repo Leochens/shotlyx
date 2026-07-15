@@ -21,6 +21,8 @@ export interface SubtitleTimelineCutRange {
 	mode: SubtitleTimelineCutMode;
 }
 
+const LEGACY_GLOBAL_TRANSCRIPT_TRACK_ID = "track:global";
+
 function getStoredProjectTranscriptTracks({
 	subtitles,
 }: {
@@ -38,6 +40,19 @@ function getStoredProjectTranscriptTracks({
 			updatedAt: subtitles.updatedAt,
 		},
 	];
+}
+
+function getProjectCuesAfterTrackSync({
+	subtitles,
+	tracks,
+}: {
+	subtitles: TProjectSubtitles;
+	tracks: TProjectSubtitleTrack[];
+}) {
+	return (
+		tracks.find((track) => track.id === LEGACY_GLOBAL_TRANSCRIPT_TRACK_ID)
+			?.cues ?? subtitles.cues
+	);
 }
 
 function normalizeSecondRanges({
@@ -102,10 +117,11 @@ function syncSubtitleTrackForTimelineCuts({
 	timelineTracks: SceneTracks;
 	ranges: SubtitleTimelineCutRange[];
 }): TProjectSubtitleTrack {
-	if (!track.sourceTrackId) return track;
-	const matchingRanges = ranges.filter(
-		(range) => range.sourceTrackId === track.sourceTrackId,
-	);
+	const matchingRanges = track.sourceTrackId
+		? ranges.filter((range) => range.sourceTrackId === track.sourceTrackId)
+		: track.id === LEGACY_GLOBAL_TRANSCRIPT_TRACK_ID
+			? ranges
+			: [];
 	if (matchingRanges.length === 0) return track;
 
 	const collapseRanges = toStoredSubtitleRanges({
@@ -162,15 +178,10 @@ export function syncProjectSubtitlesForTimelineCuts({
 	});
 	if (!didChange) return subtitles;
 
-	const isLegacyOnly =
-		(!subtitles.tracks || subtitles.tracks.length === 0) &&
-		nextTracks.length === 1 &&
-		nextTracks[0]?.id === "track:global";
-
 	return {
 		...subtitles,
 		tracks: nextTracks,
-		cues: isLegacyOnly ? (nextTracks[0]?.cues ?? []) : subtitles.cues,
+		cues: getProjectCuesAfterTrackSync({ subtitles, tracks: nextTracks }),
 		updatedAt: new Date().toISOString(),
 	};
 }
@@ -203,15 +214,10 @@ export function syncProjectSubtitlesToTimelineFragments({
 	});
 	if (!didChange) return subtitles;
 
-	const isLegacyOnly =
-		(!subtitles.tracks || subtitles.tracks.length === 0) &&
-		nextTracks.length === 1 &&
-		nextTracks[0]?.id === "track:global";
-
 	return {
 		...subtitles,
 		tracks: nextTracks,
-		cues: isLegacyOnly ? (nextTracks[0]?.cues ?? []) : subtitles.cues,
+		cues: getProjectCuesAfterTrackSync({ subtitles, tracks: nextTracks }),
 		updatedAt: new Date().toISOString(),
 	};
 }
