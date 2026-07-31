@@ -5,6 +5,10 @@ import wasm from "vite-plugin-wasm";
 
 const sourceDir = path.resolve(__dirname, "src");
 const platformDir = path.resolve(sourceDir, "platform");
+const localApiEntry = path.resolve(
+	__dirname,
+	"../../packages/local-api/src/handler.ts",
+);
 
 function desktopApiDevServer(): Plugin {
 	return {
@@ -45,9 +49,7 @@ function desktopApiDevServer(): Plugin {
 							: Buffer.concat(chunks),
 				});
 
-				const module = await server.ssrLoadModule(
-					"/src/electron-api/handler.ts",
-				);
+				const module = await server.ssrLoadModule(`/@fs/${localApiEntry}`);
 				const apiResponse = await module.handleElectronApiRequest(apiRequest);
 
 				response.statusCode = apiResponse.status;
@@ -100,14 +102,6 @@ export default defineConfig(({ mode }) => ({
 		),
 		"process.env.VITE_SITE_URL": JSON.stringify(
 			process.env.VITE_SITE_URL ??
-				process.env.SHOTLYX_RENDERER_ORIGIN ??
-				"app://shotlyx",
-		),
-		"process.env.VITE_SHOTLYX_SERVER_URL": JSON.stringify(
-			process.env.VITE_SHOTLYX_SERVER_URL ?? "http://127.0.0.1:8787",
-		),
-		"process.env.VITE_MARBLE_API_URL": JSON.stringify(
-			process.env.VITE_MARBLE_API_URL ??
 				process.env.SHOTLYX_RENDERER_ORIGIN ??
 				"app://shotlyx",
 		),

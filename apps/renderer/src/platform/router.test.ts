@@ -22,13 +22,13 @@ describe("matchShotlyxRoute", () => {
 
 	test("maps desktop and root URLs to stable pages", () => {
 		expect(matchShotlyxRoute("/desktop")).toEqual({
-			kind: "desktop",
+			kind: "root",
 			params: {},
 			pathname: "/desktop",
 			search: "",
 		});
 		expect(matchShotlyxRoute("/")).toEqual({
-			kind: "home",
+			kind: "root",
 			params: {},
 			pathname: "/",
 			search: "",
@@ -56,19 +56,8 @@ describe("matchShotlyxRoute", () => {
 		});
 	});
 
-	test("maps public content routes", () => {
-		expect(matchShotlyxRoute("/blog")).toMatchObject({ kind: "blog" });
-		expect(matchShotlyxRoute("/blog/hello-world")).toMatchObject({
-			kind: "blog-post",
-			params: { slug: "hello-world" },
-		});
-		expect(matchShotlyxRoute("/changelog/v1.0.0")).toMatchObject({
-			kind: "changelog-detail",
-			params: { version: "v1.0.0" },
-		});
-		expect(matchShotlyxRoute("/privacy")).toMatchObject({ kind: "privacy" });
-		expect(matchShotlyxRoute("/third-party-notices")).toMatchObject({
-			kind: "third-party-notices",
-		});
+	test("does not expose former hosted content routes", () => {
+		expect(matchShotlyxRoute("/blog")).toMatchObject({ kind: "not-found" });
+		expect(matchShotlyxRoute("/login")).toMatchObject({ kind: "not-found" });
 	});
 });

@@ -3,7 +3,6 @@ import { getMediaTypeFromFile } from "@/media/media-utils";
 import { formatStorageBytes } from "@/services/storage/quota";
 import { storageService } from "@/services/storage/service";
 import type { MediaAsset } from "@/media/types";
-import { hasStoredAuthSession } from "@/auth/client";
 import { readVideoFile } from "./mediabunny";
 import type { VideoFileData } from "./mediabunny";
 import { renderThumbnailDataUrl } from "./thumbnail";
@@ -201,20 +200,14 @@ export async function processMediaAssets({
 			size: file.size,
 		});
 
-		if (!storageCheck.canStore && !hasStoredAuthSession()) {
-			toast.error(`Not enough browser storage for ${file.name}`, {
+		if (!storageCheck.canStore) {
+			toast.error(`Not enough local storage for ${file.name}`, {
 				description: getStorageLimitDescription({
 					fileSize: file.size,
 					availableBytes: storageCheck.availableBytes,
 				}),
 			});
 			continue;
-		}
-		if (!storageCheck.canStore && hasStoredAuthSession()) {
-			toast.warning(`Local cache is low for ${file.name}`, {
-				description:
-					"Shotlyx will keep this file in the current session and upload it to cloud storage.",
-			});
 		}
 
 		let assetFile = file;

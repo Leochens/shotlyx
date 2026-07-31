@@ -1,7 +1,15 @@
-import type { CloudMediaAssetMetadata } from "@/auth/client";
 import type { MediaType } from "@/media/types";
 import { readVideoFile } from "./mediabunny";
 import { renderThumbnailDataUrl } from "./thumbnail";
+
+export type MediaAssetMetadata = {
+	width?: number;
+	height?: number;
+	duration?: number;
+	fps?: number;
+	hasAudio?: boolean;
+	thumbnailUrl?: string;
+};
 
 function readMediaElementDuration({ file }: { file: File }): Promise<number> {
 	return new Promise((resolve, reject) => {
@@ -31,7 +39,7 @@ function generateImageMetadata({
 	file,
 }: {
 	file: File;
-}): Promise<CloudMediaAssetMetadata> {
+}): Promise<MediaAssetMetadata> {
 	return new Promise((resolve, reject) => {
 		const image = new window.Image();
 		const objectUrl = URL.createObjectURL(file);
@@ -71,7 +79,7 @@ function generateVideoElementMetadata({
 	file,
 }: {
 	file: File;
-}): Promise<CloudMediaAssetMetadata> {
+}): Promise<MediaAssetMetadata> {
 	return new Promise((resolve, reject) => {
 		const video = document.createElement("video");
 		const objectUrl = URL.createObjectURL(file);
@@ -141,13 +149,13 @@ function generateVideoElementMetadata({
 	});
 }
 
-export async function deriveCloudMediaAssetMetadata({
+export async function deriveMediaAssetMetadata({
 	file,
 	type,
 }: {
 	file: File;
 	type: MediaType;
-}): Promise<CloudMediaAssetMetadata> {
+}): Promise<MediaAssetMetadata> {
 	if (type === "image") {
 		return generateImageMetadata({ file });
 	}

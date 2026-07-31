@@ -22,7 +22,6 @@ import { usePasteMedia } from "@/media/use-paste-media";
 import { MobileGate } from "@/components/editor/mobile-gate";
 import { useMemo, useState } from "react";
 import { useEditor } from "@/editor/use-editor";
-import { ChangelogNotification } from "@/changelog/components/changelog-notification";
 import { ChatPanel } from "@/agent/chat/panel";
 import { TopicWorkbench } from "@/topic-workbench/topic-workbench";
 import { useTopicWorkbenchStore } from "@/topic-workbench/store";
@@ -57,7 +56,6 @@ export default function Editor() {
 					</div>
 					<Onboarding />
 					<MigrationDialog />
-					<ChangelogNotification />
 				</div>
 			</EditorProvider>
 		</MobileGate>

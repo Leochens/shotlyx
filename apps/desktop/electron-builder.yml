@@ -4,7 +4,6 @@ artifactName: Shotlyx-Desktop-${version}-${os}-${arch}.${ext}
 copyright: Copyright (c) 2026 GuanTou Lab
 asar: true
 compression: normal
-electronUpdaterCompatibility: ">= 2.16"
 afterPack: scripts/after-pack.cjs
 
 directories:
@@ -20,8 +19,6 @@ files:
 mac:
   category: public.app-category.video
   icon: build/icon.icns
-  hardenedRuntime: true
-  notarize: true
   target:
     - dmg
     - zip
@@ -43,9 +40,3 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: Shotlyx Desktop
-
-publish:
-  provider: github
-  owner: Leochens
-  repo: shotlyx
-  releaseType: release

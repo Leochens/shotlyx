@@ -9,10 +9,6 @@ const failingFetch: typeof fetch = async () => {
 	throw new Error("Freesound should not be requested for built-in results");
 };
 
-mock.module("@/auth/rate-limit", () => ({
-	checkRateLimit: async () => ({ success: true, limited: false }),
-}));
-
 mock.module("@/desktop/config/server", () => ({
 	getRuntimeEnv: () => ({ FREESOUND_API_KEY: "" }),
 }));

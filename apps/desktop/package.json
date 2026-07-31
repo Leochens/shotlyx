@@ -2,10 +2,10 @@
 	"name": "@shotlyx/desktop",
 	"productName": "Shotlyx Desktop",
 	"description": "Desktop video editor and local agent workspace for Shotlyx.",
-	"version": "0.1.0",
+	"version": "0.1.0-alpha.1",
 	"private": true,
 	"author": "GuanTou Lab",
-	"license": "AGPL-3.0-only",
+	"license": "GPL-3.0-only",
 	"main": "main.cjs",
 	"scripts": {
 		"clean:cache": "node scripts/clean-render-cache.mjs",
@@ -16,19 +16,14 @@
 		"build": "node scripts/build.mjs",
 		"pack": "bun run build && electron-builder --dir",
 		"pack:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
-		"dist": "node scripts/require-mac-notarization-env.mjs && bun run build && electron-builder --publish never && node scripts/verify-mac-release.mjs",
-		"dist:all": "node scripts/require-mac-notarization-env.mjs && bun run build && electron-builder --mac dmg zip --publish never && electron-builder --win nsis zip --x64 --publish never && node scripts/verify-mac-release.mjs",
-		"dist:mac": "node scripts/require-mac-notarization-env.mjs && bun run build && electron-builder --mac dmg zip --publish never && node scripts/verify-mac-release.mjs",
-		"dist:mac:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --publish never",
-		"dist:win": "bun run build && electron-builder --win nsis zip --x64 --publish never",
-		"publish:mac": "node scripts/require-mac-notarization-env.mjs && bun run build && electron-builder --mac dmg zip --publish always && node scripts/verify-mac-release.mjs",
-		"publish:win": "bun run build && electron-builder --win nsis zip --x64 --publish always"
+		"dist": "bun run dist:mac",
+		"dist:all": "bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --arm64 --publish never && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis zip --x64 --publish never",
+		"dist:mac": "CSC_IDENTITY_AUTO_DISCOVERY=false bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --arm64 --publish never",
+		"dist:mac:unsigned": "bun run dist:mac",
+		"dist:win": "CSC_IDENTITY_AUTO_DISCOVERY=false bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis zip --x64 --publish never"
 	},
 	"devDependencies": {
 		"electron": "^42.2.0",
 		"electron-builder": "^26.8.1"
-	},
-	"dependencies": {
-		"electron-updater": "^6.8.3"
 	}
 }

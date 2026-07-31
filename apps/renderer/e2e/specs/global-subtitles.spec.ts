@@ -25,36 +25,8 @@ function collectSubtitleRuntimeErrors({ page }: { page: Page }): string[] {
 }
 
 async function setupEditorPage(page: Page): Promise<void> {
-	await page.route("**/api/account/me", async (route) => {
-		await route.fulfill({
-			status: 200,
-			contentType: "application/json",
-			body: JSON.stringify({
-				user: {
-					id: "e2e-user",
-					email: "e2e@shotlyx.test",
-					name: "E2E User",
-					createdAt: "2026-01-01T00:00:00.000Z",
-				},
-				session: {
-					token: "shotlyx_session_e2e",
-					userId: "e2e-user",
-					createdAt: "2026-01-01T00:00:00.000Z",
-					expiresAt: "2099-01-01T00:00:00.000Z",
-				},
-				newApiKey: null,
-			}),
-		});
-	});
 	await page.addInitScript(() => {
 		localStorage.setItem("hasSeenOnboarding", JSON.stringify({ value: true }));
-		localStorage.setItem(
-			"shotlyx.auth.session.v1",
-			JSON.stringify({
-				token: "shotlyx_session_e2e",
-				expiresAt: "2099-01-01T00:00:00.000Z",
-			}),
-		);
 		localStorage.setItem(
 			"panel-sizes",
 			JSON.stringify({

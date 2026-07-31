@@ -1,7 +1,6 @@
 import { webEnv } from "@/env/web";
 import { type ApiRequest, ApiResponse } from "@/platform/http";
 import { z } from "zod";
-import { checkRateLimit } from "@/auth/rate-limit";
 import { getRuntimeEnv } from "@/desktop/config/server";
 import { searchBuiltInSoundEffects } from "@/sounds/builtin-library";
 
@@ -199,11 +198,6 @@ function jsonSoundSearchResponse({
 
 export async function GET(request: ApiRequest) {
 	try {
-		const { limited } = await checkRateLimit({ request });
-		if (limited) {
-			return ApiResponse.json({ error: "Too many requests" }, { status: 429 });
-		}
-
 		const { searchParams } = new URL(request.url);
 
 		const validationResult = searchParamsSchema.safeParse({

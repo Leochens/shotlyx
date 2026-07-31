@@ -40,19 +40,7 @@ import type { Bookmark, SceneTracks, TScene } from "@/timeline";
 import { generateUUID } from "@/utils/id";
 import { MAIN_TRACK_NAME } from "@/timeline/placement/main-track";
 import { roundMediaTime } from "@/wasm";
-import {
-	deleteCloudProjects,
-	getCloudAssetReadUrl,
-	getCloudProject,
-	hasStoredAuthSession,
-	listCloudProjects,
-	updateCloudAssetMetadata,
-	upsertCloudProject,
-	type CloudMediaAssetMetadata,
-	type CloudMediaAssetRecord,
-	type CloudProjectRecord,
-} from "@/auth/client";
-import { deriveCloudMediaAssetMetadata } from "@/media/metadata";
+import { deriveMediaAssetMetadata } from "@/media/metadata";
 
 const LOCAL_MEDIA_CACHE_LIMIT_BYTES = 20 * 1024 * 1024 * 1024;
 
@@ -146,44 +134,6 @@ function normalizeProjectTags({
 	return tags.length > 0 ? tags : undefined;
 }
 
-function normalizeMediaAssetType({
-	value,
-}: {
-	value: string;
-}): MediaAssetData["type"] {
-	if (
-		value === "image" ||
-		value === "video" ||
-		value === "audio" ||
-		value === "subtitle" ||
-		value === "text"
-	) {
-		return value;
-	}
-	return "video";
-}
-
-function normalizeCloudMediaMetadata({
-	metadata,
-}: {
-	metadata?: CloudMediaAssetRecord["metadata"];
-}): CloudMediaAssetMetadata {
-	if (!metadata || typeof metadata !== "object") return {};
-	return {
-		width: typeof metadata.width === "number" ? metadata.width : undefined,
-		height: typeof metadata.height === "number" ? metadata.height : undefined,
-		duration:
-			typeof metadata.duration === "number" ? metadata.duration : undefined,
-		fps: typeof metadata.fps === "number" ? metadata.fps : undefined,
-		hasAudio:
-			typeof metadata.hasAudio === "boolean" ? metadata.hasAudio : undefined,
-		thumbnailUrl:
-			typeof metadata.thumbnailUrl === "string"
-				? metadata.thumbnailUrl
-				: undefined,
-	};
-}
-
 function shouldDeriveMediaMetadata({
 	metadata,
 }: {
@@ -204,29 +154,6 @@ function shouldDeriveMediaMetadata({
 		return metadata.duration === undefined;
 	}
 	return false;
-}
-
-function buildCloudMediaMetadataPatch({
-	metadata,
-}: {
-	metadata: MediaAssetData;
-}): CloudMediaAssetMetadata {
-	return {
-		width: metadata.width,
-		height: metadata.height,
-		duration: metadata.duration,
-		fps: metadata.fps,
-		hasAudio: metadata.hasAudio,
-		thumbnailUrl: metadata.thumbnailUrl,
-	};
-}
-
-function hasCloudMediaMetadataPatch({
-	metadata,
-}: {
-	metadata: CloudMediaAssetMetadata;
-}): boolean {
-	return Object.values(metadata).some((value) => value !== undefined);
 }
 
 function normalizeProjectAssetSummary({
@@ -412,115 +339,6 @@ class StorageService {
 		return new OPFSAdapter(`media-files-${projectId}`);
 	}
 
-	private async syncProjectToCloud({
-		project,
-	}: {
-		project: SerializedProject;
-	}): Promise<void> {
-		if (!hasStoredAuthSession()) return;
-		try {
-			await upsertCloudProject({
-				project: project as unknown as Record<string, unknown>,
-			});
-		} catch (error) {
-			console.warn("Failed to sync project to cloud:", error);
-		}
-	}
-
-	private async loadCloudProject({
-		id,
-	}: {
-		id: string;
-	}): Promise<SerializedProject | null> {
-		if (!hasStoredAuthSession()) return null;
-		try {
-			const cloudProject = await getCloudProject({ projectId: id });
-			if (!cloudProject?.project.project) return null;
-			const { mediaMetadataAdapter } = this.getProjectMediaAdapters({
-				projectId: id,
-			});
-			await Promise.all(
-				cloudProject.assets.map((asset) => {
-					const mediaMetadata = normalizeCloudMediaMetadata({
-						metadata: asset.metadata,
-					});
-					return mediaMetadataAdapter.set({
-						key: asset.id,
-						value: {
-							id: asset.id,
-							name: asset.name,
-							type: normalizeMediaAssetType({ value: asset.mediaType }),
-							size: asset.sizeBytes,
-							lastModified: Date.parse(asset.updatedAt) || Date.now(),
-							width: mediaMetadata.width,
-							height: mediaMetadata.height,
-							duration: mediaMetadata.duration,
-							fps: mediaMetadata.fps,
-							hasAudio: mediaMetadata.hasAudio,
-							thumbnailUrl: mediaMetadata.thumbnailUrl,
-							cloudAssetId: asset.id,
-							uploadStatus: asset.uploadStatus,
-							objectKey: asset.objectKey,
-							uploadedAt: asset.uploadedAt,
-							uploadProgress: asset.uploadStatus === "uploaded" ? 1 : undefined,
-							uploadResumable: asset.uploadStatus !== "uploaded",
-						},
-					});
-				}),
-			);
-			return cloudProject.project.project as unknown as SerializedProject;
-		} catch (error) {
-			console.warn("Failed to load cloud project:", error);
-			return null;
-		}
-	}
-
-	private cloudProjectToMetadata({
-		project,
-	}: {
-		project: CloudProjectRecord;
-	}): TProjectMetadata | null {
-		const metadata = project.metadata;
-		if (!metadata || typeof metadata.id !== "string") return null;
-		const createdAt = new Date(
-			typeof metadata.createdAt === "string" ? metadata.createdAt : project.createdAt,
-		);
-		const updatedAt = new Date(
-			typeof metadata.updatedAt === "string" ? metadata.updatedAt : project.updatedAt,
-		);
-		return {
-			id: metadata.id,
-			name: typeof metadata.name === "string" ? metadata.name : project.name,
-			thumbnail:
-				typeof metadata.thumbnail === "string" ? metadata.thumbnail : undefined,
-			duration:
-				typeof metadata.duration === "number"
-					? roundMediaTime({ time: metadata.duration })
-					: 0,
-			createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
-			updatedAt: Number.isNaN(updatedAt.getTime()) ? new Date() : updatedAt,
-			stage: normalizeProjectStage({ value: metadata.stage }),
-			note: normalizeProjectNote({ value: metadata.note }),
-			tags: normalizeProjectTags({ value: metadata.tags }),
-			assetSummary: normalizeProjectAssetSummary({
-				value: metadata.assetSummary,
-			}),
-		};
-	}
-
-	private async loadCloudProjectMetadata(): Promise<TProjectMetadata[]> {
-		if (!hasStoredAuthSession()) return [];
-		try {
-			const projects = await listCloudProjects();
-			return projects
-				.map((project) => this.cloudProjectToMetadata({ project }))
-				.filter((project): project is TProjectMetadata => Boolean(project));
-		} catch (error) {
-			console.warn("Failed to list cloud projects:", error);
-			return [];
-		}
-	}
-
 	async canStoreFile({
 		size,
 	}: {
@@ -598,7 +416,6 @@ class StorageService {
 			key: project.metadata.id,
 			value: serializedProject,
 		});
-		void this.syncProjectToCloud({ project: serializedProject });
 	}
 
 	async loadProject({
@@ -607,13 +424,8 @@ class StorageService {
 		id: string;
 	}): Promise<{ project: TProject } | null> {
 		await this.ensureMigrations();
-		let serializedProject = await this.projectsAdapter.get(id);
-
-		if (!serializedProject) {
-			serializedProject = await this.loadCloudProject({ id });
-			if (!serializedProject) return null;
-			await this.projectsAdapter.set({ key: id, value: serializedProject });
-		}
+		const serializedProject = await this.projectsAdapter.get(id);
+		if (!serializedProject) return null;
 
 		if (
 			typeof serializedProject !== "object" ||
@@ -779,182 +591,13 @@ class StorageService {
 			});
 		}
 
-		const cloudMetadata = await this.loadCloudProjectMetadata();
-		const metadataById = new Map<string, TProjectMetadata>();
-		for (const item of [...metadata, ...cloudMetadata]) {
-			const existing = metadataById.get(item.id);
-			if (!existing || item.updatedAt.getTime() > existing.updatedAt.getTime()) {
-				metadataById.set(item.id, item);
-			}
-		}
-
-		return Array.from(metadataById.values()).sort(
+		return metadata.sort(
 			(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
 		);
 	}
 
-	async syncLocalProjectsToCloud(): Promise<number> {
-		await this.ensureMigrations();
-		if (!hasStoredAuthSession()) return 0;
-		const serializedProjects = await this.projectsAdapter.getAll();
-		let syncedCount = 0;
-		for (const project of serializedProjects) {
-			if (!project?.metadata?.id) continue;
-			try {
-				await upsertCloudProject({
-					project: project as unknown as Record<string, unknown>,
-				});
-				syncedCount += 1;
-			} catch (error) {
-				console.warn("Failed to sync local project:", error);
-			}
-		}
-		return syncedCount;
-	}
-
 	async deleteProject({ id }: { id: string }): Promise<void> {
 		await this.projectsAdapter.remove(id);
-		if (hasStoredAuthSession()) {
-			deleteCloudProjects({ ids: [id] }).catch((error) => {
-				console.warn("Failed to delete cloud project:", error);
-			});
-		}
-	}
-
-	private async restoreAssetFileFromCloud({
-		projectId,
-		metadata,
-		mediaAssetsAdapter,
-	}: {
-		projectId: string;
-		metadata: MediaAssetData;
-		mediaAssetsAdapter: StorageAdapter<File>;
-	}): Promise<File | null> {
-		if (!metadata.objectKey && !metadata.cloudAssetId) return null;
-		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({
-			projectId,
-		});
-		await mediaMetadataAdapter.set({
-			key: metadata.id,
-			value: {
-				...metadata,
-				cacheStatus: "restoring",
-				cacheError: undefined,
-			},
-		});
-		try {
-			const readUrl =
-				metadata.readUrl ??
-				(
-					await getCloudAssetReadUrl({
-						projectId,
-						assetId: metadata.cloudAssetId ?? metadata.id,
-					})
-				).readUrl;
-			if (!readUrl) {
-				await mediaMetadataAdapter.set({
-					key: metadata.id,
-					value: {
-						...metadata,
-						cacheStatus: "restore-failed",
-						cacheError: "read_url_unavailable",
-					},
-				});
-				return null;
-			}
-			const response = await fetch(readUrl);
-			if (!response.ok) {
-				await mediaMetadataAdapter.set({
-					key: metadata.id,
-					value: {
-						...metadata,
-						readUrl,
-						cacheStatus: "restore-failed",
-						cacheError: `restore_http_${response.status}`,
-					},
-				});
-				return null;
-			}
-			const blob = await response.blob();
-			const file = new File([blob], metadata.name, {
-				type: blob.type || undefined,
-				lastModified: metadata.lastModified || Date.now(),
-			});
-			await mediaAssetsAdapter.set({ key: metadata.id, value: file });
-			let derivedMetadata: Partial<MediaAssetData> = {};
-			try {
-				derivedMetadata = Object.fromEntries(
-					Object.entries(
-						await deriveCloudMediaAssetMetadata({
-							file,
-							type: metadata.type,
-						}),
-					).filter(([, value]) => value !== undefined),
-				) as Partial<MediaAssetData>;
-			} catch (error) {
-				console.warn("Failed to derive restored media metadata:", error);
-			}
-			await mediaMetadataAdapter.set({
-				key: metadata.id,
-				value: {
-					...metadata,
-					...derivedMetadata,
-					readUrl,
-					cacheStatus: "cached",
-					cacheError: undefined,
-					lastCacheAccessedAt: new Date().toISOString(),
-				},
-			});
-			return file;
-		} catch (error) {
-			console.warn("Failed to restore media asset from cloud:", error);
-			await mediaMetadataAdapter.set({
-				key: metadata.id,
-				value: {
-					...metadata,
-					cacheStatus: "restore-failed",
-					cacheError: error instanceof Error ? error.message : "restore_failed",
-				},
-			});
-			return null;
-		}
-	}
-
-	private async syncMediaAssetMetadataToCloud({
-		projectId,
-		metadata,
-		mediaMetadataAdapter,
-	}: {
-		projectId: string;
-		metadata: MediaAssetData;
-		mediaMetadataAdapter: StorageAdapter<MediaAssetData>;
-	}): Promise<void> {
-		if (!hasStoredAuthSession()) return;
-		if (!metadata.cloudAssetId || metadata.uploadStatus !== "uploaded") return;
-		if (metadata.cloudMetadataSyncedAt) return;
-		if (metadata.type === "audio") {
-			if (metadata.duration === undefined) return;
-		} else if (!metadata.thumbnailUrl) {
-			return;
-		}
-		const patch = buildCloudMediaMetadataPatch({ metadata });
-		if (!hasCloudMediaMetadataPatch({ metadata: patch })) return;
-		try {
-			await updateCloudAssetMetadata({
-				projectId,
-				assetId: metadata.cloudAssetId,
-				metadata: patch,
-			});
-			await mediaMetadataAdapter.set({
-				key: metadata.id,
-				value: {
-					...metadata,
-					cloudMetadataSyncedAt: new Date().toISOString(),
-				},
-			});
-		} catch (error) {
-			console.warn("Failed to sync media metadata to cloud:", error);
-		}
 	}
 
 	private async enforceProjectMediaCacheLimit({
@@ -994,40 +637,6 @@ class StorageService {
 		}
 	}
 
-	async updateMediaAssetCloudState({
-		projectId,
-		id,
-		updates,
-	}: {
-		projectId: string;
-		id: string;
-		updates: Partial<
-			Pick<
-				MediaAssetData,
-				| "cloudAssetId"
-				| "uploadStatus"
-				| "objectKey"
-					| "readUrl"
-					| "uploadedAt"
-					| "uploadTaskId"
-					| "uploadProgress"
-					| "uploadResumable"
-					| "uploadError"
-				>
-			>;
-	}): Promise<void> {
-		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({ projectId });
-		const metadata = await mediaMetadataAdapter.get(id);
-		if (!metadata) return;
-		await mediaMetadataAdapter.set({
-			key: id,
-			value: {
-				...metadata,
-				...updates,
-			},
-		});
-	}
-
 	async saveMediaAsset({
 		projectId,
 		mediaAsset,
@@ -1052,18 +661,6 @@ class StorageService {
 			thumbnailUrl: mediaAsset.thumbnailUrl,
 			ephemeral: mediaAsset.ephemeral,
 			externalSource: mediaAsset.externalSource,
-			cloudAssetId: mediaAsset.cloudAssetId,
-			uploadStatus: mediaAsset.uploadStatus,
-			objectKey: mediaAsset.objectKey,
-			readUrl: mediaAsset.readUrl,
-			uploadedAt: mediaAsset.uploadedAt,
-			cacheStatus: mediaAsset.cacheStatus,
-			cacheError: mediaAsset.cacheError,
-			cloudMetadataSyncedAt: mediaAsset.cloudMetadataSyncedAt,
-			uploadTaskId: mediaAsset.uploadTaskId,
-			uploadProgress: mediaAsset.uploadProgress,
-			uploadResumable: mediaAsset.uploadResumable,
-			uploadError: mediaAsset.uploadError,
 			lastCacheAccessedAt: new Date().toISOString(),
 		};
 
@@ -1085,20 +682,6 @@ class StorageService {
 				await mediaAssetsAdapter.remove(mediaAsset.id);
 			} catch {
 				// Ignore cleanup failures so the original storage error is preserved.
-			}
-
-			if (this.isQuotaExceededError({ error }) && hasStoredAuthSession()) {
-				await mediaMetadataAdapter.set({
-					key: mediaAsset.id,
-					value: {
-						...metadata,
-						uploadStatus: mediaAsset.uploadStatus ?? "uploading",
-					},
-				});
-				console.warn(
-					"Local media cache is full; keeping metadata so cloud upload can restore later.",
-				);
-				return;
 			}
 
 			if (this.isQuotaExceededError({ error })) {
@@ -1140,27 +723,6 @@ class StorageService {
 					});
 			}
 		}
-		if (!file && metadata?.uploadStatus === "uploaded") {
-			file = await this.restoreAssetFileFromCloud({
-				projectId,
-				metadata,
-				mediaAssetsAdapter,
-			});
-			metadata = await mediaMetadataAdapter.get(id);
-		}
-
-		if (!file && metadata?.uploadStatus === "uploaded") {
-			file = new File([], metadata.name, {
-				type:
-					metadata.type === "video"
-						? "video/mp4"
-						: metadata.type === "audio"
-							? "audio/mpeg"
-							: undefined,
-				lastModified: metadata.lastModified || Date.now(),
-			});
-		}
-
 		if (!file || !metadata) return null;
 		const stableFile =
 			file.name === metadata.name && file.lastModified === metadata.lastModified
@@ -1174,7 +736,7 @@ class StorageService {
 			try {
 				const derivedMetadata = Object.fromEntries(
 					Object.entries(
-						await deriveCloudMediaAssetMetadata({
+						await deriveMediaAssetMetadata({
 							file: stableFile,
 							type: metadata.type,
 						}),
@@ -1192,14 +754,6 @@ class StorageService {
 				console.warn("Failed to derive media metadata:", error);
 			}
 		}
-		this.syncMediaAssetMetadataToCloud({
-			projectId,
-			metadata,
-			mediaMetadataAdapter,
-		}).catch((error) => {
-			console.warn("Failed to schedule media metadata cloud sync:", error);
-		});
-
 		let url: string;
 		if (
 			metadata.type === "image" &&
@@ -1234,18 +788,6 @@ class StorageService {
 			thumbnailUrl: metadata.thumbnailUrl,
 			ephemeral: metadata.ephemeral,
 			externalSource: metadata.externalSource,
-			cloudAssetId: metadata.cloudAssetId,
-			uploadStatus: metadata.uploadStatus,
-			objectKey: metadata.objectKey,
-			readUrl: metadata.readUrl,
-			uploadedAt: metadata.uploadedAt,
-			cacheStatus: metadata.cacheStatus ?? (file.size > 0 ? "cached" : undefined),
-			cacheError: metadata.cacheError,
-			cloudMetadataSyncedAt: metadata.cloudMetadataSyncedAt,
-			uploadTaskId: metadata.uploadTaskId,
-			uploadProgress: metadata.uploadProgress,
-			uploadResumable: metadata.uploadResumable,
-			uploadError: metadata.uploadError,
 			lastCacheAccessedAt: new Date().toISOString(),
 		};
 	}

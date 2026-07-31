@@ -3,7 +3,6 @@ import type { ApiRequest } from "@/platform/http";
 import { generateObject, streamText, stepCountIs } from "ai";
 import { z } from "zod";
 import type { ModelMessage } from "ai";
-import { checkRateLimit } from "@/auth/rate-limit";
 import { getDefaultModel } from "@/agent/ai-sdk/providers";
 import {
 	mcpToolsToAISDKProxyTools,
@@ -522,18 +521,6 @@ function isAbortError(error: unknown): boolean {
 }
 
 export async function POST(request: ApiRequest) {
-	try {
-		const { limited } = await checkRateLimit({ request });
-		if (limited) {
-			return new Response(JSON.stringify({ error: "Too many requests" }), {
-				status: 429,
-				headers: { "Content-Type": "application/json" },
-			});
-		}
-	} catch {
-		// rate limit check failed, continue
-	}
-
 	let body: unknown;
 	try {
 		body = await request.json();

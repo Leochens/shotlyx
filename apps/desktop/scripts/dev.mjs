@@ -141,7 +141,6 @@ function runApiBuild() {
 					SHOTLYX_RENDERER_ORIGIN: "app://shotlyx",
 					VITE_SHOTLYX_API_ORIGIN: "app://shotlyx",
 					VITE_SITE_URL: desktopSiteUrl,
-					VITE_MARBLE_API_URL: "app://shotlyx",
 				},
 				stdio: "inherit",
 			},

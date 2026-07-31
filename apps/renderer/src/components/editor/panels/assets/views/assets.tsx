@@ -194,14 +194,6 @@ export function MediaView() {
 			assetIds: ids,
 			});
 	};
-	const handleRetryCloudUpload = ({ id }: { id: string }) => {
-		if (!activeProject) return;
-		editor.media.retryCloudUpload({
-			projectId: activeProject.metadata.id,
-			id,
-		});
-	};
-
 	const handleSort = ({ key }: { key: MediaSortKey }) => {
 		if (mediaSortBy === key) {
 			setMediaSort({
@@ -309,11 +301,10 @@ export function MediaView() {
 							) : null}
 							{filteredMediaItems.length > 0 ? (
 									<GroupedMediaItemList
-										items={filteredMediaItems}
-										mode={mediaViewMode}
-										onRemove={handleRemove}
-										onRetryCloudUpload={handleRetryCloudUpload}
-									/>
+									items={filteredMediaItems}
+									mode={mediaViewMode}
+									onRemove={handleRemove}
+								/>
 							) : null}
 						</div>
 					</SelectableSurface>
@@ -653,7 +644,6 @@ function MediaItemWithContextMenu({
 	item,
 	children,
 	onRemove,
-	onRetryCloudUpload,
 }: {
 	item: MediaAsset;
 	children: React.ReactNode;
@@ -664,7 +654,6 @@ function MediaItemWithContextMenu({
 		event: React.MouseEvent;
 		ids: string[];
 		}) => void;
-	onRetryCloudUpload: ({ id }: { id: string }) => void;
 }) {
 	const { copy } = useAppLocale();
 	const { isSelected, selectedIds } = useSelection();
@@ -686,11 +675,6 @@ function MediaItemWithContextMenu({
 							{copy.editor.assets.context.exportClips}
 						</ContextMenuItem>
 					) : null}
-					{item.uploadStatus === "failed" && item.uploadResumable !== false ? (
-						<ContextMenuItem onClick={() => onRetryCloudUpload({ id: item.id })}>
-							继续上传
-						</ContextMenuItem>
-					) : null}
 					<ContextMenuItem
 						variant="destructive"
 					onClick={(event: React.MouseEvent<HTMLDivElement>) =>
@@ -708,7 +692,6 @@ function GroupedMediaItemList({
 	items,
 	mode,
 	onRemove,
-	onRetryCloudUpload,
 }: {
 	items: MediaAsset[];
 	mode: MediaViewMode;
@@ -719,7 +702,6 @@ function GroupedMediaItemList({
 		event: React.MouseEvent;
 		ids: string[];
 		}) => void;
-	onRetryCloudUpload: ({ id }: { id: string }) => void;
 }) {
 	const isGrid = mode === "grid";
 	const { copy } = useAppLocale();
@@ -740,11 +722,10 @@ function GroupedMediaItemList({
 							{group.items.length}
 						</span>
 					</div>
-						<MediaItemList
-							items={group.items}
-							onRemove={onRemove}
-							onRetryCloudUpload={onRetryCloudUpload}
-							isGrid={isGrid}
+							<MediaItemList
+								items={group.items}
+								onRemove={onRemove}
+								isGrid={isGrid}
 						/>
 				</section>
 			))}
@@ -755,7 +736,6 @@ function GroupedMediaItemList({
 function MediaItemList({
 	items,
 	onRemove,
-	onRetryCloudUpload,
 	isGrid,
 }: {
 	items: MediaAsset[];
@@ -766,7 +746,6 @@ function MediaItemList({
 		event: React.MouseEvent;
 		ids: string[];
 		}) => void;
-	onRetryCloudUpload: ({ id }: { id: string }) => void;
 	isGrid: boolean;
 }) {
 	const pointSelectEnabled = useAgentContextStore(
@@ -783,11 +762,10 @@ function MediaItemList({
 			}
 		>
 				{items.map((item) => (
-					<MediaItemWithContextMenu
-						item={item}
-						onRemove={onRemove}
-						onRetryCloudUpload={onRetryCloudUpload}
-						key={item.id}
+						<MediaItemWithContextMenu
+							item={item}
+							onRemove={onRemove}
+							key={item.id}
 					>
 					<SelectableItem
 						className={cn(
@@ -850,62 +828,12 @@ function MediaAssetItem({
 						<Eye className="size-3.5" />
 					</AssetIconButton>
 				</div>
-				<CloudUploadStatusBadge item={item} />
 				<MediaAssetPreviewDialog
 					open={isPreviewing}
 					onOpenChange={setIsPreviewing}
 				item={item}
 			/>
 		</div>
-	);
-}
-
-function CloudUploadStatusBadge({ item }: { item: MediaAsset }) {
-	if (item.cacheStatus === "restoring") {
-		return (
-			<span
-				className="pointer-events-none absolute bottom-1.5 left-1.5 z-10 max-w-[calc(100%-0.75rem)] truncate rounded bg-violet-600 px-1.5 py-0.5 text-[0.62rem] text-white leading-none shadow-sm"
-				title="本地缓存缺失，正在从云端恢复"
-			>
-				恢复中
-			</span>
-		);
-	}
-	if (item.cacheStatus === "restore-failed") {
-		return (
-			<span
-				className="pointer-events-none absolute bottom-1.5 left-1.5 z-10 max-w-[calc(100%-0.75rem)] truncate rounded bg-red-600 px-1.5 py-0.5 text-[0.62rem] text-white leading-none shadow-sm"
-				title={item.cacheError || "云端素材恢复失败"}
-			>
-				恢复失败
-			</span>
-		);
-	}
-	if (!item.uploadStatus || item.uploadStatus === "local-only") return null;
-	const percent =
-		typeof item.uploadProgress === "number"
-			? `${Math.round(item.uploadProgress * 100)}%`
-			: null;
-	const badge =
-		item.uploadStatus === "uploaded"
-			? { label: "云端", className: "bg-emerald-600 text-white" }
-			: item.uploadStatus === "failed"
-				? { label: "可续传", className: "bg-amber-600 text-white" }
-				: {
-						label: percent ? `上传 ${percent}` : "上传中",
-						className: "bg-sky-600 text-white",
-					};
-
-	return (
-		<span
-			className={cn(
-				"pointer-events-none absolute bottom-1.5 left-1.5 z-10 max-w-[calc(100%-0.75rem)] truncate rounded px-1.5 py-0.5 text-[0.62rem] leading-none shadow-sm",
-				badge.className,
-			)}
-			title={item.uploadError || badge.label}
-		>
-			{badge.label}
-		</span>
 	);
 }
 

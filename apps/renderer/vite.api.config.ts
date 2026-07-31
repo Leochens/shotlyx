@@ -28,19 +28,13 @@ export default defineConfig({
 		"process.env.VITE_SITE_URL": JSON.stringify(
 			process.env.VITE_SITE_URL ?? "https://shotlyx.ai",
 		),
-		"process.env.VITE_SHOTLYX_SERVER_URL": JSON.stringify(
-			process.env.VITE_SHOTLYX_SERVER_URL ?? "https://api.shotlyx.ai",
-		),
-		"process.env.VITE_MARBLE_API_URL": JSON.stringify(
-			process.env.VITE_MARBLE_API_URL ?? "app://shotlyx",
-		),
 	},
 	ssr: {
 		external: desktopApiExternals,
 		noExternal: true,
 	},
 	build: {
-		ssr: "src/electron-api/handler.ts",
+		ssr: "../../packages/local-api/src/handler.ts",
 		outDir: "dist-electron",
 		emptyOutDir: true,
 		sourcemap: true,

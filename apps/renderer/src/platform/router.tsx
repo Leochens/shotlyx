@@ -9,26 +9,11 @@ import {
 } from "react";
 
 export type ShotlyxRouteKind =
-	| "home"
+	| "root"
 	| "projects"
-	| "desktop"
 	| "settings"
 	| "settings-api"
 	| "editor"
-	| "blog"
-	| "blog-post"
-	| "brand"
-	| "changelog"
-	| "changelog-detail"
-	| "contributors"
-	| "license"
-	| "login"
-	| "privacy"
-	| "roadmap"
-	| "source"
-	| "sponsors"
-	| "terms"
-	| "third-party-notices"
 	| "not-found";
 
 export type ShotlyxRoute = {
@@ -89,71 +74,17 @@ export function matchShotlyxRoute(rawPath: string): ShotlyxRoute {
 	};
 
 	if (pathname === "/") {
-		return { ...base, kind: "home", params: {} };
+		return { ...base, kind: "root", params: {} };
 	}
 	if (pathname === "/projects") {
 		return { ...base, kind: "projects", params: {} };
 	}
-	if (pathname === "/desktop") {
-		return { ...base, kind: "desktop", params: {} };
-	}
+	if (pathname === "/desktop") return { ...base, kind: "root", params: {} };
 	if (pathname === "/settings") {
 		return { ...base, kind: "settings", params: {} };
 	}
 	if (pathname === "/settings/api") {
 		return { ...base, kind: "settings-api", params: {} };
-	}
-	if (pathname === "/blog") {
-		return { ...base, kind: "blog", params: {} };
-	}
-	const blogPostMatch = /^\/blog\/([^/]+)$/.exec(pathname);
-	if (blogPostMatch) {
-		return {
-			...base,
-			kind: "blog-post",
-			params: { slug: decodeURIComponent(blogPostMatch[1] ?? "") },
-		};
-	}
-	if (pathname === "/brand") {
-		return { ...base, kind: "brand", params: {} };
-	}
-	if (pathname === "/changelog") {
-		return { ...base, kind: "changelog", params: {} };
-	}
-	const changelogMatch = /^\/changelog\/([^/]+)$/.exec(pathname);
-	if (changelogMatch) {
-		return {
-			...base,
-			kind: "changelog-detail",
-			params: { version: decodeURIComponent(changelogMatch[1] ?? "") },
-		};
-	}
-	if (pathname === "/contributors") {
-		return { ...base, kind: "contributors", params: {} };
-	}
-	if (pathname === "/license") {
-		return { ...base, kind: "license", params: {} };
-	}
-	if (pathname === "/login") {
-		return { ...base, kind: "login", params: {} };
-	}
-	if (pathname === "/privacy") {
-		return { ...base, kind: "privacy", params: {} };
-	}
-	if (pathname === "/roadmap") {
-		return { ...base, kind: "roadmap", params: {} };
-	}
-	if (pathname === "/source") {
-		return { ...base, kind: "source", params: {} };
-	}
-	if (pathname === "/sponsors") {
-		return { ...base, kind: "sponsors", params: {} };
-	}
-	if (pathname === "/terms") {
-		return { ...base, kind: "terms", params: {} };
-	}
-	if (pathname === "/third-party-notices") {
-		return { ...base, kind: "third-party-notices", params: {} };
 	}
 	const editorMatch = /^\/editor\/([^/]+)$/.exec(pathname);
 	if (editorMatch) {

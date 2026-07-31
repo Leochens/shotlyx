@@ -14,13 +14,6 @@ const {
 	migrateLegacyDesktopStorage,
 } = require("./storage-migration.cjs");
 
-let autoUpdater = null;
-try {
-	({ autoUpdater } = require("electron-updater"));
-} catch {
-	// electron-updater is only required for packaged desktop releases.
-}
-
 const PRODUCT_NAME = "Shotlyx Desktop";
 const DEV_PRODUCT_NAME = `${PRODUCT_NAME} Dev`;
 const LOCAL_PROTOCOL = "app";
@@ -82,14 +75,6 @@ function configureAppIdentity() {
 			path.join(app.getPath("appData"), DEV_PRODUCT_NAME),
 		);
 	}
-}
-
-function configureDesktopServerDataPath() {
-	if (process.env.SHOTLYX_DESKTOP_SERVER_DATA_PATH) return;
-	process.env.SHOTLYX_DESKTOP_SERVER_DATA_PATH = path.join(
-		app.getPath("userData"),
-		"server-store.json",
-	);
 }
 
 function migrateLegacyStorageIfNeeded() {
@@ -328,7 +313,7 @@ function getRendererSafeModeHint() {
 	if (isHardwareAccelerationDisabled()) {
 		return "Hardware acceleration is already disabled for this run.";
 	}
-	return "If this repeats, restart with `bun run dev:client:safe` or set SHOTLYX_DISABLE_HARDWARE_ACCELERATION=1.";
+	return "If this repeats, restart with `bun run dev:desktop:safe` or set SHOTLYX_DISABLE_HARDWARE_ACCELERATION=1.";
 }
 
 function shouldRecoverRenderer({ reason }) {
@@ -439,23 +424,6 @@ function createWindow() {
 	installGracefulClose(win);
 }
 
-function configureAutoUpdater() {
-	if (!app.isPackaged || !autoUpdater) return;
-	if (process.env.SHOTLYX_DISABLE_AUTO_UPDATE === "1") return;
-
-	autoUpdater.autoDownload = true;
-	autoUpdater.autoInstallOnAppQuit = true;
-	autoUpdater.on("error", (error) => {
-		console.warn(`Shotlyx updater error: ${error.message}`);
-	});
-
-	setTimeout(() => {
-		autoUpdater.checkForUpdatesAndNotify().catch((error) => {
-			console.warn(`Shotlyx updater check failed: ${error.message}`);
-		});
-	}, 5_000);
-}
-
 configureRenderingMode();
 configureAppIdentity();
 
@@ -494,9 +462,7 @@ if (!hasSingleInstanceLock) {
 		}
 
 		migrateLegacyStorageIfNeeded();
-		configureDesktopServerDataPath();
 		createWindow();
-		configureAutoUpdater();
 
 		app.on("activate", () => {
 			if (isQuitting) return;

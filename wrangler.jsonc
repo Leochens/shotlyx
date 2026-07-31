@@ -1,8 +1,0 @@
-{
-  "name": "shotlyx",
-  "compatibility_date": "2026-05-28",
-  "assets": {
-    "directory": "./apps/renderer/dist",
-    "not_found_handling": "single-page-application",
-  },
-}

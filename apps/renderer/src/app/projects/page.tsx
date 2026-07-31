@@ -6,14 +6,9 @@ import { useRouter } from "@/platform/router";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { useSession } from "@/auth/client";
 import type { EditorCore } from "@/core";
 import { MigrationDialog } from "@/project/components/migration-dialog";
 import { StoragePersistenceDialog } from "@/services/storage/components/storage-persistence-dialog";
-import {
-	AccountCreditBadge,
-	AccountMenu,
-} from "@/components/auth/account-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -87,7 +82,6 @@ import { DeleteProjectDialog } from "@/project/components/delete-project-dialog"
 import { ProjectInfoDialog } from "@/project/components/project-info-dialog";
 import { RenameProjectDialog } from "@/project/components/rename-project-dialog";
 import { cn } from "@/utils/ui";
-import { ChangelogNotification } from "@/changelog/components/changelog-notification";
 import { PRODUCT_NAME } from "@/site/brand";
 import { ShotlyxLogo } from "@/components/brand-logo";
 import { useTopicWorkbenchStore } from "@/topic-workbench/store";
@@ -156,7 +150,6 @@ export default function ProjectsPage() {
 		<div className="bg-background min-h-screen">
 			<MigrationDialog />
 			<StoragePersistenceDialog />
-			<ChangelogNotification />
 			<ProjectsHeader />
 			<ProjectsToolbar projectIds={projectsToDisplay.map((p) => p.id)} />
 			<main className="mx-auto flex w-full max-w-[1560px] flex-col gap-4 px-6 pt-5 pb-8">
@@ -181,8 +174,6 @@ export default function ProjectsPage() {
 }
 
 function ProjectsHeader() {
-	const session = useSession();
-
 	return (
 		<header className="electron-drag-region sticky top-0 z-20 flex flex-col gap-2 border-b bg-background px-8">
 			<div className="mx-auto flex h-16 w-full max-w-[1560px] items-center justify-between pt-2">
@@ -217,12 +208,9 @@ function ProjectsHeader() {
 				<div className="flex items-center gap-3 md:gap-4">
 					<SearchBar className="hidden md:block" />
 					<NewProjectButton />
-					{session.status === "authenticated" ? (
-						<>
-							<AccountCreditBadge account={session.account} />
-							<AccountMenu account={session.account} />
-						</>
-					) : null}
+					<Button asChild variant="outline">
+						<Link href="/settings">设置</Link>
+					</Button>
 				</div>
 			</div>
 			<SearchBar className="mx-auto mb-4 block w-full max-w-[1560px] md:hidden" />
