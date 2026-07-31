@@ -12,10 +12,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { getRuntimeEnv } from "@/desktop/config/server";
-import {
-	extractAudioForAsr,
-	resolveFfmpegPaths,
-} from "@/desktop/media/ffmpeg";
+import { extractAudioForAsr, resolveFfmpegPaths } from "@/desktop/media/ffmpeg";
 
 const DEFAULT_ASR_PROVIDER: AsrProviderId = "volcengine";
 const DEFAULT_ASR_BASE_URL = "https://api.openai.com/v1";
@@ -29,11 +26,6 @@ const MAX_VOLCENGINE_HOTWORD_CHARS = 80;
 const VOLCENGINE_ASR_NORMALIZE_THRESHOLD_BYTES = 32 * 1024 * 1024;
 
 export const ASR_PROVIDER_CONFIGS: AsrProviderConfig[] = [
-	{
-		id: "local",
-		displayName: "Local Whisper in browser",
-		implemented: false,
-	},
 	{
 		id: "openai-compatible",
 		displayName: "OpenAI-compatible ASR",
@@ -178,7 +170,9 @@ async function writeFileToPath({
 }
 
 async function normalizeLargeAudioForAsr(audio: File): Promise<File> {
-	const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "shotlyx-asr-"));
+	const tempDirectory = await fs.mkdtemp(
+		path.join(os.tmpdir(), "shotlyx-asr-"),
+	);
 	try {
 		const inputPath = path.join(
 			tempDirectory,
@@ -196,7 +190,9 @@ async function normalizeLargeAudioForAsr(audio: File): Promise<File> {
 			type: "audio/wav",
 		});
 	} finally {
-		await fs.rm(tempDirectory, { recursive: true, force: true }).catch(() => {});
+		await fs
+			.rm(tempDirectory, { recursive: true, force: true })
+			.catch(() => {});
 	}
 }
 
@@ -578,9 +574,7 @@ export class VolcengineAsrProvider implements AsrProvider {
 			audio: input.audio,
 			normalizeAudioForAsr: this.deps.normalizeAudioForAsr,
 		});
-		const audioData = Buffer.from(await audio.arrayBuffer()).toString(
-			"base64",
-		);
+		const audioData = Buffer.from(await audio.arrayBuffer()).toString("base64");
 		const response = await (this.deps.fetchFn ?? fetch)(
 			env.VOLCENGINE_ASR_FLASH_URL ?? DEFAULT_VOLCENGINE_FLASH_URL,
 			{
@@ -611,9 +605,7 @@ export class VolcengineAsrProvider implements AsrProvider {
 			throw new Error(
 				`provider_error: Volcengine ASR failed${
 					statusCode ? ` (${statusCode} ${statusMessage})` : ""
-				} with HTTP ${response.status}${
-					bodySnippet ? `: ${bodySnippet}` : ""
-				}`,
+				} with HTTP ${response.status}${bodySnippet ? `: ${bodySnippet}` : ""}`,
 			);
 		}
 		return normalizeVolcengineResponse({

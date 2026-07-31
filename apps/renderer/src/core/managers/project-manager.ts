@@ -48,9 +48,7 @@ import {
 	runStorageMigrations,
 	type MigrationProgress,
 } from "@/services/storage/migrations";
-import { loadFonts } from "@/fonts/google-fonts";
 import { DEFAULTS } from "@/timeline/defaults";
-import { getElementFontFamilies } from "@/timeline/element-utils";
 import type { OverlayTrack } from "@/timeline/types";
 import { getRaisedProjectFpsForImportedMedia } from "@/fps/utils";
 import type { MediaAsset } from "@/media/types";
@@ -259,16 +257,6 @@ export class ProjectManager {
 			}
 
 			await this.editor.media.loadProjectMedia({ projectId: id });
-
-			await loadFonts({
-				families: [
-					...new Set(
-						(project.scenes ?? []).flatMap((scene) =>
-							getElementFontFamilies({ tracks: scene.tracks }),
-						),
-					),
-				],
-			});
 
 			if (!project.metadata.thumbnail) {
 				try {

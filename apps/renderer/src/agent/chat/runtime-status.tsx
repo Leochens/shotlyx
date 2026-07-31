@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 import { cn } from "@/utils/ui";
 
 type AgentRuntimeStatus = {
-	kind: "api" | "local-cli";
+	kind: "api" | "local-cli" | "unconfigured";
 	label: string;
 	detail?: string;
 };
 
 const DEFAULT_RUNTIME_STATUS: AgentRuntimeStatus = {
-	kind: "api",
-	label: "API mode",
+	kind: "unconfigured",
+	label: "Agent optional",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -30,10 +30,26 @@ function getRecordField({
 	return isRecord(nextValue) ? nextValue : undefined;
 }
 
-function formatRuntimeStatusFromValues(
-	values: Record<string, unknown> | undefined,
-): AgentRuntimeStatus {
+function formatRuntimeStatusFromValues({
+	values,
+	status,
+}: {
+	values: Record<string, unknown> | undefined;
+	status: unknown;
+}): AgentRuntimeStatus {
 	if (!values) return DEFAULT_RUNTIME_STATUS;
+	if (Array.isArray(status)) {
+		const requiredGroups = status.filter(
+			(item): item is Record<string, unknown> =>
+				isRecord(item) && item.required === true,
+		);
+		if (
+			requiredGroups.length === 0 ||
+			requiredGroups.some((item) => item.configured !== true)
+		) {
+			return DEFAULT_RUNTIME_STATUS;
+		}
+	}
 	const runtime =
 		typeof values.AGENT_RUNTIME === "string" ? values.AGENT_RUNTIME : "api";
 	if (runtime !== "local-cli") {
@@ -83,8 +99,9 @@ function useAgentRuntimeStatus() {
 				}
 				const data: unknown = await response.json();
 				const values = getRecordField({ value: data, key: "values" });
+				const status = isRecord(data) ? data.status : undefined;
 				if (!cancelled) {
-					setRuntimeStatus(formatRuntimeStatusFromValues(values));
+					setRuntimeStatus(formatRuntimeStatusFromValues({ values, status }));
 				}
 			} catch {
 				if (!cancelled) setRuntimeStatus(DEFAULT_RUNTIME_STATUS);
@@ -115,9 +132,15 @@ export function AgentRuntimeBadge({
 	const toneClass =
 		runtimeStatus.kind === "local-cli"
 			? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-			: "border-cyan-500/25 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300";
+			: runtimeStatus.kind === "api"
+				? "border-cyan-500/25 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
+				: "border-border bg-muted/40 text-muted-foreground";
 	const dotClass =
-		runtimeStatus.kind === "local-cli" ? "bg-emerald-500" : "bg-cyan-500";
+		runtimeStatus.kind === "local-cli"
+			? "bg-emerald-500"
+			: runtimeStatus.kind === "api"
+				? "bg-cyan-500"
+				: "bg-muted-foreground";
 
 	return (
 		<div
@@ -141,7 +164,9 @@ export function AgentRuntimeBadge({
 			/>
 			<span className="shrink-0 font-medium">{runtimeStatus.label}</span>
 			{runtimeStatus.detail ? (
-				<span className="min-w-0 truncate opacity-80">{runtimeStatus.detail}</span>
+				<span className="min-w-0 truncate opacity-80">
+					{runtimeStatus.detail}
+				</span>
 			) : null}
 		</div>
 	);

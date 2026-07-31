@@ -9,7 +9,6 @@ import { useKeybindingsListener } from "@/actions/use-keybindings";
 import { useKeybindingsStore } from "@/actions/keybindings-store";
 import { useTimelineStore } from "@/timeline/timeline-store";
 import { useEditorActions } from "@/actions/use-editor-actions";
-import { loadFontAtlas } from "@/fonts/google-fonts";
 import {
 	initializeGpuRenderer,
 	isGpuAvailable,
@@ -49,7 +48,6 @@ export function EditorProvider({ projectId, children }: EditorProviderProps) {
 				if (cancelled) return;
 
 				setIsLoading(false);
-				loadFontAtlas();
 			} catch (err) {
 				if (cancelled) return;
 
@@ -143,8 +141,7 @@ function EditorRuntimeBindings() {
 
 	useEffect(() => {
 		const runtimeWindow = window as ShotlyxRuntimeWindow;
-		runtimeWindow.__SHOTLYX_PREPARE_EXIT__ = () =>
-			editor.project.prepareExit();
+		runtimeWindow.__SHOTLYX_PREPARE_EXIT__ = () => editor.project.prepareExit();
 
 		return () => {
 			if (runtimeWindow.__SHOTLYX_PREPARE_EXIT__) {

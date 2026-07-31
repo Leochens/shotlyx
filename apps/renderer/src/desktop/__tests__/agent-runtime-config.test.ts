@@ -120,7 +120,7 @@ test("desktop config preserves API keys when switching to and from local CLI", (
 	expect(hasRequiredDesktopConfig(values)).toBe(true);
 });
 
-test("desktop launch gate stays on setup until API mode has its required key", () => {
+test("Agent readiness stays false until API mode has its required key", () => {
 	expect(hasRequiredDesktopConfig({})).toBe(false);
 	expect(
 		hasRequiredDesktopConfig({

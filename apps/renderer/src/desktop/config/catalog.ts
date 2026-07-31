@@ -15,6 +15,7 @@ export type DesktopApiField = {
 export type DesktopApiGroup = {
 	id: string;
 	title: string;
+	tier: "core" | "experimental";
 	purpose: string;
 	requiredFor: string;
 	recommendedProvider: string;
@@ -25,6 +26,7 @@ export const DESKTOP_API_GROUPS: DesktopApiGroup[] = [
 	{
 		id: "agent-runtime",
 		title: "Agent runtime",
+		tier: "core",
 		purpose:
 			"Choose whether Shotlyx Agent talks to a provider API directly or delegates reasoning to a local coding CLI.",
 		requiredFor: "Agent chat, planning, and editor tool orchestration",
@@ -77,8 +79,9 @@ export const DESKTOP_API_GROUPS: DesktopApiGroup[] = [
 	{
 		id: "agent-llm",
 		title: "Agent LLM",
+		tier: "core",
 		purpose:
-			"Required for Prompt operations, tool planning, and task generation.",
+			"Optional AI capability for prompt operations, tool planning, and task generation.",
 		requiredFor: "Agent chat and timeline editing by natural language",
 		recommendedProvider:
 			"OpenAI, Gemini, Anthropic, or any OpenAI-compatible proxy",
@@ -125,6 +128,7 @@ export const DESKTOP_API_GROUPS: DesktopApiGroup[] = [
 	{
 		id: "motion-graphics",
 		title: "Motion graphics generation",
+		tier: "core",
 		purpose: "Optional dedicated model for editable MG components.",
 		requiredFor: "Shotlyx MG generation",
 		recommendedProvider:
@@ -168,6 +172,7 @@ export const DESKTOP_API_GROUPS: DesktopApiGroup[] = [
 	{
 		id: "image-generation",
 		title: "Image generation",
+		tier: "core",
 		purpose:
 			"Creates still assets from prompts through an OpenAI-compatible endpoint.",
 		requiredFor: "Image generation tool",
@@ -206,6 +211,7 @@ export const DESKTOP_API_GROUPS: DesktopApiGroup[] = [
 	{
 		id: "visual-understanding",
 		title: "Visual understanding",
+		tier: "experimental",
 		purpose:
 			"Analyzes imported images or videos with Kimi K2.6 for visual verification, video understanding, and editing suggestions.",
 		requiredFor: "Vision analysis, visual verification, and video edit advice",
@@ -253,6 +259,7 @@ export const DESKTOP_API_GROUPS: DesktopApiGroup[] = [
 	{
 		id: "video-generation",
 		title: "Video generation",
+		tier: "experimental",
 		purpose: "Creates Seedance video tasks through Volcengine Ark.",
 		requiredFor: "Seedance video generation",
 		recommendedProvider: "Volcengine Ark",
@@ -289,6 +296,7 @@ export const DESKTOP_API_GROUPS: DesktopApiGroup[] = [
 	{
 		id: "voiceover",
 		title: "Voiceover / TTS",
+		tier: "core",
 		purpose: "Generates narration audio for timeline voiceover.",
 		requiredFor: "Voiceover and TTS tools",
 		recommendedProvider:
@@ -353,6 +361,7 @@ export const DESKTOP_API_GROUPS: DesktopApiGroup[] = [
 	{
 		id: "transcription",
 		title: "Transcription / ASR",
+		tier: "core",
 		purpose: "Turns audio into editable subtitles.",
 		requiredFor: "ASR-assisted subtitles and silence/audio analysis workflows",
 		recommendedProvider: "Volcengine ASR or OpenAI-compatible transcription",
@@ -416,6 +425,7 @@ export const DESKTOP_API_GROUPS: DesktopApiGroup[] = [
 	{
 		id: "web-tools",
 		title: "Web search / fetch",
+		tier: "experimental",
 		purpose: "Lets the Agent research web pages and search results.",
 		requiredFor: "Agent web_search and web_fetch tools",
 		recommendedProvider: "Tavily for search, Jina or Firecrawl for fetch",
@@ -461,6 +471,7 @@ export const DESKTOP_API_GROUPS: DesktopApiGroup[] = [
 	{
 		id: "stock-media",
 		title: "Stock media",
+		tier: "experimental",
 		purpose: "Searches and imports third-party images, videos, and sounds.",
 		requiredFor: "Stock media search/import tools",
 		recommendedProvider: "Pexels, Pixabay, and Freesound",

@@ -1,65 +1,56 @@
-import Image from "@/platform/image";
 import type { GuideDefinition } from "@/guides/types";
 import { TikTokLayout } from "./tiktok-layout";
 
 function PlatformLogo({
-	domain,
+	label,
 	className = "size-4",
 }: {
-	domain: string;
+	label: string;
 	className?: string;
 }) {
 	return (
-		<Image
-			src={`https://cdn.brandfetch.io/${domain}/w/64/h/64`}
-			alt=""
-			width={18}
-			height={18}
-			className={className}
-			draggable={false}
-			unoptimized
-		/>
+		<span
+			aria-hidden="true"
+			className={`${className} inline-flex items-center justify-center rounded-[0.3rem] border bg-background text-[0.55rem] font-semibold text-foreground`}
+		>
+			{label.slice(0, 2).toUpperCase()}
+		</span>
 	);
 }
 
-function PlatformGuidePreview({ domain }: { domain: string }) {
-	return <PlatformLogo domain={domain} />;
+function PlatformGuidePreview({ label }: { label: string }) {
+	return <PlatformLogo label={label} />;
 }
 
 function platformGuide({
 	id,
 	label,
-	domain,
 }: {
 	id: string;
 	label: string;
-	domain: string;
 }): GuideDefinition {
 	return {
 		id,
 		label,
-		renderPreview: () => <PlatformGuidePreview domain={domain} />,
-		renderTriggerIcon: () => <PlatformLogo domain={domain} />,
+		renderPreview: () => <PlatformGuidePreview label={label} />,
+		renderTriggerIcon: () => <PlatformLogo label={label} />,
 		renderOverlay: () => null,
 	};
 }
 
 export const tiktokGuide: GuideDefinition = {
-	...platformGuide({ id: "tiktok", label: "TikTok", domain: "tiktok.com" }),
+	...platformGuide({ id: "tiktok", label: "TikTok" }),
 	renderOverlay: () => <TikTokLayout />,
 };
 export const igReelsGuide = platformGuide({
 	id: "ig-reels",
 	label: "Reels",
-	domain: "instagram.com",
 });
 export const ytShortsGuide = platformGuide({
 	id: "yt-shorts",
 	label: "Shorts",
-	domain: "youtube.com",
 });
 export const spotlightGuide = platformGuide({
 	id: "spotlight",
 	label: "Spotlight",
-	domain: "snapchat.com",
 });

@@ -4,11 +4,6 @@ export const CAPTION_TRANSCRIPTION_PROVIDER_OPTIONS = [
 		label: "Volcengine / Doubao",
 		startStep: "Generating captions with Volcengine...",
 	},
-	{
-		id: "local",
-		label: "Local Whisper",
-		startStep: "Generating captions locally...",
-	},
 ] as const;
 
 export type CaptionTranscriptionProvider =

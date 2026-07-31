@@ -1352,6 +1352,12 @@ export async function POST(request: ApiRequest) {
 				) {
 					category = "rate_limit";
 				} else if (
+					msg.includes("configuration_error") ||
+					msg.includes("not configured") ||
+					msg.includes("missing agent_llm")
+				) {
+					category = "configuration";
+				} else if (
 					msg.includes("401") ||
 					msg.includes("403") ||
 					msg.includes("unauthorized") ||

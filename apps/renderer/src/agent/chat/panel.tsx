@@ -1936,7 +1936,9 @@ export function ChatPanel() {
 	const [roughCutReview, setRoughCutReview] =
 		useState<RoughCutReviewResult | null>(null);
 	const [roughCutReviewOpen, setRoughCutReviewOpen] = useState(false);
-	const draftReferences = useAgentContextStore((state) => state.draftReferences);
+	const draftReferences = useAgentContextStore(
+		(state) => state.draftReferences,
+	);
 	const addReference = useAgentContextStore((state) => state.addReference);
 	const clearDraftReferences = useAgentContextStore(
 		(state) => state.clearDraftReferences,
@@ -2599,11 +2601,15 @@ export function ChatPanel() {
 		if (sseEvent.event === "error") {
 			flushMessageContentUpdate();
 			flushMessageThoughtUpdate();
-			const message =
+			const rawMessage =
 				getStringField({ value: data, key: "message" }) ?? "未知错误";
 			const category =
 				getStringField({ value: data, key: "category" }) ?? "unknown";
 			const isRetryable = category === "network" || category === "rate_limit";
+			const message =
+				category === "configuration"
+					? "Agent 尚未配置。剪辑功能仍可离线使用；需要 AI 时请在设置中配置本地 CLI 或自己的模型 API。"
+					: rawMessage;
 
 			addMessage(
 				{

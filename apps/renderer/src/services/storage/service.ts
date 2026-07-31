@@ -698,6 +698,17 @@ class StorageService {
 			this.getProjectMediaAdapters({ projectId });
 
 		const sourcePath = getDesktopFileSource({ file: mediaAsset.file });
+		const storage =
+			mediaAsset.storage?.mode === "linked"
+				? {
+						mode: "linked" as const,
+						sourcePath: mediaAsset.storage.sourcePath,
+					}
+				: mediaAsset.storage?.mode === "managed"
+					? { mode: "managed" as const }
+					: sourcePath
+						? { mode: "linked" as const, sourcePath }
+						: { mode: "managed" as const };
 		const metadata: MediaAssetData = {
 			id: mediaAsset.id,
 			name: mediaAsset.name,
@@ -713,10 +724,7 @@ class StorageService {
 			ephemeral: mediaAsset.ephemeral,
 			externalSource: mediaAsset.externalSource,
 			lastCacheAccessedAt: new Date().toISOString(),
-			storage: this.usesDesktopMediaLibrary()
-				? (mediaAsset.storage ??
-					(sourcePath ? { mode: "linked", sourcePath } : { mode: "managed" }))
-				: undefined,
+			storage: this.usesDesktopMediaLibrary() ? storage : undefined,
 		};
 
 		try {

@@ -14,10 +14,6 @@ import type {
 	TranscriptionCue,
 	TranscriptionToolDeps,
 } from "./types";
-import type {
-	TranscriptionLanguage,
-	TranscriptionModelId,
-} from "@/transcription/types";
 import { readAudioPayloadDiagnostics } from "@/transcription/audio-payload-diagnostics";
 import type { SubtitleToken } from "@/subtitles/types";
 import { formatSrt } from "@/subtitles/srt";
@@ -577,108 +573,6 @@ function filterTracksToAudioRangeElement({
 	};
 }
 
-function normalizeLocalLanguage({
-	language,
-}: {
-	language?: string;
-}): TranscriptionLanguage | undefined {
-	switch (language) {
-		case undefined:
-		case "auto":
-			return undefined;
-		case "en":
-		case "es":
-		case "it":
-		case "fr":
-		case "de":
-		case "pt":
-		case "ru":
-		case "ja":
-		case "zh":
-			return language;
-		default:
-			throw new Error(`类型不匹配：本地转写暂不支持语言 "${language}"`);
-	}
-}
-
-function normalizeLocalModel({
-	model,
-}: {
-	model?: string;
-}): TranscriptionModelId | undefined {
-	switch (model) {
-		case undefined:
-			return undefined;
-		case "whisper-tiny":
-		case "whisper-small":
-		case "whisper-medium":
-		case "whisper-large-v3-turbo":
-			return model;
-		default:
-			throw new Error(`类型不匹配：本地转写暂不支持模型 "${model}"`);
-	}
-}
-
-async function transcribeWithLocalWhisper({
-	audioBlob,
-	language,
-	model,
-	onProgress,
-}: {
-	audioBlob: Blob;
-	language?: string;
-	model?: string;
-	onProgress?: GenerateSubtitlesFromVideoInput["onProgress"];
-}): Promise<TranscribeAudioResult> {
-	onProgress?.({
-		stage: "asr-provider",
-		label: "正在准备本地 Whisper 转写",
-		status: "running",
-		detail: model,
-	});
-	const [
-		{ decodeAudioToFloat32 },
-		{ transcriptionService },
-		{ buildCaptionChunks },
-		{ DEFAULT_TRANSCRIPTION_SAMPLE_RATE },
-	] = await Promise.all([
-		import("@/media/audio"),
-		import("@/services/transcription/service"),
-		import("@/transcription/caption"),
-		import("@/transcription/audio"),
-	]);
-	const { samples } = await decodeAudioToFloat32({
-		audioBlob,
-		sampleRate: DEFAULT_TRANSCRIPTION_SAMPLE_RATE,
-	});
-	const result = await transcriptionService.transcribe({
-		audioData: samples,
-		language: normalizeLocalLanguage({ language }),
-		modelId: normalizeLocalModel({ model }),
-		onProgress: (progress) => {
-			onProgress?.({
-				stage: "asr-provider",
-				label: progress.message ?? "正在本地转写音频",
-				status: "running",
-				current: progress.progress,
-				total: 100,
-			});
-		},
-	});
-	const captions = buildCaptionChunks({ segments: result.segments });
-	return {
-		text: result.text,
-		cues: captions.map((caption) => ({
-			text: caption.text,
-			startTimeSeconds: caption.startTime,
-			durationSeconds: caption.duration,
-		})),
-		language: result.language,
-		provider: "local",
-		model,
-	};
-}
-
 async function transcribeWithApi({
 	audioBlob,
 	provider,
@@ -876,33 +770,23 @@ export function createTranscriptionToolDeps({
 
 						input.onProgress?.({
 							stage: "asr-provider",
-							label:
-								provider === "local"
-									? "正在本地识别字幕"
-									: "正在请求 ASR 服务",
+							label: "正在请求 ASR 服务",
 							status: "running",
 							detail: provider,
-							...(provider === "local" ? {} : { current: 5, total: 100 }),
+							current: 5,
+							total: 100,
 						});
-						const rawTranscription =
-							provider === "local"
-								? await transcribeWithLocalWhisper({
-										audioBlob,
-										language: input.language,
-										model: input.model,
-										onProgress: input.onProgress,
-									})
-								: await transcribeWithApi({
-										audioBlob,
-										provider,
-										language: input.language,
-										model: input.model,
-										referenceText: input.referenceText,
-										fetchFn,
-										abortSignal: input.abortSignal,
-										onProgress: input.onProgress,
-										progressIntervalMs: cloudAsrProgressIntervalMs,
-									});
+						const rawTranscription = await transcribeWithApi({
+							audioBlob,
+							provider,
+							language: input.language,
+							model: input.model,
+							referenceText: input.referenceText,
+							fetchFn,
+							abortSignal: input.abortSignal,
+							onProgress: input.onProgress,
+							progressIntervalMs: cloudAsrProgressIntervalMs,
+						});
 						const transcription = sanitizeGeneratedTranscription({
 							transcription: rawTranscription,
 						});
@@ -1072,7 +956,7 @@ export function buildTranscriptionTools({
 		{
 			name: "subtitles_generate_from_video",
 			description:
-				"从当前时间线提取音频，调用本地或云端 ASR 生成字幕，并写入项目级全局字幕稿。",
+				"从当前时间线提取音频，调用用户配置的 ASR 生成字幕，并写入项目级全局字幕稿。",
 			parameters: {
 				source: {
 					type: "string",
@@ -1082,7 +966,7 @@ export function buildTranscriptionTools({
 				provider: {
 					type: "string",
 					description:
-						"ASR provider ID：volcengine、local、openai-compatible、tencent、aliyun、baidu、iflytek。默认 volcengine。",
+						"ASR provider ID：volcengine、openai-compatible、tencent、aliyun、baidu、iflytek。默认 volcengine。",
 					optional: true,
 				},
 				language: {

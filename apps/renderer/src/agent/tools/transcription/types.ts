@@ -2,7 +2,6 @@ import type { ToolProgressEvent } from "@/agent/mcp/types";
 import type { SubtitleLayerCue, SubtitleToken } from "@/subtitles/types";
 
 export const ASR_PROVIDER_IDS = [
-	"local",
 	"openai-compatible",
 	"tencent",
 	"volcengine",

@@ -39,6 +39,7 @@ export interface DesktopConfigStatusItem {
 export interface DesktopConfigStatusGroup {
 	id: string;
 	title: string;
+	tier: "core" | "experimental";
 	configured: boolean;
 	required: boolean;
 	fields: DesktopConfigStatusItem[];
@@ -328,6 +329,7 @@ export function getDesktopConfigStatus(
 		return {
 			id: group.id,
 			title: group.title,
+			tier: group.tier,
 			configured,
 			required,
 			fields,

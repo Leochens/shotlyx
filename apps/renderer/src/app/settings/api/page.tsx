@@ -53,6 +53,7 @@ import { PRODUCT_NAME } from "@/site/brand";
 type StatusGroup = {
 	id: string;
 	title: string;
+	tier: "core" | "experimental";
 	configured: boolean;
 	required: boolean;
 	fields: Array<{
@@ -120,6 +121,8 @@ type DesktopSetupCopy = {
 		needsSetup: string;
 		configured: string;
 		optional: string;
+		core: string;
+		experimental: string;
 	};
 	actions: {
 		apply: string;
@@ -191,13 +194,15 @@ type DesktopSetupCopy = {
 
 const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 	en: {
-		headerTitle: "Welcome setup",
+		headerTitle: "AI integrations",
 		status: {
 			loading: "Loading...",
-			ready: "Ready",
-			needsSetup: "Needs setup",
+			ready: "Agent ready",
+			needsSetup: "Agent optional",
 			configured: "Configured",
 			optional: "Optional",
+			core: "Core",
+			experimental: "Experimental",
 		},
 		actions: {
 			apply: "Apply",
@@ -207,8 +212,8 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 			backToProjects: "Open projects",
 		},
 		hero: {
-			title: "Welcome to Shotlyx Desktop",
-			body: "Choose how the Agent runs before entering the editor. Local Agent is selected by default so users can try Shotlyx with CLIs already installed on this computer; API BYOK can live alongside it and will not be discarded when switching modes.",
+			title: "Optional AI integrations",
+			body: "Shotlyx editing works offline without an account, API key, or Agent. Configure a local CLI or bring your own API key only when you want AI-assisted workflows; switching runtimes keeps previously saved API preferences.",
 		},
 		runtime: {
 			localTitle: "Local Agent",
@@ -272,13 +277,15 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 		fields: {},
 	},
 	"zh-CN": {
-		headerTitle: "欢迎设置",
+		headerTitle: "AI 集成",
 		status: {
 			loading: "加载中...",
-			ready: "已就绪",
-			needsSetup: "待配置",
+			ready: "Agent 已就绪",
+			needsSetup: "Agent 可选",
 			configured: "已配置",
 			optional: "可选",
+			core: "核心",
+			experimental: "实验性",
 		},
 		actions: {
 			apply: "申请",
@@ -288,8 +295,8 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 			backToProjects: "打开项目",
 		},
 		hero: {
-			title: "欢迎使用 Shotlyx Desktop",
-			body: "进入编辑器前，先选择 Agent 的运行方式。默认使用本地 Agent，这样用户可以直接复用本机已经登录的 CLI；API BYOK 会和本地模式共存，切换运行方式时不会丢掉之前保存的 API 配置。",
+			title: "可选 AI 集成",
+			body: "无需账号、API Key 或 Agent，Shotlyx 也能离线完成剪辑。需要 AI 辅助时再配置本地 CLI 或自己的 API；切换运行方式不会丢弃已保存的 API 偏好。",
 		},
 		runtime: {
 			localTitle: "本地 Agent",
@@ -357,7 +364,7 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 			},
 			"agent-llm": {
 				title: "Agent 模型",
-				purpose: "用于 Prompt 操作、工具计划和任务生成。",
+				purpose: "用于 Prompt 操作、工具计划和任务生成的可选 AI 能力。",
 				requiredFor: "Agent 聊天和自然语言编辑时间线",
 				recommendedProvider:
 					"OpenAI、Gemini、Anthropic，或任何 OpenAI 兼容代理",
@@ -1201,6 +1208,12 @@ function DesktopApiSettingsPageContent() {
 	const agentLlmStatus = getGroupStatus({ status, group: agentLlmGroup });
 	const optionalGroups = groups.filter(
 		(group) => !PRIMARY_GROUP_IDS.has(group.id),
+	);
+	const coreOptionalGroups = optionalGroups.filter(
+		(group) => group.tier === "core",
+	);
+	const experimentalOptionalGroups = optionalGroups.filter(
+		(group) => group.tier === "experimental",
 	);
 	const configuredOptionalCount = optionalGroups.filter((group) =>
 		isMeaningfullyConfigured({
@@ -2885,84 +2898,97 @@ function DesktopApiSettingsPageContent() {
 						</div>
 
 						<div className="divide-y rounded-md border">
-							{optionalGroups.map((group) => {
-								const groupText = getLocalizedGroup({ group, pageCopy });
-								const groupStatus = getGroupStatus({ status, group });
-								const groupConfigured = isMeaningfullyConfigured({
-									group,
-									groupStatus,
-								});
-								const expanded = Boolean(expandedGroups[group.id]);
-								const GroupIcon = OPTIONAL_GROUP_ICONS[group.id] ?? Settings;
-								return (
-									<div key={group.id}>
-										<button
-											type="button"
-											className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-accent/40"
-											aria-expanded={expanded}
-											aria-controls={`${group.id}-settings`}
-											onClick={() =>
-												setExpandedGroups((current) => ({
-													...current,
-													[group.id]: !expanded,
-												}))
-											}
-										>
-											<span className="flex min-w-0 items-start gap-3">
-												<span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-background">
-													<GroupIcon className="size-3.5 text-muted-foreground" />
-												</span>
-												<span className="min-w-0">
-													<span className="flex flex-wrap items-center gap-2">
-														<span className="font-medium">
-															{groupText.title}
-														</span>
-														<Badge
-															variant={
-																groupConfigured ? "secondary" : "outline"
-															}
-														>
-															{groupConfigured
-																? pageCopy.status.configured
-																: pageCopy.status.optional}
-														</Badge>
-													</span>
-													<span className="mt-1 block text-sm leading-5 text-muted-foreground">
-														{groupText.purpose}
-													</span>
-												</span>
-											</span>
-											<ChevronDown
-												className={`size-4 shrink-0 text-muted-foreground transition ${
-													expanded ? "rotate-180" : ""
-												}`}
-											/>
-										</button>
-										{expanded && (
-											<div
-												id={`${group.id}-settings`}
-												className="border-t bg-muted/20 p-4"
+							{[...coreOptionalGroups, ...experimentalOptionalGroups].map(
+								(group) => {
+									const groupText = getLocalizedGroup({ group, pageCopy });
+									const groupStatus = getGroupStatus({ status, group });
+									const groupConfigured = isMeaningfullyConfigured({
+										group,
+										groupStatus,
+									});
+									const expanded = Boolean(expandedGroups[group.id]);
+									const GroupIcon = OPTIONAL_GROUP_ICONS[group.id] ?? Settings;
+									return (
+										<div key={group.id}>
+											<button
+												type="button"
+												className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-accent/40"
+												aria-expanded={expanded}
+												aria-controls={`${group.id}-settings`}
+												onClick={() =>
+													setExpandedGroups((current) => ({
+														...current,
+														[group.id]: !expanded,
+													}))
+												}
 											>
-												<div className="mb-4 rounded-md border bg-background p-3">
-													<div className="mb-1 flex items-center gap-2 text-sm font-medium">
-														<Settings className="size-4" />
-														{pageCopy.optional.howToTitle}
+												<span className="flex min-w-0 items-start gap-3">
+													<span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-background">
+														<GroupIcon className="size-3.5 text-muted-foreground" />
+													</span>
+													<span className="min-w-0">
+														<span className="flex flex-wrap items-center gap-2">
+															<span className="font-medium">
+																{groupText.title}
+															</span>
+															<Badge
+																variant={
+																	group.tier === "core"
+																		? "secondary"
+																		: "outline"
+																}
+															>
+																{group.tier === "core"
+																	? pageCopy.status.core
+																	: pageCopy.status.experimental}
+															</Badge>
+															<Badge
+																variant={
+																	groupConfigured ? "secondary" : "outline"
+																}
+															>
+																{groupConfigured
+																	? pageCopy.status.configured
+																	: pageCopy.status.optional}
+															</Badge>
+														</span>
+														<span className="mt-1 block text-sm leading-5 text-muted-foreground">
+															{groupText.purpose}
+														</span>
+													</span>
+												</span>
+												<ChevronDown
+													className={`size-4 shrink-0 text-muted-foreground transition ${
+														expanded ? "rotate-180" : ""
+													}`}
+												/>
+											</button>
+											{expanded && (
+												<div
+													id={`${group.id}-settings`}
+													className="border-t bg-muted/20 p-4"
+												>
+													<div className="mb-4 rounded-md border bg-background p-3">
+														<div className="mb-1 flex items-center gap-2 text-sm font-medium">
+															<Settings className="size-4" />
+															{pageCopy.optional.howToTitle}
+														</div>
+														<p className="text-xs leading-5 text-muted-foreground">
+															{formatHowTo({
+																locale,
+																recommendedProvider:
+																	groupText.recommendedProvider,
+																requiredFor: groupText.requiredFor,
+															})}
+														</p>
 													</div>
-													<p className="text-xs leading-5 text-muted-foreground">
-														{formatHowTo({
-															locale,
-															recommendedProvider:
-																groupText.recommendedProvider,
-															requiredFor: groupText.requiredFor,
-														})}
-													</p>
+													{renderOptionalGroupConfig({ group })}
 												</div>
-												{renderOptionalGroupConfig({ group })}
-											</div>
-										)}
-									</div>
-								);
-							})}
+											)}
+										</div>
+									);
+								},
+							)}
 						</div>
 					</section>
 				)}
