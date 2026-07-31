@@ -2,6 +2,8 @@ import { expect, type Page, test, type TestInfo } from "@playwright/test";
 import { rmSync } from "node:fs";
 
 const isDesktopE2E = process.env.SHOTLYX_DESKTOP === "1";
+const desktopProjectsRoot = process.env.SHOTLYX_PROJECTS_ROOT;
+const desktopProjectsConfigPath = process.env.SHOTLYX_PROJECTS_CONFIG_PATH;
 
 async function captureOneImage({
 	page,
@@ -32,16 +34,28 @@ test.describe("desktop visual smoke", () => {
 		if (process.env.SHOTLYX_DESKTOP_CONFIG_PATH) {
 			rmSync(process.env.SHOTLYX_DESKTOP_CONFIG_PATH, { force: true });
 		}
+		if (process.env.SHOTLYX_DESKTOP_SECRETS_PATH) {
+			rmSync(process.env.SHOTLYX_DESKTOP_SECRETS_PATH, { force: true });
+		}
+		if (desktopProjectsRoot) {
+			rmSync(desktopProjectsRoot, { force: true, recursive: true });
+		}
+		if (desktopProjectsConfigPath) {
+			rmSync(desktopProjectsConfigPath, { force: true });
+		}
 		await page.addInitScript(() => {
 			window.localStorage.setItem("hasSeenOnboarding", "true");
+			window.localStorage.setItem("shotlyx:locale", "en");
 		});
 	});
 
 	test("captures desktop setup as one image", async ({ page }, testInfo) => {
-		await page.goto("/desktop");
-		await expect(page).toHaveURL(/\/settings\/api$/);
+		await page.goto("/settings/api");
 		await expect(
-			page.getByRole("heading", { name: "Welcome to Shotlyx Desktop" }),
+			page.getByRole("heading", {
+				name: "AI integrations",
+				exact: true,
+			}),
 		).toBeVisible();
 
 		await captureOneImage({ page, testInfo, name: "desktop-setup" });
@@ -50,7 +64,7 @@ test.describe("desktop visual smoke", () => {
 	test("captures empty projects as one image", async ({ page }, testInfo) => {
 		await page.goto("/projects");
 		await expect(
-			page.getByRole("button", { name: "Create your first project" }),
+			page.getByRole("button", { name: "创建第一个项目" }),
 		).toBeVisible();
 
 		await captureOneImage({ page, testInfo, name: "projects-empty" });
@@ -58,9 +72,7 @@ test.describe("desktop visual smoke", () => {
 
 	test("captures editor workbench as one image", async ({ page }, testInfo) => {
 		await page.goto("/projects");
-		await page
-			.getByRole("button", { name: "Create your first project" })
-			.click();
+		await page.getByRole("button", { name: "创建第一个项目" }).click();
 		await page.waitForURL(/\/editor\//);
 		await expect(page.locator(".editor-workbench")).toBeVisible();
 		await expect(

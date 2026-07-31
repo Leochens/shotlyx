@@ -1,24 +1,58 @@
 import { expect, test } from "@playwright/test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 const isRunningUnderBunTest = Boolean(process.versions.bun);
+const desktopConfigPath = process.env.SHOTLYX_DESKTOP_CONFIG_PATH;
+const desktopSecretsPath = process.env.SHOTLYX_DESKTOP_SECRETS_PATH;
+const desktopProjectsRoot = process.env.SHOTLYX_PROJECTS_ROOT;
+const desktopProjectsConfigPath = process.env.SHOTLYX_PROJECTS_CONFIG_PATH;
 
 if (!isRunningUnderBunTest) {
 	test.describe.configure({ mode: "serial" });
 
-	test("desktop welcome setup defaults to local Agent and folds optional APIs", async ({
+	test.beforeEach(async ({ page }) => {
+		if (desktopProjectsRoot) {
+			rmSync(desktopProjectsRoot, { force: true, recursive: true });
+		}
+		if (desktopProjectsConfigPath) {
+			rmSync(desktopProjectsConfigPath, { force: true });
+		}
+		if (desktopConfigPath) {
+			rmSync(desktopConfigPath, { force: true });
+		}
+		if (desktopSecretsPath) {
+			rmSync(desktopSecretsPath, { force: true });
+		}
+		await page.addInitScript(() => {
+			window.localStorage.setItem("shotlyx:locale", "en");
+		});
+	});
+
+	test("desktop opens the offline editor without requiring provider setup", async ({
 		page,
 	}) => {
-		if (process.env.SHOTLYX_DESKTOP_CONFIG_PATH) {
-			rmSync(process.env.SHOTLYX_DESKTOP_CONFIG_PATH, { force: true });
-		}
-
 		await page.goto("/desktop");
+		await expect(page).toHaveURL(/\/projects$/);
+		await expect(
+			page.getByRole("button", { name: "创建第一个项目" }),
+		).toBeVisible();
+
+		await page.goto("/settings/api");
 		await expect(page).toHaveURL(/\/settings\/api$/);
 		await expect(
-			page.getByRole("heading", { name: "Welcome to Shotlyx Desktop" }),
+			page.getByRole("heading", {
+				name: "AI integrations",
+				exact: true,
+			}),
 		).toBeVisible();
 		await expect(
 			page.getByRole("button", { name: /Local Agent/ }),
@@ -40,44 +74,9 @@ if (!isRunningUnderBunTest) {
 		await expect(page.getByText("Kimi / Moonshot API key")).toBeVisible();
 	});
 
-	test("desktop launch skips setup when Agent LLM API config exists", async ({
+	test("desktop rejects BYOK secrets when secure storage is unavailable", async ({
 		page,
 	}) => {
-		if (!process.env.SHOTLYX_DESKTOP_CONFIG_PATH) {
-			throw new Error("SHOTLYX_DESKTOP_CONFIG_PATH is required");
-		}
-		writeFileSync(
-			process.env.SHOTLYX_DESKTOP_CONFIG_PATH,
-			JSON.stringify(
-				{
-					version: 1,
-					updatedAt: new Date().toISOString(),
-					values: {
-						AGENT_RUNTIME: "api",
-						AGENT_LLM_PROVIDER: "openai",
-						AGENT_LLM_KEY: "e2e-agent-key",
-						AGENT_LLM_MODEL: "gpt-4o-mini",
-					},
-				},
-				null,
-				2,
-			),
-		);
-
-		await page.goto("/desktop");
-		await expect(page).toHaveURL(/\/projects$/);
-		await expect(
-			page.getByRole("button", { name: "Create your first project" }),
-		).toBeVisible();
-	});
-
-	test("desktop welcome setup saves and reveals API BYOK config", async ({
-		page,
-	}) => {
-		if (process.env.SHOTLYX_DESKTOP_CONFIG_PATH) {
-			rmSync(process.env.SHOTLYX_DESKTOP_CONFIG_PATH, { force: true });
-		}
-
 		await page.goto("/settings/api");
 		await page.getByRole("button", { name: /API BYOK/ }).click();
 		await expect(
@@ -103,21 +102,26 @@ if (!isRunningUnderBunTest) {
 		await page.getByRole("option", { name: "deepseek-reasoner" }).click();
 		await page.getByRole("button", { name: /Web search \/ fetch/ }).click();
 		await page.locator("#TAVILY_API_KEY").fill("e2e-tavily-key");
+		const saveResponsePromise = page.waitForResponse(
+			(response) =>
+				new URL(response.url()).pathname === "/api/desktop/config" &&
+				response.request().method() === "POST",
+		);
 		await page.getByRole("button", { name: /^Save setup$/ }).click();
 
-		await expect(page.getByText("Setup saved")).toBeVisible();
-		await expect(page.getByText("Ready").first()).toBeVisible();
-		await expect(page.locator("#AGENT_LLM_KEY")).toHaveAttribute(
-			"placeholder",
-			/^\*+$/,
-		);
-		await page.getByRole("button", { name: "Show AGENT_LLM_KEY" }).click();
+		const saveResponse = await saveResponsePromise;
+		expect(saveResponse.status()).toBe(503);
+		await expect(saveResponse.json()).resolves.toEqual({
+			error:
+				"Secure credential storage is unavailable on this operating system.",
+		});
+		await expect(
+			page.getByText(
+				"Secure credential storage is unavailable on this operating system.",
+			),
+		).toBeVisible();
 		await expect(page.locator("#AGENT_LLM_KEY")).toHaveValue("e2e-agent-key");
-		await page.getByRole("button", { name: "Hide AGENT_LLM_KEY" }).click();
-		await expect(page.locator("#AGENT_LLM_KEY")).toHaveAttribute(
-			"type",
-			"password",
-		);
+		await expect(page.locator("#TAVILY_API_KEY")).toHaveValue("e2e-tavily-key");
 
 		const status = await page.evaluate(async () => {
 			const response = await fetch("/api/desktop/config");
@@ -128,20 +132,23 @@ if (!isRunningUnderBunTest) {
 		expect(
 			status.status.find((group: { id: string }) => group.id === "agent-llm")
 				?.configured,
-		).toBe(true);
+		).toBe(false);
 		await expect
 			.poll(() =>
 				page.evaluate(() => window.localStorage.getItem("AGENT_LLM_KEY")),
 			)
 			.toBeNull();
+		for (const filePath of [desktopConfigPath, desktopSecretsPath]) {
+			if (!filePath || !existsSync(filePath)) continue;
+			const persisted = readFileSync(filePath, "utf8");
+			expect(persisted).not.toContain("e2e-agent-key");
+			expect(persisted).not.toContain("e2e-tavily-key");
+		}
 	});
 
 	test("desktop settings can use a scanned local Claude Code CLI runtime", async ({
 		page,
 	}) => {
-		if (process.env.SHOTLYX_DESKTOP_CONFIG_PATH) {
-			rmSync(process.env.SHOTLYX_DESKTOP_CONFIG_PATH, { force: true });
-		}
 		const tempDir = mkdtempSync(path.join(tmpdir(), "shotlyx-e2e-cli-"));
 		const fakeClaude = path.join(tempDir, "claude");
 		writeFileSync(
@@ -207,9 +214,7 @@ exit 0
 		});
 
 		await page.goto("/projects");
-		await page
-			.getByRole("button", { name: "Create your first project" })
-			.click();
+		await page.getByRole("button", { name: "创建第一个项目" }).click();
 		await page.waitForURL(/\/editor\//);
 		const editorUrl = page.url();
 

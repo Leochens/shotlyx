@@ -45,109 +45,6 @@ export const SITE_COPY = {
 			switchToLight: "Switch to light mode",
 			switchToDark: "Switch to dark mode",
 		},
-		header: {
-			links: [
-				{ label: "Engine", href: "/#engine" },
-				{ label: "Pipeline", href: "/#pipeline" },
-				{ label: "Labs", href: "/#labs" },
-				{ label: "Updates", href: "/changelog" },
-			],
-			login: "Login",
-			launch: "Launch",
-			workspace: "workspace",
-		},
-		hero: {
-			kicker: "AI-native video command center",
-			title: "Cut video at the speed of thought.",
-			body: "turns natural language into precise, reversible editor actions. It feels less like a template generator and more like a programmable post-production rig.",
-			launch: "Launch workspace",
-			login: "Login to console",
-			signals: [
-				"scene graph",
-				"agent plan",
-				"timeline ops",
-				"render queue",
-				"asset memory",
-			],
-			footerLeft: "scroll / inspect pipeline",
-			footerRight: "prompt-to-timeline runtime",
-			engineKicker: "Engine",
-			engineTitle: "Designed for agents that can actually touch the edit.",
-			pipeline: [
-				{
-					kicker: "01 / Intent",
-					title: "The model reads the cut like a system state.",
-					body: "Prompts are translated into timeline-aware operations, not flattened into a magic export button.",
-				},
-				{
-					kicker: "02 / Edit",
-					title: "Every AI move lands as editable structure.",
-					body: "Clips, captions, motion graphics, voiceover, and media choices stay inspectable after generation.",
-				},
-				{
-					kicker: "03 / Iterate",
-					title: "Branch ideas without losing the working cut.",
-					body: "Ask for variants, compare directions, and keep control over the final editorial decision.",
-				},
-			],
-			traceTitle: "live agent trace",
-			trace: `> analyze timeline
-state.clips: 18
-state.captions: stale
-state.energy: low at 00:14
-
-> plan revision
-insert b-roll
-retime intro
-generate lower third
-normalize voiceover
-
-> execute
-timeline.patch committed`,
-			labsKicker: "Labs",
-			labsTitle: "More terminal than toy. More editor than chatbot.",
-			labsBody:
-				"The interface keeps AI work visible: what was interpreted, what changed, and which media assets entered the timeline. That is the difference between generative output and an editable production system.",
-			previewPromptLabel: "prompt",
-			previewPrompt:
-				"Make the intro sharper, add kinetic captions, and create a cold open from the strongest quote.",
-			previewRows: [
-				["thinking", "312 ms"],
-				["tools called", "07"],
-				["edits staged", "12"],
-			],
-			previewStatus: ["media mapped", "edits reversible", "timeline synced"],
-			workspaceLabel: "workspace / 04",
-			agentOnline: "agent online",
-		},
-		login: {
-			kicker: "identity handshake",
-			title: "Authenticate into the cut graph.",
-			body: "Your account opens the workspace where prompts, tools, assets, and timeline changes stay connected.",
-			statusRows: [
-				["latency", "32 ms"],
-				["runtime", "agentic"],
-				["state", "encrypted"],
-			],
-			security: ["session hardened", "tool graph ready", "render state local"],
-		},
-		auth: {
-			secureConsole: "secure console",
-			signIn: "Login",
-			signUp: "Create",
-			resume: "Resume workspace",
-			initialize: "Initialize workspace",
-			body: "keeps your creative state close to the editor.",
-			name: "Name",
-			email: "Email",
-			password: "Password",
-			createWorkspace: "Create workspace",
-			enterConsole: "Enter console",
-			authFailed: "Authentication failed",
-			namePlaceholder: "Ada",
-			emailPlaceholder: "operator@studio.ai",
-			passwordPlaceholder: "6+ characters",
-		},
 		editor: {
 			exitProject: "Exit project",
 			shortcuts: "Shortcuts",
@@ -460,33 +357,6 @@ timeline.patch committed`,
 				applied: "Removed {count} silence segments ({seconds}s)",
 			},
 		},
-		footer: {
-			description:
-				"Prompt, inspect, revise, and ship video from a programmable timeline.",
-			categories: [
-				{
-					label: "Resources",
-					links: [
-						{ label: "Engine", href: "/#engine" },
-						{ label: "Pipeline", href: "/#pipeline" },
-						{ label: "Changelog", href: "/changelog" },
-						{ label: "Blog", href: "/blog" },
-						{ label: "Source", href: "/source" },
-						{ label: "License", href: "/license" },
-						{ label: "Third-party Notices", href: "/third-party-notices" },
-						{ label: "Privacy", href: "/privacy" },
-						{ label: "Terms of use", href: "/terms" },
-					],
-				},
-				{
-					label: "Company",
-					links: [
-						{ label: "Foundation", href: "/brand" },
-						{ label: "Contributors", href: "/contributors" },
-					],
-				},
-			],
-		},
 	},
 	"zh-CN": {
 		preferences: {
@@ -496,102 +366,6 @@ timeline.patch committed`,
 			dark: "深色",
 			switchToLight: "切换到浅色模式",
 			switchToDark: "切换到深色模式",
-		},
-		header: {
-			links: [
-				{ label: "引擎", href: "/#engine" },
-				{ label: "流程", href: "/#pipeline" },
-				{ label: "实验室", href: "/#labs" },
-				{ label: "更新", href: "/changelog" },
-			],
-			login: "登录",
-			launch: "启动",
-			workspace: "工作台",
-		},
-		hero: {
-			kicker: "AI 原生视频指挥中心",
-			title: "用想法的速度剪视频。",
-			body: "把自然语言转成精准、可回退的编辑器操作。它不像模板生成器，更像一个可编程的后期制作系统。",
-			launch: "进入工作台",
-			login: "登录控制台",
-			signals: ["场景图", "Agent 计划", "时间线操作", "渲染队列", "素材记忆"],
-			footerLeft: "下滑 / 查看流程",
-			footerRight: "Prompt 到时间线运行时",
-			engineKicker: "引擎",
-			engineTitle: "为真正能操作剪辑的 Agent 设计。",
-			pipeline: [
-				{
-					kicker: "01 / 意图",
-					title: "模型把成片理解为系统状态。",
-					body: "Prompt 会被翻译成感知时间线的操作，而不是粗暴压成一个神奇导出按钮。",
-				},
-				{
-					kicker: "02 / 编辑",
-					title: "每一步 AI 动作都落在可编辑结构里。",
-					body: "剪辑、字幕、MG、旁白和素材选择在生成后仍然可以检查、修改和回退。",
-				},
-				{
-					kicker: "03 / 迭代",
-					title: "在不破坏当前版本的情况下探索分支。",
-					body: "让 AI 给出变体、对比方向，同时保留最终剪辑判断权。",
-				},
-			],
-			traceTitle: "实时 Agent 轨迹",
-			trace: `> 分析时间线
-state.clips: 18
-state.captions: 需要更新
-state.energy: 00:14 偏弱
-
-> 规划修改
-插入 B-roll
-重剪开头节奏
-生成信息条
-均衡旁白
-
-> 执行
-timeline.patch 已提交`,
-			labsKicker: "实验室",
-			labsTitle: "更像终端，不像玩具。更像编辑器，不像聊天框。",
-			labsBody:
-				"界面会保留 AI 工作的可见结构：它理解了什么、修改了什么、哪些素材进入了时间线。这才是生成结果和可编辑生产系统的区别。",
-			previewPromptLabel: "指令",
-			previewPrompt: "让开头更锋利，加入动效字幕，并用最强金句做冷开场。",
-			previewRows: [
-				["思考中", "312 ms"],
-				["工具调用", "07"],
-				["编辑暂存", "12"],
-			],
-			previewStatus: ["素材已映射", "编辑可回退", "时间线已同步"],
-			workspaceLabel: "工作台 / 04",
-			agentOnline: "Agent 在线",
-		},
-		login: {
-			kicker: "身份握手",
-			title: "进入剪辑图谱。",
-			body: "登录后，Prompt、工具、素材和时间线变更会在同一个工作台里保持连接。",
-			statusRows: [
-				["延迟", "32 ms"],
-				["运行时", "agentic"],
-				["状态", "已加密"],
-			],
-			security: ["会话已加固", "工具图谱就绪", "渲染状态本地化"],
-		},
-		auth: {
-			secureConsole: "安全控制台",
-			signIn: "登录",
-			signUp: "创建",
-			resume: "继续工作台",
-			initialize: "初始化工作台",
-			body: "会把你的创作状态保留在编辑器旁边。",
-			name: "名称",
-			email: "邮箱",
-			password: "密码",
-			createWorkspace: "创建工作台",
-			enterConsole: "进入控制台",
-			authFailed: "认证失败",
-			namePlaceholder: "Ada",
-			emailPlaceholder: "operator@studio.ai",
-			passwordPlaceholder: "至少 6 个字符",
 		},
 		editor: {
 			exitProject: "退出项目",
@@ -901,32 +675,6 @@ timeline.patch 已提交`,
 				nothingApplied: "没有应用静音剪辑",
 				applied: "已删除 {count} 段静音（{seconds}s）",
 			},
-		},
-		footer: {
-			description: "从可编程时间线里发出指令、检查结果、迭代并交付视频。",
-			categories: [
-				{
-					label: "资源",
-					links: [
-						{ label: "引擎", href: "/#engine" },
-						{ label: "流程", href: "/#pipeline" },
-						{ label: "更新日志", href: "/changelog" },
-						{ label: "博客", href: "/blog" },
-						{ label: "源码", href: "/source" },
-						{ label: "许可证", href: "/license" },
-						{ label: "第三方 Notice", href: "/third-party-notices" },
-						{ label: "隐私", href: "/privacy" },
-						{ label: "使用条款", href: "/terms" },
-					],
-				},
-				{
-					label: "公司",
-					links: [
-						{ label: "基础", href: "/brand" },
-						{ label: "贡献者", href: "/contributors" },
-					],
-				},
-			],
 		},
 	},
 } as const;

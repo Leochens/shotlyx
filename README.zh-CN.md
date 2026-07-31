@@ -107,7 +107,7 @@ bun run dev:desktop
 常用检查：
 
 ```bash
-bun test
+bun run test
 bun run lint:renderer
 cargo test --workspace
 bun run build:desktop

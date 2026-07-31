@@ -15,13 +15,16 @@
 bun install
 bun run dev:desktop
 
-bun test
+bun run test
 bun run lint:renderer
 cargo test --workspace
 bun run build:desktop
 ```
 
 UI 变更请附截图或短录屏；存储、迁移、Provider 和打包变更应包含针对性测试。
+
+渲染层当前保留 193 条历史 lint 警告作为临时基线；lint 命令会把这个数字作为
+上限。请不要增加总数，并尽量修复本次改动所触及代码中的警告。
 
 ## 工程约束
 

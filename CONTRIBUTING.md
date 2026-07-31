@@ -21,7 +21,7 @@ bun run dev:desktop
 Before requesting review, run the checks relevant to your change:
 
 ```bash
-bun test
+bun run test
 bun run lint:renderer
 cargo test --workspace
 bun run build:desktop
@@ -29,6 +29,10 @@ bun run build:desktop
 
 UI changes should include screenshots or a short recording. Storage, migration,
 provider, and packaging changes should include focused tests.
+
+The renderer currently carries a temporary baseline of 193 legacy lint
+warnings. The lint command treats that count as a ceiling: do not increase it,
+and fix warnings in code you touch when practical.
 
 ## Engineering rules
 

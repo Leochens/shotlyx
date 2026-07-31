@@ -6,6 +6,10 @@ import sharp from "sharp";
 
 const isDesktopE2E = process.env.SHOTLYX_DESKTOP === "1";
 const desktopConfigPath = process.env.SHOTLYX_DESKTOP_CONFIG_PATH;
+const desktopSecretsPath = process.env.SHOTLYX_DESKTOP_SECRETS_PATH;
+const desktopExportTestPath = process.env.SHOTLYX_DESKTOP_EXPORT_TEST_PATH;
+const desktopProjectsRoot = process.env.SHOTLYX_PROJECTS_ROOT;
+const desktopProjectsConfigPath = process.env.SHOTLYX_PROJECTS_CONFIG_PATH;
 
 type PixelCounts = {
 	red: number;
@@ -22,27 +26,6 @@ function hasBinary({ command }: { command: string }): boolean {
 	} catch {
 		return false;
 	}
-}
-
-function writeReadyDesktopConfig() {
-	if (!desktopConfigPath) return;
-	writeFileSync(
-		desktopConfigPath,
-		JSON.stringify(
-			{
-				version: 1,
-				updatedAt: new Date().toISOString(),
-				values: {
-					AGENT_RUNTIME: "api",
-					AGENT_LLM_PROVIDER: "openai",
-					AGENT_LLM_KEY: "e2e-agent-key",
-					AGENT_LLM_MODEL: "gpt-4o-mini",
-				},
-			},
-			null,
-			2,
-		),
-	);
 }
 
 async function analyzeImageColors({
@@ -160,7 +143,7 @@ export default function ShotlyxComponent(props) {
 			sourcePrompt: "Generated cyan data rain background for MG export E2E.",
 			defaultProps: {
 				color: "#00d4ff",
-				density: 42,
+				density: 64,
 			},
 			propsSchema: [
 				{
@@ -175,7 +158,7 @@ export default function ShotlyxComponent(props) {
 					label: "Density",
 					type: "number",
 					role: "motion",
-					default: 42,
+					default: 64,
 					min: 12,
 					max: 80,
 					step: 1,
@@ -187,7 +170,7 @@ const Remotion = globalThis.__SHOTLYX_REMOTION_RUNTIME__.Remotion;
 function ShotlyxComponent(props) {
 	const { AbsoluteFill, useCurrentFrame } = Remotion;
 	const frame = useCurrentFrame();
-	const dots = Array.from({ length: Math.max(12, Math.floor(props.density || 42)) });
+	const dots = Array.from({ length: Math.max(12, Math.floor(props.density || 64)) });
 	return React.createElement(AbsoluteFill, { style: { overflow: "hidden", background: "transparent" } },
 		dots.map((_, index) => {
 			const x = ((index * 137) % 1920);
@@ -215,7 +198,8 @@ export default ShotlyxComponent;
 
 		const redRing = createDocument({
 			name: "E2E Generated MG · Red Interview Ring",
-			sourcePrompt: "Generated red donut metric ring with labels for MG export E2E.",
+			sourcePrompt:
+				"Generated red donut metric ring with labels for MG export E2E.",
 			defaultProps: {
 				centerText: "不确定性",
 				labelLeft: "等待回复",
@@ -294,7 +278,8 @@ export default ShotlyxComponent;
 
 		const goldBurst = createDocument({
 			name: "E2E Generated MG · Gold Particle Burst",
-			sourcePrompt: "Generated gold particle burst foreground for MG export E2E.",
+			sourcePrompt:
+				"Generated gold particle burst foreground for MG export E2E.",
 			defaultProps: {
 				color: "#d98b16",
 				count: 36,
@@ -513,7 +498,9 @@ async function exportProjectToWebM({
 	).toBeVisible({
 		timeout: 30_000,
 	});
-	await expect(page.getByText(/MG segment \d+\/\d+|MG 片段 \d+\/\d+/)).toBeVisible({
+	await expect(
+		page.getByText(/MG segment \d+\/\d+|MG 片段 \d+\/\d+/),
+	).toBeVisible({
 		timeout: 30_000,
 	});
 	await expect(page.getByText(/Estimated remaining|预计剩余/)).toBeVisible({
@@ -570,10 +557,22 @@ test.describe("Remotion MG desktop export", () => {
 	test.beforeEach(async ({ page }) => {
 		if (desktopConfigPath) {
 			rmSync(desktopConfigPath, { force: true });
-			writeReadyDesktopConfig();
+		}
+		if (desktopSecretsPath) {
+			rmSync(desktopSecretsPath, { force: true });
+		}
+		if (desktopExportTestPath) {
+			rmSync(desktopExportTestPath, { force: true });
+		}
+		if (desktopProjectsRoot) {
+			rmSync(desktopProjectsRoot, { force: true, recursive: true });
+		}
+		if (desktopProjectsConfigPath) {
+			rmSync(desktopProjectsConfigPath, { force: true });
 		}
 		await page.addInitScript(() => {
 			window.localStorage.setItem("hasSeenOnboarding", "true");
+			window.localStorage.setItem("shotlyx:locale", "en");
 		});
 	});
 
@@ -588,9 +587,7 @@ test.describe("Remotion MG desktop export", () => {
 		});
 
 		await page.goto("/projects");
-		await page
-			.getByRole("button", { name: "Create your first project" })
-			.click();
+		await page.getByRole("button", { name: "创建第一个项目" }).click();
 		await page.waitForURL(/\/editor\//);
 		await expect(page.locator(".editor-workbench")).toBeVisible();
 
@@ -697,9 +694,7 @@ test.describe("Remotion MG desktop export", () => {
 		});
 
 		await page.goto("/projects");
-		await page
-			.getByRole("button", { name: "Create your first project" })
-			.click();
+		await page.getByRole("button", { name: "创建第一个项目" }).click();
 		await page.waitForURL(/\/editor\//);
 		await expect(page.locator(".editor-workbench")).toBeVisible();
 

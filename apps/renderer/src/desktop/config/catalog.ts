@@ -31,7 +31,7 @@ export const DESKTOP_API_GROUPS: DesktopApiGroup[] = [
 			"Choose whether Shotlyx Agent talks to a provider API directly or delegates reasoning to a local coding CLI.",
 		requiredFor: "Agent chat, planning, and editor tool orchestration",
 		recommendedProvider:
-			"API mode for hosted usage; local CLI mode for desktop demos",
+			"Direct provider API mode or a local CLI runtime on this device",
 		fields: [
 			{
 				key: "AGENT_RUNTIME",
