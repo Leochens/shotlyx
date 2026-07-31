@@ -10,9 +10,11 @@ import {
 	readDesktopApiConfig,
 	writeDesktopApiConfig,
 } from "@/desktop/config/server";
+import { installTestSafeStorage } from "./safe-storage-test-helper";
 
 const originalEnv = { ...process.env };
 let tempDir: string;
+let restoreSafeStorage = () => {};
 
 beforeEach(() => {
 	tempDir = mkdtempSync(path.join(tmpdir(), "shotlyx-desktop-cli-config-"));
@@ -21,9 +23,11 @@ beforeEach(() => {
 		SHOTLYX_DESKTOP: "1",
 		SHOTLYX_DESKTOP_CONFIG_PATH: path.join(tempDir, "config.json"),
 	};
+	restoreSafeStorage = installTestSafeStorage({ directory: tempDir });
 });
 
 afterEach(() => {
+	restoreSafeStorage();
 	process.env = { ...originalEnv };
 	rmSync(tempDir, { recursive: true, force: true });
 });

@@ -3,11 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { writeDesktopApiConfig } from "@/desktop/config/server";
+import { installTestSafeStorage } from "@/desktop/__tests__/safe-storage-test-helper";
 
 const originalEnv = { ...process.env };
 const originalFetch = globalThis.fetch;
 let tempDir = "";
 let fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+let restoreSafeStorage = () => {};
 
 function mockFetchJson(data: unknown) {
 	globalThis.fetch = ((...args: Parameters<typeof fetch>) => {
@@ -30,10 +32,12 @@ beforeEach(() => {
 		SHOTLYX_DESKTOP: "1",
 		SHOTLYX_DESKTOP_CONFIG_PATH: path.join(tempDir, "config.json"),
 	};
+	restoreSafeStorage = installTestSafeStorage({ directory: tempDir });
 	globalThis.fetch = originalFetch;
 });
 
 afterEach(() => {
+	restoreSafeStorage();
 	process.env = { ...originalEnv };
 	globalThis.fetch = originalFetch;
 	rmSync(tempDir, { recursive: true, force: true });

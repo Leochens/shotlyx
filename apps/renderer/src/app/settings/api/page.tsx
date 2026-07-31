@@ -21,6 +21,7 @@ import {
 	Sparkles,
 	Terminal,
 	Video,
+	X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -85,14 +86,6 @@ type LocalCliAgent = {
 type AgentsResponse = {
 	desktop: boolean;
 	agents: LocalCliAgent[];
-	error?: string;
-};
-
-type RevealSecretResponse = {
-	desktop: boolean;
-	key: string;
-	configured: boolean;
-	value: string;
 	error?: string;
 };
 
@@ -178,6 +171,8 @@ type DesktopSetupCopy = {
 		hide: string;
 		showTitle: string;
 		hideTitle: string;
+		clear: string;
+		clearTitle: string;
 	};
 	toasts: {
 		desktopInactive: string;
@@ -188,9 +183,6 @@ type DesktopSetupCopy = {
 		saveSuccess: string;
 		saveSuccessDescription: string;
 		saveFailed: string;
-		revealInvalid: string;
-		revealNotSaved: string;
-		revealFailed: string;
 		unknownError: string;
 	};
 	groups: Record<string, LocalizedGroupText>;
@@ -239,7 +231,7 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 		},
 		apiMode: {
 			title: "Bring your own model API",
-			body: "Configure the model provider used for prompt operations, planning, task generation, and editor tool orchestration. Keys are saved to the local desktop config file instead of browser localStorage.",
+			body: "Configure the model provider used for prompt operations, planning, task generation, and editor tool orchestration. Keys are encrypted with the operating system credential store.",
 			recommended: "Recommended",
 			required: "Required in API mode",
 		},
@@ -250,7 +242,7 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 		},
 		footer: {
 			storage:
-				"Keys are written to a local desktop config file and read by the local Agent server.",
+				"API keys are encrypted with Electron safeStorage. The readable config file contains only non-secret preferences.",
 			localConfig: "Local config",
 			desktopWarningStart: "Start with",
 			desktopWarningEnd: "to enable the local settings API.",
@@ -259,8 +251,10 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 			savedPlaceholder: "************",
 			show: "Show",
 			hide: "Hide",
-			showTitle: "Show saved value",
-			hideTitle: "Hide saved value",
+			showTitle: "Show the value entered now",
+			hideTitle: "Hide the value entered now",
+			clear: "Remove",
+			clearTitle: "Remove the saved value on the next save",
 		},
 		toasts: {
 			desktopInactive: "Desktop local mode is not active",
@@ -272,9 +266,6 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 			saveSuccessDescription:
 				"The local Agent server can use the new values now.",
 			saveFailed: "Failed to save setup",
-			revealInvalid: "Invalid secret reveal response",
-			revealNotSaved: "is not saved yet",
-			revealFailed: "Failed to reveal",
 			unknownError: "Unknown error",
 		},
 		groups: {},
@@ -320,7 +311,7 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 		},
 		apiMode: {
 			title: "使用自己的模型 API",
-			body: "配置用于 Prompt 操作、计划、任务生成和编辑器工具编排的模型服务。密钥会保存到本地桌面配置文件，而不是浏览器 localStorage。",
+			body: "配置用于 Prompt 操作、计划、任务生成和编辑器工具编排的模型服务。密钥由操作系统凭据存储加密保护。",
 			recommended: "推荐",
 			required: "API 模式必填",
 		},
@@ -330,7 +321,8 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 			howToTitle: "如何配置",
 		},
 		footer: {
-			storage: "密钥会写入本地桌面配置文件，并由本地 Agent 服务读取。",
+			storage:
+				"API 密钥通过 Electron safeStorage 加密；可读配置文件只保存非敏感偏好。",
 			localConfig: "本地配置",
 			desktopWarningStart: "请使用",
 			desktopWarningEnd: "启动，以启用本地设置 API。",
@@ -339,8 +331,10 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 			savedPlaceholder: "************",
 			show: "显示",
 			hide: "隐藏",
-			showTitle: "显示已保存的值",
-			hideTitle: "隐藏已保存的值",
+			showTitle: "显示本次输入的值",
+			hideTitle: "隐藏本次输入的值",
+			clear: "移除",
+			clearTitle: "下次保存时移除已保存的值",
 		},
 		toasts: {
 			desktopInactive: "桌面本地模式未启用",
@@ -351,9 +345,6 @@ const DESKTOP_SETUP_COPY: Record<AppLocale, DesktopSetupCopy> = {
 			saveSuccess: "设置已保存",
 			saveSuccessDescription: "本地 Agent 服务现在可以使用新的配置。",
 			saveFailed: "保存设置失败",
-			revealInvalid: "密钥查看响应无效",
-			revealNotSaved: "尚未保存",
-			revealFailed: "查看失败",
 			unknownError: "未知错误",
 		},
 		groups: {
@@ -705,7 +696,12 @@ const AGENT_PROVIDER_PRESETS: AgentProviderPreset[] = [
 		label: "Moonshot - OpenAI",
 		provider: "openai-compatible",
 		baseUrl: "https://api.moonshot.cn/v1",
-		models: ["kimi-k2.6", "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
+		models: [
+			"kimi-k2.6",
+			"moonshot-v1-8k",
+			"moonshot-v1-32k",
+			"moonshot-v1-128k",
+		],
 		defaultModel: "kimi-k2.6",
 		keyUrl: "https://platform.moonshot.cn/console/api-keys",
 	},
@@ -983,20 +979,6 @@ function isAgentsResponse(value: unknown): value is AgentsResponse {
 	);
 }
 
-function isRevealSecretResponse(value: unknown): value is RevealSecretResponse {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"desktop" in value &&
-		"key" in value &&
-		"configured" in value &&
-		"value" in value &&
-		typeof value.key === "string" &&
-		typeof value.configured === "boolean" &&
-		typeof value.value === "string"
-	);
-}
-
 function isModelsResponse(value: unknown): value is ModelsResponse {
 	return (
 		typeof value === "object" &&
@@ -1199,9 +1181,6 @@ function DesktopApiSettingsPageContent() {
 	const [revealedSecrets, setRevealedSecrets] = useState<
 		Record<string, boolean>
 	>({});
-	const [revealingSecretKey, setRevealingSecretKey] = useState<string | null>(
-		null,
-	);
 	const [modelOptionsByKey, setModelOptionsByKey] = useState<
 		Record<string, string[]>
 	>({});
@@ -1459,64 +1438,12 @@ function DesktopApiSettingsPageContent() {
 		}
 	};
 
-	const handleToggleSecret = async ({
-		key,
-		label,
-		saved,
-	}: {
-		key: string;
-		label: string;
-		saved?: boolean;
-	}) => {
-		if (revealedSecrets[key]) {
-			setRevealedSecrets((current) => ({ ...current, [key]: false }));
-			return;
-		}
-
-		const currentValue = values[key] ?? "";
-		if (currentValue.trim()) {
-			setRevealedSecrets((current) => ({ ...current, [key]: true }));
-			setPendingClearKeys((current) => current.filter((item) => item !== key));
-			return;
-		}
-
-		if (!saved) {
-			setRevealedSecrets((current) => ({ ...current, [key]: true }));
-			return;
-		}
-
-		setRevealingSecretKey(key);
-		try {
-			const response = await fetch("/api/desktop/config/reveal", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ key }),
-			});
-			const data: unknown = await response.json();
-			if (!response.ok) {
-				throw new Error(readErrorMessage(data) ?? `Failed to reveal ${label}`);
-			}
-			if (!isRevealSecretResponse(data)) {
-				throw new Error(pageCopy.toasts.revealInvalid);
-			}
-			if (!data.configured) {
-				toast.error(`${label} ${pageCopy.toasts.revealNotSaved}`);
-				return;
-			}
-			updateConfigValues({
-				values: {
-					[key]: data.value,
-				},
-			});
-			setRevealedSecrets((current) => ({ ...current, [key]: true }));
-		} catch (error) {
-			toast.error(`${pageCopy.toasts.revealFailed} ${label}`, {
-				description:
-					error instanceof Error ? error.message : pageCopy.toasts.unknownError,
-			});
-		} finally {
-			setRevealingSecretKey(null);
-		}
+	const handleToggleSecret = ({ key }: { key: string }) => {
+		if (!(values[key] ?? "").trim()) return;
+		setRevealedSecrets((current) => ({
+			...current,
+			[key]: !current[key],
+		}));
 	};
 
 	const handleFetchModels = async ({
@@ -1605,12 +1532,13 @@ function DesktopApiSettingsPageContent() {
 		applyLabel?: string;
 	}) => {
 		const fieldText = getLocalizedField({ field, pageCopy });
-		const saved = groupStatus?.fields.find(
+		const savedOnDisk = groupStatus?.fields.find(
 			(item) => item.key === field.key,
 		)?.configured;
+		const saved = savedOnDisk && !pendingClearKeys.includes(field.key);
 		const secretVisible = Boolean(field.secret && revealedSecrets[field.key]);
 		const canToggleSecret = Boolean(
-			field.secret && (saved || (values[field.key] ?? "").trim()),
+			field.secret && (values[field.key] ?? "").trim(),
 		);
 
 		return (
@@ -1661,7 +1589,7 @@ function DesktopApiSettingsPageContent() {
 							id={field.key}
 							name={field.key}
 							type={field.secret && !secretVisible ? "password" : "text"}
-							className={field.secret ? "pr-10" : undefined}
+							className={field.secret ? "pr-16" : undefined}
 							placeholder={
 								field.secret && saved
 									? pageCopy.secret.savedPlaceholder
@@ -1674,11 +1602,25 @@ function DesktopApiSettingsPageContent() {
 									values: {
 										[field.key]: event.target.value,
 									},
-									clearWhenEmpty: !field.secret,
+									clearWhenEmpty: true,
 								})
 							}
 							autoComplete="off"
 						/>
+						{field.secret && saved ? (
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon"
+								className="absolute right-8 top-1 size-7"
+								aria-label={`${pageCopy.secret.clear} ${field.env}`}
+								title={pageCopy.secret.clearTitle}
+								disabled={isLoading || isSaving}
+								onClick={() => clearConfigValues([field.key])}
+							>
+								<X className="size-4" />
+							</Button>
+						) : null}
 						{field.secret && (
 							<Button
 								type="button"
@@ -1695,17 +1637,10 @@ function DesktopApiSettingsPageContent() {
 										? pageCopy.secret.hideTitle
 										: pageCopy.secret.showTitle
 								}
-								disabled={
-									isLoading ||
-									isSaving ||
-									revealingSecretKey === field.key ||
-									!canToggleSecret
-								}
+								disabled={isLoading || isSaving || !canToggleSecret}
 								onClick={() =>
 									handleToggleSecret({
 										key: field.key,
-										label: fieldText.label,
-										saved,
 									})
 								}
 							>

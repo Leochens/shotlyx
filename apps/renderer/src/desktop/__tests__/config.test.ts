@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -12,9 +12,11 @@ import {
 	readDesktopApiConfig,
 	writeDesktopApiConfig,
 } from "../config/server";
+import { installTestSafeStorage } from "./safe-storage-test-helper";
 
 const originalEnv = { ...process.env };
 let tempDir = "";
+let restoreSafeStorage = () => {};
 
 beforeEach(() => {
 	tempDir = mkdtempSync(path.join(tmpdir(), "shotlyx-desktop-config-"));
@@ -23,9 +25,11 @@ beforeEach(() => {
 		SHOTLYX_DESKTOP: "1",
 		SHOTLYX_DESKTOP_CONFIG_PATH: path.join(tempDir, "config.json"),
 	};
+	restoreSafeStorage = installTestSafeStorage({ directory: tempDir });
 });
 
 afterEach(() => {
+	restoreSafeStorage();
 	process.env = { ...originalEnv };
 	if (tempDir) {
 		rmSync(tempDir, { recursive: true, force: true });
@@ -44,6 +48,61 @@ test("desktop config stores only known non-empty API fields", () => {
 		AGENT_LLM_KEY: "key",
 		AGENT_LLM_MODEL: "gpt-4o",
 	});
+	const publicConfig = readFileSync(
+		process.env.SHOTLYX_DESKTOP_CONFIG_PATH!,
+		"utf8",
+	);
+	const encryptedSecrets = readFileSync(
+		process.env.SHOTLYX_DESKTOP_SECRETS_PATH!,
+		"utf8",
+	);
+	expect(publicConfig).not.toContain("key");
+	expect(encryptedSecrets).not.toContain('"key"');
+});
+
+test("desktop config migrates legacy plaintext secrets into safe storage", () => {
+	writeFileSync(
+		process.env.SHOTLYX_DESKTOP_CONFIG_PATH!,
+		JSON.stringify({
+			version: 1,
+			values: {
+				AGENT_LLM_KEY: "legacy-secret",
+				AGENT_LLM_MODEL: "gpt-4o-mini",
+			},
+			updatedAt: "2026-07-31T00:00:00.000Z",
+		}),
+	);
+
+	expect(readDesktopApiConfig().values.AGENT_LLM_KEY).toBe("legacy-secret");
+	expect(
+		readFileSync(process.env.SHOTLYX_DESKTOP_CONFIG_PATH!, "utf8"),
+	).not.toContain("legacy-secret");
+	expect(
+		readFileSync(process.env.SHOTLYX_DESKTOP_SECRETS_PATH!, "utf8"),
+	).not.toContain("legacy-secret");
+});
+
+test("desktop config never falls back to plaintext when encryption is unavailable", () => {
+	const bridge = globalThis.__SHOTLYX_SAFE_STORAGE__;
+	globalThis.__SHOTLYX_SAFE_STORAGE__ = {
+		isEncryptionAvailable: () => false,
+		encryptString: () => {
+			throw new Error("unavailable");
+		},
+		decryptString: () => {
+			throw new Error("unavailable");
+		},
+	};
+	try {
+		expect(() =>
+			writeDesktopApiConfig({ AGENT_LLM_KEY: "must-not-leak" }),
+		).toThrow("desktop_safe_storage_unavailable");
+		expect(() =>
+			readFileSync(process.env.SHOTLYX_DESKTOP_CONFIG_PATH!, "utf8"),
+		).toThrow();
+	} finally {
+		globalThis.__SHOTLYX_SAFE_STORAGE__ = bridge;
+	}
 });
 
 test("public config masks secret values", () => {

@@ -7,6 +7,7 @@ const {
 	dialog,
 	net,
 	protocol,
+	safeStorage,
 	shell,
 } = require("electron");
 const {
@@ -90,6 +91,28 @@ function configureLocalDataPaths() {
 			"project-library.json",
 		);
 	}
+	if (!process.env.SHOTLYX_DESKTOP_CONFIG_PATH) {
+		process.env.SHOTLYX_DESKTOP_CONFIG_PATH = path.join(
+			app.getPath("userData"),
+			"desktop-api-config.json",
+		);
+	}
+	if (!process.env.SHOTLYX_DESKTOP_SECRETS_PATH) {
+		process.env.SHOTLYX_DESKTOP_SECRETS_PATH = path.join(
+			app.getPath("userData"),
+			"desktop-api-secrets.json",
+		);
+	}
+}
+
+function installSafeStorageBridge() {
+	globalThis.__SHOTLYX_SAFE_STORAGE__ = Object.freeze({
+		isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+		encryptString: (value) =>
+			safeStorage.encryptString(value).toString("base64"),
+		decryptString: (value) =>
+			safeStorage.decryptString(Buffer.from(value, "base64")),
+	});
 }
 
 function migrateLegacyStorageIfNeeded() {
@@ -442,6 +465,7 @@ function createWindow() {
 configureRenderingMode();
 configureAppIdentity();
 configureLocalDataPaths();
+installSafeStorageBridge();
 
 app.on("before-quit", () => {
 	isQuitting = true;

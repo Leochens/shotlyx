@@ -14,6 +14,12 @@ import {
 	isDesktopApiFieldKey,
 	isSecretDesktopApiField,
 } from "./catalog";
+import {
+	isDesktopSecretStorageAvailable,
+	pickSecretValues,
+	readDesktopSecrets,
+	writeDesktopSecrets,
+} from "./safe-storage";
 
 export type DesktopApiValues = Partial<Record<string, string>>;
 
@@ -41,6 +47,7 @@ export interface DesktopConfigStatusGroup {
 const CONFIG_VERSION = 1;
 const MINIMAX_TOKEN_PLAN_HOST = "https://api.minimaxi.com/v1";
 const MINIMAX_LEGACY_GLOBAL_HOST = "https://api.minimax.io/v1";
+const appliedDesktopEnvOriginals = new Map<string, string | undefined>();
 
 export function isDesktopMode(): boolean {
 	return (
@@ -78,7 +85,7 @@ function normalizeValues(values: unknown): DesktopApiValues {
 	return result;
 }
 
-export function readDesktopApiConfig(): DesktopApiConfigFile {
+function readDesktopApiConfigFile(): DesktopApiConfigFile {
 	const configPath = getDesktopConfigPath();
 	if (!existsSync(configPath)) {
 		return {
@@ -111,7 +118,7 @@ export function readDesktopApiConfig(): DesktopApiConfigFile {
 	}
 }
 
-export function writeDesktopApiConfig(
+function writeDesktopApiConfigFile(
 	values: DesktopApiValues,
 ): DesktopApiConfigFile {
 	const configPath = getDesktopConfigPath();
@@ -130,6 +137,55 @@ export function writeDesktopApiConfig(
 		// Best effort on platforms that support POSIX permissions.
 	}
 	return config;
+}
+
+function omitSecretValues(values: DesktopApiValues): DesktopApiValues {
+	return Object.fromEntries(
+		Object.entries(values).filter(([key]) => !isSecretDesktopApiField(key)),
+	);
+}
+
+export function readDesktopApiConfig(): DesktopApiConfigFile {
+	const stored = readDesktopApiConfigFile();
+	const publicValues = omitSecretValues(stored.values);
+	const legacySecrets = pickSecretValues(stored.values);
+	let secrets = readDesktopSecrets();
+
+	if (
+		Object.keys(legacySecrets).length > 0 &&
+		isDesktopSecretStorageAvailable()
+	) {
+		secrets = { ...secrets, ...legacySecrets };
+		writeDesktopSecrets(secrets);
+		const migrated = writeDesktopApiConfigFile(publicValues);
+		return {
+			...migrated,
+			values: { ...publicValues, ...secrets },
+		};
+	}
+
+	return {
+		...stored,
+		values: {
+			...publicValues,
+			...secrets,
+			...(isDesktopSecretStorageAvailable() ? {} : legacySecrets),
+		},
+	};
+}
+
+export function writeDesktopApiConfig(
+	values: DesktopApiValues,
+): DesktopApiConfigFile {
+	const normalized = normalizeValues(values);
+	const secrets = pickSecretValues(normalized);
+	const publicValues = omitSecretValues(normalized);
+	writeDesktopSecrets(secrets);
+	const config = writeDesktopApiConfigFile(publicValues);
+	return {
+		...config,
+		values: { ...publicValues, ...secrets },
+	};
 }
 
 export function mergeDesktopApiConfig({
@@ -194,16 +250,39 @@ export function applyDesktopConfigToProcessEnv(): void {
 	if (!isDesktopMode()) return;
 	const values = readDesktopApiConfig().values;
 	const defaults = desktopValuesToEnv(values);
+	const saved = desktopSavedValuesToEnv(values);
+	const nextAppliedKeys = new Set<string>();
 	for (const [key, value] of Object.entries(defaults)) {
-		if (value && process.env[key] === undefined) {
+		if (
+			value &&
+			(saved[key] !== undefined ||
+				appliedDesktopEnvOriginals.has(key) ||
+				process.env[key] === undefined)
+		) {
+			if (!appliedDesktopEnvOriginals.has(key)) {
+				appliedDesktopEnvOriginals.set(key, process.env[key]);
+			}
 			process.env[key] = value;
+			nextAppliedKeys.add(key);
 		}
 	}
-	const saved = desktopSavedValuesToEnv(values);
 	for (const [key, value] of Object.entries(saved)) {
 		if (value) {
+			if (!appliedDesktopEnvOriginals.has(key)) {
+				appliedDesktopEnvOriginals.set(key, process.env[key]);
+			}
 			process.env[key] = value;
+			nextAppliedKeys.add(key);
 		}
+	}
+	for (const [key, originalValue] of appliedDesktopEnvOriginals) {
+		if (nextAppliedKeys.has(key)) continue;
+		if (originalValue === undefined) {
+			delete process.env[key];
+		} else {
+			process.env[key] = originalValue;
+		}
+		appliedDesktopEnvOriginals.delete(key);
 	}
 }
 
