@@ -105,7 +105,7 @@ export function buildRemotionSkillContextSummary({
 			sourceUrl: getOfficialRemotionSkillRuleSourceUrl({ rule }),
 		})),
 		overrideFile:
-			"apps/web/src/shotlyx/remotion-components/remotion-skill-overrides.ts",
+			"apps/renderer/src/shotlyx/remotion-components/remotion-skill-overrides.ts",
 		globalAdapterNotes: REMOTION_SKILL_OVERRIDES.globalAdapterNotes,
 	};
 }
@@ -151,7 +151,7 @@ export function buildRemotionSkillContext({
 		"Shotlyx Remotion skill context:",
 		`Official skill: ${OFFICIAL_REMOTION_SKILL_SOURCE.repository}/tree/${OFFICIAL_REMOTION_SKILL_SOURCE.commit}/${OFFICIAL_REMOTION_SKILL_SOURCE.skillPath}`,
 		`Install command: ${OFFICIAL_REMOTION_SKILL_SOURCE.installCommand}`,
-		"Editable Shotlyx override file: apps/web/src/shotlyx/remotion-components/remotion-skill-overrides.ts",
+		"Editable Shotlyx override file: apps/renderer/src/shotlyx/remotion-components/remotion-skill-overrides.ts",
 		"Use the selected official Remotion Skill rules below, then apply the Shotlyx adapter notes where the official full-project examples conflict with the current generated-component runtime.",
 		"Global Shotlyx adapter notes:",
 		...REMOTION_SKILL_OVERRIDES.globalAdapterNotes.map((line) => `- ${line}`),

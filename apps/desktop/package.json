@@ -1,5 +1,5 @@
 {
-	"name": "@shotlyx/client",
+	"name": "@shotlyx/desktop",
 	"productName": "Shotlyx Desktop",
 	"description": "Desktop video editor and local agent workspace for Shotlyx.",
 	"version": "0.1.0",

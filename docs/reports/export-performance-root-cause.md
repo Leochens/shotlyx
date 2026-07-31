@@ -16,7 +16,7 @@
 
 ### 1. 主链路逐帧渲染后再编码
 
-`apps/web/src/services/renderer/scene-exporter.ts` 中，导出使用 `BufferTarget` + `CanvasSource`：
+`apps/renderer/src/services/renderer/scene-exporter.ts` 中，导出使用 `BufferTarget` + `CanvasSource`：
 
 - `CanvasSource(this.renderer.getOutputCanvas(), { codec: "avc" | "vp9" })`
 - 每一帧循环执行 `await this.renderer.render(...)`
@@ -27,7 +27,7 @@
 
 ### 2. 项目导出阶段是串行流水
 
-`apps/web/src/core/managers/renderer-manager.ts` 的顺序是：
+`apps/renderer/src/core/managers/renderer-manager.ts` 的顺序是：
 
 1. `prerenderShotlyxMGExportSegments`
 2. `createTimelineAudioBuffer`
@@ -38,17 +38,17 @@
 
 ### 3. 视频素材也是逐帧取 Canvas
 
-`apps/web/src/services/renderer/resolve.ts` 对 `VideoNode` 调用：
+`apps/renderer/src/services/renderer/resolve.ts` 对 `VideoNode` 调用：
 
 ```ts
 videoCache.getFrameAt({ mediaId, file, time })
 ```
 
-`apps/web/src/services/video-cache/service.ts` 使用 mediabunny `CanvasSink` 取帧，并为每个 mediaId 串行维护 `frameChain`。这对预览很合理，但导出时会把源视频先解码为 Canvas，再进入合成/编码，无法走直接码流复用。
+`apps/renderer/src/services/video-cache/service.ts` 使用 mediabunny `CanvasSink` 取帧，并为每个 mediaId 串行维护 `frameChain`。这对预览很合理，但导出时会把源视频先解码为 Canvas，再进入合成/编码，无法走直接码流复用。
 
 ### 4. MG/Remotion 有额外 PNG 帧序列成本
 
-`apps/web/src/api/desktop/remotion/mg-render/route.ts` 调用 `renderFrames`：
+`apps/renderer/src/api/desktop/remotion/mg-render/route.ts` 调用 `renderFrames`：
 
 - `imageFormat: "png"`
 - `outputDir: null`
@@ -58,7 +58,7 @@ videoCache.getFrameAt({ mediaId, file, time })
 
 ### 5. ffmpeg 已打包但不在最终导出主路径
 
-`apps/web/src/desktop/media/ffmpeg.ts` 主要用于媒体分析、抽帧、导入时转浏览器可解码格式。最终导出链路没有调用 `ffmpeg`、`h264_videotoolbox`、`hevc_videotoolbox` 或 stream copy。
+`apps/renderer/src/desktop/media/ffmpeg.ts` 主要用于媒体分析、抽帧、导入时转浏览器可解码格式。最终导出链路没有调用 `ffmpeg`、`h264_videotoolbox`、`hevc_videotoolbox` 或 stream copy。
 
 ## 最可能的瓶颈排序
 

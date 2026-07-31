@@ -7,7 +7,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 import preferObjectParams from "./eslint/rules/prefer-object-params.mjs";
 
-const webFiles = ["apps/web/src/**/*.{ts,tsx}"];
+const webFiles = ["apps/renderer/src/**/*.{ts,tsx}"];
 
 const shotlyxEslintPlugin = {
 	meta: {

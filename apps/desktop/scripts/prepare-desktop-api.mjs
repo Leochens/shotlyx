@@ -8,7 +8,7 @@ const clientDir = path.resolve(
 	"..",
 );
 const repoRoot = path.resolve(clientDir, "../..");
-const apiDistDir = path.join(repoRoot, "apps/web/dist-electron");
+const apiDistDir = path.join(repoRoot, "apps/renderer/dist-electron");
 const outputDir = path.join(clientDir, ".desktop-api");
 const bunStoreDir = path.join(repoRoot, "node_modules/.bun");
 

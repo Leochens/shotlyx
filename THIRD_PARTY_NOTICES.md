@@ -20,7 +20,7 @@ JavaScript, TypeScript, Rust, and deployment dependencies are declared in the
 repository manifests, including:
 
 - [package.json](package.json)
-- [apps/web/package.json](apps/web/package.json)
+- [apps/renderer/package.json](apps/renderer/package.json)
 - [Cargo.toml](Cargo.toml)
 - [apps/desktop/Cargo.toml](apps/desktop/Cargo.toml)
 - [rust/wasm/Cargo.toml](rust/wasm/Cargo.toml)

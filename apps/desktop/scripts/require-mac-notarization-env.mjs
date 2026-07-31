@@ -40,7 +40,7 @@ Set one of these credential groups before running dist:mac:
 ${missingGroups}
 
 For a local-only package that is not suitable for distribution, run:
-  bun run --cwd apps/client dist:mac:unsigned
+  bun run --cwd apps/desktop dist:mac:unsigned
 `);
 
 process.exit(1);

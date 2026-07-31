@@ -42,7 +42,7 @@ describe("Remotion skill context", () => {
 
 		expect(rules.map((rule) => rule.id)).toContain("text-animations");
 		expect(context).toContain(
-			"Editable Shotlyx override file: apps/web/src/shotlyx/remotion-components/remotion-skill-overrides.ts",
+			"Editable Shotlyx override file: apps/renderer/src/shotlyx/remotion-components/remotion-skill-overrides.ts",
 		);
 		expect(context).toContain("For Chinese text");
 	});

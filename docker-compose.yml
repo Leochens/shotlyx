@@ -50,7 +50,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: ./apps/web/Dockerfile
+      dockerfile: ./apps/renderer/Dockerfile
       args:
         - FREESOUND_CLIENT_ID=${FREESOUND_CLIENT_ID:-}
         - FREESOUND_API_KEY=${FREESOUND_API_KEY:-}

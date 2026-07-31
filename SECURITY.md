@@ -31,7 +31,7 @@ If a credential may have been committed or exposed, rotate it immediately. Remov
 
 Shotlyx includes browser storage, local media processing, provider-backed AI/media APIs, and server-side routes. Security reviews should pay special attention to:
 
-- Secret handling in `apps/web/src/app/api/agent/*`.
+- Secret handling in `apps/renderer/src/app/api/agent/*`.
 - Sanitization of model/tool results.
 - SSRF or unsafe URL fetching in web/stock/media routes.
 - Large file handling and local media imports.

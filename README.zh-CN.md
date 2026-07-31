@@ -1,7 +1,7 @@
 # Shotlyx
 
 <p align="center">
-  <img src="apps/web/public/logos/shotlyx/logo.png" alt="Shotlyx logo" width="160" />
+  <img src="apps/renderer/public/logos/shotlyx/logo.png" alt="Shotlyx logo" width="160" />
 </p>
 
 [![GuanTou Lab](https://world.guantou.site/badge.svg?theme=dark&accent=red&lang=zh&size=sm)](https://world.guantou.site/)
@@ -37,15 +37,16 @@ Shotlyx 的基础视频编辑器来源于 OpenCut 项目，包括核心浏览器
 
 ## 项目状态
 
-当前仓库正在做公开发布前整理。主要活跃面是 Web 编辑器和 Agent 栈。`apps/desktop` 下的桌面端目前只是一个 GPUI 壳原型，还不是完整桌面版编辑器。
+当前仓库正在做公开发布前整理。`apps/desktop` 是 Electron 主进程和打包入口，
+`apps/renderer` 是 React/Vite 编辑器界面。原有 GPUI 壳原型已删除。
 
 ## 目录结构
 
 ```text
 .
 ├── apps/
-│   ├── web/          # Next.js 编辑器应用和 Agent runtime
-│   └── desktop/      # Rust GPUI 桌面壳原型
+│   ├── desktop/      # Electron 主进程与打包
+│   └── renderer/     # React/Vite 编辑器与 Agent 界面
 ├── rust/
 │   ├── crates/       # time、audio、GPU、masks、effects 等 Rust crate
 │   └── wasm/         # Web 应用使用的 wasm-bindgen 包
@@ -57,12 +58,12 @@ Shotlyx 的基础视频编辑器来源于 OpenCut 项目，包括核心浏览器
 
 重要 Web 模块：
 
-- `apps/web/src/core`：`EditorCore` 和各 manager 初始化。
-- `apps/web/src/agent`：聊天 UI、LLM 配置、tool adapter、MCP-like server、工具实现和 Agent 测试。
-- `apps/web/src/app/api/agent`：聊天流、工具结果续写、MG job、Stock、Web、Image、Voiceover、Transcription 等服务端 route。
-- `apps/web/src/commands`：支持 undo/redo 的编辑命令。
-- `apps/web/src/services/storage`：IndexedDB/OPFS 项目和媒体存储。
-- `apps/web/src/shotlyx/remotion-components`：可编辑 Shotlyx MG 生成与校验。
+- `apps/renderer/src/core`：`EditorCore` 和各 manager 初始化。
+- `apps/renderer/src/agent`：聊天 UI、LLM 配置、tool adapter、MCP-like server、工具实现和 Agent 测试。
+- `apps/renderer/src/app/api/agent`：聊天流、工具结果续写、MG job、Stock、Web、Image、Voiceover、Transcription 等服务端 route。
+- `apps/renderer/src/commands`：支持 undo/redo 的编辑命令。
+- `apps/renderer/src/services/storage`：IndexedDB/OPFS 项目和媒体存储。
+- `apps/renderer/src/shotlyx/remotion-components`：可编辑 Shotlyx MG 生成与校验。
 
 ## Agent 如何工作
 
@@ -103,7 +104,7 @@ docker compose up -d db redis serverless-redis-http
 创建本地环境变量文件：
 
 ```bash
-cp apps/web/.env.example apps/web/.env.local
+cp apps/renderer/.env.example apps/renderer/.env.local
 ```
 
 运行 Web 应用：
@@ -120,7 +121,7 @@ http://localhost:3000
 
 ## 环境变量
 
-完整配置见 [apps/web/.env.example](apps/web/.env.example)。常见分组：
+完整配置见 [apps/renderer/.env.example](apps/renderer/.env.example)。常见分组：
 
 - App/server：`DATABASE_URL`、`BETTER_AUTH_SECRET`、`UPSTASH_REDIS_REST_URL`、`UPSTASH_REDIS_REST_TOKEN`
 - Agent LLM：`AGENT_LLM_PROVIDER`、`AGENT_LLM_KEY`、`AGENT_LLM_MODEL`、`AGENT_LLM_HOST`
@@ -147,7 +148,7 @@ cargo test             # 运行 Rust 测试
 Web 应用内部命令：
 
 ```bash
-cd apps/web
+cd apps/renderer
 bun run dev
 bun run build
 bun run test:e2e
@@ -190,7 +191,7 @@ Compose 文件主要面向本地/自托管开发。任何真实部署前，请�
 Cloudflare/OpenNext：
 
 ```bash
-cd apps/web
+cd apps/renderer
 bun run preview
 bun run deploy
 ```

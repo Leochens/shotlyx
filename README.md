@@ -1,7 +1,7 @@
 # Shotlyx
 
 <p align="center">
-  <img src="apps/web/public/logos/shotlyx/logo.png" alt="Shotlyx logo" width="160" />
+  <img src="apps/renderer/public/logos/shotlyx/logo.png" alt="Shotlyx logo" width="160" />
 </p>
 
 [![GuanTou Lab](https://world.guantou.site/badge.svg?theme=dark&accent=red&lang=en&size=sm)](https://world.guantou.site/)
@@ -37,16 +37,17 @@ The Agent layer that makes the editor operable through natural language is origi
 
 ## Project Status
 
-This repository is public-readiness work in progress. The web editor and Agent stack are the main active surfaces. The Electron client under `apps/client` wraps the local Next.js app in desktop API mode. The older `apps/desktop` directory is a small GPUI shell prototype, not the current desktop editor.
+This repository is public-readiness work in progress. The Electron app under
+`apps/desktop` packages the renderer and local API; `apps/renderer` contains the
+React/Vite editor UI. The former GPUI shell has been removed.
 
 ## Repository Structure
 
 ```text
 .
 ├── apps/
-│   ├── web/          # Next.js editor app and Agent runtime
-│   ├── client/       # Electron desktop client for local API configuration
-│   └── desktop/      # Rust GPUI desktop shell prototype
+│   ├── desktop/      # Electron main process and packaging
+│   └── renderer/     # React/Vite editor and Agent UI
 ├── rust/
 │   ├── crates/       # Shared Rust crates for time, audio, GPU, masks, effects
 │   └── wasm/         # wasm-bindgen package used by the web app
@@ -58,12 +59,12 @@ This repository is public-readiness work in progress. The web editor and Agent s
 
 Important web modules:
 
-- `apps/web/src/core`: `EditorCore` and manager initialization.
-- `apps/web/src/agent`: chat UI, LLM config, tool adapters, MCP-like server, tool implementations, and Agent tests.
-- `apps/web/src/app/api/agent`: server routes for chat streaming, tool-result continuation, MG jobs, stock, web, image, voiceover, and transcription.
-- `apps/web/src/commands`: undoable editor commands.
-- `apps/web/src/services/storage`: IndexedDB/OPFS project and media storage.
-- `apps/web/src/shotlyx/remotion-components`: editable Shotlyx MG generation and validation.
+- `apps/renderer/src/core`: `EditorCore` and manager initialization.
+- `apps/renderer/src/agent`: chat UI, LLM config, tool adapters, MCP-like server, tool implementations, and Agent tests.
+- `apps/renderer/src/app/api/agent`: server routes for chat streaming, tool-result continuation, MG jobs, stock, web, image, voiceover, and transcription.
+- `apps/renderer/src/commands`: undoable editor commands.
+- `apps/renderer/src/services/storage`: IndexedDB/OPFS project and media storage.
+- `apps/renderer/src/shotlyx/remotion-components`: editable Shotlyx MG generation and validation.
 
 ## How The Agent Works
 
@@ -104,7 +105,7 @@ docker compose up -d db redis serverless-redis-http
 Create local env:
 
 ```bash
-cp apps/web/.env.example apps/web/.env.local
+cp apps/renderer/.env.example apps/renderer/.env.local
 ```
 
 Run the web app:
@@ -135,7 +136,7 @@ port 3000.
 
 ## Environment Variables
 
-See [apps/web/.env.example](apps/web/.env.example) for the full list. The most common groups are:
+See [apps/renderer/.env.example](apps/renderer/.env.example) for the full list. The most common groups are:
 
 - App/server: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
 - Agent LLM: `AGENT_LLM_PROVIDER`, `AGENT_LLM_KEY`, `AGENT_LLM_MODEL`, `AGENT_LLM_HOST`
@@ -162,7 +163,7 @@ cargo test             # Run Rust tests
 Web app commands:
 
 ```bash
-cd apps/web
+cd apps/renderer
 bun run dev
 bun run build
 bun run test:e2e
@@ -205,7 +206,7 @@ The compose file is intended for local/self-hosted development. Replace all plac
 Cloudflare/OpenNext:
 
 ```bash
-cd apps/web
+cd apps/renderer
 bun run preview
 bun run deploy
 ```

@@ -15,7 +15,7 @@ const desktopSiteUrl = "https://shotlyx.ai";
 
 function runWebBuild() {
 	return new Promise((resolve, reject) => {
-		const buildProcess = spawn("bun", ["run", "--cwd", "apps/web", "build"], {
+		const buildProcess = spawn("bun", ["run", "--cwd", "apps/renderer", "build"], {
 			cwd: repoRoot,
 			env: {
 				...createDesktopEnv(),
@@ -43,7 +43,7 @@ function runApiBuild() {
 	return new Promise((resolve, reject) => {
 		const buildProcess = spawn(
 			"bun",
-			["run", "--cwd", "apps/web", "build:desktop-api"],
+			["run", "--cwd", "apps/renderer", "build:desktop-api"],
 			{
 				cwd: repoRoot,
 				env: {

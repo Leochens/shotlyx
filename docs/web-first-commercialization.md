@@ -17,8 +17,8 @@
 | Object storage status | `server/src/object-storage-config.ts`           | local/COS/R2/S3 配置检查与上传前校验 |
 | Cloud storage         | `server/src/cloud-storage.ts`                   | COS STS 直传、完成校验、签名读取 URL |
 | Project sync          | `shotlyx_projects` / `shotlyx_media_assets`     | 账号下项目 JSON 和云端素材索引       |
-| Web billing client    | `apps/web/src/auth/client.ts`                   | 账户账单状态、checkout、存储配置 API |
-| Web account menu      | `apps/web/src/components/auth/account-menu.tsx` | 套餐购买、点数包购买、余额拆分、流水 |
+| Web billing client    | `apps/renderer/src/auth/client.ts`                   | 账户账单状态、checkout、存储配置 API |
+| Web account menu      | `apps/renderer/src/components/auth/account-menu.tsx` | 套餐购买、点数包购买、余额拆分、流水 |
 
 ## 后端 API
 

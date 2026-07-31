@@ -7,7 +7,7 @@ const clientDir = path.resolve(
 	"..",
 );
 const repoRoot = path.resolve(clientDir, "../..");
-const webDir = path.join(repoRoot, "apps/web");
+const webDir = path.join(repoRoot, "apps/renderer");
 const viteDistDir = path.join(webDir, "dist");
 const outputDir = path.join(clientDir, ".desktop-web");
 const textFileExtensions = new Set([

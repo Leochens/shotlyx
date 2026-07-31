@@ -10,14 +10,14 @@ const {
 
 function buildContext() {
 	return {
-		appOutDir: "/repo/apps/client/release/mac-arm64",
+		appOutDir: "/repo/apps/desktop/release/mac-arm64",
 		arch: "arm64",
 		electronPlatformName: "darwin",
 		packager: {
 			appInfo: {
 				productFilename: "Shotlyx Desktop",
 			},
-			projectDir: "/repo/apps/client",
+			projectDir: "/repo/apps/desktop",
 		},
 	};
 }

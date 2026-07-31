@@ -1,6 +1,6 @@
 /**
  * 流式输出测试脚本
- * 用法: bun run apps/web/src/agent/__tests__/stream-test.ts
+ * 用法: bun run apps/renderer/src/agent/__tests__/stream-test.ts
  *
  * 需要 dev server 运行中 (bun dev:web)
  */

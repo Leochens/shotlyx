@@ -13,12 +13,12 @@ ARG MARBLE_WORKSPACE_KEY=build-placeholder
 COPY package.json package.json
 COPY bun.lock bun.lock
 COPY turbo.json turbo.json
-COPY apps/client/package.json apps/client/package.json
-COPY apps/web/package.json apps/web/package.json
+COPY apps/desktop/package.json apps/desktop/package.json
+COPY apps/renderer/package.json apps/renderer/package.json
 COPY server/package.json server/package.json
 RUN bun install
 
-COPY apps/web/ apps/web/
+COPY apps/renderer/ apps/renderer/
 COPY rust/wasm/pkg/ rust/wasm/pkg/
 
 ENV NODE_ENV=production
@@ -35,7 +35,7 @@ ENV MARBLE_WORKSPACE_KEY=$MARBLE_WORKSPACE_KEY
 ENV FREESOUND_CLIENT_ID=$FREESOUND_CLIENT_ID
 ENV FREESOUND_API_KEY=$FREESOUND_API_KEY
 
-WORKDIR /app/apps/web
+WORKDIR /app/apps/renderer
 RUN bun run build
 
 FROM base AS runner
@@ -45,8 +45,8 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 shotlyx
 RUN adduser --system --uid 1001 shotlyx
 
-COPY --from=builder --chown=shotlyx:shotlyx /app/apps/web/dist ./apps/web/dist
-COPY --from=builder --chown=shotlyx:shotlyx /app/apps/web/scripts/serve-dist.mjs ./apps/web/scripts/serve-dist.mjs
+COPY --from=builder --chown=shotlyx:shotlyx /app/apps/renderer/dist ./apps/renderer/dist
+COPY --from=builder --chown=shotlyx:shotlyx /app/apps/renderer/scripts/serve-dist.mjs ./apps/renderer/scripts/serve-dist.mjs
 
 USER shotlyx
 
@@ -55,4 +55,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["bun", "apps/web/scripts/serve-dist.mjs"]
+CMD ["bun", "apps/renderer/scripts/serve-dist.mjs"]

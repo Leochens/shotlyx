@@ -26,7 +26,7 @@ let isShuttingDown = false;
 
 function getLocalBinCommand(command) {
 	const binaryName = process.platform === "win32" ? `${command}.cmd` : command;
-	for (const rootDir of [repoRoot, path.join(repoRoot, "apps/web")]) {
+	for (const rootDir of [repoRoot, path.join(repoRoot, "apps/renderer")]) {
 		const candidate = path.join(rootDir, "node_modules", ".bin", binaryName);
 		if (fs.existsSync(candidate)) return candidate;
 	}
@@ -133,7 +133,7 @@ function runApiBuild() {
 	return new Promise((resolve, reject) => {
 		const buildProcess = spawn(
 			"bun",
-			["run", "--cwd", "apps/web", "build:desktop-api"],
+			["run", "--cwd", "apps/renderer", "build:desktop-api"],
 			{
 				cwd: repoRoot,
 				env: {
@@ -177,7 +177,7 @@ if (shouldStartServer) {
 			"--strictPort",
 		],
 		{
-			cwd: path.join(repoRoot, "apps/web"),
+			cwd: path.join(repoRoot, "apps/renderer"),
 			env: desktopEnv,
 			stdio: "inherit",
 		},

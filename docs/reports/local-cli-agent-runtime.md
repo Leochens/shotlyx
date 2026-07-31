@@ -17,7 +17,7 @@ The editor tools themselves are unchanged.
 
 ## Implementation Notes
 
-- Added `apps/web/src/agent/local-cli/runtime.ts`.
+- Added `apps/renderer/src/agent/local-cli/runtime.ts`.
 - Added desktop config fields: `AGENT_RUNTIME`, `AGENT_CLI_ID`, `AGENT_CLI_MODEL`, `AGENT_CLI_PATH`.
 - Added `GET /api/desktop/agents` for Claude Code/Codex CLI detection.
 - Added settings UI scan/rescan and click-to-select local CLIs.
@@ -43,14 +43,14 @@ The design follows the Open Design pattern at a smaller scope: a privileged loca
 
 Commands run:
 
-- `bun test apps/web/src/app/api/agent/chat/__tests__/resolve.test.ts apps/web/src/agent/__tests__/mode-resolver.test.ts apps/web/src/desktop/__tests__/config.test.ts apps/web/src/desktop/__tests__/agent-runtime-config.test.ts apps/web/src/agent/local-cli/__tests__/runtime.test.ts apps/web/src/app/api/agent/chat/__tests__/local-cli-route.test.ts`
+- `bun test apps/renderer/src/app/api/agent/chat/__tests__/resolve.test.ts apps/renderer/src/agent/__tests__/mode-resolver.test.ts apps/renderer/src/desktop/__tests__/config.test.ts apps/renderer/src/desktop/__tests__/agent-runtime-config.test.ts apps/renderer/src/agent/local-cli/__tests__/runtime.test.ts apps/renderer/src/app/api/agent/chat/__tests__/local-cli-route.test.ts`
   - Result: 21 pass, 0 fail.
   - Covers local CLI auto ReAct tool calls, suggest-mode planning, and confirmed-plan summarization.
-- `bun run --cwd apps/web test:e2e:desktop`
+- `bun run --cwd apps/renderer test:e2e:desktop`
   - Result: 2 pass, 0 fail.
-- `bunx tsc --noEmit --pretty false --project apps/web/tsconfig.json --incremental false | rg "local-cli/runtime|desktop/config/(catalog|server)|settings/api/page|api/desktop/agents/route|api/agent/chat/route" || true`
+- `bunx tsc --noEmit --pretty false --project apps/renderer/tsconfig.json --incremental false | rg "local-cli/runtime|desktop/config/(catalog|server)|settings/api/page|api/desktop/agents/route|api/agent/chat/route" || true`
   - Result: no touched-source TypeScript errors.
-- `bunx eslint apps/web/src/agent/local-cli/runtime.ts apps/web/src/app/api/desktop/agents/route.ts apps/web/src/app/settings/api/page.tsx apps/web/src/desktop/config/catalog.ts apps/web/src/desktop/config/server.ts`
+- `bunx eslint apps/renderer/src/agent/local-cli/runtime.ts apps/renderer/src/app/api/desktop/agents/route.ts apps/renderer/src/app/settings/api/page.tsx apps/renderer/src/desktop/config/catalog.ts apps/renderer/src/desktop/config/server.ts`
   - Result: passed; Next eslint printed the existing "Pages directory cannot be found" warning.
 
 ## Remaining Risks

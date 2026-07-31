@@ -4,8 +4,8 @@ WORKDIR /app
 
 COPY package.json package.json
 COPY bun.lock bun.lock
-COPY apps/client/package.json apps/client/package.json
-COPY apps/web/package.json apps/web/package.json
+COPY apps/desktop/package.json apps/desktop/package.json
+COPY apps/renderer/package.json apps/renderer/package.json
 COPY server/package.json server/package.json
 RUN bun install --production --filter @shotlyx/server
 

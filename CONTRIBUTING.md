@@ -13,7 +13,7 @@ bun install
 Copy local env:
 
 ```bash
-cp apps/web/.env.example apps/web/.env.local
+cp apps/renderer/.env.example apps/renderer/.env.local
 ```
 
 Start local services when needed:
@@ -35,18 +35,18 @@ bun test
 bun run lint:web
 bun run build:web
 cargo test
-cd apps/web && bun run test:e2e
+cd apps/renderer && bun run test:e2e
 ```
 
 For focused Agent work, prefer focused tests first, for example:
 
 ```bash
-bun test apps/web/src/agent
+bun test apps/renderer/src/agent
 ```
 
 ## Contribution Rules
 
-- Keep editor mutations undoable when possible by using the command system under `apps/web/src/commands`.
+- Keep editor mutations undoable when possible by using the command system under `apps/renderer/src/commands`.
 - Keep browser-only editor state in the browser. Server routes should not pretend to own `EditorCore` state.
 - Put provider secrets behind server routes or environment variables. Never expose API keys in client bundles or committed files.
 - If a tool mutates editor state, set `mutating: true` where appropriate so verification can run.
