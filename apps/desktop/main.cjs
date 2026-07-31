@@ -77,6 +77,21 @@ function configureAppIdentity() {
 	}
 }
 
+function configureLocalDataPaths() {
+	if (!process.env.SHOTLYX_PROJECTS_ROOT) {
+		process.env.SHOTLYX_PROJECTS_ROOT = path.join(
+			app.getPath("documents"),
+			"Shotlyx Projects",
+		);
+	}
+	if (!process.env.SHOTLYX_PROJECTS_CONFIG_PATH) {
+		process.env.SHOTLYX_PROJECTS_CONFIG_PATH = path.join(
+			app.getPath("userData"),
+			"project-library.json",
+		);
+	}
+}
+
 function migrateLegacyStorageIfNeeded() {
 	try {
 		const targetOriginPrefix = getStorageOriginPrefix(getStartUrl());
@@ -426,6 +441,7 @@ function createWindow() {
 
 configureRenderingMode();
 configureAppIdentity();
+configureLocalDataPaths();
 
 app.on("before-quit", () => {
 	isQuitting = true;

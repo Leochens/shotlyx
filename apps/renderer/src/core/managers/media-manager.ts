@@ -205,8 +205,71 @@ export class MediaManager {
 		}
 	}
 
+	async relinkMediaAsset({
+		id,
+		projectId,
+	}: {
+		id: string;
+		projectId: string;
+	}): Promise<boolean> {
+		try {
+			const nextAsset = await storageService.relinkMediaAsset({
+				id,
+				projectId,
+			});
+			if (!nextAsset) return false;
+			this.replaceAsset({ id, nextAsset });
+			toast.success("素材已重新定位");
+			return true;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			toast.error("重新定位失败", { description: message });
+			return false;
+		}
+	}
+
+	async consolidateMediaAsset({
+		id,
+		projectId,
+	}: {
+		id: string;
+		projectId: string;
+	}): Promise<boolean> {
+		try {
+			const nextAsset = await storageService.consolidateMediaAsset({
+				id,
+				projectId,
+			});
+			if (!nextAsset) return false;
+			this.replaceAsset({ id, nextAsset });
+			toast.success("素材已归档到项目");
+			return true;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			toast.error("归档素材失败", { description: message });
+			return false;
+		}
+	}
+
 	setAssets({ assets }: { assets: MediaAsset[] }): void {
 		this.assets = assets;
+		this.notify();
+	}
+
+	private replaceAsset({
+		id,
+		nextAsset,
+	}: {
+		id: string;
+		nextAsset: MediaAsset;
+	}): void {
+		const previous = this.assets.find((asset) => asset.id === id);
+		if (previous?.url && previous.url !== nextAsset.url) {
+			URL.revokeObjectURL(previous.url);
+		}
+		this.assets = this.assets.map((asset) =>
+			asset.id === id ? nextAsset : asset,
+		);
 		this.notify();
 	}
 

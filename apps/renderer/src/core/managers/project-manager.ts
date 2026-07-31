@@ -428,12 +428,10 @@ export class ProjectManager {
 
 		try {
 			await Promise.all(
-				uniqueIds.map((id) =>
-					Promise.all([
-						storageService.deleteProjectMedia({ projectId: id }),
-						storageService.deleteProject({ id }),
-					]),
-				),
+				uniqueIds.map(async (id) => {
+					await storageService.deleteProjectMedia({ projectId: id });
+					await storageService.deleteProject({ id });
+				}),
 			);
 
 			const idSet = new Set(uniqueIds);
@@ -664,10 +662,12 @@ export class ProjectManager {
 			} catch (error) {
 				await Promise.all(
 					duplicationPlans.map(({ newProjectId }) =>
-						Promise.all([
-							storageService.deleteProjectMedia({ projectId: newProjectId }),
-							storageService.deleteProject({ id: newProjectId }),
-						]).catch((cleanupError) => {
+						(async () => {
+							await storageService.deleteProjectMedia({
+								projectId: newProjectId,
+							});
+							await storageService.deleteProject({ id: newProjectId });
+						})().catch((cleanupError) => {
 							console.warn(
 								"Failed to clean up duplicated project after copy failure:",
 								cleanupError,

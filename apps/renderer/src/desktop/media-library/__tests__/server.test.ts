@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -7,20 +13,27 @@ import {
 	changeDesktopMediaLibraryDirectory,
 	deleteDesktopMediaAssetFile,
 	findDesktopMediaAssetFile,
-	getDefaultDesktopMediaLibraryDirectory,
-	readDesktopMediaLibraryConfig,
-	saveDesktopMediaAssetFile,
-	writeDesktopMediaLibraryConfig,
+	saveDesktopLinkedMediaAsset,
+	saveDesktopMediaAssetStream,
 } from "../server";
+import {
+	findDesktopProjectDirectory,
+	listDesktopProjectMediaMetadata,
+	readDesktopProjectLibraryConfig,
+	saveDesktopProject,
+	saveDesktopProjectMediaMetadata,
+	writeDesktopProjectLibraryConfig,
+} from "@/desktop/project-library/server";
 
 const originalEnv = { ...process.env };
 let tempDir = "";
 
 beforeEach(() => {
-	tempDir = mkdtempSync(path.join(tmpdir(), "shotlyx-media-library-"));
+	tempDir = mkdtempSync(path.join(tmpdir(), "shotlyx-project-library-"));
 	process.env = {
 		...originalEnv,
-		SHOTLYX_DESKTOP_MEDIA_LIBRARY_CONFIG_PATH: path.join(tempDir, "config.json"),
+		SHOTLYX_PROJECTS_CONFIG_PATH: path.join(tempDir, "config.json"),
+		SHOTLYX_PROJECTS_ROOT: path.join(tempDir, "Shotlyx Projects"),
 	};
 });
 
@@ -29,29 +42,37 @@ afterEach(() => {
 	rmSync(tempDir, { recursive: true, force: true });
 });
 
-test("desktop media library defaults to a readable user media folder", () => {
-	expect(
-		getDefaultDesktopMediaLibraryDirectory({
-			homeDir: "/Users/alice",
-			platform: "darwin",
-		}),
-	).toBe(path.join("/Users/alice", "Movies", "Shotlyx Library"));
-	expect(
-		getDefaultDesktopMediaLibraryDirectory({
-			homeDir: "C:\\Users\\Alice",
-			platform: "win32",
-		}),
-	).toBe(path.join("C:\\Users\\Alice", "Videos", "Shotlyx Library"));
+async function createProject(projectId = "project-a") {
+	await saveDesktopProject({
+		project: {
+			metadata: {
+				id: projectId,
+				name: "Demo Project",
+				createdAt: "2026-07-31T00:00:00.000Z",
+				updatedAt: "2026-07-31T00:00:00.000Z",
+			},
+			scenes: [],
+		},
+	});
+}
+
+test("desktop projects use visible .shotlyx directories", async () => {
+	await createProject();
+	const directory = await findDesktopProjectDirectory({
+		projectId: "project-a",
+	});
+	expect(directory?.endsWith(".shotlyx")).toBe(true);
+	expect(existsSync(path.join(directory ?? "", "project.json"))).toBe(true);
+	expect(existsSync(path.join(directory ?? "", "media", "managed"))).toBe(true);
 });
 
-test("desktop media library config stores a normalized custom directory", () => {
-	const customDirectory = path.join(tempDir, "Media Library");
-	const config = writeDesktopMediaLibraryConfig({
+test("project library config stores a normalized custom directory", () => {
+	const customDirectory = path.join(tempDir, "Projects");
+	const config = writeDesktopProjectLibraryConfig({
 		directory: `${customDirectory}${path.sep}`,
 	});
-
 	expect(config.directory).toBe(customDirectory);
-	expect(readDesktopMediaLibraryConfig().directory).toBe(customDirectory);
+	expect(readDesktopProjectLibraryConfig().directory).toBe(customDirectory);
 });
 
 test("stored media filenames keep asset id stable and sanitize user filenames", () => {
@@ -63,36 +84,34 @@ test("stored media filenames keep asset id stable and sanitize user filenames", 
 	).toBe("asset_123--Demo_ Clip_.mp4");
 });
 
-test("desktop media library saves, finds, reads, and deletes files by asset id", async () => {
-	const libraryDirectory = path.join(tempDir, "library");
-	writeDesktopMediaLibraryConfig({ directory: libraryDirectory });
-
-	const saved = await saveDesktopMediaAssetFile({
+test("managed media is stored inside the project directory", async () => {
+	await createProject();
+	const saved = await saveDesktopMediaAssetStream({
 		assetId: "media-1",
-		blob: new Blob(["video bytes"], { type: "video/mp4" }),
+		contentType: "video/mp4",
 		name: "screen recording.mp4",
 		projectId: "project-a",
+		stream: new Blob(["video bytes"]).stream(),
 	});
-
-	expect(saved.filePath).toBe(
-		path.join(
-			libraryDirectory,
-			"projects",
-			"project-a",
-			"media",
-			"media-1--screen recording.mp4",
-		),
-	);
-	expect(readFileSync(saved.filePath, "utf8")).toBe("video bytes");
-
-	const found = await findDesktopMediaAssetFile({
-		assetId: "media-1",
+	await saveDesktopProjectMediaMetadata({
+		asset: {
+			id: "media-1",
+			name: "screen recording.mp4",
+			storage: { mode: "managed" },
+		},
 		projectId: "project-a",
 	});
-	expect(found).toMatchObject({
-		filePath: saved.filePath,
-		name: "media-1--screen recording.mp4",
-	});
+
+	expect(saved.filePath).toContain(
+		path.join(".shotlyx", "media", "managed", "media-1--screen recording.mp4"),
+	);
+	expect(readFileSync(saved.filePath, "utf8")).toBe("video bytes");
+	expect(
+		await findDesktopMediaAssetFile({
+			assetId: "media-1",
+			projectId: "project-a",
+		}),
+	).toMatchObject({ filePath: saved.filePath, storageMode: "managed" });
 
 	await deleteDesktopMediaAssetFile({
 		assetId: "media-1",
@@ -101,28 +120,64 @@ test("desktop media library saves, finds, reads, and deletes files by asset id",
 	expect(existsSync(saved.filePath)).toBe(false);
 });
 
-test("changing the desktop media library directory copies existing files", async () => {
-	const oldDirectory = path.join(tempDir, "old-library");
-	const newDirectory = path.join(tempDir, "new-library");
-	writeDesktopMediaLibraryConfig({ directory: oldDirectory });
-	await saveDesktopMediaAssetFile({
-		assetId: "media-1",
-		blob: new Blob(["existing bytes"], { type: "video/mp4" }),
-		name: "existing.mp4",
+test("linked media stays outside the project until consolidated", async () => {
+	await createProject();
+	const sourcePath = path.join(tempDir, "original.mp4");
+	writeFileSync(sourcePath, "original bytes");
+	await saveDesktopProjectMediaMetadata({
+		asset: {
+			id: "media-1",
+			name: "original.mp4",
+			storage: { mode: "linked", sourcePath },
+		},
 		projectId: "project-a",
 	});
+	const linked = await saveDesktopLinkedMediaAsset({
+		assetId: "media-1",
+		projectId: "project-a",
+		sourcePath,
+	});
+	expect(linked).toMatchObject({
+		filePath: sourcePath,
+		sourcePath,
+		storageMode: "linked",
+	});
+});
+
+test("parallel media writes keep every asset in project.json", async () => {
+	await createProject();
+	await Promise.all(
+		["media-1", "media-2", "media-3"].map((id) =>
+			saveDesktopProjectMediaMetadata({
+				asset: { id, name: `${id}.mp4`, storage: { mode: "managed" } },
+				projectId: "project-a",
+			}),
+		),
+	);
+	expect(
+		(await listDesktopProjectMediaMetadata({ projectId: "project-a" }))
+			.map((asset) => asset.id)
+			.sort(),
+	).toEqual(["media-1", "media-2", "media-3"]);
+});
+
+test("changing the project root copies existing .shotlyx directories", async () => {
+	const oldDirectory = path.join(tempDir, "old-projects");
+	const newDirectory = path.join(tempDir, "new-projects");
+	writeDesktopProjectLibraryConfig({ directory: oldDirectory });
+	await createProject();
+	const oldProject = await findDesktopProjectDirectory({
+		projectId: "project-a",
+	});
+	expect(oldProject).not.toBeNull();
 
 	const config = await changeDesktopMediaLibraryDirectory({
 		directory: newDirectory,
 	});
-
 	expect(config.directory).toBe(newDirectory);
-	const migratedPath = path.join(
-		newDirectory,
-		"projects",
-		"project-a",
-		"media",
-		"media-1--existing.mp4",
-	);
-	expect(readFileSync(migratedPath, "utf8")).toBe("existing bytes");
+	expect(
+		existsSync(
+			path.join(newDirectory, path.basename(oldProject ?? ""), "project.json"),
+		),
+	).toBe(true);
 });

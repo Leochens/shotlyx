@@ -4,6 +4,7 @@ import {
 	clearDesktopProjectMediaFiles,
 	deleteDesktopMediaAssetFile,
 	findDesktopMediaAssetFile,
+	saveDesktopLinkedMediaAsset,
 	saveDesktopMediaAssetStream,
 } from "@/desktop/media-library/server";
 import { ApiRequest, ApiResponse } from "@/platform/http";
@@ -17,20 +18,24 @@ const querySchema = z.object({
 	id: z.string().min(1).optional(),
 	name: z.string().min(1).optional(),
 	projectId: z.string().min(1),
+	sourcePath: z.string().min(1).optional(),
 });
 
 function disabledResponse() {
 	return ApiResponse.json(
 		{
 			error: "desktop_media_library_disabled",
-			message: "Media library folders are only available in Shotlyx desktop mode.",
+			message:
+				"Media library folders are only available in Shotlyx desktop mode.",
 		},
 		{ status: 403 },
 	);
 }
 
 function getRequestUrl(request: ApiRequest | Request): URL {
-	return request instanceof ApiRequest ? request.requestUrl : new URL(request.url);
+	return request instanceof ApiRequest
+		? request.requestUrl
+		: new URL(request.url);
 }
 
 function parseQuery(request: ApiRequest | Request) {
@@ -39,6 +44,7 @@ function parseQuery(request: ApiRequest | Request) {
 		id: url.searchParams.get("id") ?? undefined,
 		name: url.searchParams.get("name") ?? undefined,
 		projectId: url.searchParams.get("projectId") ?? undefined,
+		sourcePath: url.searchParams.get("sourcePath") ?? undefined,
 	});
 	if (!parsed.success) {
 		return {
@@ -74,6 +80,10 @@ export async function GET(request: ApiRequest | Request) {
 			"Content-Length": String(file.size),
 			"Content-Type": file.type,
 			"X-Shotlyx-Filename": encodeURIComponent(file.name),
+			"X-Shotlyx-Storage-Mode": file.storageMode,
+			...(file.sourcePath
+				? { "X-Shotlyx-Source-Path": encodeURIComponent(file.sourcePath) }
+				: {}),
 		},
 	});
 }
@@ -87,6 +97,17 @@ export async function POST(request: ApiRequest | Request) {
 	}
 	if (!query.value.name) {
 		return ApiResponse.json({ error: "Missing media name" }, { status: 400 });
+	}
+	if (query.value.sourcePath) {
+		const saved = await saveDesktopLinkedMediaAsset({
+			assetId: query.value.id,
+			projectId: query.value.projectId,
+			sourcePath: query.value.sourcePath,
+		});
+		return ApiResponse.json({
+			id: query.value.id,
+			...saved,
+		});
 	}
 
 	if (!request.body) {

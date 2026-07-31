@@ -3,7 +3,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { writeDesktopMediaLibraryConfig } from "@/desktop/media-library/server";
+import {
+	saveDesktopProject,
+	writeDesktopProjectLibraryConfig,
+} from "@/desktop/project-library/server";
 
 const originalEnv = { ...process.env };
 let tempDir = "";
@@ -13,7 +16,8 @@ beforeEach(() => {
 	process.env = {
 		...originalEnv,
 		SHOTLYX_DESKTOP: "1",
-		SHOTLYX_DESKTOP_MEDIA_LIBRARY_CONFIG_PATH: path.join(tempDir, "config.json"),
+		SHOTLYX_PROJECTS_CONFIG_PATH: path.join(tempDir, "config.json"),
+		SHOTLYX_PROJECTS_ROOT: path.join(tempDir, "library"),
 	};
 });
 
@@ -24,7 +28,7 @@ afterEach(() => {
 
 test("desktop media library route reports the active library", async () => {
 	const libraryDirectory = path.join(tempDir, "library");
-	writeDesktopMediaLibraryConfig({ directory: libraryDirectory });
+	writeDesktopProjectLibraryConfig({ directory: libraryDirectory });
 
 	const { GET } = await import("../route");
 	const response = await GET(
@@ -61,7 +65,18 @@ test("desktop media library route can select a new folder without opening a syst
 
 test("desktop media library files route writes and reads project media files", async () => {
 	const libraryDirectory = path.join(tempDir, "library");
-	writeDesktopMediaLibraryConfig({ directory: libraryDirectory });
+	writeDesktopProjectLibraryConfig({ directory: libraryDirectory });
+	await saveDesktopProject({
+		project: {
+			metadata: {
+				id: "project-a",
+				name: "Project A",
+				createdAt: "2026-07-31T00:00:00.000Z",
+				updatedAt: "2026-07-31T00:00:00.000Z",
+			},
+			scenes: [],
+		},
+	});
 
 	const { POST, GET, DELETE } = await import("../files/route");
 	const saveResponse = await POST(

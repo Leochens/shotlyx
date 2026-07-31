@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useEditor } from "@/editor/use-editor";
+import { selectLinkedDesktopFiles } from "@/media/desktop-file-source";
 
 interface UseFileUploadOptions {
 	accept?: string;
@@ -24,7 +25,16 @@ export function useFileUpload({
 		);
 	}
 
-	function openFilePicker() {
+	async function openFilePicker() {
+		if (process.env.VITE_SHOTLYX_DESKTOP === "1" && onFilesSelected) {
+			try {
+				const files = await selectLinkedDesktopFiles();
+				if (files?.length) onFilesSelected(files);
+			} catch (error) {
+				console.error("Failed to select desktop media files:", error);
+			}
+			return;
+		}
 		if (!inputRef.current) return;
 
 		inputRef.current.accept = accept || "*";

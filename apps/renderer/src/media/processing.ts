@@ -6,6 +6,7 @@ import type { MediaAsset } from "@/media/types";
 import { readVideoFile } from "./mediabunny";
 import type { VideoFileData } from "./mediabunny";
 import { renderThumbnailDataUrl } from "./thumbnail";
+import { getDesktopFileSource } from "./desktop-file-source";
 
 export type ProcessedMediaAsset = Omit<MediaAsset, "id">;
 
@@ -264,6 +265,7 @@ export async function processMediaAssets({
 				await file.text();
 			}
 
+			const sourcePath = getDesktopFileSource({ file: assetFile });
 			processedAssets.push({
 				name: assetFile.name,
 				type: fileType,
@@ -275,6 +277,12 @@ export async function processMediaAssets({
 				height,
 				fps,
 				hasAudio,
+				storage: sourcePath
+					? {
+							mode: "linked",
+							sourcePath,
+						}
+					: { mode: "managed" },
 			});
 
 			await new Promise((resolve) => setTimeout(resolve, 0));

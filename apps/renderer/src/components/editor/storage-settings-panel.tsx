@@ -17,6 +17,7 @@ interface DesktopMediaLibraryStatus {
 	error?: string;
 	exists?: boolean;
 	projectId?: string;
+	projectDirectory?: string | null;
 	projectSizeBytes?: number | null;
 	sizeBytes?: number;
 	updatedAt?: string;
@@ -74,6 +75,10 @@ function parseDesktopMediaLibraryStatus(
 		error: readStringValue({ key: "error", value }),
 		exists: Reflect.get(value, "exists") === true,
 		projectId: readStringValue({ key: "projectId", value }),
+		projectDirectory:
+			Reflect.get(value, "projectDirectory") === null
+				? null
+				: readStringValue({ key: "projectDirectory", value }),
 		projectSizeBytes: readNullableNumberValue({
 			key: "projectSizeBytes",
 			value,
@@ -110,7 +115,9 @@ export function StorageSettingsPanel() {
 			setStatus(parseDesktopMediaLibraryStatus(await response.json()));
 		} catch (nextError) {
 			const message =
-				nextError instanceof Error ? nextError.message : "Unable to load storage";
+				nextError instanceof Error
+					? nextError.message
+					: "Unable to load storage";
 			setError(message);
 		} finally {
 			setBusyAction((current) => (current === "refresh" ? null : current));
@@ -165,7 +172,10 @@ export function StorageSettingsPanel() {
 		setBusyAction("open");
 		setError(null);
 		try {
-			const response = await fetch("/api/desktop/media-library/open", {
+			const params = projectId
+				? `?${new URLSearchParams({ projectId }).toString()}`
+				: "";
+			const response = await fetch(`/api/desktop/media-library/open${params}`, {
 				method: "POST",
 			});
 			if (!response.ok) {
@@ -177,7 +187,9 @@ export function StorageSettingsPanel() {
 			}
 		} catch (nextError) {
 			const message =
-				nextError instanceof Error ? nextError.message : "Unable to open folder";
+				nextError instanceof Error
+					? nextError.message
+					: "Unable to open folder";
 			setError(message);
 			toast.error("无法打开媒体库文件夹", {
 				description: message,
@@ -199,21 +211,22 @@ export function StorageSettingsPanel() {
 	return (
 		<div className="flex h-full flex-col overflow-hidden">
 			<div className="border-b px-5 py-4">
-				<h2 className="text-base font-medium text-foreground">媒体库</h2>
+				<h2 className="text-base font-medium text-foreground">项目文件夹</h2>
 				<p className="mt-1 text-sm text-muted-foreground">
-					导入的视频、音频和图片会保存到这个普通文件夹，项目时间线仍保存素材引用。
+					每个工程都是一个可见的 .shotlyx
+					文件夹。导入素材默认保留原文件链接，生成和录制素材保存在项目内。
 				</p>
 			</div>
 			<div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
 				<div className="space-y-4">
 					<StorageInfoRow
-						label="当前媒体库"
+						label="项目根目录"
 						value={status?.directory ?? "正在读取..."}
 						monospace
 					/>
 					<div className="grid grid-cols-2 gap-3">
 						<StorageMetric
-							label="媒体库占用"
+							label="全部项目"
 							value={
 								status?.sizeBytes == null
 									? "..."
@@ -230,8 +243,8 @@ export function StorageSettingsPanel() {
 						/>
 					</div>
 					<StorageInfoRow
-						label="配置文件"
-						value={status?.configPath ?? "正在读取..."}
+						label="当前项目目录"
+						value={status?.projectDirectory ?? "尚未创建"}
 						monospace
 					/>
 					{error && (
@@ -243,7 +256,7 @@ export function StorageSettingsPanel() {
 			</div>
 			<div className="flex items-center justify-between gap-3 border-t px-5 py-3">
 				<p className="text-xs text-muted-foreground">
-					更改位置会先复制旧媒体库内容，再把当前项目素材补写到新目录。
+					更改位置会复制已有 .shotlyx 项目；外部链接素材不会被重复复制。
 				</p>
 				<div className="flex shrink-0 items-center gap-2">
 					<Button
@@ -254,7 +267,7 @@ export function StorageSettingsPanel() {
 						disabled={busyAction !== null}
 					>
 						<FolderOpen className="size-4" />
-						打开文件夹
+						打开项目
 					</Button>
 					<Button
 						type="button"

@@ -9,6 +9,8 @@ import type { MediaAsset } from "@/media/types";
 import { IndexedDBAdapter } from "./indexeddb-adapter";
 import { OPFSAdapter } from "./opfs-adapter";
 import { DesktopMediaFilesAdapter } from "./desktop-media-files-adapter";
+import { DesktopProjectMediaMetadataAdapter } from "./desktop-project-media-metadata-adapter";
+import { DesktopProjectsAdapter } from "./desktop-projects-adapter";
 import {
 	type StorageCapacityCheckResult,
 	StorageQuotaExceededError,
@@ -41,8 +43,13 @@ import { generateUUID } from "@/utils/id";
 import { MAIN_TRACK_NAME } from "@/timeline/placement/main-track";
 import { roundMediaTime } from "@/wasm";
 import { deriveMediaAssetMetadata } from "@/media/metadata";
+import { getDesktopFileSource } from "@/media/desktop-file-source";
 
 const LOCAL_MEDIA_CACHE_LIMIT_BYTES = 20 * 1024 * 1024 * 1024;
+
+type CollectionStorageAdapter<T> = StorageAdapter<T> & {
+	getAll(): Promise<T[]>;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
@@ -255,7 +262,8 @@ function normalizeTracks({ raw }: { raw: unknown }): SceneTracks {
 }
 
 class StorageService {
-	private projectsAdapter: IndexedDBAdapter<SerializedProject>;
+	private projectsAdapter: CollectionStorageAdapter<SerializedProject>;
+	private legacyProjectsAdapter: IndexedDBAdapter<SerializedProject>;
 	private savedSoundsAdapter: IndexedDBAdapter<SavedSoundsData>;
 	private uploadedSoundMetadataAdapter: IndexedDBAdapter<UploadedSoundAssetData>;
 	private uploadedSoundFilesAdapter: OPFSAdapter;
@@ -263,6 +271,7 @@ class StorageService {
 	private animatedStickerFilesAdapter: OPFSAdapter;
 	private config: StorageConfig;
 	private migrationsPromise: Promise<void> | null = null;
+	private desktopMigrationPromise: Promise<void> | null = null;
 
 	constructor() {
 		this.config = {
@@ -274,11 +283,14 @@ class StorageService {
 			version: 1,
 		};
 
-		this.projectsAdapter = new IndexedDBAdapter<SerializedProject>({
+		this.legacyProjectsAdapter = new IndexedDBAdapter<SerializedProject>({
 			dbName: this.config.projectsDb,
 			storeName: "projects",
 			version: this.config.version,
 		});
+		this.projectsAdapter = this.usesDesktopMediaLibrary()
+			? new DesktopProjectsAdapter<SerializedProject>()
+			: this.legacyProjectsAdapter;
 
 		this.savedSoundsAdapter = new IndexedDBAdapter<SavedSoundsData>({
 			dbName: this.config.savedSoundsDb,
@@ -308,6 +320,7 @@ class StorageService {
 	private async ensureMigrations(): Promise<void> {
 		if (this.migrationsPromise) {
 			await this.migrationsPromise;
+			await this.ensureDesktopProjectMigration();
 			return;
 		}
 
@@ -315,20 +328,54 @@ class StorageService {
 			() => undefined,
 		);
 		await this.migrationsPromise;
+		await this.ensureDesktopProjectMigration();
+	}
+
+	private async ensureDesktopProjectMigration(): Promise<void> {
+		if (!this.usesDesktopMediaLibrary()) return;
+		if (this.desktopMigrationPromise) {
+			await this.desktopMigrationPromise;
+			return;
+		}
+		this.desktopMigrationPromise = (async () => {
+			const legacyProjects = await this.legacyProjectsAdapter.getAll();
+			for (const project of legacyProjects) {
+				const projectId = project?.metadata?.id;
+				if (!projectId) continue;
+				if (await this.projectsAdapter.get(projectId)) continue;
+				await this.projectsAdapter.set({ key: projectId, value: project });
+			}
+		})();
+		await this.desktopMigrationPromise;
 	}
 
 	private getProjectMediaAdapters({ projectId }: { projectId: string }) {
-		const mediaMetadataAdapter = new IndexedDBAdapter<MediaAssetData>({
-			dbName: `${this.config.mediaDb}-${projectId}`,
-			storeName: "media-metadata",
-			version: this.config.version,
-		});
+		const mediaMetadataAdapter: CollectionStorageAdapter<MediaAssetData> =
+			this.usesDesktopMediaLibrary()
+				? new DesktopProjectMediaMetadataAdapter<MediaAssetData>(projectId)
+				: new IndexedDBAdapter<MediaAssetData>({
+						dbName: `${this.config.mediaDb}-${projectId}`,
+						storeName: "media-metadata",
+						version: this.config.version,
+					});
 
 		const mediaAssetsAdapter = this.usesDesktopMediaLibrary()
 			? new DesktopMediaFilesAdapter({ projectId })
 			: new OPFSAdapter(`media-files-${projectId}`);
 
 		return { mediaMetadataAdapter, mediaAssetsAdapter };
+	}
+
+	private getLegacyProjectMediaMetadataAdapter({
+		projectId,
+	}: {
+		projectId: string;
+	}) {
+		return new IndexedDBAdapter<MediaAssetData>({
+			dbName: `${this.config.mediaDb}-${projectId}`,
+			storeName: "media-metadata",
+			version: this.config.version,
+		});
 	}
 
 	private getLegacyProjectMediaFilesAdapter({
@@ -611,8 +658,11 @@ class StorageService {
 		const { mediaAssetsAdapter } = this.getProjectMediaAdapters({ projectId });
 		try {
 			const keys = await mediaAssetsAdapter.list();
-			const entries: Array<{ key: string; size: number; lastModified: number }> =
-				[];
+			const entries: Array<{
+				key: string;
+				size: number;
+				lastModified: number;
+			}> = [];
 			let totalBytes = 0;
 			for (const key of keys) {
 				const file = await mediaAssetsAdapter.get(key);
@@ -647,6 +697,7 @@ class StorageService {
 		const { mediaMetadataAdapter, mediaAssetsAdapter } =
 			this.getProjectMediaAdapters({ projectId });
 
+		const sourcePath = getDesktopFileSource({ file: mediaAsset.file });
 		const metadata: MediaAssetData = {
 			id: mediaAsset.id,
 			name: mediaAsset.name,
@@ -662,6 +713,10 @@ class StorageService {
 			ephemeral: mediaAsset.ephemeral,
 			externalSource: mediaAsset.externalSource,
 			lastCacheAccessedAt: new Date().toISOString(),
+			storage: this.usesDesktopMediaLibrary()
+				? (mediaAsset.storage ??
+					(sourcePath ? { mode: "linked", sourcePath } : { mode: "managed" }))
+				: undefined,
 		};
 
 		try {
@@ -705,6 +760,17 @@ class StorageService {
 			this.getProjectMediaAdapters({ projectId });
 
 		let metadata = await mediaMetadataAdapter.get(id);
+		if (!metadata && this.usesDesktopMediaLibrary()) {
+			const legacyMetadata = await this.getLegacyProjectMediaMetadataAdapter({
+				projectId,
+			})
+				.get(id)
+				.catch(() => null);
+			if (legacyMetadata) {
+				metadata = legacyMetadata;
+				await mediaMetadataAdapter.set({ key: id, value: legacyMetadata });
+			}
+		}
 		let file = await mediaAssetsAdapter.get(id);
 		if (!file && metadata && this.usesDesktopMediaLibrary()) {
 			const legacyAdapter = this.getLegacyProjectMediaFilesAdapter({
@@ -723,7 +789,28 @@ class StorageService {
 					});
 			}
 		}
-		if (!file || !metadata) return null;
+		if (!metadata) return null;
+		if (!file && metadata.storage?.mode === "linked") {
+			return {
+				id: metadata.id,
+				name: metadata.name,
+				type: metadata.type,
+				file: new File([], metadata.name, {
+					lastModified: metadata.lastModified,
+				}),
+				width: metadata.width,
+				height: metadata.height,
+				duration: metadata.duration,
+				fps: metadata.fps,
+				hasAudio: metadata.hasAudio,
+				thumbnailUrl: metadata.thumbnailUrl,
+				ephemeral: metadata.ephemeral,
+				externalSource: metadata.externalSource,
+				lastCacheAccessedAt: new Date().toISOString(),
+				storage: { ...metadata.storage, missing: true },
+			};
+		}
+		if (!file) return null;
 		const stableFile =
 			file.name === metadata.name && file.lastModified === metadata.lastModified
 				? file
@@ -789,6 +876,7 @@ class StorageService {
 			ephemeral: metadata.ephemeral,
 			externalSource: metadata.externalSource,
 			lastCacheAccessedAt: new Date().toISOString(),
+			storage: metadata.storage,
 		};
 	}
 
@@ -801,6 +889,21 @@ class StorageService {
 			projectId,
 		});
 
+		if (this.usesDesktopMediaLibrary()) {
+			const existingIds = new Set(await mediaMetadataAdapter.list());
+			const legacyMetadata = await this.getLegacyProjectMediaMetadataAdapter({
+				projectId,
+			})
+				.getAll()
+				.catch(() => []);
+			for (const metadata of legacyMetadata) {
+				if (existingIds.has(metadata.id)) continue;
+				await mediaMetadataAdapter.set({
+					key: metadata.id,
+					value: metadata,
+				});
+			}
+		}
 		const mediaIds = await mediaMetadataAdapter.list();
 		const mediaItems: MediaAsset[] = [];
 
@@ -867,6 +970,54 @@ class StorageService {
 				mediaAssetsAdapter.set({ key: asset.id, value: asset.file }),
 			),
 		);
+	}
+
+	async relinkMediaAsset({
+		id,
+		projectId,
+	}: {
+		id: string;
+		projectId: string;
+	}): Promise<MediaAsset | null> {
+		const response = await fetch(
+			`/api/desktop/media-library/relink?${new URLSearchParams({
+				id,
+				projectId,
+			}).toString()}`,
+			{ method: "POST" },
+		);
+		if (!response.ok) {
+			throw new Error(`Media relink failed: ${response.status}`);
+		}
+		const body: unknown = await response.json();
+		if (
+			typeof body === "object" &&
+			body !== null &&
+			Reflect.get(body, "cancelled") === true
+		) {
+			return null;
+		}
+		return this.loadMediaAsset({ id, projectId });
+	}
+
+	async consolidateMediaAsset({
+		id,
+		projectId,
+	}: {
+		id: string;
+		projectId: string;
+	}): Promise<MediaAsset | null> {
+		const response = await fetch(
+			`/api/desktop/media-library/consolidate?${new URLSearchParams({
+				id,
+				projectId,
+			}).toString()}`,
+			{ method: "POST" },
+		);
+		if (!response.ok) {
+			throw new Error(`Media consolidation failed: ${response.status}`);
+		}
+		return this.loadMediaAsset({ id, projectId });
 	}
 
 	async clearAllData(): Promise<void> {

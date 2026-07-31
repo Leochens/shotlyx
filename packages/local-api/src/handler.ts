@@ -29,11 +29,18 @@ import * as desktopMediaLibraryRoute from "@/api/desktop/media-library/route";
 import * as desktopMediaLibraryFilesRoute from "@/api/desktop/media-library/files/route";
 import * as desktopMediaLibraryOpenRoute from "@/api/desktop/media-library/open/route";
 import * as desktopMediaLibrarySelectRoute from "@/api/desktop/media-library/select/route";
+import * as desktopMediaLibrarySelectFilesRoute from "@/api/desktop/media-library/select-files/route";
+import * as desktopMediaLibrarySelectedFileRoute from "@/api/desktop/media-library/selected/[id]/route";
+import * as desktopMediaLibraryRelinkRoute from "@/api/desktop/media-library/relink/route";
+import * as desktopMediaLibraryConsolidateRoute from "@/api/desktop/media-library/consolidate/route";
 import * as desktopMediaAnalyzeRoute from "@/api/desktop/media/analyze/route";
 import * as desktopMediaKeyframeRoute from "@/api/desktop/media/keyframe/route";
 import * as desktopMediaPrepareVideoRoute from "@/api/desktop/media/prepare-video/route";
 import * as desktopMediaTranscriptRoute from "@/api/desktop/media/transcript/route";
 import * as desktopModelsRoute from "@/api/desktop/models/route";
+import * as desktopProjectsRoute from "@/api/desktop/projects/route";
+import * as desktopProjectRoute from "@/api/desktop/projects/[projectId]/route";
+import * as desktopProjectMediaRoute from "@/api/desktop/projects/[projectId]/media/route";
 import * as desktopRemotionMgRenderRoute from "@/api/desktop/remotion/mg-render/route";
 import * as healthRoute from "@/api/health/route";
 import * as soundsBuiltinRoute from "@/api/sounds/builtin/route";
@@ -87,11 +94,21 @@ const staticRoutes = new Map<string, RouteModule>([
 	["/api/desktop/media-library/files", desktopMediaLibraryFilesRoute],
 	["/api/desktop/media-library/open", desktopMediaLibraryOpenRoute],
 	["/api/desktop/media-library/select", desktopMediaLibrarySelectRoute],
+	[
+		"/api/desktop/media-library/select-files",
+		desktopMediaLibrarySelectFilesRoute,
+	],
+	["/api/desktop/media-library/relink", desktopMediaLibraryRelinkRoute],
+	[
+		"/api/desktop/media-library/consolidate",
+		desktopMediaLibraryConsolidateRoute,
+	],
 	["/api/desktop/media/analyze", desktopMediaAnalyzeRoute],
 	["/api/desktop/media/keyframe", desktopMediaKeyframeRoute],
 	["/api/desktop/media/prepare-video", desktopMediaPrepareVideoRoute],
 	["/api/desktop/media/transcript", desktopMediaTranscriptRoute],
 	["/api/desktop/models", desktopModelsRoute],
+	["/api/desktop/projects", desktopProjectsRoute],
 	["/api/desktop/remotion/mg-render", desktopRemotionMgRenderRoute],
 	["/api/health", healthRoute],
 	["/api/sounds/builtin", soundsBuiltinRoute],
@@ -128,6 +145,30 @@ function matchDynamicRoute(pathname: string): MatchedRoute | null {
 		return {
 			module: seedanceVideoTaskRoute,
 			params: { taskId: decodeURIComponent(match[1]) },
+		};
+	}
+
+	match = pathname.match(/^\/api\/desktop\/projects\/([^/]+)\/media$/);
+	if (match?.[1]) {
+		return {
+			module: desktopProjectMediaRoute,
+			params: { projectId: decodeURIComponent(match[1]) },
+		};
+	}
+
+	match = pathname.match(/^\/api\/desktop\/media-library\/selected\/([^/]+)$/);
+	if (match?.[1]) {
+		return {
+			module: desktopMediaLibrarySelectedFileRoute,
+			params: { id: decodeURIComponent(match[1]) },
+		};
+	}
+
+	match = pathname.match(/^\/api\/desktop\/projects\/([^/]+)$/);
+	if (match?.[1]) {
+		return {
+			module: desktopProjectRoute,
+			params: { projectId: decodeURIComponent(match[1]) },
 		};
 	}
 

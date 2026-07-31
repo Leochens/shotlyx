@@ -53,7 +53,18 @@ export interface MediaAssetData {
 	thumbnailUrl?: string;
 	externalSource?: ExternalMediaSource;
 	lastCacheAccessedAt?: string;
+	storage?: MediaStorageLocation;
 }
+
+export type MediaStorageLocation =
+	| {
+			mode: "linked";
+			sourcePath: string;
+			missing?: boolean;
+	  }
+	| {
+			mode: "managed";
+	  };
 
 export interface AnimatedStickerAssetData {
 	id: string;
@@ -71,8 +82,10 @@ export interface AnimatedStickerAssetData {
 	updatedAt: string;
 }
 
-export interface AnimatedStickerAsset
-	extends Omit<AnimatedStickerAssetData, "size" | "lastModified"> {
+export interface AnimatedStickerAsset extends Omit<
+	AnimatedStickerAssetData,
+	"size" | "lastModified"
+> {
 	file: File;
 	url?: string;
 }

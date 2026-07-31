@@ -192,7 +192,7 @@ export function MediaView() {
 		invokeAction("remove-media-assets", {
 			projectId: activeProject.metadata.id,
 			assetIds: ids,
-			});
+		});
 	};
 	const handleSort = ({ key }: { key: MediaSortKey }) => {
 		if (mediaSortBy === key) {
@@ -300,7 +300,7 @@ export function MediaView() {
 								/>
 							) : null}
 							{filteredMediaItems.length > 0 ? (
-									<GroupedMediaItemList
+								<GroupedMediaItemList
 									items={filteredMediaItems}
 									mode={mediaViewMode}
 									onRemove={handleRemove}
@@ -653,9 +653,13 @@ function MediaItemWithContextMenu({
 	}: {
 		event: React.MouseEvent;
 		ids: string[];
-		}) => void;
+	}) => void;
 }) {
 	const { copy } = useAppLocale();
+	const editor = useEditor();
+	const activeProject = useEditor((nextEditor) =>
+		nextEditor.project.getActiveOrNull(),
+	);
 	const { isSelected, selectedIds } = useSelection();
 	const idsToDelete = isSelected(item.id) ? selectedIds : [item.id];
 	const deleteLabel =
@@ -670,13 +674,40 @@ function MediaItemWithContextMenu({
 		<ContextMenu>
 			<ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
 			<ContextMenuContent>
-					{isTimelineMediaAsset(item) ? (
-						<ContextMenuItem>
-							{copy.editor.assets.context.exportClips}
+				{item.storage?.mode === "linked" ? (
+					<>
+						<ContextMenuItem
+							onClick={() => {
+								if (!activeProject) return;
+								void editor.media.relinkMediaAsset({
+									id: item.id,
+									projectId: activeProject.metadata.id,
+								});
+							}}
+						>
+							重新定位素材
 						</ContextMenuItem>
-					) : null}
-					<ContextMenuItem
-						variant="destructive"
+						<ContextMenuItem
+							disabled={item.storage.missing === true}
+							onClick={() => {
+								if (!activeProject) return;
+								void editor.media.consolidateMediaAsset({
+									id: item.id,
+									projectId: activeProject.metadata.id,
+								});
+							}}
+						>
+							归档到项目
+						</ContextMenuItem>
+					</>
+				) : null}
+				{isTimelineMediaAsset(item) ? (
+					<ContextMenuItem>
+						{copy.editor.assets.context.exportClips}
+					</ContextMenuItem>
+				) : null}
+				<ContextMenuItem
+					variant="destructive"
 					onClick={(event: React.MouseEvent<HTMLDivElement>) =>
 						onRemove({ event, ids: idsToDelete })
 					}
@@ -701,7 +732,7 @@ function GroupedMediaItemList({
 	}: {
 		event: React.MouseEvent;
 		ids: string[];
-		}) => void;
+	}) => void;
 }) {
 	const isGrid = mode === "grid";
 	const { copy } = useAppLocale();
@@ -722,11 +753,11 @@ function GroupedMediaItemList({
 							{group.items.length}
 						</span>
 					</div>
-							<MediaItemList
-								items={group.items}
-								onRemove={onRemove}
-								isGrid={isGrid}
-						/>
+					<MediaItemList
+						items={group.items}
+						onRemove={onRemove}
+						isGrid={isGrid}
+					/>
 				</section>
 			))}
 		</div>
@@ -745,7 +776,7 @@ function MediaItemList({
 	}: {
 		event: React.MouseEvent;
 		ids: string[];
-		}) => void;
+	}) => void;
 	isGrid: boolean;
 }) {
 	const pointSelectEnabled = useAgentContextStore(
@@ -761,12 +792,8 @@ function MediaItemList({
 				isGrid ? { gridTemplateColumns: "repeat(auto-fill, 7rem)" } : undefined
 			}
 		>
-				{items.map((item) => (
-						<MediaItemWithContextMenu
-							item={item}
-							onRemove={onRemove}
-							key={item.id}
-					>
+			{items.map((item) => (
+				<MediaItemWithContextMenu item={item} onRemove={onRemove} key={item.id}>
 					<SelectableItem
 						className={cn(
 							!isGrid && "w-full",
@@ -820,17 +847,22 @@ function MediaAssetItem({
 			) : (
 				<StaticMediaAssetItem item={item} preview={preview} variant={variant} />
 			)}
-				<div className="absolute right-1.5 top-1.5 z-10 opacity-0 transition group-hover:opacity-100">
-					<AssetIconButton
-						label={`预览 ${item.name}`}
-						onClick={() => setIsPreviewing(true)}
-					>
-						<Eye className="size-3.5" />
-					</AssetIconButton>
-				</div>
-				<MediaAssetPreviewDialog
-					open={isPreviewing}
-					onOpenChange={setIsPreviewing}
+			{item.storage?.mode === "linked" && item.storage.missing ? (
+				<span className="absolute bottom-1.5 left-1.5 z-10 rounded bg-destructive px-1.5 py-0.5 text-[0.65rem] font-medium text-destructive-foreground">
+					素材已离线
+				</span>
+			) : null}
+			<div className="absolute right-1.5 top-1.5 z-10 opacity-0 transition group-hover:opacity-100">
+				<AssetIconButton
+					label={`预览 ${item.name}`}
+					onClick={() => setIsPreviewing(true)}
+				>
+					<Eye className="size-3.5" />
+				</AssetIconButton>
+			</div>
+			<MediaAssetPreviewDialog
+				open={isPreviewing}
+				onOpenChange={setIsPreviewing}
 				item={item}
 			/>
 		</div>

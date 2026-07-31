@@ -1,4 +1,8 @@
 import type { StorageAdapter } from "./types";
+import {
+	getDesktopFileSource,
+	registerDesktopFileSource,
+} from "@/media/desktop-file-source";
 
 export class DesktopMediaFilesAdapter implements StorageAdapter<File> {
 	constructor(private readonly options: { projectId: string }) {}
@@ -22,15 +26,31 @@ export class DesktopMediaFilesAdapter implements StorageAdapter<File> {
 		const blob = await response.blob();
 		const encodedName = response.headers.get("X-Shotlyx-Filename");
 		const name = encodedName ? decodeURIComponent(encodedName) : key;
-		return new File([blob], name, {
+		const file = new File([blob], name, {
 			type: blob.type || response.headers.get("Content-Type") || "",
 		});
+		const encodedSourcePath = response.headers.get("X-Shotlyx-Source-Path");
+		return encodedSourcePath
+			? registerDesktopFileSource({
+					file,
+					sourcePath: decodeURIComponent(encodedSourcePath),
+				})
+			: file;
 	}
 
 	async set({ key, value }: { key: string; value: File }): Promise<void> {
-		const response = await fetch(this.buildUrl({ id: key, name: value.name }), {
-			body: value,
-			headers: value.type ? { "Content-Type": value.type } : undefined,
+		const sourcePath = getDesktopFileSource({ file: value });
+		const baseUrl = this.buildUrl({ id: key, name: value.name });
+		const url = sourcePath
+			? `${baseUrl}&${new URLSearchParams({ sourcePath }).toString()}`
+			: baseUrl;
+		const response = await fetch(url, {
+			...(sourcePath
+				? {}
+				: {
+						body: value,
+						headers: value.type ? { "Content-Type": value.type } : undefined,
+					}),
 			method: "POST",
 		});
 		await assertOkResponse({ response });
