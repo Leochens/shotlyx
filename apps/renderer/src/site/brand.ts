@@ -7,7 +7,5 @@ export const SITE_INFO = {
 	description:
 		"An AI-native video workbench where prompts become editable timelines.",
 	url: SITE_URL,
-	openGraphImage: "/open-graph/default.jpg",
-	twitterImage: "/open-graph/default.jpg",
 	favicon: "/favicon.ico",
 };

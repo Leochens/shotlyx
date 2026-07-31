@@ -13,7 +13,6 @@
 		"build:desktop": "bun run --cwd apps/desktop build",
 		"clean:desktop-cache": "bun run --cwd apps/desktop clean:cache",
 		"dist:desktop": "bun run --cwd apps/desktop dist",
-		"dist:desktop:all": "bun run --cwd apps/desktop dist:all",
 		"dist:desktop:mac": "bun run --cwd apps/desktop dist:mac",
 		"dist:desktop:mac:unsigned": "bun run --cwd apps/desktop dist:mac:unsigned",
 		"dist:desktop:win": "bun run --cwd apps/desktop dist:win",
@@ -23,7 +22,6 @@
 		"dev:desktop": "bun run --cwd apps/desktop dev",
 		"dev:desktop:safe": "bun run --cwd apps/desktop dev:safe",
 		"format:renderer": "prettier apps/renderer/src/services/renderer --write",
-		"generate:fonts": "npx tsx apps/renderer/scripts/generate-font-sprites.ts",
 		"lint:renderer": "eslint apps/renderer/src --ext .ts,.tsx",
 		"lint:renderer:fix": "eslint apps/renderer/src --ext .ts,.tsx --fix",
 		"preview:renderer": "turbo run preview --filter=@shotlyx/renderer",
@@ -31,7 +29,9 @@
 		"start:tools": "turbo run start --filter=@shotlyx/tools",
 		"start:desktop": "bun run --cwd apps/desktop start",
 		"start:desktop:safe": "bun run --cwd apps/desktop start:safe",
+		"verify:ffmpeg": "bun run --cwd apps/desktop verify:ffmpeg",
 		"test": "bun test eslint/rules apps/renderer/src",
+		"test:ffmpeg": "bun run --cwd apps/desktop test:ffmpeg",
 		"test:e2e:desktop": "bun run --cwd apps/renderer test:e2e:desktop"
 	},
 	"dependencies": {

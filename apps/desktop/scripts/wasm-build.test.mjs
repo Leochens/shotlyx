@@ -11,6 +11,7 @@ describe("wasm-build helpers", () => {
 			PATH: "/usr/bin:/bin",
 			SCRCPY_SERVER_PATH: "/tmp/invalid-env-value",
 			CARGO_HOME: "/custom/cargo",
+			CARGO_NET_OFFLINE: "true",
 			RUSTUP_HOME: "/custom/rustup",
 			TMPDIR: "/tmp/example",
 		});
@@ -19,6 +20,7 @@ describe("wasm-build helpers", () => {
 			HOME: "/Users/example",
 			PATH: "/usr/bin:/bin",
 			CARGO_HOME: "/custom/cargo",
+			CARGO_NET_OFFLINE: "true",
 			RUSTUP_HOME: "/custom/rustup",
 			TMPDIR: "/tmp/example",
 		});

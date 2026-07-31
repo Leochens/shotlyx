@@ -40,6 +40,11 @@ apps/desktop/.desktop-api/
 apps/desktop/release/
 apps/renderer/dist/
 apps/renderer/dist-electron/
+resources/ffmpeg/*/ffmpeg
+resources/ffmpeg/*/ffprobe
+resources/ffmpeg/*/ffmpeg.exe
+resources/ffmpeg/*/ffprobe.exe
+resources/ffmpeg/manifest.local.json
 
 # content-collections
 .content-collections

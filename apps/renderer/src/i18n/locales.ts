@@ -124,7 +124,7 @@ timeline.patch committed`,
 			kicker: "identity handshake",
 			title: "Authenticate into the cut graph.",
 			body: "Your account opens the workspace where prompts, tools, assets, and timeline changes stay connected.",
-			telemetry: [
+			statusRows: [
 				["latency", "32 ms"],
 				["runtime", "agentic"],
 				["state", "encrypted"],
@@ -569,7 +569,7 @@ timeline.patch 已提交`,
 			kicker: "身份握手",
 			title: "进入剪辑图谱。",
 			body: "登录后，Prompt、工具、素材和时间线变更会在同一个工作台里保持连接。",
-			telemetry: [
+			statusRows: [
 				["延迟", "32 ms"],
 				["运行时", "agentic"],
 				["状态", "已加密"],

@@ -2,9 +2,6 @@ import { describe, expect, mock, test } from "bun:test";
 import type { EditorCore } from "@/core";
 import { wasmMock } from "@/test/wasm-mock";
 
-const TICKS_PER_SECOND = wasmMock.TICKS_PER_SECOND;
-const ZERO_MEDIA_TIME = wasmMock.ZERO_MEDIA_TIME;
-
 mock.module("@/wasm", () => wasmMock);
 
 function asEditorCore(value: unknown): EditorCore {
@@ -66,7 +63,7 @@ describe("creative tools integration", () => {
 		server.init(asEditorCore(editor));
 		const names = server.getToolSchemas().map((schema) => schema.name);
 
-		expect(names).toContain("creative_search_video");
+		expect(names).not.toContain("creative_search_video");
 		expect(names).toContain("stock_search_media");
 		expect(names).toContain("stock_import_media");
 		expect(names).toContain("autocut_insert_broll");

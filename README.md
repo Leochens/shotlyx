@@ -1,240 +1,173 @@
 # Shotlyx
 
 <p align="center">
-  <img src="apps/renderer/public/logos/shotlyx/logo.png" alt="Shotlyx logo" width="160" />
+  <img src="apps/renderer/public/logos/shotlyx/logo.png" alt="Shotlyx logo" width="144" />
 </p>
 
-[![GuanTou Lab](https://world.guantou.site/badge.svg?theme=dark&accent=red&lang=en&size=sm)](https://world.guantou.site/)
+English | [简体中文](README.zh-CN.md)
 
-Languages: English | [简体中文](README.zh-CN.md)
+Shotlyx is a local-first, agent-native desktop video editor for technical
+creators. It combines a visual timeline with an optional AI agent that can
+inspect project context and execute concrete, reviewable editor tools.
 
-Shotlyx is an agent-native video editor: a browser-based editing workspace where an AI assistant can inspect the current project, call editor tools, and make concrete changes to the timeline.
+Shotlyx is a desktop application, not a hosted service. Editing, project
+storage, local media processing, and the in-process API work without an account
+or a Shotlyx backend.
 
-Personal Page: [world.guantou.site](https://world.guantou.site/)
+> **Alpha:** the current release line is `v0.1.0-alpha.1`. Project compatibility,
+> packaging, and advanced AI workflows may still change.
 
-## What It Does
+## What works offline
 
-Shotlyx combines a visual timeline editor with an internal tool-calling agent loop. The editor owns the real project state in the browser; the server streams model output and tool-call intent; the browser executes editor-bound tools and sends observations back to the model.
+- Timeline editing, preview, local import, text, subtitles, masks, effects,
+  keyframes, audio tools, and export.
+- Visible `.shotlyx` project directories stored on the user's computer.
+- Local media analysis powered by Rust/WASM and FFmpeg.
+- System fonts only; Shotlyx does not download font packs or local AI models.
 
-The result is a video editor that can respond to natural language requests such as adding tracks, inserting assets, generating subtitles, searching stock media, creating voiceover, analyzing silence, and producing editable motion graphics.
+AI and media-provider integrations are optional. If no Agent is configured, the
+editor remains usable and shows the Agent as optional.
 
-## Project Lineage
+## Project storage
 
-Shotlyx's foundational video editor is based on the OpenCut project, including the core browser editing experience and related editor/runtime foundations.
+The default project library is:
 
-The Agent layer that makes the editor operable through natural language is original work in this project. This includes the Agent chat experience, execution modes, internal tool-calling loop, editor tool schemas, client-side tool execution bridge, tool-result continuation flow, provider-backed Agent tools, and Shotlyx-specific MG generation workflows.
+- macOS: `~/Documents/Shotlyx Projects`
+- Windows: the user's `Documents\Shotlyx Projects` directory
 
-## Features
-
-- Browser video editor with timeline, preview, media library, text, subtitles, masks, effects, keyframes, and project storage.
-- Agent chat panel with `auto`, `suggest`, and `manual` execution modes.
-- Internal MCP-like editor tools exposed to the LLM through Vercel AI SDK tool calling.
-- Client-side tool execution for browser-only editor state, with server-side streaming and tool-result continuation.
-- Stock media search/import, web search/fetch, image generation, voiceover/TTS, ASR-assisted subtitles, and silence removal workflows.
-- Shotlyx MG generation for editable Remotion-style motion graphics components.
-- Rust/WASM modules for shared time, audio analysis, GPU/compositor, effects, and masks.
-- Docker and Cloudflare/OpenNext deployment scaffolding.
-
-## Project Status
-
-This repository is public-readiness work in progress. The Electron app under
-`apps/desktop` packages the renderer and local API; `apps/renderer` contains the
-React/Vite editor UI. The former GPUI shell has been removed.
-
-## Repository Structure
+Each project is a visible directory:
 
 ```text
-.
-├── apps/
-│   ├── desktop/      # Electron main process and packaging
-│   └── renderer/     # React/Vite editor and Agent UI
-├── rust/
-│   ├── crates/       # Shared Rust crates for time, audio, GPU, masks, effects
-│   └── wasm/         # wasm-bindgen package used by the web app
-├── eslint/           # Local ESLint rules
-├── docker-compose.yml
-├── package.json
-└── Cargo.toml
+my-project-<id>.shotlyx/
+├── project.json
+└── media/
+    └── managed/
 ```
 
-Important web modules:
+Files selected through the native import dialog are linked by default.
+Generated, recorded, processed, pasted, and drag-and-drop media are managed
+inside the project directory. Linked files can be relinked or consolidated.
 
-- `apps/renderer/src/core`: `EditorCore` and manager initialization.
-- `apps/renderer/src/agent`: chat UI, LLM config, tool adapters, MCP-like server, tool implementations, and Agent tests.
-- `apps/renderer/src/app/api/agent`: server routes for chat streaming, tool-result continuation, MG jobs, stock, web, image, voiceover, and transcription.
-- `apps/renderer/src/commands`: undoable editor commands.
-- `apps/renderer/src/services/storage`: IndexedDB/OPFS project and media storage.
-- `apps/renderer/src/shotlyx/remotion-components`: editable Shotlyx MG generation and validation.
+See [Project format](docs/PROJECT_FORMAT.md) for details.
 
-## How The Agent Works
+## Optional providers
 
-Shotlyx uses a split execution model:
+Core adapters:
 
-1. The browser sends messages, execution mode, tool schemas, selected references, and brand context to `/api/agent/chat`.
-2. The server builds a system prompt and streams a model response using AI SDK `streamText`.
-3. When the model calls a tool, the server emits a `tool-call` SSE event instead of mutating editor state directly.
-4. The browser receives the tool call and runs `editor.mcp.execute(...)` against the real `EditorCore`.
-5. The browser posts the sanitized tool result to `/api/agent/chat/{sessionId}/tool-result`.
-6. The server feeds that observation back into the model loop and continues until the task is done or needs confirmation.
+- Agent LLM: OpenAI, Anthropic, Google, and OpenAI-compatible endpoints.
+- Local Agent: Claude Code or Codex CLI.
+- ASR: OpenAI-compatible endpoints and Volcengine.
+- TTS: OpenAI-compatible endpoints, Edge TTS, and Volcengine.
+- Image generation: OpenAI-compatible endpoints.
+- Editable motion graphics: Shotlyx MG.
 
-This keeps secrets and provider APIs on the server while keeping editor-bound state changes inside the browser runtime where the project actually lives.
+Experimental adapters:
 
-## Requirements
+- Kimi visual understanding.
+- Seedance video generation.
+- Web search/fetch providers.
+- Stock media providers.
 
-- Bun 1.2.x
-- Node-compatible runtime for Next.js API routes
-- Rust toolchain
-- `wasm-pack` for rebuilding the WASM package
-- Docker, if you want local Postgres/Redis services
-- A modern Chromium-based browser is recommended for the full editor experience
+Provider calls happen only after a user action. API keys are encrypted with
+Electron `safeStorage`; readable config files contain only non-secret
+preferences. See [Privacy](PRIVACY.md).
 
-## Quick Start
+## Architecture
 
-Install dependencies:
+```text
+apps/desktop     Electron main process, app:// protocol, safeStorage, packaging
+apps/renderer    React/Vite editor and local route handlers
+packages/local-api
+                 In-process request dispatcher used by Electron
+packages/shared  Shared cross-package contracts
+rust             Rust crates and the WebAssembly package
+```
+
+There is no remote Shotlyx backend. Electron serves the renderer and local API
+inside the application process. Editor-owned mutations stay in `EditorCore`;
+the optional Agent proposes tool calls and the renderer executes them against
+the active project.
+
+See [Architecture](docs/ARCHITECTURE.md).
+
+## Development
+
+Requirements:
+
+- Bun `1.2.x`
+- Rust stable
+- `wasm-pack`
+- macOS ARM64 or Windows x64 for the currently supported desktop targets
+- A compatible FFmpeg/FFprobe bundle for media processing and packaging
+
+Install and build:
 
 ```bash
 bun install
+bun run build:desktop
 ```
 
-Start local services:
+Run the desktop app:
 
 ```bash
-docker compose up -d db redis serverless-redis-http
+bun run dev:desktop
 ```
 
-Create local env:
+Provider credentials are not required. Optional development overrides are
+documented in [`apps/renderer/.env.example`](apps/renderer/.env.example).
 
-```bash
-cp apps/renderer/.env.example apps/renderer/.env.local
-```
-
-Run the web app:
-
-```bash
-bun run dev:web
-```
-
-Open:
-
-```text
-http://localhost:3000
-```
-
-Run the Electron desktop client in local API mode:
-
-```bash
-bun run dev:client
-```
-
-The desktop client opens `/desktop` and enables `SHOTLYX_DESKTOP=1`, so users can
-configure their own Agent, video, image, TTS, ASR, web-search, and stock-media
-API keys from `/settings/api`. These values are stored in a local desktop config
-file and read by the local Next.js server, not by browser localStorage. By
-default the Electron client uses `http://127.0.0.1:3100` and a separate
-`.next-desktop` build directory so it can run alongside the web dev server on
-port 3000.
-
-## Environment Variables
-
-See [apps/renderer/.env.example](apps/renderer/.env.example) for the full list. The most common groups are:
-
-- App/server: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
-- Agent LLM: `AGENT_LLM_PROVIDER`, `AGENT_LLM_KEY`, `AGENT_LLM_MODEL`, `AGENT_LLM_HOST`
-- MG generation: `AGENT_MG_*`
-- Image generation: `IMAGE_GENERATION_*`
-- Voiceover/TTS: `VOICEOVER_PROVIDER`, `TTS_GENERATION_*`, or `EDGE_TTS_*`
-- ASR: `ASR_*`
-- Stock media: `PEXELS_API_KEY`, `PIXABAY_API_KEY`, `FREESOUND_API_KEY`
-- Web search/fetch: `TAVILY_API_KEY`, `FIRECRAWL_API_KEY`, `BRAVE_SEARCH_API_KEY`, `JINA_API_KEY`
-
-Do not commit `.env.local` or any real credentials.
-
-## Development Commands
-
-```bash
-bun run dev:web        # Next.js dev server
-bun run build:web      # Build the web app
-bun run build:wasm     # Rebuild Rust/WASM package
-bun run lint:web       # Lint web source
-bun test               # Run Bun tests
-cargo test             # Run Rust tests
-```
-
-Web app commands:
-
-```bash
-cd apps/renderer
-bun run dev
-bun run build
-bun run test:e2e
-bun run test:e2e:ui
-```
-
-## Testing
-
-The repository includes:
-
-- Bun unit tests for Agent, editor utilities, storage migrations, timeline logic, MG generation, and UI helpers.
-- Playwright E2E tests for the chat panel, session management, and Agent tool flows.
-- Rust unit tests for time, bridge, and audio-analysis crates.
-- A focused ESLint rule test under `eslint/rules`.
-
-Before publishing a release, run at least:
+Useful checks:
 
 ```bash
 bun test
-cargo test
-bun run build:web
+bun run lint:renderer
+cargo test --workspace
+bun run build:desktop
 ```
 
-## Deployment
+## Preview packaging
 
-Docker:
+Shotlyx currently targets unsigned, non-notarized preview packages:
 
 ```bash
-docker compose up --build -d db redis serverless-redis-http server web
+bun run dist:desktop:mac   # macOS ARM64; run on macOS ARM64
+bun run dist:desktop:win   # Windows x64; run on Windows x64
 ```
 
-Default entry points:
+Packaging never publishes artifacts and there is no auto-updater. Official
+release builds must pass the FFmpeg architecture, checksum, source, version, and
+license checks described in
+[`resources/ffmpeg/README.md`](resources/ffmpeg/README.md). FFmpeg binaries are
+not committed to this repository.
 
-- Web: `http://localhost:3100/projects`
-- Server: `http://localhost:8787/api/health`
-- Admin: `http://localhost:8787/admin`
+## Current limitations
 
-The compose file is intended for local/self-hosted development. Replace all placeholder secrets before using it for any real deployment. `VITE_SHOTLYX_SERVER_URL` is baked into the web image at build time, so rebuild the `web` service after changing it.
-
-Cloudflare/OpenNext:
-
-```bash
-cd apps/renderer
-bun run preview
-bun run deploy
-```
-
-Several Agent routes use Node runtime behavior, streaming, provider SDKs, and file/binary handling. Verify Cloudflare compatibility for your target feature set before treating a deployment as production-ready.
-
-## License
-
-Shotlyx Community Edition is licensed under [AGPL-3.0-only](LICENSE). Commercial use is permitted only under the AGPL-3.0-only license terms; it is not unconditional commercial permission.
-
-AGPL-3.0-only is a strong copyleft license designed for network/server software: if you run a modified public network version, the license requires you to make the corresponding source available under the same terms.
-
-This AGPL permission does not allow you to keep modified covered code closed, remove required notices, use Shotlyx or GuanTou Lab marks without permission, or operate a modified public network service without providing corresponding source.
-
-If you want to use Shotlyx under a proprietary license, include it in a closed-source product, offer a white-label or hosted deployment without AGPL source obligations, receive private integration support, or discuss enterprise/private deployment, start from the [GuanTou Lab Personal Page](https://world.guantou.site/).
-
-Commercial/proprietary licensing is available only for code and assets for which GuanTou Lab has sufficient licensing rights. See [NOTICE.md](NOTICE.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [COPYRIGHT.md](COPYRIGHT.md), [TRADEMARK.md](TRADEMARK.md), and [CLA.md](CLA.md).
-
-This is practical project guidance, not legal advice.
-
-## Acknowledgements
-
-Shotlyx's base editor originates from OpenCut. The later Agent operation layer and Shotlyx-specific AI editing workflows are original work developed in this project.
-
-OpenCut is licensed under the MIT License, and its license notice is preserved in [licenses/OpenCut-MIT.txt](licenses/OpenCut-MIT.txt).
-
-Some related technical naming still exists, such as `opencut-wasm` and `opencut-graphic-v1`. Public documentation should preserve appropriate upstream attribution and notices while presenting Shotlyx as its own product.
+- Alpha packages are unsigned and may trigger operating-system warnings.
+- Drag-and-drop cannot reliably expose an absolute source path in the renderer,
+  so those files are copied into managed project storage. Use the native import
+  button for linked imports.
+- No local Whisper or other AI model is bundled.
+- Experimental providers may change or be removed.
+- macOS Intel and Linux packages are not official targets for this alpha.
 
 ## Contributing
 
-Issues and pull requests are welcome once the public repository is ready. Please read [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and the [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
+Contributions use the Developer Certificate of Origin, not a CLA. Read
+[CONTRIBUTING.md](CONTRIBUTING.md), sign commits with `Signed-off-by`, and follow
+the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+Security issues should follow [SECURITY.md](SECURITY.md).
+
+## License and attribution
+
+Shotlyx is licensed under
+[GNU GPL version 3 only](LICENSE) (`GPL-3.0-only`). There is no dual-license or
+CLA requirement.
+
+The Shotlyx name and marks are not granted by the code license. Forks should use
+distinct branding; see [TRADEMARK.md](TRADEMARK.md).
+
+Shotlyx includes code derived from OpenCut under the MIT License. Its notice is
+preserved in
+[`licenses/OpenCut-MIT.txt`](licenses/OpenCut-MIT.txt). See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for distribution notes.

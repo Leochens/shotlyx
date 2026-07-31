@@ -42,6 +42,7 @@ describe("Shotlyx HyperFrames generator", () => {
 		expect(document.htmlSource).toContain("gsap.timeline");
 		expect(document.htmlSource).toContain("paused: true");
 		expect(document.htmlSource).toContain("window.__timelines");
+		expect(document.htmlSource).not.toContain("cdn.jsdelivr.net");
 		expect(document.htmlSource).toContain("strokeDashoffset");
 		expect(document.render.status).toBe("simulated");
 		expect(validateShotlyxHyperFramesDocument({ document }).valid).toBe(true);

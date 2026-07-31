@@ -643,9 +643,128 @@ function buildHyperFramesHtml({
 			${markup}
 		</div>
 	</div>
-	<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
 	<script>
 		(function () {
+			const clamp = function (value) {
+				return Math.max(0, Math.min(1, value));
+			};
+			const elementBaseStyles = new WeakMap();
+			const getBaseStyles = function (element) {
+				const cached = elementBaseStyles.get(element);
+				if (cached) return cached;
+				const computed = window.getComputedStyle(element);
+				const base = {
+					opacity: Number.parseFloat(computed.opacity || "1"),
+					strokeDashoffset: Number.parseFloat(computed.strokeDashoffset || "0"),
+					transform: element.style.transform || "",
+				};
+				elementBaseStyles.set(element, base);
+				return base;
+			};
+			const tweenFraction = function (tween, time) {
+				const duration = Math.max(0.001, Number(tween.vars.duration) || 0.5);
+				const repeat = Math.max(0, Number(tween.vars.repeat) || 0);
+				const elapsed = time - tween.start;
+				if (elapsed <= 0) return 0;
+				const cycleCount = repeat + 1;
+				if (elapsed >= duration * cycleCount) {
+					return tween.vars.yoyo && repeat % 2 === 1 ? 0 : 1;
+				}
+				const cycle = Math.floor(elapsed / duration);
+				const fraction = (elapsed - cycle * duration) / duration;
+				return tween.vars.yoyo && cycle % 2 === 1 ? 1 - fraction : fraction;
+			};
+			const applyTween = function (tween, time) {
+				const fraction = tweenFraction(tween, time);
+				document.querySelectorAll(tween.selector).forEach(function (element) {
+					const base = getBaseStyles(element);
+					const valueAt = function (target, fallback) {
+						const targetNumber = Number(target);
+						const start = tween.kind === "from" ? targetNumber : fallback;
+						const end = tween.kind === "from" ? fallback : targetNumber;
+						return start + (end - start) * fraction;
+					};
+					const transforms = [];
+					if (Number.isFinite(Number(tween.vars.y))) {
+						transforms.push("translateY(" + valueAt(tween.vars.y, 0) + "px)");
+					}
+					if (Number.isFinite(Number(tween.vars.scale))) {
+						transforms.push("scale(" + valueAt(tween.vars.scale, 1) + ")");
+					}
+					if (Number.isFinite(Number(tween.vars.scaleX))) {
+						transforms.push("scaleX(" + valueAt(tween.vars.scaleX, 1) + ")");
+					}
+					if (transforms.length > 0) {
+						element.style.transform = [base.transform, ...transforms]
+							.filter(Boolean)
+							.join(" ");
+					}
+					if (Number.isFinite(Number(tween.vars.opacity))) {
+						element.style.opacity = String(
+							valueAt(tween.vars.opacity, base.opacity),
+						);
+					}
+					if (Number.isFinite(Number(tween.vars.strokeDashoffset))) {
+						element.style.strokeDashoffset = String(
+							valueAt(tween.vars.strokeDashoffset, base.strokeDashoffset),
+						);
+					}
+					if (tween.vars.transformOrigin) {
+						element.style.transformOrigin = tween.vars.transformOrigin;
+					}
+				});
+			};
+			const gsap = {
+				timeline: function () {
+					const tweens = [];
+					let duration = 1;
+					const timeline = {
+						from: function (selector, vars, start) {
+							const tween = {
+								kind: "from",
+								selector,
+								vars,
+								start: Number(start) || 0,
+							};
+							tweens.push(tween);
+							duration = Math.max(
+								duration,
+								tween.start +
+									(Number(vars.duration) || 0.5) *
+										(Math.max(0, Number(vars.repeat) || 0) + 1),
+							);
+							return timeline;
+						},
+						to: function (selector, vars, start) {
+							const tween = {
+								kind: "to",
+								selector,
+								vars,
+								start: Number(start) || 0,
+							};
+							tweens.push(tween);
+							duration = Math.max(
+								duration,
+								tween.start +
+									(Number(vars.duration) || 0.5) *
+										(Math.max(0, Number(vars.repeat) || 0) + 1),
+							);
+							return timeline;
+						},
+						progress: function (value) {
+							const time = clamp(Number(value) || 0) * duration;
+							tweens.forEach(function (tween) {
+								applyTween(tween, time);
+							});
+							return timeline;
+						},
+						pause: function () {
+							return timeline;
+						},
+					};
+					return timeline;
+				},
+			};
 			const compositionId = "${compositionId}";
 			window.__hyperframes = window.__hyperframes || {
 				getVariables: function () { return ${JSON.stringify(props)}; }
@@ -691,7 +810,7 @@ function buildDesignBrief({
 		`${template.label}: ${template.description}`,
 		`Principles: ${template.principles.join("; ")}`,
 		`Constraints: ${template.constraints.join("; ")}`,
-		"HyperFrames contract: data-composition-variables, paused GSAP timeline, registered window.__timelines key, finite repeats, layout-before-animation.",
+		"HyperFrames contract: data-composition-variables, embedded offline timeline runtime, registered window.__timelines key, finite repeats, layout-before-animation.",
 	].join("\n");
 }
 
@@ -707,7 +826,7 @@ function buildSimulatedRender({
 		diagnostics: [
 			"simulated: data-composition-id present",
 			"simulated: data-composition-variables declared",
-			"simulated: paused GSAP timeline registered on window.__timelines",
+			"simulated: embedded offline timeline registered on window.__timelines",
 			"simulated: render target is transparent HTML preview; WebM render can replace this snapshot later",
 		],
 		updatedAt: new Date().toISOString(),

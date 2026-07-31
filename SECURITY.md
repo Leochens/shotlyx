@@ -1,39 +1,32 @@
 # Security Policy
 
-## Supported Versions
+## Supported versions
 
-Shotlyx is currently pre-1.0. Security fixes are handled on the main development line unless a release branch is explicitly announced.
+Shotlyx is pre-1.0. Security fixes are applied to the current development line
+until release branches are announced.
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-Please do not open a public issue for a suspected vulnerability.
+Do not open a public issue for a suspected vulnerability. Use GitHub private
+vulnerability reporting if it is enabled for the repository, or contact the
+maintainer through <https://world.guantou.site/>.
 
-Use one of these channels:
+Include a concise description, affected version, reproduction steps, impact,
+and a safe proof of concept. Do not attach real API keys, private projects,
+credentials, or private media.
 
-- GitHub private vulnerability reporting, if it is enabled on the public repository.
-- GuanTou Lab Personal Page: https://world.guantou.site/
+## Security boundaries
 
-Include:
+Reviews should pay particular attention to:
 
-- A concise description of the issue.
-- Affected files, routes, providers, or workflows.
-- Reproduction steps.
-- Potential impact.
-- Any safe proof of concept that does not expose real credentials or user data.
+- Electron protocol and local route handling.
+- `safeStorage` secret migration and redaction.
+- File import, relink, consolidation, and path traversal checks.
+- Generated HTML/MG validation.
+- Provider URL validation and SSRF exposure.
+- Large or malformed media input.
+- Local CLI process invocation and inherited environment variables.
 
-## Sensitive Data Rules
-
-Do not include real API keys, tokens, cookies, private media, private project files, database dumps, or credentials in reports, issues, PRs, logs, screenshots, or test fixtures.
-
-If a credential may have been committed or exposed, rotate it immediately. Removing it from a later commit is not enough if it has already appeared in Git history.
-
-## Scope Notes
-
-Shotlyx includes browser storage, local media processing, provider-backed AI/media APIs, and server-side routes. Security reviews should pay special attention to:
-
-- Secret handling in `apps/renderer/src/app/api/agent/*`.
-- Sanitization of model/tool results.
-- SSRF or unsafe URL fetching in web/stock/media routes.
-- Large file handling and local media imports.
-- IndexedDB/OPFS persistence behavior.
-- Generated Remotion/MG component validation.
+Shotlyx has no operated backend, telemetry, crash upload, or auto-update path.
+Optional provider and CLI integrations may create their own external security
+boundaries.

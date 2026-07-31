@@ -1,23 +1,15 @@
 # Notices
 
-Shotlyx includes code derived from the OpenCut project.
+Copyright (C) 2026 GuanTou Lab and Shotlyx contributors.
 
-OpenCut is licensed under the MIT License.
+Shotlyx is licensed under GNU GPL version 3 only (`GPL-3.0-only`) unless a file
+or directory states otherwise.
 
-Copyright 2025-2026 OpenCut.
+Portions of the editor are derived from OpenCut and remain subject to the
+preserved MIT notice in [`licenses/OpenCut-MIT.txt`](licenses/OpenCut-MIT.txt).
 
-The OpenCut MIT license text is preserved in:
+Third-party dependencies and separately obtained build tools remain under their
+own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-```text
-licenses/OpenCut-MIT.txt
-```
-
-Shotlyx-specific modifications, Agent-native editing features, AI tool-calling
-workflows, Shotlyx motion-graphics workflows, user-facing product surfaces,
-documentation, and other original Shotlyx code are licensed under
-AGPL-3.0-only unless otherwise stated.
-
-Third-party dependencies, assets, fonts, generated media, and vendored packages
-may be distributed under their own licenses. Preserve required upstream notices,
-license files, and attribution statements when adding, moving, or redistributing
-code or assets.
+The Shotlyx name and marks are governed separately by
+[TRADEMARK.md](TRADEMARK.md).

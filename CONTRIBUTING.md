@@ -1,80 +1,71 @@
 # Contributing to Shotlyx
 
-Thanks for taking the time to improve Shotlyx. This project is an AGPL-licensed agent-native video editor with a browser editor, a server-side LLM loop, Rust/WASM support code, and provider-backed media/AI integrations.
+Thanks for improving Shotlyx. English documentation is canonical; a Chinese
+guide is available in [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md).
 
-## Development Setup
+## Before you start
 
-Install dependencies:
+- Search existing issues before opening a new one.
+- Keep pull requests focused and explain user-visible behavior.
+- Never include credentials, private media, local project data, or generated
+  release artifacts.
+- Large architectural changes should start with an issue or design note.
+
+## Development
 
 ```bash
 bun install
+bun run dev:desktop
 ```
 
-Copy local env:
-
-```bash
-cp apps/renderer/.env.example apps/renderer/.env.local
-```
-
-Start local services when needed:
-
-```bash
-docker compose up -d db redis serverless-redis-http
-```
-
-Run the web app:
-
-```bash
-bun run dev:web
-```
-
-## Common Commands
+Before requesting review, run the checks relevant to your change:
 
 ```bash
 bun test
-bun run lint:web
-bun run build:web
-cargo test
-cd apps/renderer && bun run test:e2e
+bun run lint:renderer
+cargo test --workspace
+bun run build:desktop
 ```
 
-For focused Agent work, prefer focused tests first, for example:
+UI changes should include screenshots or a short recording. Storage, migration,
+provider, and packaging changes should include focused tests.
+
+## Engineering rules
+
+- Keep editor mutations undoable through the command system where possible.
+- Treat `EditorCore` as the owner of active editor state.
+- Keep the local API process-bound; do not introduce a hosted backend
+  dependency.
+- Preserve `.shotlyx` format compatibility or provide an explicit migration.
+- Keep secrets in Electron `safeStorage`, never browser storage or readable
+  config files.
+- Provider requests must follow an explicit user action.
+- Do not add telemetry, automatic crash uploads, auto-update, or silently
+  downloaded models.
+- Add third-party code or assets only with verified license provenance and
+  required notices.
+
+## Developer Certificate of Origin
+
+Shotlyx uses the [Developer Certificate of Origin 1.1](DCO.md), not a CLA.
+Sign off every commit:
 
 ```bash
-bun test apps/renderer/src/agent
+git commit -s -m "Describe the change"
 ```
 
-## Contribution Rules
+The sign-off certifies that you have the right to contribute the work under
+this repository's `GPL-3.0-only` license.
 
-- Keep editor mutations undoable when possible by using the command system under `apps/renderer/src/commands`.
-- Keep browser-only editor state in the browser. Server routes should not pretend to own `EditorCore` state.
-- Put provider secrets behind server routes or environment variables. Never expose API keys in client bundles or committed files.
-- If a tool mutates editor state, set `mutating: true` where appropriate so verification can run.
-- Sanitize large or sensitive tool results before sending them back to the model.
-- Do not commit `.env.local`, logs, local database files, build outputs, generated reports, or real media from private projects.
+## Pull requests
 
-## Pull Requests
-
-Please include:
+Include:
 
 - What changed and why.
-- How you tested it.
-- Screenshots or short recordings for UI changes when useful.
-- Any new environment variables or migration notes.
-- Any known limitations.
+- How it was tested.
+- Migration or compatibility notes.
+- New network destinations, provider fields, or third-party notices.
+- Known limitations.
 
-By contributing, you agree that your contribution can be distributed under this repository's AGPL-3.0-only license.
-
-Substantial external contributions may require acceptance of the [Shotlyx Contributor License Agreement](CLA.md) before merge. The CLA allows GuanTou Lab to keep offering Shotlyx as an AGPL community project while also offering commercial or proprietary licensing for code and assets it has sufficient rights to license.
-
-## Commercial Use
-
-The public code is available under AGPL-3.0-only. Commercial use is permitted only under the AGPL-3.0-only license terms; it is not unconditional commercial permission.
-
-The AGPL permission does not allow you to keep modified covered code closed, remove required notices, use Shotlyx or GuanTou Lab marks without permission, or operate a modified public network service without providing corresponding source.
-
-If you want to use Shotlyx under a proprietary license, include it in a closed-source product, offer a white-label or hosted deployment without AGPL source obligations, receive private integration support, or discuss enterprise/private deployment, use the GuanTou Lab Personal Page:
-
-https://world.guantou.site/
-
-Commercial/proprietary licensing is available only for code and assets for which GuanTou Lab has sufficient licensing rights.
+By contributing, you agree that your contribution is distributed under
+`GPL-3.0-only`.

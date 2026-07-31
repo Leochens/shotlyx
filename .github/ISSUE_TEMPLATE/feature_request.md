@@ -22,7 +22,7 @@ What other approaches did you consider?
 
 - Editor UI:
 - Agent/tool behavior:
-- Server/provider integration:
+- Local API/provider integration:
 - Rust/WASM:
 - Docs:
 

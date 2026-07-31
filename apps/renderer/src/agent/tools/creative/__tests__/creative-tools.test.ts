@@ -24,41 +24,6 @@ function asEditorCore(value: unknown): EditorCore {
 	return value as EditorCore;
 }
 
-function requireSearchResult(value: unknown): {
-	candidates: Array<{ id: string; provider: string; type: string }>;
-} {
-	if (
-		typeof value !== "object" ||
-		value === null ||
-		!("candidates" in value) ||
-		!Array.isArray(value.candidates)
-	) {
-		throw new Error("Expected creative search result");
-	}
-
-	return {
-		candidates: value.candidates.map((item) => {
-			if (typeof item !== "object" || item === null) {
-				throw new Error("Expected creative search candidate");
-			}
-
-			const id = "id" in item ? item.id : undefined;
-			const provider = "provider" in item ? item.provider : undefined;
-			const type = "type" in item ? item.type : undefined;
-
-			if (
-				typeof id !== "string" ||
-				typeof provider !== "string" ||
-				typeof type !== "string"
-			) {
-				throw new Error("Expected creative search candidate shape");
-			}
-
-			return { id, provider, type };
-		}),
-	};
-}
-
 function requireImageResult(value: unknown): {
 	images: Array<{
 		id: string;
@@ -251,7 +216,7 @@ describe("buildCreativeTools", () => {
 			editor: asEditorCore({}),
 		});
 		const names = tools.map((tool) => tool.name);
-		expect(names).toContain("creative_search_video");
+		expect(names).not.toContain("creative_search_video");
 		expect(names).toContain("creative_generate_image");
 		expect(names).not.toContain("shotlyx_generate_mg_scene");
 		expect(names).not.toContain("shotlyx_get_mg_scene_schema");
@@ -285,26 +250,6 @@ describe("buildCreativeTools", () => {
 			type: "boolean",
 			optional: true,
 		});
-	});
-
-	test("creative_search_video stores candidates", () => {
-		const tools = buildCreativeTools({
-			editor: asEditorCore({}),
-		});
-		const searchTool = tools.find(
-			(tool) => tool.name === "creative_search_video",
-		);
-		const result = requireSearchResult(
-			searchTool?.handler({
-				query: "workspace",
-				count: 1,
-			}),
-		);
-
-		expect(result.candidates).toHaveLength(1);
-		expect(result.candidates[0]?.id).toStartWith("creative_");
-		expect(result.candidates[0]?.provider).toBe("mock");
-		expect(result.candidates[0]?.type).toBe("video");
 	});
 
 	test("creative_generate_image stores and imports generated images", async () => {

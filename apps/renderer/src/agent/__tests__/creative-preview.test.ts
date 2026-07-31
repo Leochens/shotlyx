@@ -7,7 +7,7 @@ import type { AgentStep } from "@/agent/controller/types";
 
 describe("creative preview helpers", () => {
 	test("marks search and image generation as preview-safe", () => {
-		expect(isPreviewSafeCreativeTool("creative_search_video")).toBe(true);
+		expect(isPreviewSafeCreativeTool("creative_search_video")).toBe(false);
 		expect(isPreviewSafeCreativeTool("stock_search_media")).toBe(true);
 		expect(isPreviewSafeCreativeTool("creative_generate_image")).toBe(true);
 		expect(isPreviewSafeCreativeTool("silence_analyze_timeline")).toBe(true);
@@ -19,12 +19,6 @@ describe("creative preview helpers", () => {
 
 	test("splits leading preview-safe steps from remaining plan", () => {
 		const steps: AgentStep[] = [
-			{
-				tool: "creative_search_video",
-				params: { query: "ai" },
-				description: "搜索 AI 视频素材",
-				risk: "none",
-			},
 			{
 				tool: "stock_search_media",
 				params: { query: "office work", type: "video" },
@@ -59,7 +53,6 @@ describe("creative preview helpers", () => {
 
 		const result = splitPreviewSafeSteps({ steps });
 		expect(result.previewSteps.map((step) => step.tool)).toEqual([
-			"creative_search_video",
 			"stock_search_media",
 			"creative_generate_image",
 			"silence_analyze_timeline",

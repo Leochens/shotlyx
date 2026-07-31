@@ -63,7 +63,6 @@ function normalizeStickerCategory({
 }: {
 	category: unknown;
 }): StickerCategory {
-	if (category === "flags") return "flags";
 	if (category === "shapes") return "shapes";
 	if (category === "animated-stickers") return "animated-stickers";
 	return "all";

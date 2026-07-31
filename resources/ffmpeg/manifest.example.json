@@ -1,0 +1,31 @@
+{
+	"version": 1,
+	"bundles": {
+		"darwin-arm64": {
+			"version": "REPLACE_WITH_EXACT_VERSION",
+			"sourceUrl": "https://REPLACE_WITH_VERIFIED_SOURCE_URL",
+			"license": "REPLACE_WITH_EFFECTIVE_LICENSE",
+			"files": {
+				"ffmpeg": {
+					"sha256": "REPLACE_WITH_64_CHARACTER_SHA256"
+				},
+				"ffprobe": {
+					"sha256": "REPLACE_WITH_64_CHARACTER_SHA256"
+				}
+			}
+		},
+		"win32-x64": {
+			"version": "REPLACE_WITH_EXACT_VERSION",
+			"sourceUrl": "https://REPLACE_WITH_VERIFIED_SOURCE_URL",
+			"license": "REPLACE_WITH_EFFECTIVE_LICENSE",
+			"files": {
+				"ffmpeg.exe": {
+					"sha256": "REPLACE_WITH_64_CHARACTER_SHA256"
+				},
+				"ffprobe.exe": {
+					"sha256": "REPLACE_WITH_64_CHARACTER_SHA256"
+				}
+			}
+		}
+	}
+}

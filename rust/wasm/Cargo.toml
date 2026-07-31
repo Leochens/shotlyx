@@ -4,7 +4,7 @@ version = "0.2.10"
 edition = "2024"
 description = "Shared video editor logic compiled to WebAssembly"
 repository = "https://github.com/shotlyx/shotlyx"
-license = "AGPL-3.0-only"
+license = "GPL-3.0-only"
 
 [lib]
 path = "src/wasm.rs"

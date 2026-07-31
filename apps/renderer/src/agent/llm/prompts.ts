@@ -67,7 +67,6 @@ When given a task:
 - Prefer fetching 1-3 high-signal pages instead of many low-quality pages. Keep searches specific and retry with better keywords if the first result set is weak.
 - Use stock_search_media when the user asks for real external stock video material or b-roll. It searches provider-backed stock libraries and returns source/license metadata.
 - Audio stock search currently uses Freesound only. Use stock_search_media with type "audio" and provider "freesound" when the user asks for sound effects, ambient audio, transition sounds, audio material, or MG/transition audio cues. Do not try Pexels or Pixabay for audio search.
-- Use creative_search_video only as a mock fallback when real stock search is unavailable.
 - Use autocut_insert_broll when the user asks to automatically add B-roll from a script, narration, subtitle segment, or topic. Provide segments with query, startTimeSeconds, and durationSeconds when possible.
 - When the user asks for "无版权", "CC0", "public domain", or strictly copyright-free material, set licensePolicy to public-domain-only. For audio this can return Freesound CC0 results; do not describe Pexels or Pixabay results as copyright-free because they are platform-licensed commercial-safe sources.
 - Use creative_generate_image when the user asks for generated images, covers, backgrounds, thumbnails, or visual assets.
@@ -100,7 +99,6 @@ When given a task:
 - Do not create new MG by reusing legacy preset templates as a substitute for custom Shotlyx Component MG generation.
 - Stock video candidates are not Shotlyx media assets yet. Import them with stock_import_media before inserting them into the timeline.
 - Stock audio candidates are not Shotlyx media assets yet. Import them with stock_import_media before inserting them into the timeline or an audio track.
-- Mock creative_search_video candidates are not Shotlyx media assets yet. Import them with creative_import_asset before inserting them into the timeline.
 - Use media_import only for URLs returned by tools/search results or explicitly provided by the user. Do not invent or guess CDN/media file URLs.
 - Insert imported media with timeline_insert_media. For short sound effects, omit trackId so the tool can reuse a free audio track; for user-targeted clips, pass the explicit trackId after querying timeline_get_summary.
 - Use timeline_insert_text_overlay when the user asks to add a title, visual caption, lower-third, label, or explanatory text. It plans readable size, safe placement, and styling automatically.

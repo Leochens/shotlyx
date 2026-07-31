@@ -1,225 +1,155 @@
 # Shotlyx
 
 <p align="center">
-  <img src="apps/renderer/public/logos/shotlyx/logo.png" alt="Shotlyx logo" width="160" />
+  <img src="apps/renderer/public/logos/shotlyx/logo.png" alt="Shotlyx logo" width="144" />
 </p>
 
-[![GuanTou Lab](https://world.guantou.site/badge.svg?theme=dark&accent=red&lang=zh&size=sm)](https://world.guantou.site/)
+[English](README.md) | 简体中文
 
-语言：[English](README.md) | 简体中文
+Shotlyx 是面向技术创作者的本地优先、Agent-native 桌面视频编辑器。它把可视化时间线与可选 AI Agent 结合起来：Agent 能理解当前项目上下文，并通过明确、可审查的编辑器工具执行操作。
 
-Shotlyx 是一个 Agent 原生的视频编辑器：它提供浏览器里的可视化编辑工作区，并让 AI 助手能够读取当前项目、调用编辑器工具、对时间线做真实修改。
+Shotlyx 是桌面应用，不是托管服务。剪辑、项目存储、本地媒体处理和进程内 API 都不依赖账号或 Shotlyx 后端。
 
-个人主页：[world.guantou.site](https://world.guantou.site/)
+> **Alpha：** 当前版本线为 `v0.1.0-alpha.1`。项目兼容性、打包方式和高级 AI 工作流仍可能调整。
 
-## 项目简介
+## 无需联网即可使用
 
-Shotlyx 把可视化时间线编辑器和内部工具调用 Agent 循环结合在一起。编辑器真实状态保留在浏览器里；服务端负责流式模型输出和工具调用意图；浏览器执行与编辑器状态绑定的工具，再把执行结果作为 observation 回传给模型继续推理。
+- 时间线剪辑、预览、本地导入、文字、字幕、蒙版、特效、关键帧、音频工具与导出。
+- 项目以可见 `.shotlyx` 目录保存在用户电脑上。
+- Rust/WASM 与 FFmpeg 驱动的本地媒体处理。
+- 只使用系统字体，不下载字体包，也不下载本地 AI 模型。
 
-最终，它可以用自然语言完成一部分视频编辑任务，例如添加轨道、插入素材、生成字幕、搜索 Stock 素材、生成旁白、分析静音段，以及生成可编辑的动态图形。
+AI 和媒体 Provider 都是可选能力。未配置 Agent 时，编辑器仍然可用，并明确显示“Agent 可选”。
 
-## 项目来源
+## 项目存储
 
-Shotlyx 的基础视频编辑器来源于 OpenCut 项目，包括核心浏览器编辑体验以及相关编辑器/runtime 基础能力。
+默认项目库：
 
-让编辑器可以被自然语言操作的 Agent 层，是本项目的原创工作。这包括 Agent 聊天体验、执行模式、内部工具调用循环、编辑器工具 schema、客户端工具执行桥、工具结果回传续写流程、provider-backed Agent 工具，以及 Shotlyx 专属的 MG 生成工作流。
+- macOS：`~/Documents/Shotlyx Projects`
+- Windows：用户的 `Documents\Shotlyx Projects` 目录
 
-## 功能
-
-- 浏览器视频编辑器：时间线、预览、素材库、文字、字幕、蒙版、特效、关键帧和项目存储。
-- Agent 聊天面板，支持 `auto`、`suggest`、`manual` 三种执行模式。
-- 通过 Vercel AI SDK tool calling，把内部 MCP-like 编辑器工具暴露给 LLM。
-- 客户端执行浏览器内编辑器工具，服务端负责流式推理和工具结果续写。
-- Stock 素材搜索/导入、网页搜索/抓取、生图、旁白/TTS、ASR 字幕、静音分析与剪辑工作流。
-- Shotlyx MG：生成可编辑的 Remotion-style 动态图形组件。
-- Rust/WASM 模块支持时间、音频分析、GPU/合成、特效和蒙版能力。
-- Docker 与 Cloudflare/OpenNext 部署脚手架。
-
-## 项目状态
-
-当前仓库正在做公开发布前整理。`apps/desktop` 是 Electron 主进程和打包入口，
-`apps/renderer` 是 React/Vite 编辑器界面。原有 GPUI 壳原型已删除。
-
-## 目录结构
+每个项目都是可见目录：
 
 ```text
-.
-├── apps/
-│   ├── desktop/      # Electron 主进程与打包
-│   └── renderer/     # React/Vite 编辑器与 Agent 界面
-├── rust/
-│   ├── crates/       # time、audio、GPU、masks、effects 等 Rust crate
-│   └── wasm/         # Web 应用使用的 wasm-bindgen 包
-├── eslint/           # 本地 ESLint 规则
-├── docker-compose.yml
-├── package.json
-└── Cargo.toml
+my-project-<id>.shotlyx/
+├── project.json
+└── media/
+    └── managed/
 ```
 
-重要 Web 模块：
+通过原生文件选择器导入的文件默认保持外链；生成、录制、处理、粘贴和拖拽导入的媒体保存在项目内部。外链素材支持重新定位和归档到项目。
 
-- `apps/renderer/src/core`：`EditorCore` 和各 manager 初始化。
-- `apps/renderer/src/agent`：聊天 UI、LLM 配置、tool adapter、MCP-like server、工具实现和 Agent 测试。
-- `apps/renderer/src/app/api/agent`：聊天流、工具结果续写、MG job、Stock、Web、Image、Voiceover、Transcription 等服务端 route。
-- `apps/renderer/src/commands`：支持 undo/redo 的编辑命令。
-- `apps/renderer/src/services/storage`：IndexedDB/OPFS 项目和媒体存储。
-- `apps/renderer/src/shotlyx/remotion-components`：可编辑 Shotlyx MG 生成与校验。
+详细格式见[项目格式](docs/PROJECT_FORMAT.md)。
 
-## Agent 如何工作
+## 可选 Provider
 
-Shotlyx 使用前后端分离的工具执行模型：
+核心适配器：
 
-1. 浏览器把消息、执行模式、工具 schema、选中引用和品牌上下文发送到 `/api/agent/chat`。
-2. 服务端构造 system prompt，并用 AI SDK `streamText` 流式调用模型。
-3. 当模型调用工具时，服务端不会直接修改编辑器状态，而是发出 `tool-call` SSE 事件。
-4. 浏览器收到工具调用后，在真实 `EditorCore` 上执行 `editor.mcp.execute(...)`。
-5. 浏览器把清理后的工具结果 POST 到 `/api/agent/chat/{sessionId}/tool-result`。
-6. 服务端把 observation 接回模型循环，直到任务完成或需要用户确认。
+- Agent 模型：OpenAI、Anthropic、Google、OpenAI-compatible。
+- 本地 Agent：Claude Code、Codex CLI。
+- ASR：OpenAI-compatible、火山引擎。
+- TTS：OpenAI-compatible、Edge TTS、火山引擎。
+- 图片生成：OpenAI-compatible。
+- 可编辑动态图形：Shotlyx MG。
 
-这样可以把 provider secret 和服务端 API 留在服务端，同时让所有依赖浏览器编辑器状态的变更都在浏览器 runtime 内完成。
+实验性适配器：
 
-## 环境要求
+- Kimi 视觉理解。
+- Seedance 视频生成。
+- 网页搜索/抓取。
+- 第三方素材库。
 
-- Bun 1.2.x
-- 可运行 Next.js API routes 的 Node-compatible runtime
-- Rust toolchain
-- 用于重新构建 WASM 包的 `wasm-pack`
-- Docker，如果需要本地 Postgres/Redis 服务
-- 推荐使用现代 Chromium 系浏览器体验完整编辑器能力
+只有用户主动执行相关操作时才会调用 Provider。API Key 使用 Electron
+`safeStorage` 加密，可读配置文件只保存非敏感偏好。详见
+[隐私说明](PRIVACY.md)。
 
-## 快速开始
+## 架构
 
-安装依赖：
+```text
+apps/desktop     Electron 主进程、app:// 协议、安全存储和打包
+apps/renderer    React/Vite 编辑器与本地路由处理
+packages/local-api
+                 Electron 使用的进程内请求分发器
+packages/shared  跨包共享协议
+rust             Rust crates 与 WebAssembly 包
+```
+
+项目没有远程 Shotlyx 后端。Electron 在应用进程内提供渲染层和本地 API。编辑器状态变更由 `EditorCore` 持有；可选 Agent 只提出工具调用，再由渲染层对当前项目执行。
+
+更多说明见[架构文档](docs/ARCHITECTURE.md)。
+
+## 开发
+
+要求：
+
+- Bun `1.2.x`
+- Rust stable
+- `wasm-pack`
+- 当前官方桌面目标：macOS ARM64、Windows x64
+- 媒体处理和打包需要兼容的 FFmpeg/FFprobe
+
+安装并构建：
 
 ```bash
 bun install
+bun run build:desktop
 ```
 
-启动本地服务：
+运行桌面端：
 
 ```bash
-docker compose up -d db redis serverless-redis-http
+bun run dev:desktop
 ```
 
-创建本地环境变量文件：
+无需配置 Provider。可选开发环境变量见
+[`apps/renderer/.env.example`](apps/renderer/.env.example)。
 
-```bash
-cp apps/renderer/.env.example apps/renderer/.env.local
-```
-
-运行 Web 应用：
-
-```bash
-bun run dev:web
-```
-
-打开：
-
-```text
-http://localhost:3000
-```
-
-## 环境变量
-
-完整配置见 [apps/renderer/.env.example](apps/renderer/.env.example)。常见分组：
-
-- App/server：`DATABASE_URL`、`BETTER_AUTH_SECRET`、`UPSTASH_REDIS_REST_URL`、`UPSTASH_REDIS_REST_TOKEN`
-- Agent LLM：`AGENT_LLM_PROVIDER`、`AGENT_LLM_KEY`、`AGENT_LLM_MODEL`、`AGENT_LLM_HOST`
-- MG 生成：`AGENT_MG_*`
-- 生图：`IMAGE_GENERATION_*`
-- Voiceover/TTS：`VOICEOVER_PROVIDER`、`TTS_GENERATION_*` 或 `EDGE_TTS_*`
-- ASR：`ASR_*`
-- Stock 素材：`PEXELS_API_KEY`、`PIXABAY_API_KEY`、`FREESOUND_API_KEY`
-- Web 搜索/抓取：`TAVILY_API_KEY`、`FIRECRAWL_API_KEY`、`BRAVE_SEARCH_API_KEY`、`JINA_API_KEY`
-
-不要提交 `.env.local` 或任何真实凭据。
-
-## 开发命令
-
-```bash
-bun run dev:web        # Next.js 开发服务
-bun run build:web      # 构建 Web 应用
-bun run build:wasm     # 重新构建 Rust/WASM 包
-bun run lint:web       # lint Web 源码
-bun test               # 运行 Bun 测试
-cargo test             # 运行 Rust 测试
-```
-
-Web 应用内部命令：
-
-```bash
-cd apps/renderer
-bun run dev
-bun run build
-bun run test:e2e
-bun run test:e2e:ui
-```
-
-## 测试
-
-仓库包含：
-
-- Agent、编辑器工具、storage migration、timeline、MG 生成和 UI helper 的 Bun 单元测试。
-- 覆盖聊天面板、会话管理和 Agent 工具流的 Playwright E2E 测试。
-- 覆盖 time、bridge、audio-analysis crate 的 Rust 单元测试。
-- `eslint/rules` 下的本地 ESLint 规则测试。
-
-发布前至少运行：
+常用检查：
 
 ```bash
 bun test
-cargo test
-bun run build:web
+bun run lint:renderer
+cargo test --workspace
+bun run build:desktop
 ```
 
-## 部署
+## 预览包
 
-Docker：
+当前只生成未签名、未公证的预览包：
 
 ```bash
-docker compose up --build -d db redis serverless-redis-http server web
+bun run dist:desktop:mac   # macOS ARM64，请在 macOS ARM64 构建
+bun run dist:desktop:win   # Windows x64，请在 Windows x64 构建
 ```
 
-默认入口：
+打包命令不会上传产物，应用也没有自动更新。正式发布前必须通过 FFmpeg
+架构、校验和、源码地址、版本和许可证检查，具体见
+[`resources/ffmpeg/README.md`](resources/ffmpeg/README.md)。仓库不提交 FFmpeg
+二进制。
 
-- Web：`http://localhost:3100/projects`
-- Server：`http://localhost:8787/api/health`
-- Admin：`http://localhost:8787/admin`
+## 当前限制
 
-Compose 文件主要面向本地/自托管开发。任何真实部署前，请替换所有占位 secret。`VITE_SHOTLYX_SERVER_URL` 是 Web 镜像构建期变量，修改后需要重新构建 `web` 服务。
+- Alpha 包未签名，系统可能显示安全警告。
+- 渲染层无法稳定取得拖拽文件的绝对路径，因此拖拽文件会复制到项目内部；需要外链时请使用“导入”按钮。
+- 不内置本地 Whisper 或其他 AI 模型。
+- 实验性 Provider 可能调整或移除。
+- macOS Intel 与 Linux 暂不是本 Alpha 的官方打包目标。
 
-Cloudflare/OpenNext：
+## 参与贡献
 
-```bash
-cd apps/renderer
-bun run preview
-bun run deploy
-```
+项目使用 Developer Certificate of Origin，不使用 CLA。请阅读
+[CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)，提交时加入
+`Signed-off-by`，并遵守[行为准则](CODE_OF_CONDUCT.md)。
 
-部分 Agent route 使用 Node runtime、流式响应、provider SDK 以及文件/二进制处理。把 Cloudflare 部署视为生产可用之前，需要针对目标功能逐项验证兼容性。
+安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
 
-## 许可证
+## 许可证与归属
 
-Shotlyx Community Edition 使用 [AGPL-3.0-only](LICENSE) 授权。商业使用只在遵守 AGPL-3.0-only 许可证条款的前提下被允许；这不是无条件商用授权。
+Shotlyx 使用
+[GNU GPL version 3 only](LICENSE)（`GPL-3.0-only`），不提供双重授权，也不要求 CLA。
 
-AGPL-3.0-only 是面向网络/服务端软件的强 copyleft 许可证：如果你运行公开的修改版网络服务，许可证要求你以同样条款开放对应源码。
+代码许可证不授予 Shotlyx 名称和品牌标识的使用权。派生项目应使用不同品牌，详见 [TRADEMARK.md](TRADEMARK.md)。
 
-这份 AGPL 授权不允许你把修改后的 covered code 闭源、不保留必要 notice、未经许可使用 Shotlyx 或 GuanTou Lab 品牌标识，或在不提供对应源码的情况下运行公开的修改版网络服务。
-
-如果你希望在 proprietary license 下使用 Shotlyx，把它纳入闭源产品，提供不承担 AGPL 源码义务的白标/托管部署，获得私有集成支持，或讨论企业/私有化部署，可以从 [GuanTou Lab Personal Page](https://world.guantou.site/) 开始联系。
-
-商业/专有授权只适用于 GuanTou Lab 具备足够授权权利的代码和资产。更多边界见 [NOTICE.md](NOTICE.md)、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、[COPYRIGHT.md](COPYRIGHT.md)、[TRADEMARK.md](TRADEMARK.md) 和 [CLA.md](CLA.md)。
-
-这只是项目工程说明，不构成法律意见。
-
-## 致谢
-
-Shotlyx 的基础编辑器来源于 OpenCut。后续 Agent 操作层以及 Shotlyx 专属 AI 剪辑工作流，是本项目原创开发。
-
-OpenCut 使用 MIT License 授权，其许可证 notice 已保留在 [licenses/OpenCut-MIT.txt](licenses/OpenCut-MIT.txt)。
-
-仓库里仍保留了一些相关技术命名，例如 `opencut-wasm` 和 `opencut-graphic-v1`。公开文档应在呈现 Shotlyx 独立产品身份的同时，保留必要的上游来源说明和 notice。
-
-## 贡献
-
-公开仓库准备完成后，欢迎 issue 和 pull request。参与前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)、[SECURITY.md](SECURITY.md) 和 [Code of Conduct](CODE_OF_CONDUCT.md)。
+Shotlyx 包含基于 OpenCut MIT 许可证的派生代码，原始许可证保存在
+[`licenses/OpenCut-MIT.txt`](licenses/OpenCut-MIT.txt)。分发说明见
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

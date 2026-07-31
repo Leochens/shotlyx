@@ -53,10 +53,8 @@ import {
 	getCreativeAsset,
 	registerCreativeAsset,
 } from "./creative-asset-store";
-import { searchMockVideos } from "./mock-video-provider";
 import type { CreativeAsset } from "./types";
 
-const ORIENTATIONS = ["landscape", "portrait", "square"] as const;
 const ASPECT_RATIOS = ["1:1", "16:9", "9:16"] as const;
 const SEEDANCE_VIDEO_ASPECT_RATIOS = [
 	"16:9",
@@ -70,7 +68,6 @@ const IMAGE_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as const;
 // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 const ZERO_CREATIVE_MEDIA_TIME = 0 as MediaTime;
 
-type Orientation = (typeof ORIENTATIONS)[number];
 type AspectRatio = (typeof ASPECT_RATIOS)[number];
 type SeedanceVideoAspectRatio = (typeof SEEDANCE_VIDEO_ASPECT_RATIOS)[number];
 type SeedanceVideoDuration = (typeof SEEDANCE_VIDEO_DURATIONS)[number];
@@ -166,10 +163,6 @@ async function defaultProcessMediaAssetsFn(args: {
 	return processMediaAssets(args);
 }
 
-function isOrientation(value: string): value is Orientation {
-	return ORIENTATIONS.some((item) => item === value);
-}
-
 function isAspectRatio(value: string): value is AspectRatio {
 	return ASPECT_RATIOS.some((item) => item === value);
 }
@@ -218,19 +211,6 @@ function requirePositiveInteger({
 			max === undefined
 				? `类型不匹配："${key}" 必须为大于等于 1 的整数`
 				: `类型不匹配："${key}" 必须为 1 到 ${max} 的整数`,
-		);
-	}
-	return value;
-}
-
-function optionalOrientationParam(
-	params: Record<string, unknown>,
-): Orientation | undefined {
-	const value = optionalStringParam(params, "orientation");
-	if (value === undefined) return undefined;
-	if (!isOrientation(value)) {
-		throw new Error(
-			`类型不匹配："orientation" 必须为以下之一：${ORIENTATIONS.join(", ")}`,
 		);
 	}
 	return value;
@@ -2254,58 +2234,6 @@ export function buildCreativeTools({
 		generateShotlyxMGComponentFn: deps?.generateShotlyxMGComponentFn,
 	};
 	return [
-		{
-			name: "creative_search_video",
-			description: "搜索 mock 视频素材，返回候选资源，不修改项目状态",
-			parameters: {
-				query: {
-					type: "string",
-					description: "搜索关键词",
-				},
-				orientation: {
-					type: "string",
-					description: "画幅方向：landscape、portrait、square",
-					optional: true,
-				},
-				durationSeconds: {
-					type: "number",
-					description: "最大时长秒数",
-					optional: true,
-				},
-				count: {
-					type: "number",
-					description: "返回数量，默认 5，最大 10",
-					optional: true,
-				},
-			},
-			handler: (params) => {
-				const query = requireStringParam(params, "query");
-				const orientation = optionalOrientationParam(params);
-				const durationSeconds = optionalNumberParam(params, "durationSeconds");
-				const countValue = optionalNumberParam(params, "count");
-				const count =
-					countValue === undefined
-						? undefined
-						: requirePositiveInteger({
-								value: countValue,
-								key: "count",
-								max: 10,
-							});
-				const result = searchMockVideos({
-					query,
-					orientation,
-					durationSeconds,
-					count,
-				});
-
-				return {
-					candidates: result.candidates.map((candidate) => {
-						const { id: _id, ...input } = candidate;
-						return registerCreativeAsset(input);
-					}),
-				};
-			},
-		},
 		{
 			name: "creative_generate_image",
 			description:

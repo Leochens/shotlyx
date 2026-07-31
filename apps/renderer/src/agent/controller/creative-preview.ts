@@ -1,7 +1,6 @@
 import type { AgentStep } from "./types";
 
 const PREVIEW_SAFE_TOOLS = [
-	"creative_search_video",
 	"stock_search_media",
 	"creative_generate_image",
 	"silence_analyze_timeline",
@@ -16,11 +15,7 @@ export function isPreviewSafeCreativeTool(toolName: string): boolean {
 	return isPreviewSafeTool(toolName);
 }
 
-export function splitPreviewSafeSteps({
-	steps,
-}: {
-	steps: AgentStep[];
-}): {
+export function splitPreviewSafeSteps({ steps }: { steps: AgentStep[] }): {
 	previewSteps: AgentStep[];
 	remainingSteps: AgentStep[];
 } {

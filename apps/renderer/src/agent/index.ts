@@ -1,6 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2026 GuanTou Lab and Shotlyx contributors
- * SPDX-License-Identifier: AGPL-3.0-only
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 export { MCPServer } from "./mcp/server";

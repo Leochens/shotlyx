@@ -9,18 +9,19 @@
 	"main": "main.cjs",
 	"scripts": {
 		"clean:cache": "node scripts/clean-render-cache.mjs",
+		"test:ffmpeg": "node --test scripts/verify-ffmpeg.test.mjs",
+		"verify:ffmpeg": "node scripts/verify-ffmpeg.mjs",
 		"dev": "node scripts/dev.mjs",
 		"dev:safe": "SHOTLYX_DISABLE_HARDWARE_ACCELERATION=1 node scripts/dev.mjs",
 		"start": "node scripts/start.mjs",
 		"start:safe": "SHOTLYX_DISABLE_HARDWARE_ACCELERATION=1 node scripts/start.mjs",
 		"build": "node scripts/build.mjs",
-		"pack": "bun run build && electron-builder --dir",
-		"pack:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
+		"pack": "bun run verify:ffmpeg && bun run build && electron-builder --dir",
+		"pack:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false bun run verify:ffmpeg && bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
 		"dist": "bun run dist:mac",
-		"dist:all": "bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --arm64 --publish never && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis zip --x64 --publish never",
-		"dist:mac": "CSC_IDENTITY_AUTO_DISCOVERY=false bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --arm64 --publish never",
+		"dist:mac": "CSC_IDENTITY_AUTO_DISCOVERY=false node scripts/verify-ffmpeg.mjs --platform=darwin --arch=arm64 --require-provenance && bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --arm64 --publish never",
 		"dist:mac:unsigned": "bun run dist:mac",
-		"dist:win": "CSC_IDENTITY_AUTO_DISCOVERY=false bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis zip --x64 --publish never"
+		"dist:win": "CSC_IDENTITY_AUTO_DISCOVERY=false node scripts/verify-ffmpeg.mjs --platform=win32 --arch=x64 --require-provenance && bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis zip --x64 --publish never"
 	},
 	"devDependencies": {
 		"electron": "^42.2.0",

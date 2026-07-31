@@ -47,7 +47,7 @@ describe("MG job chat records", () => {
 						},
 					},
 					{
-						tool: "creative_search_video",
+						tool: "stock_search_media",
 						params: {},
 						result: { status: "success", data: { jobId: "not-mg" } },
 					},

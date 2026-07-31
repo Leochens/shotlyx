@@ -12,9 +12,9 @@ Describe the bug clearly.
 
 ## Steps To Reproduce
 
-1. 
-2. 
-3. 
+1.
+2.
+3.
 
 ## Expected Behavior
 
@@ -27,7 +27,8 @@ What happened instead?
 ## Environment
 
 - OS:
-- Browser:
+- Shotlyx version:
+- CPU architecture:
 - Bun version:
 - Node version, if relevant:
 - Rust version, if relevant:

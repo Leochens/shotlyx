@@ -1161,7 +1161,7 @@ export async function POST(request: ApiRequest) {
 								{
 									role: "user",
 									content:
-										"以下预览/分析步骤已经执行完成。素材候选会由 UI 以资源卡片展示；静音分析结果会提供 planId；粗剪审核单会由 UI 弹窗展示。请基于这些真实结果生成下一步计划，不要用 Markdown 复述候选列表，不要粘贴候选链接，也不要再次调用 creative_search_video、stock_search_media、creative_generate_image、silence_analyze_timeline 或 rough_cut_create_review。" +
+										"以下预览/分析步骤已经执行完成。素材候选会由 UI 以资源卡片展示；静音分析结果会提供 planId；粗剪审核单会由 UI 弹窗展示。请基于这些真实结果生成下一步计划，不要用 Markdown 复述候选列表，不要粘贴候选链接，也不要再次调用 stock_search_media、creative_generate_image、silence_analyze_timeline 或 rough_cut_create_review。" +
 										(hasStockPreview
 											? " 如果只是展示 stock_search_media 候选，不要生成 stock_import_media 计划；导入交给卡片底部的导入到资源库按钮。"
 											: " 只包含需要用户确认后执行的修改步骤。") +
