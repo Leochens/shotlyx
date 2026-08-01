@@ -9,6 +9,7 @@
 	"main": "main.cjs",
 	"scripts": {
 		"clean:cache": "node scripts/clean-render-cache.mjs",
+		"prepare:ffmpeg:mac": "node scripts/prepare-macos-ffmpeg.mjs",
 		"test:ffmpeg": "node --test scripts/verify-ffmpeg.test.mjs",
 		"verify:ffmpeg": "node scripts/verify-ffmpeg.mjs",
 		"dev": "node scripts/dev.mjs",
