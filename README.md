@@ -17,6 +17,32 @@ or a Shotlyx backend.
 > **Alpha:** the current release line is `v0.1.0-alpha.1`. Project compatibility,
 > packaging, and advanced AI workflows may still change.
 
+## Product preview
+
+<p align="center">
+  <img src="docs/assets/readme/agent-assisted-editor.png" alt="Shotlyx Agent-assisted editor with media library, video preview, property panel, and multitrack timeline" />
+  <br />
+  <sub><strong>Agent-assisted editing</strong> — create narration, subtitles, stock-media edits, and editable motion graphics in one workspace.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/readme/professional-timeline.png" alt="Shotlyx professional multitrack timeline for a long-form technical video" />
+  <br />
+  <sub><strong>Professional timeline</strong> — refine long-form videos with layered footage, subtitles, voice clips, and music.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/readme/topic-workbench.png" alt="Shotlyx topic workbench with version history and a structured production workflow" />
+  <br />
+  <sub><strong>Topic workbench</strong> — move from source material and research to a reviewable topic package.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/readme/production-structure.png" alt="Shotlyx production structure view with research cards and a step-by-step video outline" />
+  <br />
+  <sub><strong>Production structure</strong> — turn research into a reusable, step-by-step video plan.</sub>
+</p>
+
 ## What works offline
 
 - Timeline editing, preview, local import, text, subtitles, masks, effects,

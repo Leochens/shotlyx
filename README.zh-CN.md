@@ -12,6 +12,32 @@ Shotlyx 是桌面应用，不是托管服务。剪辑、项目存储、本地媒
 
 > **Alpha：** 当前版本线为 `v0.1.0-alpha.1`。项目兼容性、打包方式和高级 AI 工作流仍可能调整。
 
+## 产品预览
+
+<p align="center">
+  <img src="docs/assets/readme/agent-assisted-editor.png" alt="Shotlyx Agent 辅助编辑界面，包含素材库、视频预览、属性面板和多轨时间线" />
+  <br />
+  <sub><strong>Agent 辅助创作</strong>——在同一个工作区完成配音、字幕、素材剪辑和可编辑动态图形。</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/readme/professional-timeline.png" alt="Shotlyx 用于技术长视频制作的专业多轨时间线" />
+  <br />
+  <sub><strong>专业时间线</strong>——通过多层视频、字幕、语音片段与音乐精细处理长视频。</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/readme/topic-workbench.png" alt="Shotlyx 选题工作台，包含版本管理和结构化制作流程" />
+  <br />
+  <sub><strong>选题工作台</strong>——从素材和调研逐步形成可审查、可复用的完整选题包。</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/readme/production-structure.png" alt="Shotlyx 制作结构界面，包含调研卡片和分步骤视频大纲" />
+  <br />
+  <sub><strong>制作结构</strong>——把调研结果整理为可复用、可执行的分步骤视频方案。</sub>
+</p>
+
 ## 无需联网即可使用
 
 - 时间线剪辑、预览、本地导入、文字、字幕、蒙版、特效、关键帧、音频工具与导出。
