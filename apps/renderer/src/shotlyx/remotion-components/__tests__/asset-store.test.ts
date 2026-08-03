@@ -76,6 +76,37 @@ describe("Shotlyx Remotion component asset store", () => {
 			"shotlyx-remotion-component-v1",
 		);
 		expect(second.get({ id: asset.id })).toBeNull();
+		if (asset.runtime !== "shotlyx-remotion-component-v1") {
+			throw new Error("Expected Remotion asset");
+		}
+		expect(asset.shortId).toMatch(/^MG-[A-Z0-9]{5}$/);
+		expect(asset.revision).toBe(1);
+	});
+
+	test("keeps the short id stable and records document revisions", () => {
+		const store = createShotlyxMGAssetStore();
+		const first = store.register({
+			id: "stable-mg-id",
+			document: buildAsset().document,
+			sourcePrompt: "做一个打字机标题",
+		});
+		if (first.runtime !== "shotlyx-remotion-component-v1") {
+			throw new Error("Expected Remotion asset");
+		}
+		const second = store.upsert({
+			...first,
+			document: {
+				...first.document,
+				defaultProps: { ...first.document.defaultProps, title: "第二版" },
+			},
+		});
+		if (second.runtime !== "shotlyx-remotion-component-v1") {
+			throw new Error("Expected Remotion asset");
+		}
+
+		expect(second.shortId).toBe(first.shortId);
+		expect(second.revision).toBe(2);
+		expect(second.revisions?.map((revision) => revision.revision)).toEqual([1]);
 	});
 
 	test("updates only declared editable props", () => {

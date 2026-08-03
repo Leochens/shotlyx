@@ -473,6 +473,7 @@ describe("buildCreativeTools", () => {
 				prompt: "生成中国人口近十年变化折线图 MG",
 				durationSeconds: 6,
 				aspectRatio: "16:9",
+				insertToTimeline: true,
 			}),
 		);
 
@@ -586,6 +587,7 @@ describe("buildCreativeTools", () => {
 			prompt: "生成第二个 MG",
 			durationSeconds: 4,
 			aspectRatio: "16:9",
+			insertToTimeline: true,
 		});
 
 		expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
@@ -683,6 +685,7 @@ describe("buildCreativeTools", () => {
 			prompt: "生成种子发芽 MG",
 			durationSeconds: 2,
 			aspectRatio: "16:9",
+			insertToTimeline: true,
 		});
 
 		expect(insertElement.mock.calls[0]?.[0]).toMatchObject({
@@ -796,6 +799,7 @@ describe("buildCreativeTools", () => {
 					prompt: "生成后端 route MG",
 					durationSeconds: 5,
 					aspectRatio: "16:9",
+					insertToTimeline: true,
 				},
 				{
 					onProgress: (event) => {
@@ -935,6 +939,7 @@ describe("buildCreativeTools", () => {
 				prompt: "生成 barrier MG",
 				durationSeconds: 5,
 				aspectRatio: "16:9",
+				insertToTimeline: true,
 			}),
 		).then((result) => {
 			handlerResolved = true;
@@ -1313,6 +1318,7 @@ describe("buildCreativeTools", () => {
 			prompt: "生成可重连 MG",
 			durationSeconds: 5,
 			aspectRatio: "16:9",
+			insertToTimeline: true,
 		});
 
 		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(2);
@@ -1387,6 +1393,7 @@ describe("buildCreativeTools", () => {
 				prompt: "生成后端 route MG",
 				durationSeconds: 5,
 				aspectRatio: "16:9",
+				insertToTimeline: true,
 			}),
 		);
 
@@ -1444,6 +1451,7 @@ describe("buildCreativeTools", () => {
 			prompt: "生成一个近十年来中国人口变化的折线图",
 			durationSeconds: 5,
 			aspectRatio: "16:9",
+			componentCount: 4,
 			insertToTimeline: false,
 		});
 

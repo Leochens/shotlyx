@@ -3,7 +3,7 @@ export const SMART_MG_COMPOSITION_TEMPLATE_LABEL = "智能组合";
 export const SMART_MG_COMPOSITION_STYLE_GUIDE =
 	"Remotion 视频图形包装风格。根据用户需求自行设计每个片段的视觉意图、构图、运动机制和信息层级；避免网页卡片感，优先强主体、强对比、可读信息、细节克制和持续动效。";
 
-export const DEFAULT_MG_COMPOSITION_COMPONENT_COUNT = 4;
+export const DEFAULT_MG_COMPOSITION_COMPONENT_COUNT = 1;
 
 const SHORT_BEAT_RULE =
 	"短促局部强调、轨迹、脉冲或关键词打点可以自动缩短到 1-2s。";

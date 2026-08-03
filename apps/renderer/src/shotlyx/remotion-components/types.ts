@@ -11,6 +11,103 @@ export type ShotlyxMGRuntime =
 	| ShotlyxHyperFramesRuntime;
 
 export type ShotlyxMGAspectRatio = "16:9" | "9:16" | "1:1";
+export type ShotlyxMGPreferenceSource = "locked" | "derived" | "auto";
+export type ShotlyxMGContentKind =
+	| "title"
+	| "metric"
+	| "chart"
+	| "process"
+	| "comparison"
+	| "callout"
+	| "effect"
+	| "general";
+
+export interface ShotlyxMGVisualDNA {
+	version: 1;
+	summary: string;
+	fingerprint: string;
+	contentKind: ShotlyxMGContentKind;
+	sources: {
+		colors: ShotlyxMGPreferenceSource;
+		typography: ShotlyxMGPreferenceSource;
+		layout: ShotlyxMGPreferenceSource;
+		motion: ShotlyxMGPreferenceSource;
+	};
+	composition: {
+		focusX: number;
+		focusY: number;
+		asymmetry: number;
+		density: number;
+		safeMargin: number;
+		decorationBudget: number;
+	};
+	colors: {
+		primary: string;
+		secondary: string;
+		foreground: string;
+		background: string;
+		userLocked: string[];
+	};
+	typography: {
+		fontFamilies: string[];
+		contrast: number;
+		maxLines: number;
+		maxTextWidth: number;
+	};
+	motion: {
+		energy: number;
+		elasticity: number;
+		continuity: number;
+		entryShare: number;
+		holdShare: number;
+		exitShare: number;
+		loop: boolean;
+	};
+	depth: {
+		texture: number;
+		shadow: number;
+		glow: number;
+	};
+}
+
+export interface ShotlyxMGMotionSpecElement {
+	id: string;
+	role: "hero" | "support" | "label" | "data" | "decoration";
+	contentSource: "user" | "derived" | "none";
+	priority: number;
+	maxLines?: number;
+	maxWidth?: number;
+}
+
+export interface ShotlyxMGMotionSpec {
+	version: 1;
+	textPolicy: "required" | "optional" | "forbidden";
+	readingOrder: string[];
+	elements: ShotlyxMGMotionSpecElement[];
+	beats: Array<{
+		id: string;
+		label: string;
+		start: number;
+		end: number;
+	}>;
+	constraints: string[];
+}
+
+export interface ShotlyxMGQualityIssue {
+	code: string;
+	severity: "error" | "warning";
+	message: string;
+}
+
+export interface ShotlyxMGQualityReport {
+	status: "passed" | "needs-attention";
+	reviewLevel: "local" | "vision";
+	checkedFrames: number[];
+	visibleTextProps: string[];
+	issues: ShotlyxMGQualityIssue[];
+	checkedAt: string;
+	visionSummary?: string;
+}
 export type ShotlyxHyperFramesTemplateId =
 	| "swiss-pulse-explainer"
 	| "kinetic-launch-type"
@@ -91,6 +188,9 @@ export interface ShotlyxRemotionComponentDocument {
 	thumbnailFrame?: number;
 	thumbnailUrl?: string;
 	manifest?: ShotlyxRemotionComponentManifest;
+	visualDNA?: ShotlyxMGVisualDNA;
+	motionSpec?: ShotlyxMGMotionSpec;
+	quality?: ShotlyxMGQualityReport;
 }
 
 export interface ShotlyxHyperFramesRenderSnapshot {
@@ -136,6 +236,16 @@ export interface ShotlyxRemotionMGAsset {
 	sourcePrompt: string;
 	createdAt: string;
 	updatedAt: string;
+	shortId?: string;
+	revision?: number;
+	status?: "ready" | "needs-attention";
+	sequenceId?: string;
+	revisions?: Array<{
+		revision: number;
+		name: string;
+		document: ShotlyxRemotionComponentDocument;
+		createdAt: string;
+	}>;
 }
 
 export interface ShotlyxHyperFramesAsset {

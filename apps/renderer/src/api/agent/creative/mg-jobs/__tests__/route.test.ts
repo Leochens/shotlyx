@@ -81,15 +81,13 @@ function isShotlyxMGJobEvent(value: unknown): value is ShotlyxMGJobEvent {
 	);
 }
 
-async function readSSEJobEvents(response: Response): Promise<ShotlyxMGJobEvent[]> {
+async function readSSEJobEvents(
+	response: Response,
+): Promise<ShotlyxMGJobEvent[]> {
 	const text = await response.text();
 	return text
 		.split("\n\n")
-		.map((block) =>
-			block
-				.split("\n")
-				.find((line) => line.startsWith("data: ")),
-		)
+		.map((block) => block.split("\n").find((line) => line.startsWith("data: ")))
 		.filter((line): line is string => typeof line === "string")
 		.map((line) => {
 			const parsed: unknown = JSON.parse(line.slice("data: ".length));
@@ -228,9 +226,9 @@ describe("Shotlyx MG job routes", () => {
 		expect(
 			events.some((event) => event.label === "已加载 Remotion Skill"),
 		).toBe(true);
-		expect(
-			events.some((event) => event.label === "已规划 MG Director 分镜"),
-		).toBe(true);
+		expect(events.some((event) => event.label === "设计布局与 VisualDNA")).toBe(
+			true,
+		);
 		expect(
 			events.some((event) => event.detail?.includes("remotion-dev/skills")),
 		).toBe(true);
@@ -396,8 +394,8 @@ describe("Shotlyx MG job routes", () => {
 		expect(calls[0]?.prompt).toContain("像高质量视频图形包装");
 	});
 
-	test("MG composition jobs repair custom code output with specific guidance", async () => {
-		const calls: Array<{ prompt: string }> = [];
+	test("MG jobs delegate at most two targeted repairs to the component generator", async () => {
+		const calls: Array<{ prompt: string; repairAttempts?: number }> = [];
 		const events: Array<{ label?: string; type?: string }> = [];
 		const { jobId } = createShotlyxMGJob({
 			input: {
@@ -407,12 +405,10 @@ describe("Shotlyx MG job routes", () => {
 				componentCount: 1,
 			},
 			generateDocumentFn: async (args) => {
-				calls.push({ prompt: args.prompt });
-				if (calls.length === 1) {
-					throw new Error(
-						"Transform failed: Expected expression but found return",
-					);
-				}
+				calls.push({
+					prompt: args.prompt,
+					repairAttempts: args.repairAttempts,
+				});
 				return shotlyxBattleCardFixture;
 			},
 		});
@@ -428,18 +424,19 @@ describe("Shotlyx MG job routes", () => {
 		});
 		unsubscribe();
 
-		expect(calls).toHaveLength(2);
-		expect(calls[1]?.prompt).toBe(calls[0]?.prompt);
-		expect(calls[1]?.prompt).toContain("生成一个标题展示 MG");
-		expect(
-			events.some((event) => event.label?.includes("正在修复具体错误")),
-		).toBe(true);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.prompt).toContain("生成一个标题展示 MG");
+		expect(calls[0]?.repairAttempts).toBeGreaterThanOrEqual(1);
+		expect(calls[0]?.repairAttempts).toBeLessThanOrEqual(2);
 	});
 
 	test("MG composition jobs do not auto-template pure visual effects", async () => {
 		const calls: Array<{ prompt: string }> = [];
-		const events: Array<{ label?: string; type?: string; documents?: unknown[] }> =
-			[];
+		const events: Array<{
+			label?: string;
+			type?: string;
+			documents?: unknown[];
+		}> = [];
 		const { jobId } = createShotlyxMGJob({
 			input: {
 				prompt: "生成一个数据雨和星星爆炸的纯视觉粒子 MG 动画，不出现文字",
@@ -479,8 +476,11 @@ describe("Shotlyx MG job routes", () => {
 
 	test("MG composition jobs generate star explosions through the custom generator", async () => {
 		const calls: Array<{ prompt: string }> = [];
-		const events: Array<{ label?: string; type?: string; documents?: unknown[] }> =
-			[];
+		const events: Array<{
+			label?: string;
+			type?: string;
+			documents?: unknown[];
+		}> = [];
 		const { jobId } = createShotlyxMGJob({
 			input: {
 				prompt: "生成一个星星爆炸的 MG 特效动画，纯视觉，不出现文字，透明背景",
@@ -581,41 +581,47 @@ describe("Shotlyx MG job routes", () => {
 		"生成一个复杂产品发布 MG 动画，镜头推进、空间轨迹、闪光登场，不要标题文字",
 		"介绍 AI Agent 运行原理，包含感知、思考、行动、工具调用和记忆",
 		"Stable Diffusion 风格的星光粒子动画，透明背景，不出现文字",
-	])("MG composition jobs keep low-confidence auto requests custom: %s", async (prompt) => {
-		const calls: Array<{ prompt: string }> = [];
-		const events = await runCompletedMGJob({
-			input: {
-				prompt,
-				durationSeconds: 5,
-				aspectRatio: "16:9",
-				componentCount: 3,
-				styleGuide: SMART_MG_COMPOSITION_STYLE_GUIDE,
-				templateMode: "auto",
-			},
-			generateDocumentFn: async (args) => {
-				calls.push({ prompt: args.prompt });
-				return {
-					...shotlyxBattleCardFixture,
-					name: `自定义 MG ${calls.length}`,
-				};
-			},
-		});
+	])(
+		"MG composition jobs keep low-confidence auto requests custom: %s",
+		async (prompt) => {
+			const calls: Array<{ prompt: string }> = [];
+			const events = await runCompletedMGJob({
+				input: {
+					prompt,
+					durationSeconds: 5,
+					aspectRatio: "16:9",
+					componentCount: 3,
+					styleGuide: SMART_MG_COMPOSITION_STYLE_GUIDE,
+					templateMode: "auto",
+				},
+				generateDocumentFn: async (args) => {
+					calls.push({ prompt: args.prompt });
+					return {
+						...shotlyxBattleCardFixture,
+						name: `自定义 MG ${calls.length}`,
+					};
+				},
+			});
 
-		expect(calls).toHaveLength(3);
-		expect(getCompletedDocumentNames({ events })).toEqual([
-			"自定义 MG 1",
-			"自定义 MG 2",
-			"自定义 MG 3",
-		]);
-		expect(
-			events.some((event) => event.label?.includes("使用内置 MG 模板")),
-		).toBe(false);
-	});
+			expect(calls).toHaveLength(3);
+			expect(getCompletedDocumentNames({ events })).toEqual([
+				"自定义 MG 1",
+				"自定义 MG 2",
+				"自定义 MG 3",
+			]);
+			expect(
+				events.some((event) => event.label?.includes("使用内置 MG 模板")),
+			).toBe(false);
+		},
+	);
 
 	test("MG composition jobs can use builtin templates without calling the model generator", async () => {
 		const calls: Array<{ prompt: string }> = [];
-		const events: Array<{ label?: string; type?: string; documents?: unknown[] }> =
-			[];
+		const events: Array<{
+			label?: string;
+			type?: string;
+			documents?: unknown[];
+		}> = [];
 		const { jobId } = createShotlyxMGJob({
 			input: {
 				prompt: "生成一个数据展示 MG，标题是 从 Vibe 到 Harness，突出 2026",
@@ -652,8 +658,11 @@ describe("Shotlyx MG job routes", () => {
 
 	test("MG composition jobs ignore accidental templateId unless mode is force", async () => {
 		const calls: Array<{ prompt: string }> = [];
-		const events: Array<{ label?: string; type?: string; documents?: unknown[] }> =
-			[];
+		const events: Array<{
+			label?: string;
+			type?: string;
+			documents?: unknown[];
+		}> = [];
 		const { jobId } = createShotlyxMGJob({
 			input: {
 				prompt: "生成标题大字展示，标题是 从 Vibe 到 Harness",

@@ -15,9 +15,14 @@ import {
 	useVideoConfig,
 } from "remotion";
 import type { ShotlyxRemotionMGAsset } from "../types";
+import {
+	createShotlyxMotionPrimitives,
+	type ShotlyxMotionPrimitives,
+} from "../motion-primitives";
 
 type RemotionRuntime = {
 	React: typeof import("react");
+	ShotlyxMotion: ShotlyxMotionPrimitives;
 	Remotion: {
 		AbsoluteFill: typeof AbsoluteFill;
 		Sequence: typeof Sequence;
@@ -57,6 +62,11 @@ function withRemotionBareBindings({ moduleSource }: { moduleSource: string }) {
 			"const Remotion = globalThis.__SHOTLYX_REMOTION_RUNTIME__.Remotion;",
 		);
 	}
+	if (!/\b(?:const|let|var)\s+ShotlyxMotion\b/.test(moduleSource)) {
+		prelude.push(
+			"const ShotlyxMotion = globalThis.__SHOTLYX_REMOTION_RUNTIME__.ShotlyxMotion;",
+		);
+	}
 	if (!/\b(?:const|let|var)\s*\{[^}]*\}\s*=\s*Remotion\b/.test(moduleSource)) {
 		prelude.push(
 			"const { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video } = Remotion;",
@@ -93,6 +103,7 @@ function useCompiledRemotionComponent({
 			const ReactRuntime = await loadReactRuntime();
 			globalThis.__SHOTLYX_REMOTION_RUNTIME__ = {
 				React: ReactRuntime,
+				ShotlyxMotion: createShotlyxMotionPrimitives(),
 				Remotion: {
 					AbsoluteFill,
 					Sequence,

@@ -11,7 +11,7 @@ const requestSchema = z.object({
 	aspectRatio: z.enum(["16:9", "9:16", "1:1"]).optional(),
 	styleGuide: z.string().optional(),
 	transparentBackground: z.boolean().optional(),
-	repairAttempts: z.number().int().min(0).max(3).optional(),
+	repairAttempts: z.number().int().min(0).max(2).optional(),
 	maxOutputTokens: z.number().int().min(512).max(12_000).optional(),
 });
 

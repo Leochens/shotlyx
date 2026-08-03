@@ -2,6 +2,7 @@ import type { EditorCore } from "@/core";
 import {
 	hydrateShotlyxMGAsset,
 	hydrateShotlyxMGAssets,
+	normalizeShotlyxMGAsset,
 	type ShotlyxMGAsset,
 } from "@/shotlyx/remotion-components/asset-store";
 import { isShotlyxHyperFramesAsset } from "@/shotlyx/remotion-components/types";
@@ -891,25 +892,29 @@ export class ProjectManager {
 		if (!this.active) return;
 		const existing = this.active.shotlyxMGAssets ?? [];
 		const now = new Date().toISOString();
-		const nextAsset: ShotlyxMGAsset = isShotlyxHyperFramesAsset(asset)
+		const normalizedInput = normalizeShotlyxMGAsset({
+			asset,
+			previous: existing.find((item) => item.id === asset.id),
+		});
+		const nextAsset: ShotlyxMGAsset = isShotlyxHyperFramesAsset(normalizedInput)
 			? {
-					...asset,
-					name: asset.name.trim() || asset.document.name,
-					createdAt: asset.createdAt || now,
+					...normalizedInput,
+					name: normalizedInput.name.trim() || normalizedInput.document.name,
+					createdAt: normalizedInput.createdAt || now,
 					updatedAt: now,
 					document: {
-						...asset.document,
-						name: asset.document.name.trim() || asset.name,
+						...normalizedInput.document,
+						name: normalizedInput.document.name.trim() || normalizedInput.name,
 					},
 				}
 			: {
-					...asset,
-					name: asset.name.trim() || asset.document.name,
-					createdAt: asset.createdAt || now,
+					...normalizedInput,
+					name: normalizedInput.name.trim() || normalizedInput.document.name,
+					createdAt: normalizedInput.createdAt || now,
 					updatedAt: now,
 					document: {
-						...asset.document,
-						name: asset.document.name.trim() || asset.name,
+						...normalizedInput.document,
+						name: normalizedInput.document.name.trim() || normalizedInput.name,
 					},
 				};
 		const hasExisting = existing.some((item) => item.id === asset.id);

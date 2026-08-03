@@ -7,6 +7,23 @@ import {
 import type { ChatMessage } from "@/agent/chat/types";
 
 describe("MessageItem", () => {
+	test("renders only user-facing content when a hidden request prompt exists", () => {
+		const message: ChatMessage = {
+			id: "mg-user-request",
+			role: "user",
+			content: "帮我生成一段中国人口近十年变化的 MG 动画",
+			requestContent:
+				'内部参数：{"durationSeconds":5} 请调用 shotlyx_generate_mg_component',
+			timestamp: 0,
+		};
+
+		const html = renderToStaticMarkup(<MessageItem message={message} />);
+
+		expect(html).toContain("中国人口近十年变化");
+		expect(html).not.toContain("durationSeconds");
+		expect(html).not.toContain("shotlyx_generate_mg_component");
+	});
+
 	test("uses render keys that remain unique for duplicate action ids", () => {
 		expect(
 			[{ id: "option-b-roll" }, { id: "option-b-roll" }].map((action, index) =>

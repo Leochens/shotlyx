@@ -38,9 +38,13 @@ import {
 	removeShotlyxMGTableRow,
 	updateShotlyxMGTableCell,
 } from "../table-props";
-import { isShotlyxHyperFramesAsset } from "../types";
+import {
+	SHOTLYX_REMOTION_COMPONENT_RUNTIME,
+	isShotlyxHyperFramesAsset,
+} from "../types";
 import type {
 	ShotlyxMGAsset,
+	ShotlyxMGDocument,
 	ShotlyxMGPropDefinition,
 	ShotlyxMGPropValue,
 } from "../types";
@@ -92,6 +96,9 @@ export function ShotlyxMGAssetDialog({
 	const [durationSeconds, setDurationSeconds] = useState(
 		asset.document.durationSeconds,
 	);
+	const [revisionDocument, setRevisionDocument] = useState<ShotlyxMGDocument>(
+		asset.document,
+	);
 	const [props, setProps] = useState<Record<string, ShotlyxMGPropValue>>(
 		() => ({
 			...asset.document.defaultProps,
@@ -113,17 +120,34 @@ export function ShotlyxMGAssetDialog({
 				}),
 			};
 		}
+		const baseDocument =
+			revisionDocument.runtime === SHOTLYX_REMOTION_COMPONENT_RUNTIME
+				? revisionDocument
+				: asset.document;
 		return {
 			...asset,
 			name: name.trim() || asset.name,
 			document: {
-				...asset.document,
-				name: name.trim() || asset.document.name,
+				...baseDocument,
+				name: name.trim() || baseDocument.name,
 				durationSeconds: Math.max(0.1, durationSeconds),
 				defaultProps: props,
 			},
 		};
-	}, [asset, durationSeconds, name, props]);
+	}, [asset, durationSeconds, name, props, revisionDocument]);
+
+	const restoreRevision = ({
+		document,
+		revisionName,
+	}: {
+		document: ShotlyxMGDocument;
+		revisionName: string;
+	}) => {
+		setRevisionDocument(document);
+		setName(revisionName);
+		setDurationSeconds(document.durationSeconds);
+		setProps({ ...document.defaultProps });
+	};
 
 	const setProp = ({
 		key,
@@ -173,11 +197,19 @@ export function ShotlyxMGAssetDialog({
 							</div>
 						</div>
 						<div className="rounded-md border border-neutral-800 bg-neutral-900/70 p-3">
-							<p className="text-xs font-medium text-neutral-300">
-								{isShotlyxHyperFramesAsset(asset)
-									? "Shotlyx Legacy MG Overlay"
-									: "Shotlyx Remotion Component"}
-							</p>
+							<div className="flex items-center justify-between gap-3">
+								<p className="text-xs font-medium text-neutral-300">
+									{isShotlyxHyperFramesAsset(asset)
+										? "Shotlyx Legacy MG Overlay"
+										: "Shotlyx Remotion Component"}
+								</p>
+								{!isShotlyxHyperFramesAsset(asset) ? (
+									<span className="rounded-sm bg-neutral-800 px-2 py-1 text-[11px] text-neutral-300">
+										{asset.shortId ?? asset.id.slice(0, 8)} · v
+										{asset.revision ?? 1}
+									</span>
+								) : null}
+							</div>
 							<p className="mt-1 text-xs text-neutral-500">
 								{asset.document.runtime} · {asset.document.width}x
 								{asset.document.height} · {asset.document.fps}fps
@@ -214,12 +246,85 @@ export function ShotlyxMGAssetDialog({
 							</div>
 						</div>
 
+						{!isShotlyxHyperFramesAsset(asset) && asset.document.visualDNA ? (
+							<div className="rounded-md border border-neutral-800 bg-neutral-900/70 p-3">
+								<p className="text-xs font-medium text-neutral-300">视觉方向</p>
+								<p className="mt-1 text-xs leading-5 text-neutral-400">
+									{asset.document.visualDNA.summary}
+								</p>
+								<div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-neutral-400">
+									<span className="rounded-sm bg-neutral-800 px-2 py-1">
+										颜色{" "}
+										{asset.document.visualDNA.sources.colors === "locked"
+											? "已锁定"
+											: "自动"}
+									</span>
+									<span className="rounded-sm bg-neutral-800 px-2 py-1">
+										字体{" "}
+										{asset.document.visualDNA.sources.typography === "locked"
+											? "已锁定"
+											: "跟随内容"}
+									</span>
+									<span className="rounded-sm bg-neutral-800 px-2 py-1">
+										动感{" "}
+										{Math.round(asset.document.visualDNA.motion.energy * 100)}
+									</span>
+								</div>
+							</div>
+						) : null}
+
+						{!isShotlyxHyperFramesAsset(asset) && asset.document.quality ? (
+							<div className="rounded-md border border-neutral-800 bg-neutral-900/70 p-3">
+								<p className="text-xs font-medium text-neutral-300">
+									{asset.document.quality.status === "passed"
+										? "画面验收通过"
+										: "待调整"}
+									·{" "}
+									{asset.document.quality.reviewLevel === "vision"
+										? "视觉验收"
+										: "基础验收"}
+								</p>
+								{asset.document.quality.issues.length ? (
+									<ul className="mt-1 space-y-1 text-xs text-amber-300/80">
+										{asset.document.quality.issues.slice(0, 3).map((issue) => (
+											<li key={issue.code}>{issue.message}</li>
+										))}
+									</ul>
+								) : null}
+							</div>
+						) : null}
+
+						{!isShotlyxHyperFramesAsset(asset) && asset.revisions?.length ? (
+							<div className="rounded-md border border-neutral-800 bg-neutral-900/70 p-3">
+								<p className="text-xs font-medium text-neutral-300">历史版本</p>
+								<div className="mt-2 flex flex-wrap gap-1.5">
+									{asset.revisions.map((revision) => (
+										<Button
+											key={revision.revision}
+											type="button"
+											variant="outline"
+											size="sm"
+											onClick={() =>
+												restoreRevision({
+													document: revision.document,
+													revisionName: revision.name,
+												})
+											}
+											className="h-7 border-neutral-700 bg-neutral-900 px-2 text-xs"
+										>
+											恢复 v{revision.revision}
+										</Button>
+									))}
+								</div>
+							</div>
+						) : null}
+
 						<div className="flex flex-col gap-3">
 							<h3 className="text-sm font-semibold text-neutral-300">
 								可编辑属性
 							</h3>
 							<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-								{asset.document.propsSchema.map((prop) => (
+								{draftAsset.document.propsSchema.map((prop) => (
 									<ShotlyxMGPropField
 										key={prop.key}
 										prop={prop}

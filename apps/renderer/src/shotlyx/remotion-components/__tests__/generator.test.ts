@@ -314,7 +314,7 @@ export default function ShotlyxComponent(props: Props) {
 			repairAttempts: 0,
 		});
 
-		expect(document.name).toBe("做一个 AI 芯片发布 MG，标题「Neural Core」");
+		expect(document.name).toBe("Neural Core · 标题动效");
 		expect(document.defaultProps.title).toBe("Neural Core");
 		expect(document.propsSchema.map((prop) => prop.key)).toContain(
 			"primaryColor",
@@ -394,9 +394,60 @@ export default function ShotlyxComponent(props: Props) {
 		});
 
 		expect(calls).toBe(2);
-		expect(document.defaultProps.primaryColor).toBe("#22d3ee");
+		expect(document.defaultProps.primaryColor).toMatch(/^#[0-9a-f]{6}$/);
+		expect(document.defaultProps.primaryColor).not.toBe("#22d3ee");
 		expect(document.propsSchema.some((prop) => prop.key === "title")).toBe(
 			false,
 		);
+	});
+
+	test("repairs content MG when editable text is not actually rendered", async () => {
+		let calls = 0;
+		const generateSourceFn = mock(async () => {
+			calls += 1;
+			if (calls === 1) {
+				return `
+export default function ShotlyxComponent(props: Props) {
+	const frame = useCurrentFrame();
+	return <AbsoluteFill style={{ opacity: Math.min(1, frame / 10) }}><div /></AbsoluteFill>;
+}`;
+			}
+			return `
+export default function ShotlyxComponent(props: Props) {
+	const frame = useCurrentFrame();
+	return <AbsoluteFill style={{ opacity: Math.min(1, frame / 10) }}><div>{props.title}</div></AbsoluteFill>;
+}`;
+		});
+
+		const document = await generateShotlyxMGComponentDocument({
+			generateSourceFn,
+			prompt: "标题『实际显示文字』，3 秒",
+			repairAttempts: 1,
+		});
+
+		expect(calls).toBe(2);
+		expect(document.quality?.status).toBe("passed");
+		expect(document.quality?.visibleTextProps).toContain("title");
+	});
+
+	test("keeps user numbers without inventing chart labels", async () => {
+		const document = await generateShotlyxMGComponentDocument({
+			generateSourceFn: async () => `
+export default function ShotlyxComponent(props: Props) {
+	const frame = useCurrentFrame();
+	return <AbsoluteFill style={{ opacity: Math.min(1, frame / 10) }}><div>{props.title}</div></AbsoluteFill>;
+}`,
+			prompt: "季度收入折线图，数据 12、18、27、35，6 秒",
+			repairAttempts: 0,
+		});
+		const items = document.defaultProps.items;
+
+		expect(Array.isArray(items)).toBe(true);
+		expect(items).toEqual([
+			{ label: "", value: "12", note: "" },
+			{ label: "", value: "18", note: "" },
+			{ label: "", value: "27", note: "" },
+			{ label: "", value: "35", note: "" },
+		]);
 	});
 });

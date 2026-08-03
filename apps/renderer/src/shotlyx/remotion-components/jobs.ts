@@ -83,8 +83,8 @@ export type GenerateShotlyxMGJobDocumentFn = (
 ) => Promise<ShotlyxRemotionComponentDocument>;
 
 const DEFAULT_COMPONENT_TIMEOUT_MS = 180_000;
-const DEFAULT_COMPONENT_RETRY_ATTEMPTS = 2;
-const DEFAULT_COMPONENT_REPAIR_ATTEMPTS = 4;
+const DEFAULT_COMPONENT_RETRY_ATTEMPTS = 0;
+const DEFAULT_COMPONENT_REPAIR_ATTEMPTS = 0;
 const DEFAULT_COMPONENT_MAX_OUTPUT_TOKENS = 12_000;
 const DEFAULT_COMPONENT_CONCURRENCY = 5;
 const globalShotlyxMGJobs = globalThis as typeof globalThis & {
@@ -542,7 +542,7 @@ async function generateMGComponentForJob({
 		event: {
 			type: "progress",
 			jobId: job.id,
-			label: `生成第 ${componentIndex + 1}/${componentCount} 个 MG 组件`,
+			label: "生成动画",
 			status: "running",
 			index: componentIndex,
 			total: componentCount,
@@ -614,7 +614,10 @@ async function generateMGComponentForJob({
 						total: componentCount,
 					}),
 					prompt: basePrompt,
-					repairAttempts: Math.max(job.input.repairAttempts ?? 0, 1),
+					repairAttempts: Math.min(
+						2,
+						Math.max(job.input.repairAttempts ?? 0, 1),
+					),
 					maxOutputTokens: Math.max(
 						job.input.maxOutputTokens ?? 0,
 						DEFAULT_COMPONENT_MAX_OUTPUT_TOKENS,
@@ -658,7 +661,7 @@ async function generateMGComponentForJob({
 					type: "progress",
 					jobId: job.id,
 					label: canRepairSpecificError
-						? `第 ${componentIndex + 1}/${componentCount} 个 MG 组件生成失败，正在修复具体错误（第 ${repairRetryCount} 次）`
+						? `优化动画（第 ${repairRetryCount} 次）`
 						: `第 ${componentIndex + 1}/${componentCount} 个 MG 组件生成失败，正在第 ${unclearRetryCount} 次重试`,
 					status: "running",
 					detail: lastErrorMessage,
@@ -683,7 +686,7 @@ async function generateMGComponentForJob({
 		event: {
 			type: "component-complete",
 			jobId: job.id,
-			label: `已生成${document.name}`,
+			label: `检查文字与画面：${document.name}`,
 			status: "success",
 			index: componentIndex,
 			total: componentCount,
@@ -757,7 +760,7 @@ async function runShotlyxMGJob({
 		event: {
 			type: "progress",
 			jobId: job.id,
-			label: "已规划 MG Director 分镜",
+			label: "设计布局与 VisualDNA",
 			status: "success",
 			detail: `${directorPlan.title} · ${directorPlan.components
 				.map((component) => component.label)
@@ -771,7 +774,7 @@ async function runShotlyxMGJob({
 		event: {
 			type: "started",
 			jobId: job.id,
-			label: "MG 子智能体已启动",
+			label: "理解内容",
 			status: "running",
 			index: 0,
 			total: componentCount,
@@ -803,7 +806,7 @@ async function runShotlyxMGJob({
 			event: {
 				type: "completed",
 				jobId: job.id,
-				label: "MG 子智能体已完成",
+				label: "完成",
 				status: "success",
 				index: componentCount,
 				total: componentCount,

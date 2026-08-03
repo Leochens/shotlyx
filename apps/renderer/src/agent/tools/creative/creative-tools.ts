@@ -11,12 +11,16 @@ import {
 	type ShotlyxMGCompositionDirectorPlan,
 } from "@/shotlyx/remotion-components/composition-director";
 import {
-	DEFAULT_MG_COMPOSITION_COMPONENT_COUNT,
 	buildShotlyxMGCompositionGenerationGuidance,
 	resolveMGCompositionStyleGuide,
 } from "@/shotlyx/remotion-components/composition-prompt";
-import { registerShotlyxMGAsset } from "@/shotlyx/remotion-components/asset-store";
+import {
+	getShotlyxMGAsset,
+	hydrateShotlyxMGAsset,
+	registerShotlyxMGAsset,
+} from "@/shotlyx/remotion-components/asset-store";
 import type { GenerateShotlyxMGComponentOptions } from "@/shotlyx/remotion-components/generator";
+import { reviewShotlyxMGWithVision } from "@/shotlyx/remotion-components/visual-review";
 import {
 	SHOTLYX_MG_GRAPHIC_DEFINITION_ID,
 	buildShotlyxMGElementFromAsset,
@@ -2034,6 +2038,60 @@ async function followShotlyxMGJobToCompletion({
 		);
 	}
 	if (terminalEvent.type === "completed") {
+		for (const saved of savedComponents) {
+			const asset = getShotlyxMGAsset({ id: saved.assetId });
+			if (!asset || !isShotlyxRemotionMGAsset(asset)) continue;
+			emitToolProgress({
+				context,
+				stage: "visual-review",
+				label: "检查文字与画面",
+				status: "running",
+				detail: `${asset.shortId ?? asset.id} · 开场 / 主画面 / 保持 / 收束`,
+			});
+			try {
+				const quality = await reviewShotlyxMGWithVision({
+					asset,
+					fetchFn,
+					signal: context?.signal,
+				});
+				if (!quality) {
+					emitToolProgress({
+						context,
+						stage: "visual-review",
+						label: "已完成基础验收",
+						status: "success",
+						detail: "视觉模型不可用，已通过本地文字、代表帧与安全检查。",
+					});
+					continue;
+				}
+				const reviewedAsset = hydrateShotlyxMGAsset({
+					asset: {
+						...asset,
+						status: quality.status === "passed" ? "ready" : "needs-attention",
+						document: { ...asset.document, quality },
+					},
+				});
+				editor.project.upsertShotlyxMGAsset({ asset: reviewedAsset });
+				emitToolProgress({
+					context,
+					stage: "visual-review",
+					label:
+						quality.status === "passed" ? "视觉验收通过" : "已保留待调整版本",
+					status: "success",
+					detail:
+						quality.visionSummary ??
+						quality.issues.map((issue) => issue.message).join("；"),
+				});
+			} catch (error) {
+				emitToolProgress({
+					context,
+					stage: "visual-review",
+					label: "已完成基础验收",
+					status: "success",
+					detail: `视觉检查不可用：${getToolErrorDetail(error)}`,
+				});
+			}
+		}
 		return {
 			status: "completed",
 			documents: completedDocuments,
@@ -2578,7 +2636,7 @@ export function buildCreativeTools({
 		{
 			name: "shotlyx_generate_mg_composition",
 			description:
-				"默认 MG 生成工具。将复杂自定义 MG 拆成多个可编辑 Shotlyx Remotion Component 小组件逐个生成、保存到 Assets，并可叠加插入时间线。用于任意自定义视频图形、视觉特效、数据表达、讲解动画和多层动态图形。",
+				"仅用于用户明确要求 MG 拼接、连续分镜、系列动画或多个独立 MG 的组合工具。普通 MG 请求必须使用 shotlyx_generate_mg_component，只生成一个完整资产。",
 			parameters: {
 				prompt: {
 					type: "string",
@@ -2604,7 +2662,7 @@ export function buildCreativeTools({
 				},
 				componentCount: {
 					type: "number",
-					description: "拆分生成的小组件数量，默认 4。没有固定上限",
+					description: "已由用户确认的独立 MG 数量。未确认数量前不要调用此工具",
 					optional: true,
 				},
 				templateMode: {
@@ -2659,8 +2717,11 @@ export function buildCreativeTools({
 					params,
 					"componentCount",
 				);
+				if (componentCountValue === undefined) {
+					throw new Error("需要先确认 MG 拼接分镜与数量，再调用组合生成工具");
+				}
 				const componentCount = requirePositiveInteger({
-					value: componentCountValue ?? DEFAULT_MG_COMPOSITION_COMPONENT_COUNT,
+					value: componentCountValue,
 					key: "componentCount",
 				});
 				const aspectRatio = optionalAspectRatioParam(params) ?? "16:9";
@@ -2927,7 +2988,7 @@ export function buildCreativeTools({
 		{
 			name: "shotlyx_generate_mg_component",
 			description:
-				"生成任意 Shotlyx Component MG 动画资产，保存到项目 Assets，并可插入时间线。用于自定义 MG、数据可视化、讲解动画、信息图动画，不使用固定模板。",
+				"普通 MG 请求的默认且唯一工具：生成一个完整、可编辑的 Shotlyx Remotion MG 资产。一个资产内部可包含多个节奏段；除非用户明确要求拼接或多个 MG，否则只调用一次。",
 			parameters: {
 				prompt: {
 					type: "string",
@@ -2963,7 +3024,8 @@ export function buildCreativeTools({
 				},
 				insertToTimeline: {
 					type: "boolean",
-					description: "是否自动插入时间线，默认 true",
+					description:
+						"是否自动插入时间线，默认 false；仅用户明确要求时设为 true",
 					optional: true,
 				},
 			},
@@ -2989,7 +3051,7 @@ export function buildCreativeTools({
 				const transparentBackground =
 					optionalBooleanParam(params, "transparentBackground") ?? true;
 				const insertToTimeline =
-					optionalBooleanParam(params, "insertToTimeline") ?? true;
+					optionalBooleanParam(params, "insertToTimeline") ?? false;
 				if (insertToTimeline && !editor.scenes.getActiveSceneOrNull()) {
 					throw new Error("状态错误：未加载场景，无法插入 Shotlyx MG 动画");
 				}

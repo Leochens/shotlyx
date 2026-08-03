@@ -14,6 +14,7 @@ import {
 } from "@/shotlyx/remotion-components/media-props";
 import { isShotlyxRemotionMGAsset } from "@/shotlyx/remotion-components/types";
 import type { ShotlyxRemotionMGAsset } from "@/shotlyx/remotion-components/types";
+import { SHOTLYX_MOTION_RUNTIME_SOURCE } from "@/shotlyx/remotion-components/motion-primitives";
 import { MEDIA_TIME_TICKS_PER_SECOND } from "@/wasm/timebase";
 
 const frameRateSchema = z.object({
@@ -42,7 +43,9 @@ const MAX_FRAME_RENDER_CONCURRENCY = 4;
 
 type RemotionBundlerModule = typeof import("@remotion/bundler");
 type RemotionRendererModule = typeof import("@remotion/renderer");
-type HeadlessBrowser = Awaited<ReturnType<RemotionRendererModule["openBrowser"]>>;
+type HeadlessBrowser = Awaited<
+	ReturnType<RemotionRendererModule["openBrowser"]>
+>;
 
 interface ShotlyxMGBundleCacheEntry {
 	serveUrl: string;
@@ -148,6 +151,7 @@ function buildComponentModule({
 		"globalThis.__SHOTLYX_REMOTION_RUNTIME__ = {",
 		"  React: ReactRuntime,",
 		"  Remotion: RemotionRuntime,",
+		`  ShotlyxMotion: ${SHOTLYX_MOTION_RUNTIME_SOURCE},`,
 		"};",
 		asset.document.compiledModule,
 	].join("\n");
@@ -217,7 +221,9 @@ async function createBundledShotlyxMGComponent({
 	asset: ShotlyxRemotionMGAsset;
 	cacheKey: string;
 }): Promise<ShotlyxMGBundleCacheEntry> {
-	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "shotlyx-mg-bundle-"));
+	const tempDir = await fs.mkdtemp(
+		path.join(os.tmpdir(), "shotlyx-mg-bundle-"),
+	);
 	const entryPoint = path.join(tempDir, "entry.mjs");
 	try {
 		await Promise.all([
@@ -348,7 +354,9 @@ function resolveAnimatedParam({
 			? Reflect.get(channel, "keys")
 			: null;
 	const keys = Array.isArray(rawKeys)
-		? rawKeys.filter(isAnimationKey).sort((left, right) => left.time - right.time)
+		? rawKeys
+				.filter(isAnimationKey)
+				.sort((left, right) => left.time - right.time)
 		: [];
 	if (keys.length === 0) return fallback;
 	const first = keys[0];
@@ -498,7 +506,8 @@ function createRenderEventStream({
 
 			void run(send, abortController.signal)
 				.catch((error) => {
-					const message = error instanceof Error ? error.message : String(error);
+					const message =
+						error instanceof Error ? error.message : String(error);
 					console.error("[shotlyx-mg-export] render stream failed:", error);
 					send({ type: "error", error: message });
 				})

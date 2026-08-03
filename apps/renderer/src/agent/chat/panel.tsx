@@ -53,7 +53,7 @@ import {
 	findSuppressibleDuplicateToolCall,
 } from "./tool-call-dedupe";
 import { formatToolCallForCopy } from "./tool-result-copy";
-import { buildToolResultContext } from "./tool-context";
+import { toAgentRequestMessage } from "./message-transport";
 import { useAppLocale } from "@/i18n/use-app-locale";
 import { processMediaAssets } from "@/media/processing";
 import { showMediaUploadToast } from "@/media/upload-toast";
@@ -1967,6 +1967,7 @@ export function ChatPanel() {
 	const submitPromptRef = useRef<
 		(args: {
 			prompt: string;
+			displayPrompt?: string;
 			references?: AgentContextReference[];
 		}) => Promise<void>
 	>(async () => {});
@@ -2090,17 +2091,7 @@ export function ChatPanel() {
 		].filter((block): block is string => Boolean(block));
 		return contextBlocks.length > 0 ? contextBlocks.join("\n\n") : undefined;
 	}, [activeTopicProject, isTopicBrainstorming, topicScriptTableContext]);
-	const toRequestMessage = (
-		message: Pick<ChatMessage, "role" | "content" | "toolCalls"> & {
-			references?: AgentContextReference[];
-		},
-	) => ({
-		role: message.role,
-		content: `${message.content}${buildToolResultContext({
-			toolCalls: message.toolCalls,
-		})}`,
-		references: message.references,
-	});
+	const toRequestMessage = toAgentRequestMessage;
 
 	useEffect(() => {
 		if (isHydrated && projectId) {
@@ -3099,9 +3090,11 @@ export function ChatPanel() {
 
 	const submitPrompt = async ({
 		prompt,
+		displayPrompt,
 		references = draftReferences,
 	}: {
 		prompt: string;
+		displayPrompt?: string;
 		references?: AgentContextReference[];
 	}) => {
 		const trimmed =
@@ -3110,10 +3103,12 @@ export function ChatPanel() {
 		if (!trimmed || isLoading || !editor || !chatSessionId) return;
 		recordReferencesAsTopicMaterials({ references });
 
-		const userMsg = {
+		const displayContent = displayPrompt?.trim() || trimmed;
+		const userMsg: ChatMessage = {
 			id: `u-${getClientNow()}`,
-			role: "user" as const,
-			content: trimmed,
+			role: "user",
+			content: displayContent,
+			...(displayContent === trimmed ? {} : { requestContent: trimmed }),
 			references,
 			timestamp: getClientNow(),
 		};
@@ -3798,8 +3793,12 @@ export function ChatPanel() {
 					onMediaSubmit={(prompt) => {
 						void submitPrompt({ prompt, references: draftReferences });
 					}}
-					onMGSubmit={(prompt) => {
-						void submitPrompt({ prompt, references: draftReferences });
+					onMGSubmit={({ displayPrompt, requestPrompt }) => {
+						void submitPrompt({
+							prompt: requestPrompt,
+							displayPrompt,
+							references: draftReferences,
+						});
 					}}
 					onStop={handleStop}
 					centered={isFocusedTopicChat}

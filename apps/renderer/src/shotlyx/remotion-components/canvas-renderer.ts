@@ -7,6 +7,10 @@ import {
 	resolveShotlyxMGPlayerBackground,
 } from "./media-props";
 import { isShotlyxRemotionMGAsset, type ShotlyxRemotionMGAsset } from "./types";
+import {
+	createShotlyxMotionPrimitives,
+	type ShotlyxMotionPrimitives,
+} from "./motion-primitives";
 
 interface RemotionCanvasModuleCacheEntry {
 	component: ReactRuntime.ComponentType<Record<string, unknown>>;
@@ -140,6 +144,11 @@ function withRemotionBareBindings({ moduleSource }: { moduleSource: string }) {
 			"const Remotion = globalThis.__SHOTLYX_REMOTION_RUNTIME__.Remotion;",
 		);
 	}
+	if (!/\b(?:const|let|var)\s+ShotlyxMotion\b/.test(moduleSource)) {
+		prelude.push(
+			"const ShotlyxMotion = globalThis.__SHOTLYX_REMOTION_RUNTIME__.ShotlyxMotion;",
+		);
+	}
 	if (!/\b(?:const|let|var)\s*\{[^}]*\}\s*=\s*Remotion\b/.test(moduleSource)) {
 		prelude.push(
 			"const { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video } = Remotion;",
@@ -256,6 +265,7 @@ function StubVideo({ src, style }: { src?: unknown; style?: CSSProperties }) {
 
 type RemotionCanvasRuntime = {
 	React: typeof ReactRuntime;
+	ShotlyxMotion: ShotlyxMotionPrimitives;
 	Remotion: {
 		AbsoluteFill: typeof StubAbsoluteFill;
 		Sequence: typeof StubSequence;
@@ -290,6 +300,7 @@ function buildRemotionCanvasRuntime({
 }): RemotionCanvasRuntime {
 	return {
 		React: ReactRuntime,
+		ShotlyxMotion: createShotlyxMotionPrimitives(),
 		Remotion: {
 			AbsoluteFill: StubAbsoluteFill,
 			Sequence: StubSequence,

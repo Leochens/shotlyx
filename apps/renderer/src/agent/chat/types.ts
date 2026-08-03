@@ -13,6 +13,8 @@ export interface ChatMessage {
 	id: string;
 	role: ChatMessageRole;
 	content: string;
+	/** Hidden model-facing content when the user bubble should stay concise. */
+	requestContent?: string;
 	thought?: string;
 	msgType?: "thinking" | "text" | "tool";
 	clarification?: ClarificationRequest;
@@ -66,9 +68,7 @@ export interface ChatState {
 	getActiveSession: () => ChatSession | null;
 	getActiveMessages: () => ChatMessage[];
 	getSessionMessages: (sessionId: string | null | undefined) => ChatMessage[];
-	getSessionRunState: (
-		sessionId?: string | null,
-	) => ChatSessionRunState;
+	getSessionRunState: (sessionId?: string | null) => ChatSessionRunState;
 	setIsHydrated: (isHydrated: boolean) => void;
 	setActiveProject: (projectId: string) => void;
 	createSession: (name?: string) => void;

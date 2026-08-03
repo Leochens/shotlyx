@@ -15,7 +15,7 @@
 		"lint:fix": "eslint src --ext .ts,.tsx --fix",
 		"format": "prettier src --write",
 		"test:e2e": "playwright test",
-		"test:e2e:desktop": "cross-env SHOTLYX_DESKTOP=1 VITE_SHOTLYX_DESKTOP=1 SHOTLYX_DESKTOP_CONFIG_PATH=/tmp/shotlyx-desktop-e2e-config.json SHOTLYX_DESKTOP_SECRETS_PATH=/tmp/shotlyx-desktop-e2e-secrets.json SHOTLYX_DESKTOP_EXPORT_TEST_PATH=/tmp/shotlyx-desktop-e2e-export.webm SHOTLYX_PROJECTS_ROOT=/tmp/shotlyx-desktop-e2e-projects SHOTLYX_PROJECTS_CONFIG_PATH=/tmp/shotlyx-desktop-e2e-projects-config.json PLAYWRIGHT_PORT=3107 playwright test e2e/specs/desktop-api-settings.spec.ts e2e/specs/desktop-visual.spec.ts e2e/specs/remotion-mg-export.spec.ts",
+		"test:e2e:desktop": "cross-env SHOTLYX_DESKTOP=1 VITE_SHOTLYX_DESKTOP=1 SHOTLYX_DESKTOP_CONFIG_PATH=/tmp/shotlyx-desktop-e2e-config.json SHOTLYX_DESKTOP_SECRETS_PATH=/tmp/shotlyx-desktop-e2e-secrets.json SHOTLYX_DESKTOP_EXPORT_TEST_PATH=/tmp/shotlyx-desktop-e2e-export.webm SHOTLYX_PROJECTS_ROOT=/tmp/shotlyx-desktop-e2e-projects SHOTLYX_PROJECTS_CONFIG_PATH=/tmp/shotlyx-desktop-e2e-projects-config.json PLAYWRIGHT_PORT=3107 playwright test e2e/specs/desktop-api-settings.spec.ts e2e/specs/desktop-visual.spec.ts e2e/specs/mg-generation-evals.spec.ts e2e/specs/remotion-mg-export.spec.ts",
 		"test:e2e:ui": "playwright test --ui"
 	},
 	"dependencies": {

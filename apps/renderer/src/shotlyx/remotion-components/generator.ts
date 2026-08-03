@@ -12,6 +12,16 @@ import { getDefaultModelBundle } from "@/agent/ai-sdk/providers";
 import type { LLMProviderConfig } from "@/agent/llm/types";
 import { generateUUID } from "@/utils/id";
 import { buildRemotionSkillContext } from "./skill-context";
+import { createShotlyxMotionPrimitives } from "./motion-primitives";
+import {
+	buildShotlyxMGGenerationRequest,
+	type ShotlyxMGGenerationRequest,
+} from "./generation-request";
+import {
+	assertShotlyxMGHardQuality,
+	evaluateShotlyxMGLocalQuality,
+	type ShotlyxMGRenderedFrame,
+} from "./quality";
 import {
 	SHOTLYX_REMOTION_COMPONENT_RUNTIME,
 	type ShotlyxMGAspectRatio,
@@ -20,8 +30,15 @@ import {
 	type ShotlyxMGPropValue,
 	type ShotlyxRemotionComponentDocument,
 	type ShotlyxRemotionComponentManifest,
+	type ShotlyxMGMotionSpec,
+	type ShotlyxMGVisualDNA,
 } from "./types";
 import { assertValidShotlyxRemotionComponentAssetDocument } from "./validator";
+import {
+	createShotlyxMGMotionSpec,
+	createShotlyxMGVisualDNA,
+	formatShotlyxMGDesignContract,
+} from "./visual-dna";
 
 const DEFAULT_FPS = 30;
 const DEFAULT_DURATION_SECONDS = 6;
@@ -34,6 +51,7 @@ const SVG_BLOCK_RE = /<svg\b[\s\S]*?<\/svg>/gi;
 const NON_FINITE_RENDER_VALUE_RE = /\b(?:NaN|Infinity|-Infinity)\b/;
 
 let renderValidationQueue: Promise<void> = Promise.resolve();
+const recentVisualFingerprints: string[] = [];
 
 const RUNTIME_REMOTION_BINDING_NAMES = [
 	"AbsoluteFill",
@@ -64,6 +82,7 @@ export interface GenerateShotlyxMGComponentOptions {
 	maxOutputTokens?: number;
 	transparentBackground?: boolean;
 	name?: string;
+	generationRequest?: ShotlyxMGGenerationRequest;
 }
 
 export type GenerateShotlyxMGSourceFn = (options: {
@@ -85,6 +104,8 @@ export interface CreateShotlyxRemotionComponentDocumentOptions {
 	height?: number;
 	thumbnailFrame?: number;
 	transparentBackground?: boolean;
+	visualDNA?: ShotlyxMGVisualDNA;
+	motionSpec?: ShotlyxMGMotionSpec;
 }
 
 function canvasSizeForAspectRatio({
@@ -281,6 +302,7 @@ async function compileRemotionComponentModule({
 	const wrappedSource = [
 		"const React = globalThis.__SHOTLYX_REMOTION_RUNTIME__.React;",
 		"const Remotion = globalThis.__SHOTLYX_REMOTION_RUNTIME__.Remotion;",
+		"const ShotlyxMotion = globalThis.__SHOTLYX_REMOTION_RUNTIME__.ShotlyxMotion;",
 		"const { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video } = Remotion;",
 		stripDefaultExport({ source: normalizedSource }),
 		"export default ShotlyxComponent;",
@@ -394,7 +416,7 @@ async function assertRenderableShotlyxRemotionComponent({
 	document,
 }: {
 	document: ShotlyxRemotionComponentDocument;
-}): Promise<void> {
+}): Promise<ShotlyxMGRenderedFrame[]> {
 	const previousQueue = renderValidationQueue;
 	let releaseValidation = () => {};
 	renderValidationQueue = new Promise((resolve) => {
@@ -410,6 +432,7 @@ async function assertRenderableShotlyxRemotionComponent({
 	const previousConsoleError = console.error;
 	const previousConsoleWarn = console.warn;
 	const renderWarnings: string[] = [];
+	const renderedFrames: ShotlyxMGRenderedFrame[] = [];
 	const captureConsoleMessage = (args: unknown[]) => {
 		const message = args
 			.map((arg) => (typeof arg === "string" ? arg : String(arg)))
@@ -433,6 +456,7 @@ async function assertRenderableShotlyxRemotionComponent({
 		};
 		Reflect.set(globalThis, "__SHOTLYX_REMOTION_RUNTIME__", {
 			React: ReactRuntime,
+			ShotlyxMotion: createShotlyxMotionPrimitives(),
 			Remotion: {
 				AbsoluteFill: StubAbsoluteFill,
 				Sequence: StubSequence,
@@ -477,12 +501,14 @@ async function assertRenderableShotlyxRemotionComponent({
 				ReactRuntime.createElement(Component, document.defaultProps),
 			);
 			assertValidRenderedMarkup({ markup });
+			renderedFrames.push({ frame, markup });
 		}
 		if (renderWarnings.length > 0) {
 			throw new Error(
 				`React render warning: ${renderWarnings.slice(0, 3).join(" | ")}`,
 			);
 		}
+		return renderedFrames;
 	} catch (error) {
 		throw new Error(
 			`Render validation failed: ${
@@ -564,6 +590,8 @@ export async function createShotlyxRemotionComponentDocument({
 	height,
 	thumbnailFrame,
 	transparentBackground = true,
+	visualDNA,
+	motionSpec,
 }: CreateShotlyxRemotionComponentDocumentOptions): Promise<ShotlyxRemotionComponentDocument> {
 	const requestedSize = canvasSizeForAspectRatio({ aspectRatio });
 	const resolvedWidth = width ?? requestedSize.width;
@@ -597,6 +625,8 @@ export async function createShotlyxRemotionComponentDocument({
 		defaultProps,
 		sourcePrompt,
 		thumbnailFrame: resolvedThumbnailFrame,
+		visualDNA,
+		motionSpec,
 	};
 	const document: ShotlyxRemotionComponentDocument = {
 		...withoutManifest,
@@ -606,7 +636,10 @@ export async function createShotlyxRemotionComponentDocument({
 		}),
 	};
 	assertValidShotlyxRemotionComponentAssetDocument(document);
-	await assertRenderableShotlyxRemotionComponent({ document });
+	const frames = await assertRenderableShotlyxRemotionComponent({ document });
+	const quality = evaluateShotlyxMGLocalQuality({ document, frames });
+	assertShotlyxMGHardQuality(quality);
+	document.quality = quality;
 	return document;
 }
 
@@ -657,12 +690,39 @@ function truncateForGeneratedName({
 	return `${normalized.slice(0, maxLength - 1).trim()}…`;
 }
 
-function buildGeneratedComponentName({ prompt }: { prompt: string }): string {
+function buildGeneratedComponentName({
+	prompt,
+	contentKind,
+}: {
+	prompt: string;
+	contentKind: ShotlyxMGGenerationRequest["contentKind"];
+}): string {
 	const explicitName = extractExplicitMGAssetName({ prompt });
 	if (explicitName) return explicitName;
+	const quoted = extractQuotedTextSnippets({ prompt })[0];
+	const kindLabel: Record<ShotlyxMGGenerationRequest["contentKind"], string> = {
+		title: "标题动效",
+		metric: "数据动效",
+		chart: "图表动效",
+		process: "流程动效",
+		comparison: "对比动效",
+		callout: "重点标注",
+		effect: "视觉动效",
+		general: "MG 动画",
+	};
+	if (quoted) {
+		return `${truncateForGeneratedName({ value: quoted, maxLength: 24 })} · ${kindLabel[contentKind]}`;
+	}
+	const subject = prompt
+		.replace(/(?:请|帮我|生成|制作|做一个|做成|创建|需要)/g, " ")
+		.replace(/(?:MG|动画|动效)/gi, " ")
+		.split(/[。.!！?？；;\n]/)[0]
+		?.trim();
 	return truncateForGeneratedName({
-		value: prompt,
-		maxLength: 36,
+		value: subject
+			? `${subject} · ${kindLabel[contentKind]}`
+			: kindLabel[contentKind],
+		maxLength: 34,
 	});
 }
 
@@ -715,8 +775,11 @@ function extractPromptHexColors({
 }
 
 function extractPromptNumbers({ prompt }: { prompt: string }): string[] {
+	const dataText = prompt
+		.replace(/\d+(?:\.\d+)?\s*(?:秒|s|secs?|seconds?)/gi, " ")
+		.replace(/\b(?:16:9|9:16|1:1)\b/g, " ");
 	return Array.from(
-		new Set(prompt.match(/[-+]?\d+(?:\.\d+)?%?(?:万|亿|k|K|m|M)?/g) ?? []),
+		new Set(dataText.match(/[-+]?\d+(?:\.\d+)?%?(?:万|亿|k|K|m|M)?/g) ?? []),
 	).slice(0, 8);
 }
 
@@ -742,10 +805,7 @@ function deriveTextDefaults({
 		.map((part) => part.trim())
 		.filter(Boolean);
 	const title = snippets[0] ?? firstClause ?? "自定义 MG 动画";
-	const subtitle =
-		snippets[1] ??
-		secondClause ??
-		(compactPrompt === title ? "Shotlyx Remotion" : compactPrompt);
+	const subtitle = snippets[1] ?? secondClause ?? "";
 	return {
 		title: truncateForGeneratedName({ value: title, maxLength: 28 }),
 		subtitle: truncateForGeneratedName({ value: subtitle, maxLength: 42 }),
@@ -763,10 +823,10 @@ function deriveTableRows({
 	if (noText || !isDataLikeMGRequest({ prompt })) return [];
 	const numbers = extractPromptNumbers({ prompt });
 	if (numbers.length === 0) return [];
-	return numbers.slice(0, 6).map((value, index) => ({
-		label: `Item ${index + 1}`,
+	return numbers.slice(0, 6).map((value) => ({
+		label: "",
 		value,
-		note: index === 0 ? "primary" : "context",
+		note: "",
 	}));
 }
 
@@ -811,10 +871,12 @@ function derivePropsSchema({
 	prompt,
 	styleGuide,
 	transparentBackground,
+	visualDNA,
 }: {
 	prompt: string;
 	styleGuide?: string;
 	transparentBackground: boolean;
+	visualDNA: ShotlyxMGVisualDNA;
 }): ShotlyxMGPropDefinition[] {
 	const noText = isNoTextMGRequest({ prompt });
 	const colors = extractPromptHexColors({ prompt, styleGuide });
@@ -874,29 +936,35 @@ function derivePropsSchema({
 			label: "Primary color",
 			type: "color",
 			role: "style",
-			defaultValue: colors[0] ?? "#22d3ee",
+			defaultValue: colors[0] ?? visualDNA.colors.primary,
 		}),
 		prop({
 			key: "secondaryColor",
 			label: "Secondary color",
 			type: "color",
 			role: "style",
-			defaultValue: colors[1] ?? "#a78bfa",
+			defaultValue: colors[1] ?? visualDNA.colors.secondary,
 		}),
 		prop({
 			key: "warningColor",
 			label: "Warning color",
 			type: "color",
 			role: "style",
-			defaultValue: colors[2] ?? "#ef4444",
+			defaultValue: colors[2] ?? visualDNA.colors.primary,
+		}),
+		prop({
+			key: "foregroundColor",
+			label: "Foreground color",
+			type: "color",
+			role: "style",
+			defaultValue: colors[2] ?? visualDNA.colors.foreground,
 		}),
 		prop({
 			key: "fontFamily",
 			label: "Font family",
 			type: "font",
 			role: "typography",
-			defaultValue:
-				'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+			defaultValue: visualDNA.typography.fontFamilies.join(", "),
 		}),
 		prop({
 			key: "intensity",
@@ -932,6 +1000,13 @@ function derivePropsSchema({
 				max: 1,
 				step: 0.05,
 			}),
+			prop({
+				key: "backgroundColor",
+				label: "Backdrop color",
+				type: "color",
+				role: "style",
+				defaultValue: colors[3] ?? visualDNA.colors.background,
+			}),
 		);
 	} else {
 		props.push(
@@ -940,7 +1015,7 @@ function derivePropsSchema({
 				label: "Background color",
 				type: "color",
 				role: "style",
-				defaultValue: colors[3] ?? "#080a12",
+				defaultValue: colors[3] ?? visualDNA.colors.background,
 			}),
 		);
 	}
@@ -995,6 +1070,7 @@ function buildCodeSystemPrompt({
 		"The code must export default function ShotlyxComponent(props: Props).",
 		"Do not include import statements. Do not redeclare Remotion APIs at module scope.",
 		"Allowed Remotion APIs are injected as bare bindings: AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, Img, Video.",
+		"ShotlyxMotion is injected as a small atomic helper library: clamp01, progress, buildHoldResolve, stagger, seeded, fitText, and countTo. These are motion/layout primitives, not visual templates. Prefer them when they improve timing, text fit, or deterministic variation.",
 		"React is available globally. Use JSX normally.",
 		"Never use fetch, XMLHttpRequest, WebSocket, eval, Function, document, window, localStorage, sessionStorage, indexedDB, require, dynamic import, __filename, __dirname, process, Buffer, module, exports, or import.meta.",
 		"Use frame-based motion only: useCurrentFrame(), useVideoConfig(), interpolate(), spring(), and deterministic math.",
@@ -1024,6 +1100,7 @@ function buildCodeUserPrompt({
 	previousSource,
 	transparentBackground,
 	propsSchema,
+	designContract,
 }: {
 	prompt: string;
 	durationSeconds: number;
@@ -1033,6 +1110,7 @@ function buildCodeUserPrompt({
 	previousSource?: string;
 	transparentBackground: boolean;
 	propsSchema: ShotlyxMGPropDefinition[];
+	designContract: string;
 }): string {
 	const size = canvasSizeForAspectRatio({ aspectRatio });
 	const noText = isNoTextMGRequest({ prompt });
@@ -1042,6 +1120,7 @@ function buildCodeUserPrompt({
 		`Canvas: ${size.width}x${size.height}, aspect ${aspectRatio}, fps ${DEFAULT_FPS}`,
 		`Background: ${transparentBackground ? "transparent overlay" : "solid/custom allowed"}`,
 		styleGuide ? `Style guide: ${styleGuide}` : "",
+		designContract,
 		noText
 			? "The user requested no text / pure visual. Do not render words, labels, numbers, headings, captions, or placeholder text."
 			: "Visible text must come from the provided props and the user request. Do not render placeholder copy.",
@@ -1114,18 +1193,19 @@ function textFromGenerateTextResult(result: unknown): string {
 
 export async function generateShotlyxMGComponentDocument({
 	prompt,
-	durationSeconds = DEFAULT_DURATION_SECONDS,
+	durationSeconds,
 	aspectRatio = "16:9",
 	styleGuide,
 	model,
 	providerConfig,
 	generateTextFn = generateText,
 	generateSourceFn,
-	repairAttempts = 3,
+	repairAttempts = 2,
 	abortSignal,
 	maxOutputTokens = MAX_OUTPUT_TOKENS,
 	transparentBackground = true,
 	name,
+	generationRequest,
 }: GenerateShotlyxMGComponentOptions): Promise<ShotlyxRemotionComponentDocument> {
 	const defaultBundle =
 		model || generateSourceFn ? undefined : getDefaultModelBundle();
@@ -1134,12 +1214,29 @@ export async function generateShotlyxMGComponentDocument({
 		throw new Error("configuration_error: missing LLM model");
 	}
 	const selectedProviderConfig = providerConfig ?? defaultBundle?.config;
-	const requestedDuration = Math.max(0.1, Math.min(durationSeconds, 120));
-	const requestedSize = canvasSizeForAspectRatio({ aspectRatio });
+	const request =
+		generationRequest ??
+		buildShotlyxMGGenerationRequest({
+			prompt,
+			duration: durationSeconds ?? "auto",
+			aspectRatio,
+			transparentBackground,
+			styleGuide,
+		});
+	const requestedDuration = request.durationSeconds || DEFAULT_DURATION_SECONDS;
+	const requestedSize = canvasSizeForAspectRatio({
+		aspectRatio: request.aspectRatio,
+	});
+	const visualDNA = createShotlyxMGVisualDNA({
+		request,
+		avoidFingerprints: recentVisualFingerprints,
+	});
+	const motionSpec = createShotlyxMGMotionSpec({ request, visualDNA });
 	const propsSchema = derivePropsSchema({
 		prompt,
 		styleGuide,
-		transparentBackground,
+		transparentBackground: request.transparentBackground,
+		visualDNA,
 	});
 	const skillContext = buildRemotionSkillContext({
 		prompt,
@@ -1160,12 +1257,16 @@ export async function generateShotlyxMGComponentDocument({
 			const generationPrompt = buildCodeUserPrompt({
 				prompt,
 				durationSeconds: requestedDuration,
-				aspectRatio,
+				aspectRatio: request.aspectRatio,
 				styleGuide,
 				validationErrors,
 				previousSource,
-				transparentBackground,
+				transparentBackground: request.transparentBackground,
 				propsSchema,
+				designContract: formatShotlyxMGDesignContract({
+					visualDNA,
+					motionSpec,
+				}),
 			});
 			const generatedText = generateSourceFn
 				? await generateSourceFn({
@@ -1196,19 +1297,30 @@ export async function generateShotlyxMGComponentDocument({
 				1,
 				Math.round(requestedDuration * DEFAULT_FPS),
 			);
-			return await createShotlyxRemotionComponentDocument({
-				name: name?.trim() || buildGeneratedComponentName({ prompt }),
+			const document = await createShotlyxRemotionComponentDocument({
+				name:
+					name?.trim() ||
+					buildGeneratedComponentName({
+						prompt,
+						contentKind: request.contentKind,
+					}),
 				durationSeconds: requestedDuration,
 				fps: DEFAULT_FPS,
 				width: requestedSize.width,
 				height: requestedSize.height,
-				aspectRatio,
-				transparentBackground,
+				aspectRatio: request.aspectRatio,
+				transparentBackground: request.transparentBackground,
 				componentSource: source,
 				propsSchema,
 				sourcePrompt: prompt,
 				thumbnailFrame: Math.floor(durationInFrames * 0.45),
+				visualDNA,
+				motionSpec,
 			});
+			recentVisualFingerprints.push(visualDNA.fingerprint);
+			if (recentVisualFingerprints.length > 16)
+				recentVisualFingerprints.shift();
+			return document;
 		} catch (error) {
 			lastError = error;
 			validationErrors = [

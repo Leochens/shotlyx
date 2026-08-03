@@ -411,6 +411,12 @@ function ShotlyxMGAssetItem({
 				variant={variant}
 				isRounded={variant === "card" ? false : undefined}
 			/>
+			{"shortId" in item && item.shortId ? (
+				<div className="pointer-events-none absolute bottom-1.5 left-1.5 z-10 rounded-sm bg-black/70 px-1.5 py-0.5 text-[10px] text-white/85 backdrop-blur-sm">
+					{item.shortId} · v{item.revision ?? 1}
+					{item.status === "needs-attention" ? " · 待调整" : ""}
+				</div>
+			) : null}
 			<div className="absolute right-1.5 top-1.5 z-10 flex gap-1 opacity-0 transition group-hover:opacity-100">
 				<AssetIconButton
 					label={copy.editor.assets.context.previewMg}

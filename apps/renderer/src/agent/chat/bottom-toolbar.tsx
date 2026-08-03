@@ -43,14 +43,10 @@ import type { MediaAsset } from "@/media/types";
 import { mediaTimeToSeconds } from "@/wasm";
 import { cn } from "@/utils/ui";
 import {
-	buildRemotionMGCompositionPrompt,
+	buildRemotionMGSubmission,
 	buildSeedanceMediaPrompt,
 } from "./prompt-builders";
-import {
-	getMGTemplatePickerOption,
-	MGTemplatePicker,
-	type MGTemplatePickerValue,
-} from "./mg-template-picker";
+import { extractExplicitMGDuration } from "@/shotlyx/remotion-components/generation-request";
 import type { ExecutionMode } from "./types";
 
 export type RunningSubmitMode = "queue" | "guide";
@@ -72,7 +68,10 @@ interface BottomToolbarProps {
 	primaryActionLabel?: string;
 	allowEmptySubmit?: boolean;
 	onMediaSubmit?: (prompt: string) => void;
-	onMGSubmit?: (prompt: string) => void;
+	onMGSubmit?: (submission: {
+		displayPrompt: string;
+		requestPrompt: string;
+	}) => void;
 	onStop?: () => void;
 	workbench?: "video" | "topic";
 	topicSourceMaterialOpen?: boolean;
@@ -89,7 +88,7 @@ interface BottomToolbarProps {
 const MEDIA_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"] as const;
 const MEDIA_DURATIONS = [5, 8, 10, 12] as const;
 const MG_RATIOS = ["16:9", "9:16", "1:1"] as const;
-const MG_DURATIONS = [3, 5, 8, 10] as const;
+const MG_DURATIONS = ["auto", "1", "2", "3", "5", "8", "custom"] as const;
 const SOURCE_MATERIAL_TYPE_OPTIONS: Array<{
 	value: TopicSourceMaterialType;
 	label: string;
@@ -115,6 +114,24 @@ function formatSeconds(seconds: number): string {
 	const min = Math.floor(seconds / 60);
 	const sec = seconds % 60;
 	return `${min.toString().padStart(2, "0")}:${sec.toFixed(2).padStart(5, "0")}`;
+}
+
+function resolveMGAspectRatioFromCanvas({
+	width,
+	height,
+}: {
+	width?: number;
+	height?: number;
+}): "16:9" | "9:16" | "1:1" {
+	if (!width || !height) return "16:9";
+	const ratio = width / height;
+	if (ratio < 0.82) return "9:16";
+	if (ratio < 1.2) return "1:1";
+	return "16:9";
+}
+
+function isMGAspectRatio(value: string): value is "16:9" | "9:16" | "1:1" {
+	return value === "16:9" || value === "9:16" || value === "1:1";
 }
 
 function getTrackItems(sceneTracks: {
@@ -174,7 +191,9 @@ export function BottomToolbar({
 	const scene = useEditor((currentEditor) =>
 		currentEditor.scenes.getActiveSceneOrNull(),
 	);
-	const draftReferences = useAgentContextStore((state) => state.draftReferences);
+	const draftReferences = useAgentContextStore(
+		(state) => state.draftReferences,
+	);
 	const primaryReferenceId = useAgentContextStore(
 		(state) => state.primaryReferenceId,
 	);
@@ -194,10 +213,18 @@ export function BottomToolbar({
 	const [referenceOpen, setReferenceOpen] = useState(false);
 	const [mediaRatio, setMediaRatio] = useState("16:9");
 	const [mediaDuration, setMediaDuration] = useState(5);
-	const [mgTemplateId, setMGTemplateId] =
-		useState<MGTemplatePickerValue>("smart-composition");
-	const [mgRatio, setMGRatio] = useState("16:9");
-	const [mgDuration, setMGDuration] = useState(5);
+	const [mgRatio, setMGRatio] = useState<"16:9" | "9:16" | "1:1">(() => {
+		const canvas = editor.project.getActiveOrNull()?.settings.canvasSize;
+		return resolveMGAspectRatioFromCanvas({
+			width: canvas?.width,
+			height: canvas?.height,
+		});
+	});
+	const [mgDuration, setMGDuration] = useState<string>("auto");
+	const [mgCustomDuration, setMGCustomDuration] = useState(5);
+	const [mgUseCustomColor, setMGUseCustomColor] = useState(false);
+	const [mgPrimaryColor, setMGPrimaryColor] = useState("#dc3c32");
+	const [mgFontFamily, setMGFontFamily] = useState("");
 	const [internalSourceMaterialOpen, setInternalSourceMaterialOpen] =
 		useState(false);
 	const [sourceMaterialType, setSourceMaterialType] =
@@ -269,17 +296,28 @@ export function BottomToolbar({
 	const handleMGSubmit = () => {
 		const description = input.trim();
 		if (!description || disabled) return;
-		const template = getMGTemplatePickerOption({ value: mgTemplateId });
+		const promptDuration = extractExplicitMGDuration(description);
+		if (promptDuration) {
+			const preset = MG_DURATIONS.some(
+				(value) => value === String(promptDuration),
+			);
+			setMGDuration(preset ? String(promptDuration) : "custom");
+			setMGCustomDuration(promptDuration);
+		}
+		const duration =
+			promptDuration ??
+			(mgDuration === "auto"
+				? "auto"
+				: mgDuration === "custom"
+					? mgCustomDuration
+					: Number(mgDuration));
 		onMGSubmit?.(
-			buildRemotionMGCompositionPrompt({
+			buildRemotionMGSubmission({
 				description,
-				templateLabel: template.label,
-				styleGuide: template.styleGuide,
-				componentCount: template.componentCount,
 				aspectRatio: mgRatio,
-				durationSeconds: mgDuration,
-				templateMode: template.templateMode,
-				templateId: template.templateId,
+				duration,
+				primaryColor: mgUseCustomColor ? mgPrimaryColor : undefined,
+				fontFamily: mgFontFamily,
 			}),
 		);
 	};
@@ -408,18 +446,15 @@ export function BottomToolbar({
 							<MediaInlineControl
 								icon={<Sparkles size={16} />}
 								label="MG 动画"
-								title="Remotion MG 模板"
-							/>
-
-							<MGTemplatePicker
-								value={mgTemplateId}
-								onChange={setMGTemplateId}
+								title="Remotion MG"
 							/>
 
 							<SelectInlineControl
 								value={mgRatio}
 								ariaLabel="MG 比例"
-								onChange={setMGRatio}
+								onChange={(value) => {
+									if (isMGAspectRatio(value)) setMGRatio(value);
+								}}
 								options={MG_RATIOS.map((ratio) => ({
 									value: ratio,
 									label: ratio,
@@ -427,14 +462,85 @@ export function BottomToolbar({
 							/>
 
 							<SelectInlineControl
-								value={String(mgDuration)}
+								value={mgDuration}
 								ariaLabel="MG 时长"
-								onChange={(value) => setMGDuration(Number(value))}
+								onChange={setMGDuration}
 								options={MG_DURATIONS.map((duration) => ({
-									value: String(duration),
-									label: `${duration}s`,
+									value: duration,
+									label:
+										duration === "auto"
+											? "自动"
+											: duration === "custom"
+												? "自定义"
+												: `${duration}s`,
 								}))}
 							/>
+
+							{mgDuration === "custom" ? (
+								<input
+									type="number"
+									min={0.1}
+									max={120}
+									step={0.1}
+									value={mgCustomDuration}
+									onChange={(event) =>
+										setMGCustomDuration(
+											Math.max(
+												0.1,
+												Math.min(120, Number(event.target.value) || 0.1),
+											),
+										)
+									}
+									aria-label="自定义 MG 时长（秒）"
+									className="h-8 w-20 rounded-sm border border-border bg-background px-2 text-xs"
+								/>
+							) : null}
+
+							<Popover>
+								<PopoverTrigger asChild>
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										className="size-8 rounded-sm"
+										aria-label="MG 颜色与字体"
+									>
+										<SlidersHorizontal size={15} />
+									</Button>
+								</PopoverTrigger>
+								<PopoverContent align="start" side="top" className="w-64 p-3">
+									<label className="flex items-center justify-between gap-3 text-xs">
+										<span>锁定主色</span>
+										<span className="flex items-center gap-2">
+											<input
+												type="checkbox"
+												checked={mgUseCustomColor}
+												onChange={(event) =>
+													setMGUseCustomColor(event.target.checked)
+												}
+											/>
+											<input
+												type="color"
+												value={mgPrimaryColor}
+												onChange={(event) =>
+													setMGPrimaryColor(event.target.value)
+												}
+												aria-label="MG 主色"
+											/>
+										</span>
+									</label>
+									<input
+										value={mgFontFamily}
+										onChange={(event) => setMGFontFamily(event.target.value)}
+										placeholder="字体：跟随项目品牌"
+										aria-label="MG 字体"
+										className="mt-3 h-8 w-full rounded-sm border border-border bg-background px-2 text-xs"
+									/>
+									<p className="mt-2 text-[11px] text-muted-foreground">
+										留空时优先使用项目 VisualDNA / 品牌设置。
+									</p>
+								</PopoverContent>
+							</Popover>
 						</div>
 
 						<Button

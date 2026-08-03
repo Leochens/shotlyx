@@ -34,6 +34,75 @@ export interface ShotlyxMGAssetStore {
 	clear(): void;
 }
 
+function hashAssetId(value: string): number {
+	let hash = 2166136261;
+	for (let index = 0; index < value.length; index += 1) {
+		hash ^= value.charCodeAt(index);
+		hash = Math.imul(hash, 16777619);
+	}
+	return hash >>> 0;
+}
+
+export function getShotlyxMGShortId({ id }: { id: string }): string {
+	return `MG-${hashAssetId(id).toString(36).toUpperCase().padStart(5, "0").slice(-5)}`;
+}
+
+function documentsDiffer({
+	first,
+	second,
+}: {
+	first: ShotlyxRemotionComponentDocument;
+	second: ShotlyxRemotionComponentDocument;
+}): boolean {
+	const { quality: _firstQuality, ...firstContent } = first;
+	const { quality: _secondQuality, ...secondContent } = second;
+	return JSON.stringify(firstContent) !== JSON.stringify(secondContent);
+}
+
+export function normalizeShotlyxMGAsset({
+	asset,
+	previous,
+}: {
+	asset: ShotlyxMGAsset;
+	previous?: ShotlyxMGAsset | null;
+}): ShotlyxMGAsset {
+	if (asset.runtime === SHOTLYX_HYPERFRAMES_RUNTIME) return asset;
+	const previousRemotion =
+		previous?.runtime === SHOTLYX_REMOTION_COMPONENT_RUNTIME ? previous : null;
+	const currentRevision = previousRemotion?.revision ?? asset.revision ?? 1;
+	const documentChanged = previousRemotion
+		? documentsDiffer({
+				first: previousRemotion.document,
+				second: asset.document,
+			})
+		: false;
+	const revisions = previousRemotion?.revisions ?? asset.revisions ?? [];
+	return {
+		...asset,
+		shortId:
+			previousRemotion?.shortId ??
+			asset.shortId ??
+			getShotlyxMGShortId({ id: asset.id }),
+		revision: documentChanged ? currentRevision + 1 : currentRevision,
+		status:
+			asset.document.quality?.status === "needs-attention"
+				? "needs-attention"
+				: "ready",
+		revisions:
+			documentChanged && previousRemotion
+				? [
+						...revisions,
+						{
+							revision: currentRevision,
+							name: previousRemotion.name,
+							document: previousRemotion.document,
+							createdAt: previousRemotion.updatedAt,
+						},
+					].slice(-8)
+				: revisions,
+	};
+}
+
 declare global {
 	var __SHOTLYX_MG_ASSET_STORE__: ShotlyxMGAssetStore | undefined;
 }
@@ -95,10 +164,11 @@ export function createShotlyxMGAssetStore(): ShotlyxMGAssetStore {
 		register({ id, document, sourcePrompt }) {
 			assertValidShotlyxMGDocument(document);
 			const now = new Date().toISOString();
+			const assetId = id ?? generateUUID();
 			const asset: ShotlyxMGAsset =
 				document.runtime === SHOTLYX_HYPERFRAMES_RUNTIME
 					? {
-							id: id ?? generateUUID(),
+							id: assetId,
 							type: "shotlyx-hyperframes-overlay",
 							name: document.name,
 							runtime: SHOTLYX_HYPERFRAMES_RUNTIME,
@@ -108,7 +178,7 @@ export function createShotlyxMGAssetStore(): ShotlyxMGAssetStore {
 							updatedAt: now,
 						}
 					: {
-							id: id ?? generateUUID(),
+							id: assetId,
 							type: "shotlyx-remotion-component",
 							name: document.name,
 							runtime: SHOTLYX_REMOTION_COMPONENT_RUNTIME,
@@ -117,13 +187,18 @@ export function createShotlyxMGAssetStore(): ShotlyxMGAssetStore {
 							createdAt: now,
 							updatedAt: now,
 						};
-			assets.set(asset.id, asset);
-			return asset;
+			const normalized = normalizeShotlyxMGAsset({ asset });
+			assets.set(normalized.id, normalized);
+			return normalized;
 		},
 		upsert(asset) {
 			assertValidShotlyxMGDocument(asset.document);
-			assets.set(asset.id, asset);
-			return asset;
+			const normalized = normalizeShotlyxMGAsset({
+				asset,
+				previous: assets.get(asset.id),
+			});
+			assets.set(asset.id, normalized);
+			return normalized;
 		},
 		get({ id }) {
 			return assets.get(id) ?? null;
