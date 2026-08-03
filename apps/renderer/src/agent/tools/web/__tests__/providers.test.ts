@@ -2,6 +2,32 @@ import { describe, expect, mock, test } from "bun:test";
 import { fetchWebPage, searchWeb } from "@/agent/tools/web/provider-registry";
 
 describe("web provider registry", () => {
+	test("defaults to the local Agent in local-cli mode even when a cloud provider is configured", async () => {
+		const localCliSearchMock = mock(async () => ({
+			provider: "local-cli" as const,
+			query: "中国汽车销量",
+			results: [],
+		}));
+		const fetchMock = mock(async () => new Response(null, { status: 500 }));
+
+		const result = await searchWeb({
+			input: { query: "中国汽车销量" },
+			deps: {
+				env: {
+					AGENT_RUNTIME: "local-cli",
+					AGENT_WEB_SEARCH_PROVIDER: "tavily",
+					TAVILY_API_KEY: "configured-cloud-key",
+				},
+				fetchFn: fetchMock,
+				localCliSearchFn: localCliSearchMock,
+			},
+		});
+
+		expect(result.provider).toBe("local-cli");
+		expect(localCliSearchMock).toHaveBeenCalledTimes(1);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
 	test("falls back to the local Agent when local-cli mode has no search API key", async () => {
 		const localCliSearchMock = mock(async () => ({
 			provider: "local-cli" as const,

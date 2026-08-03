@@ -60,6 +60,7 @@ export async function POST(request: ApiRequest) {
 					brave: env.BRAVE_SEARCH_API_KEY,
 				},
 				env,
+				signal: request.signal,
 			},
 		});
 		return ApiResponse.json(result);

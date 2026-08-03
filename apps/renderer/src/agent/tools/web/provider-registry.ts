@@ -29,6 +29,7 @@ export interface WebProviderRegistryDeps {
 	apiKeys?: WebProviderApiKeys;
 	fetchFn?: WebFetchFn;
 	env?: Record<string, string | undefined>;
+	signal?: AbortSignal;
 	localCliSearchFn?: typeof searchWithLocalCli;
 }
 
@@ -120,12 +121,9 @@ function resolveSearchProvider({
 	env: Record<string, string | undefined>;
 }): WebSearchProviderId {
 	if (input.provider) return input.provider;
+	if (env.AGENT_RUNTIME === "local-cli") return "local-cli";
 	const provider = env.AGENT_WEB_SEARCH_PROVIDER;
-	if (!provider) {
-		return env.AGENT_RUNTIME === "local-cli"
-			? "local-cli"
-			: DEFAULT_SEARCH_PROVIDER;
-	}
+	if (!provider) return DEFAULT_SEARCH_PROVIDER;
 	if (isWebSearchProviderId(provider)) {
 		return provider;
 	}
@@ -559,7 +557,11 @@ export async function searchWeb({
 		provider === "local-cli" ||
 		(localCliConfig.enabled && !configuredProviderKey)
 	) {
-		return (deps.localCliSearchFn ?? searchWithLocalCli)({ input, env });
+		return (deps.localCliSearchFn ?? searchWithLocalCli)({
+			input,
+			env,
+			signal: deps.signal,
+		});
 	}
 
 	if (provider === "tavily") {

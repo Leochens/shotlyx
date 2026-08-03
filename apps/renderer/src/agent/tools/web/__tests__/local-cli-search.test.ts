@@ -44,4 +44,26 @@ describe("local CLI web search", () => {
 			message: undefined,
 		});
 	});
+
+	test("aborts and reports a bounded timeout", async () => {
+		const runTextTask = mock(
+			async ({ signal }: { signal?: AbortSignal }): Promise<string> =>
+				new Promise((_resolve, reject) => {
+					signal?.addEventListener(
+						"abort",
+						() => reject(new DOMException("Aborted", "AbortError")),
+						{ once: true },
+					);
+				}),
+		);
+
+		await expect(
+			searchWithLocalCli({
+				input: { query: "永不结束的搜索" },
+				env: { AGENT_RUNTIME: "local-cli" },
+				runTextTask,
+				timeoutMs: 10,
+			}),
+		).rejects.toThrow("web search timed out after 10ms");
+	});
 });

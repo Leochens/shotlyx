@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createIndexedDBPersistStorage } from "./indexeddb-storage";
+import { recoverInterruptedToolCalls } from "./interrupted-tool-calls";
 import type {
 	ChatMessage,
 	ChatSession,
@@ -695,6 +696,19 @@ export const useChatStore = create<ChatState>()(
 			name: "shotlyx-chat-v2",
 			version: 2,
 			storage: getStorage(),
+			merge: (persistedState, currentState) => {
+				const persisted =
+					typeof persistedState === "object" && persistedState !== null
+						? (persistedState as Partial<PersistedChatState>)
+						: {};
+				return {
+					...currentState,
+					...persisted,
+					sessions: recoverInterruptedToolCalls(
+						persisted.sessions ?? currentState.sessions,
+					),
+				};
+			},
 			onRehydrateStorage: () => (state) => {
 				state?.setIsHydrated(true);
 			},

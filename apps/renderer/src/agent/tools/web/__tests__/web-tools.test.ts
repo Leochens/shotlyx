@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import type { ToolProgressEvent } from "@/agent/mcp/types";
 import { buildWebTools } from "@/agent/tools/web/web-tools";
 
 function requireRecord(value: unknown): Record<string, unknown> {
@@ -11,6 +12,7 @@ function requireRecord(value: unknown): Record<string, unknown> {
 
 describe("web tools", () => {
 	test("web_search proxies search requests through the server route", async () => {
+		const progressEvents: ToolProgressEvent[] = [];
 		const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
 			expect(String(input)).toBe("/api/agent/web/search");
 			expect(init?.method).toBe("POST");
@@ -40,16 +42,25 @@ describe("web tools", () => {
 		const searchTool = tools.find((tool) => tool.name === "web_search");
 
 		const result = requireRecord(
-			await searchTool?.handler({
-				query: "latest Remotion docs",
-				count: 3,
-				provider: "tavily",
-			}),
+			await searchTool?.handler(
+				{
+					query: "latest Remotion docs",
+					count: 3,
+					provider: "tavily",
+				},
+				{ onProgress: (event) => progressEvents.push(event) },
+			),
 		);
 
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(result.provider).toBe("tavily");
 		expect(Array.isArray(result.results)).toBe(true);
+		expect(progressEvents).toEqual([
+			expect.objectContaining({
+				stage: "searching",
+				status: "running",
+			}),
+		]);
 	});
 
 	test("web_fetch proxies page fetch requests through the server route", async () => {

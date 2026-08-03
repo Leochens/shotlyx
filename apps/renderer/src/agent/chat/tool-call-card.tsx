@@ -196,10 +196,13 @@ export function getToolOutputDisplay(
 	const latestProgress = getLatestProgress(toolCall);
 	const isMGTool = isShotlyxMGTool(toolCall.tool);
 	if (!toolCall.result) {
-		if (isVisionAnalysisTool(toolCall.tool) && latestProgress?.detail) {
+		if (
+			(isVisionAnalysisTool(toolCall.tool) || toolCall.tool === "web_search") &&
+			latestProgress
+		) {
 			return {
 				tone: "pending",
-				text: latestProgress.detail,
+				text: latestProgress.detail ?? latestProgress.label,
 			};
 		}
 		return {

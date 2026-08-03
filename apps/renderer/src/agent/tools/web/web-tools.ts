@@ -139,23 +139,42 @@ export function buildWebTools({ deps }: BuildWebToolsOptions = {}): Tool[] {
 					key: "provider",
 					allowed: WEB_SEARCH_PROVIDERS,
 				});
-				const response = await fetchFn("/api/agent/web/search", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						query,
-						count,
-						provider,
-						includeAnswer: optionalBooleanParam(params, "includeAnswer"),
-						includeImages: optionalBooleanParam(params, "includeImages"),
-						includeContent: optionalBooleanParam(params, "includeContent"),
-					}),
-					signal: context?.signal,
+				context?.onProgress?.({
+					stage: "searching",
+					label: "正在联网检索",
+					status: "running",
+					detail: "正在联网检索并核验来源，请稍候。",
 				});
-				if (!response.ok) {
-					throw new Error(await parseAgentApiError(response));
+				const slowSearchTimer = setTimeout(() => {
+					context?.onProgress?.({
+						stage: "searching",
+						label: "本地 Agent 仍在检索",
+						status: "running",
+						detail: "本地 Agent 搜索通常需要 30–90 秒，仍在处理中。",
+					});
+				}, 30_000);
+
+				try {
+					const response = await fetchFn("/api/agent/web/search", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							query,
+							count,
+							provider,
+							includeAnswer: optionalBooleanParam(params, "includeAnswer"),
+							includeImages: optionalBooleanParam(params, "includeImages"),
+							includeContent: optionalBooleanParam(params, "includeContent"),
+						}),
+						signal: context?.signal,
+					});
+					if (!response.ok) {
+						throw new Error(await parseAgentApiError(response));
+					}
+					return response.json();
+				} finally {
+					clearTimeout(slowSearchTimer);
 				}
-				return response.json();
 			},
 		},
 		{

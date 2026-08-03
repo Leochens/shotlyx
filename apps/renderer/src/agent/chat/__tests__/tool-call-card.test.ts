@@ -189,6 +189,26 @@ describe("tool call card display helpers", () => {
 		});
 	});
 
+	test("shows local web search progress while the tool is pending", () => {
+		const toolCall: ToolCallRecord = {
+			tool: "web_search",
+			params: { query: "汽车销量" },
+			progress: [
+				{
+					stage: "searching",
+					label: "本地 Agent 仍在检索",
+					status: "running",
+					detail: "本地 Agent 搜索通常需要 30–90 秒，仍在处理中。",
+				},
+			],
+		};
+
+		expect(getToolOutputDisplay(toolCall)).toEqual({
+			tone: "pending",
+			text: "本地 Agent 搜索通常需要 30–90 秒，仍在处理中。",
+		});
+	});
+
 	test("shows large video choice prompts instead of completed vision analysis", () => {
 		const toolCall: ToolCallRecord = {
 			tool: "vision_analyze_video",
