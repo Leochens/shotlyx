@@ -1,5 +1,5 @@
-import { getMGModelBundle } from "@/agent/ai-sdk/providers";
 import { generateShotlyxMGComponentDocument } from "@/shotlyx/remotion-components/generator";
+import { resolveShotlyxMGGenerationRuntime } from "@/shotlyx/remotion-components/generation-runtime";
 import { type ApiRequest, ApiResponse } from "@/platform/http";
 import { z } from "zod";
 
@@ -56,11 +56,10 @@ export async function POST(request: ApiRequest) {
 	}
 
 	try {
-		const mgModel = getMGModelBundle();
+		const generationRuntime = resolveShotlyxMGGenerationRuntime();
 		const document = await generateShotlyxMGComponentDocument({
 			...parsed.data,
-			model: mgModel.model,
-			providerConfig: mgModel.config,
+			...generationRuntime,
 		});
 		return ApiResponse.json({ document });
 	} catch (error) {

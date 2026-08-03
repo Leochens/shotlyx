@@ -93,7 +93,7 @@ describe("Shotlyx Remotion generator", () => {
 			aspectRatio: "16:9",
 		});
 
-		expect(document.componentSource).not.toContain("from \"remotion\"");
+		expect(document.componentSource).not.toContain('from "remotion"');
 		expect(document.componentSource).not.toContain(
 			"const { AbsoluteFill, interpolate, useCurrentFrame } = Remotion",
 		);
@@ -257,7 +257,11 @@ export default function ShotlyxComponent() {
 
 	test("custom generation asks for TSX only and derives editable props", async () => {
 		const generateTextMock = mock(
-			async (options: { output?: unknown; prompt?: string; system?: string }) => {
+			async (options: {
+				output?: unknown;
+				prompt?: string;
+				system?: string;
+			}) => {
 				expect(options.output).toBeUndefined();
 				expect(options.prompt).toContain("Design the content structure");
 				expect(options.system).toContain("Return TSX code only");
@@ -315,6 +319,32 @@ export default function ShotlyxComponent(props: Props) {
 		expect(document.propsSchema.map((prop) => prop.key)).toContain(
 			"primaryColor",
 		);
+		expect(document.componentSource).toContain("ShotlyxComponent");
+	});
+
+	test("custom generation can use a local CLI source generator without an API model", async () => {
+		const generateSourceFn = mock(
+			async () => `
+type Props = { title: string; primaryColor: string };
+
+export default function ShotlyxComponent(props: Props) {
+	const frame = useCurrentFrame();
+	const opacity = interpolate(frame, [0, 18], [0, 1], { extrapolateRight: "clamp" });
+	return <AbsoluteFill style={{ opacity, color: props.primaryColor, fontSize: 72 }}>{props.title}</AbsoluteFill>;
+}
+`,
+		);
+
+		const document = await generateShotlyxMGComponentDocument({
+			generateSourceFn,
+			prompt: "生成标题「本地 Agent MG」",
+			durationSeconds: 4,
+			aspectRatio: "16:9",
+			repairAttempts: 0,
+		});
+
+		expect(generateSourceFn).toHaveBeenCalledTimes(1);
+		expect(document.defaultProps.title).toBe("本地 Agent MG");
 		expect(document.componentSource).toContain("ShotlyxComponent");
 	});
 

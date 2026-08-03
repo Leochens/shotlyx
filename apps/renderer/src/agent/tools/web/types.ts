@@ -1,4 +1,9 @@
-export const WEB_SEARCH_PROVIDERS = ["tavily", "firecrawl", "brave"] as const;
+export const WEB_SEARCH_PROVIDERS = [
+	"local-cli",
+	"tavily",
+	"firecrawl",
+	"brave",
+] as const;
 export type WebSearchProviderId = (typeof WEB_SEARCH_PROVIDERS)[number];
 
 export const WEB_FETCH_PROVIDERS = ["jina", "firecrawl"] as const;

@@ -1,5 +1,5 @@
-import { getMGModelBundle } from "@/agent/ai-sdk/providers";
 import { generateShotlyxMGComponentDocument } from "@/shotlyx/remotion-components/generator";
+import { resolveShotlyxMGGenerationRuntime } from "@/shotlyx/remotion-components/generation-runtime";
 import { createShotlyxMGJob } from "@/shotlyx/remotion-components/jobs";
 import {
 	SHOTLYX_MG_TEMPLATE_IDS,
@@ -51,11 +51,10 @@ export async function POST(request: ApiRequest) {
 			...templateSelection,
 		},
 		generateDocumentFn: (args) => {
-			const mgModel = getMGModelBundle();
+			const generationRuntime = resolveShotlyxMGGenerationRuntime();
 			return generateShotlyxMGComponentDocument({
 				...args,
-				model: mgModel.model,
-				providerConfig: mgModel.config,
+				...generationRuntime,
 			});
 		},
 	});

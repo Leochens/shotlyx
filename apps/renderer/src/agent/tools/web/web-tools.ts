@@ -87,9 +87,7 @@ async function parseAgentApiError(response: Response): Promise<string> {
 	return `provider_error: web tool request failed with ${response.status}`;
 }
 
-export function buildWebTools({
-	deps,
-}: BuildWebToolsOptions = {}): Tool[] {
+export function buildWebTools({ deps }: BuildWebToolsOptions = {}): Tool[] {
 	const fetchFn = deps?.fetchFn ?? fetch;
 
 	return [
@@ -110,7 +108,7 @@ export function buildWebTools({
 				provider: {
 					type: "string",
 					description:
-						"Optional search provider: tavily, firecrawl, or brave. Defaults to AGENT_WEB_SEARCH_PROVIDER or tavily.",
+						"Optional search provider: local-cli, tavily, firecrawl, or brave. Local Agent mode automatically uses local-cli when a provider key is unavailable.",
 					optional: true,
 				},
 				includeAnswer: {

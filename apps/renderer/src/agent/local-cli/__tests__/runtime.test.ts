@@ -16,6 +16,7 @@ import {
 	parseLocalCliEventsFromLine,
 	resolveLocalCliWorkingDirectory,
 	runLocalCliReactLoop,
+	runLocalCliTextTask,
 } from "../runtime";
 
 let tempDir: string;
@@ -270,6 +271,19 @@ echo "codex-cli 0.130.0"
 		});
 	});
 
+	test("enables native web search only for an explicit Codex search task", () => {
+		const command = buildLocalCliCommand({
+			agentId: "codex",
+			binPath: "/usr/local/bin/codex",
+			enableWebSearch: true,
+		});
+
+		expect(command.args).toContain("--search");
+		expect(command.args.indexOf("--search")).toBeLessThan(
+			command.args.indexOf("exec"),
+		);
+	});
+
 	test("parses Shotlyx JSONL protocol events", () => {
 		expect(
 			parseLocalCliEventLine(
@@ -504,5 +518,33 @@ echo '{"type":"tool_call","tool":"timeline_add_text","params":{"text":"Hello"}}'
 				},
 			}),
 		).rejects.toThrow("editor_runtime_unavailable");
+	});
+
+	test("runs a keyless local CLI text task with native search enabled", async () => {
+		const fakeCodex = writeExecutable(
+			"codex",
+			`#!/usr/bin/env bash
+if [[ " $* " != *" --search "* ]]; then
+  exit 64
+fi
+cat >/dev/null
+echo '{"type":"final","text":"LOCAL_SEARCH_OK"}'
+`,
+		);
+
+		await expect(
+			runLocalCliTextTask({
+				systemPrompt: "Search the public web.",
+				prompt: "Find the current result.",
+				enableWebSearch: true,
+				env: {
+					AGENT_RUNTIME: "local-cli",
+					AGENT_CLI_ID: "codex",
+					SHOTLYX_CODEX_BIN: fakeCodex,
+					HOME: tempDir,
+					PATH: tempDir,
+				},
+			}),
+		).resolves.toBe("LOCAL_SEARCH_OK");
 	});
 });

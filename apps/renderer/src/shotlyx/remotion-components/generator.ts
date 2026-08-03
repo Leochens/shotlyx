@@ -58,12 +58,20 @@ export interface GenerateShotlyxMGComponentOptions {
 	model?: LanguageModel;
 	providerConfig?: LLMProviderConfig;
 	generateTextFn?: typeof generateText;
+	generateSourceFn?: GenerateShotlyxMGSourceFn;
 	repairAttempts?: number;
 	abortSignal?: AbortSignal;
 	maxOutputTokens?: number;
 	transparentBackground?: boolean;
 	name?: string;
 }
+
+export type GenerateShotlyxMGSourceFn = (options: {
+	system: string;
+	prompt: string;
+	maxOutputTokens: number;
+	abortSignal?: AbortSignal;
+}) => Promise<string>;
 
 export interface CreateShotlyxRemotionComponentDocumentOptions {
 	name: string;
@@ -91,9 +99,7 @@ function canvasSizeForAspectRatio({
 
 function isStandaloneDefaultExportStart({ line }: { line: string }): boolean {
 	const trimmedLine = line.trim();
-	if (
-		/^export\s+default\s+function\s+ShotlyxComponent\b/.test(trimmedLine)
-	) {
+	if (/^export\s+default\s+function\s+ShotlyxComponent\b/.test(trimmedLine)) {
 		return false;
 	}
 	return (
@@ -210,7 +216,11 @@ function isTopLevelDuplicateRemotionAlias({ line }: { line: string }): boolean {
 	);
 }
 
-function normalizeGeneratedComponentSource({ source }: { source: string }): string {
+function normalizeGeneratedComponentSource({
+	source,
+}: {
+	source: string;
+}): string {
 	const normalizedLines: string[] = [];
 	let braceDepth = 0;
 	let skippingImportDeclaration = false;
@@ -656,7 +666,11 @@ function buildGeneratedComponentName({ prompt }: { prompt: string }): string {
 	});
 }
 
-function extractExplicitMGAssetName({ prompt }: { prompt: string }): string | null {
+function extractExplicitMGAssetName({
+	prompt,
+}: {
+	prompt: string;
+}): string | null {
 	const match = prompt.match(
 		/(?:MG asset name|MG 资产名|资产名称|组件名称)\s*[:：]\s*([^\n]+)/i,
 	);
@@ -959,7 +973,9 @@ function buildPropsType({
 }): string {
 	return [
 		"type Props = {",
-		...propsSchema.map((item) => `  ${item.key}: ${typeForProp({ prop: item })};`),
+		...propsSchema.map(
+			(item) => `  ${item.key}: ${typeForProp({ prop: item })};`,
+		),
 		"};",
 	].join("\n");
 }
@@ -1104,15 +1120,17 @@ export async function generateShotlyxMGComponentDocument({
 	model,
 	providerConfig,
 	generateTextFn = generateText,
+	generateSourceFn,
 	repairAttempts = 3,
 	abortSignal,
 	maxOutputTokens = MAX_OUTPUT_TOKENS,
 	transparentBackground = true,
 	name,
 }: GenerateShotlyxMGComponentOptions): Promise<ShotlyxRemotionComponentDocument> {
-	const defaultBundle = model ? undefined : getDefaultModelBundle();
+	const defaultBundle =
+		model || generateSourceFn ? undefined : getDefaultModelBundle();
 	const selectedModel = model ?? defaultBundle?.model;
-	if (!selectedModel) {
+	if (!selectedModel && !generateSourceFn) {
 		throw new Error("configuration_error: missing LLM model");
 	}
 	const selectedProviderConfig = providerConfig ?? defaultBundle?.config;
@@ -1134,28 +1152,39 @@ export async function generateShotlyxMGComponentDocument({
 
 	while (attempt <= repairAttempts) {
 		try {
-			const result = await generateTextFn({
-				model: selectedModel,
-				system: buildCodeSystemPrompt({
-					skillContext,
-					propsSchema,
-					providerConfig: selectedProviderConfig,
-				}),
-				prompt: buildCodeUserPrompt({
-					prompt,
-					durationSeconds: requestedDuration,
-					aspectRatio,
-					styleGuide,
-					validationErrors,
-					previousSource,
-					transparentBackground,
-					propsSchema,
-				}),
-				maxOutputTokens,
-				abortSignal,
+			const system = buildCodeSystemPrompt({
+				skillContext,
+				propsSchema,
+				providerConfig: selectedProviderConfig,
 			});
+			const generationPrompt = buildCodeUserPrompt({
+				prompt,
+				durationSeconds: requestedDuration,
+				aspectRatio,
+				styleGuide,
+				validationErrors,
+				previousSource,
+				transparentBackground,
+				propsSchema,
+			});
+			const generatedText = generateSourceFn
+				? await generateSourceFn({
+						system,
+						prompt: generationPrompt,
+						maxOutputTokens,
+						abortSignal,
+					})
+				: textFromGenerateTextResult(
+						await generateTextFn({
+							model: selectedModel!,
+							system,
+							prompt: generationPrompt,
+							maxOutputTokens,
+							abortSignal,
+						}),
+					);
 			const source = extractComponentSourceFromText({
-				text: textFromGenerateTextResult(result),
+				text: generatedText,
 			});
 			if (source.length > MAX_SOURCE_CHARS) {
 				throw new Error(

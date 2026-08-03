@@ -10,6 +10,8 @@ import {
 	type WebSearchResultItem,
 } from "./types";
 import { getRuntimeEnv } from "@/desktop/config/server";
+import { resolveLocalCliRuntimeConfig } from "@/agent/local-cli/runtime";
+import { searchWithLocalCli } from "./local-cli-search";
 
 export interface WebProviderApiKeys {
 	tavily?: string;
@@ -27,6 +29,7 @@ export interface WebProviderRegistryDeps {
 	apiKeys?: WebProviderApiKeys;
 	fetchFn?: WebFetchFn;
 	env?: Record<string, string | undefined>;
+	localCliSearchFn?: typeof searchWithLocalCli;
 }
 
 const DEFAULT_SEARCH_PROVIDER: WebSearchProviderId = "tavily";
@@ -118,7 +121,11 @@ function resolveSearchProvider({
 }): WebSearchProviderId {
 	if (input.provider) return input.provider;
 	const provider = env.AGENT_WEB_SEARCH_PROVIDER;
-	if (!provider) return DEFAULT_SEARCH_PROVIDER;
+	if (!provider) {
+		return env.AGENT_RUNTIME === "local-cli"
+			? "local-cli"
+			: DEFAULT_SEARCH_PROVIDER;
+	}
 	if (isWebSearchProviderId(provider)) {
 		return provider;
 	}
@@ -539,6 +546,21 @@ export async function searchWeb({
 	const apiKeys = mergeApiKeys({ env, apiKeys: deps.apiKeys });
 	const fetchFn = deps.fetchFn ?? fetch;
 	const provider = resolveSearchProvider({ input, env });
+	const localCliConfig = resolveLocalCliRuntimeConfig({ env });
+	const configuredProviderKey =
+		provider === "tavily"
+			? apiKeys.tavily
+			: provider === "firecrawl"
+				? apiKeys.firecrawl
+				: provider === "brave"
+					? apiKeys.brave
+					: undefined;
+	if (
+		provider === "local-cli" ||
+		(localCliConfig.enabled && !configuredProviderKey)
+	) {
+		return (deps.localCliSearchFn ?? searchWithLocalCli)({ input, env });
+	}
 
 	if (provider === "tavily") {
 		return searchWithTavily({

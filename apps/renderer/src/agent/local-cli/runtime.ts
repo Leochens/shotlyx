@@ -399,10 +399,12 @@ export function buildLocalCliCommand({
 	agentId,
 	binPath,
 	model,
+	enableWebSearch = false,
 }: {
 	agentId: LocalCliAgentId;
 	binPath: string;
 	model?: string;
+	enableWebSearch?: boolean;
 }): LocalCliCommand {
 	if (agentId === "claude") {
 		const args = [
@@ -413,6 +415,9 @@ export function buildLocalCliCommand({
 			"stream-json",
 			"--verbose",
 		];
+		if (enableWebSearch) {
+			args.push("--allowedTools", "WebSearch", "WebFetch");
+		}
 		if (model && model !== "default") {
 			args.push("--model", model);
 		}
@@ -427,6 +432,7 @@ export function buildLocalCliCommand({
 	const args = [
 		"--ask-for-approval",
 		"never",
+		...(enableWebSearch ? ["--search"] : []),
 		"exec",
 		"--json",
 		"--skip-git-repo-check",
@@ -858,6 +864,7 @@ function runLocalCliOnce({
 	prompt,
 	env,
 	signal,
+	enableWebSearch = false,
 }: {
 	agentId: LocalCliAgentId;
 	binPath: string;
@@ -865,9 +872,15 @@ function runLocalCliOnce({
 	prompt: string;
 	env: Record<string, string | undefined>;
 	signal?: AbortSignal;
+	enableWebSearch?: boolean;
 }): Promise<LocalCliEvent[]> {
 	return new Promise((resolve, reject) => {
-		const command = buildLocalCliCommand({ agentId, binPath, model });
+		const command = buildLocalCliCommand({
+			agentId,
+			binPath,
+			model,
+			enableWebSearch,
+		});
 		const workingDirectory = resolveLocalCliWorkingDirectory({ env });
 		mkdirSync(workingDirectory, { recursive: true });
 		const commandDir = path.isAbsolute(command.command)
@@ -977,6 +990,7 @@ export async function runLocalCliReactLoop({
 	onToolCall,
 	env = getRuntimeEnv(),
 	signal,
+	enableWebSearch = false,
 }: {
 	agentId: LocalCliAgentId;
 	binPath: string;
@@ -989,6 +1003,7 @@ export async function runLocalCliReactLoop({
 	onToolCall: (call: LocalCliToolCall) => Promise<unknown>;
 	env?: Record<string, string | undefined>;
 	signal?: AbortSignal;
+	enableWebSearch?: boolean;
 }): Promise<{ finalText: string; toolCallCount: number }> {
 	const toolResults: string[] = [];
 	const executedToolSignatures = new Set<string>();
@@ -1016,6 +1031,7 @@ export async function runLocalCliReactLoop({
 			prompt,
 			env,
 			signal,
+			enableWebSearch,
 		});
 		let hadToolCall = false;
 
@@ -1052,6 +1068,50 @@ export async function runLocalCliReactLoop({
 	}
 
 	throw new Error(`local_cli_error: exceeded ${maxTurns} ReAct turns`);
+}
+
+export async function runLocalCliTextTask({
+	systemPrompt,
+	prompt,
+	env = getRuntimeEnv(),
+	signal,
+	enableWebSearch = false,
+}: {
+	systemPrompt: string;
+	prompt: string;
+	env?: Record<string, string | undefined>;
+	signal?: AbortSignal;
+	enableWebSearch?: boolean;
+}): Promise<string> {
+	const config = resolveLocalCliRuntimeConfig({ env });
+	if (!config.enabled) {
+		throw new Error("configuration_error: local CLI runtime is not enabled");
+	}
+	if (!config.binPath) {
+		throw new Error(
+			`configuration_error: ${config.agentId} CLI is not available`,
+		);
+	}
+	const result = await runLocalCliReactLoop({
+		agentId: config.agentId,
+		binPath: config.binPath,
+		model: config.model,
+		systemPrompt,
+		messages: [{ role: "user", content: prompt }],
+		toolSchemas: [],
+		maxTurns: 1,
+		onToolCall: async ({ tool }) => {
+			throw new Error(`local_cli_error: unexpected editor tool call ${tool}`);
+		},
+		env: config.env,
+		signal,
+		enableWebSearch,
+	});
+	const text = result.finalText.trim();
+	if (!text) {
+		throw new Error("local_cli_error: local CLI returned an empty response");
+	}
+	return text;
 }
 
 export async function generatePlanWithLocalCli({
