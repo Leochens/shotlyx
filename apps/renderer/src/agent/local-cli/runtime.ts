@@ -1,5 +1,11 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, readdirSync } from "node:fs";
+import {
+	accessSync,
+	constants,
+	mkdirSync,
+	readdirSync,
+	realpathSync,
+} from "node:fs";
 import path from "node:path";
 import type { ModelMessage } from "ai";
 import type { FunctionSchema } from "@/agent/mcp/schema";
@@ -179,6 +185,18 @@ function nodeRuntimePathDirs(
 	];
 }
 
+function servBayRuntimePathDirs(): string[] {
+	const root = "/Applications/ServBay/package/node";
+	return [
+		path.join(root, "current", "bin"),
+		...nodeVersionManagerBinDirs({
+			env: { HOME: "/Applications/ServBay/package" },
+			rootSegments: ["node"],
+			binSegments: ["current", "bin"],
+		}),
+	];
+}
+
 function commonRuntimePathDirs(
 	env: Record<string, string | undefined>,
 ): string[] {
@@ -189,6 +207,8 @@ function commonRuntimePathDirs(
 		homePath({ env, segments: [".asdf", "shims"] }),
 		homePath({ env, segments: [".nodenv", "shims"] }),
 		...nodeRuntimePathDirs(env),
+		"/Applications/ChatGPT.app/Contents/Resources",
+		...servBayRuntimePathDirs(),
 		"/opt/homebrew/bin",
 		"/opt/homebrew/sbin",
 		"/usr/local/bin",
@@ -199,6 +219,28 @@ function commonRuntimePathDirs(
 		"/sbin",
 	].filter(Boolean);
 	return Array.from(new Set(extras));
+}
+
+function matchesAgentPath({
+	def,
+	filePath,
+}: {
+	def: LocalCliAgentDef;
+	filePath: string;
+}): boolean {
+	const candidates = [filePath];
+	try {
+		candidates.push(realpathSync(filePath));
+	} catch {
+		// The executable check reports an invalid path separately.
+	}
+	return candidates.some((candidate) => {
+		const normalized = candidate.toLowerCase();
+		if (path.basename(normalized) === def.bin) return true;
+		return def.id === "claude"
+			? normalized.includes("claude-code")
+			: normalized.includes("@openai/codex");
+	});
 }
 
 function pathDirs(env: Record<string, string | undefined>): string[] {
@@ -234,9 +276,31 @@ function resolveAgentBin({
 	env: Record<string, string | undefined>;
 	explicitPath?: string;
 }): string | null {
-	const override = explicitPath || env[def.envOverride];
-	if (override && isExecutable(override)) return override;
+	const agentSpecificOverride = env[def.envOverride];
+	if (agentSpecificOverride && isExecutable(agentSpecificOverride)) {
+		return agentSpecificOverride;
+	}
+	if (
+		explicitPath &&
+		isExecutable(explicitPath) &&
+		matchesAgentPath({ def, filePath: explicitPath })
+	) {
+		return explicitPath;
+	}
 	return resolveOnPath({ bin: def.bin, env });
+}
+
+export function resolveLocalCliWorkingDirectory({
+	env = getRuntimeEnv(),
+}: {
+	env?: Record<string, string | undefined>;
+} = {}): string {
+	const explicitDirectory = env.SHOTLYX_AGENT_WORK_DIR?.trim();
+	if (explicitDirectory) return explicitDirectory;
+	const configPath = env.SHOTLYX_DESKTOP_CONFIG_PATH?.trim();
+	if (configPath) return path.join(path.dirname(configPath), "agent-workspace");
+	const home = env.HOME ?? process.env.HOME;
+	return home ? path.join(home, ".shotlyx", "agent-workspace") : process.cwd();
 }
 
 function buildChildEnv({
@@ -323,7 +387,7 @@ export async function detectLocalCliAgents({
 			name: def.name,
 			bin: def.bin,
 			binPath,
-			available: Boolean(binPath),
+			available: Boolean(binPath && version),
 			version,
 			models: def.models,
 		});
@@ -361,13 +425,13 @@ export function buildLocalCliCommand({
 	}
 
 	const args = [
+		"--ask-for-approval",
+		"never",
 		"exec",
 		"--json",
 		"--skip-git-repo-check",
 		"--sandbox",
 		"read-only",
-		"--ask-for-approval",
-		"never",
 	];
 	if (model && model !== "default") {
 		args.push("--model", model);
@@ -387,7 +451,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function textFromUnknown(value: unknown): string {
 	if (typeof value === "string") return value;
 	if (Array.isArray(value)) {
-		return value.map((item) => textFromUnknown(item)).filter(Boolean).join("\n");
+		return value
+			.map((item) => textFromUnknown(item))
+			.filter(Boolean)
+			.join("\n");
 	}
 	if (!isRecord(value)) return "";
 
@@ -477,7 +544,9 @@ function eventsFromText({
 	return text ? [{ type: fallbackType, text }] : [];
 }
 
-function parseProtocolObject(parsed: Record<string, unknown>): LocalCliEvent | null {
+function parseProtocolObject(
+	parsed: Record<string, unknown>,
+): LocalCliEvent | null {
 	const type = typeof parsed.type === "string" ? parsed.type : "";
 	if (type === "usage" || type === "token_usage") {
 		const usage = extractUsageCandidate(parsed);
@@ -502,7 +571,10 @@ function parseProtocolObject(parsed: Record<string, unknown>): LocalCliEvent | n
 		};
 	}
 	if (type === "tool_call") {
-		const tool = readText({ value: parsed, keys: ["tool", "name", "toolName"] });
+		const tool = readText({
+			value: parsed,
+			keys: ["tool", "name", "toolName"],
+		});
 		if (!tool) return null;
 		return {
 			type: "tool_call",
@@ -541,7 +613,9 @@ function withUsageEvent({
 	return usage ? [...events, { type: "usage", usage }] : events;
 }
 
-function parseClaudeStreamEvent(parsed: Record<string, unknown>): LocalCliEvent[] {
+function parseClaudeStreamEvent(
+	parsed: Record<string, unknown>,
+): LocalCliEvent[] {
 	if (parsed.type === "stream_event" && isRecord(parsed.event)) {
 		const event = parsed.event;
 		if (event.type === "content_block_delta" && isRecord(event.delta)) {
@@ -586,7 +660,10 @@ function parseCodexJsonEvent(parsed: Record<string, unknown>): LocalCliEvent[] {
 		typeof parsed.type === "string" &&
 		(parsed.type.includes("reasoning") || parsed.type.includes("thought"))
 	) {
-		const text = readText({ value: parsed, keys: ["text", "message", "summary"] });
+		const text = readText({
+			value: parsed,
+			keys: ["text", "message", "summary"],
+		});
 		return eventsFromText({ text, fallbackType: "reasoning" });
 	}
 
@@ -748,14 +825,14 @@ function buildProtocolPrompt({
 					"If no tool is needed, return an empty steps array and put the user-facing response in reasoning.",
 				]
 			: [
-				"Return only newline-delimited JSON.",
-				"Allowed event shapes:",
-				`{"type":"reasoning","text":"brief observable progress summary, not hidden chain-of-thought"}`,
-				`{"type":"tool_call","tool":"tool_name","params":{}}`,
-				`{"type":"final","text":"user-facing answer"}`,
-				"Always emit at least one reasoning event before the first tool_call or final event. Keep it short and about observable progress.",
-				"Call at most one tool per turn. After a TOOL_RESULT is present, continue from that result and either call the next tool or emit final.",
-			];
+					"Return only newline-delimited JSON.",
+					"Allowed event shapes:",
+					`{"type":"reasoning","text":"brief observable progress summary, not hidden chain-of-thought"}`,
+					`{"type":"tool_call","tool":"tool_name","params":{}}`,
+					`{"type":"final","text":"user-facing answer"}`,
+					"Always emit at least one reasoning event before the first tool_call or final event. Keep it short and about observable progress.",
+					"Call at most one tool per turn. After a TOOL_RESULT is present, continue from that result and either call the next tool or emit final.",
+				];
 	return [
 		"[Shotlyx System]",
 		systemPrompt,
@@ -791,10 +868,13 @@ function runLocalCliOnce({
 }): Promise<LocalCliEvent[]> {
 	return new Promise((resolve, reject) => {
 		const command = buildLocalCliCommand({ agentId, binPath, model });
+		const workingDirectory = resolveLocalCliWorkingDirectory({ env });
+		mkdirSync(workingDirectory, { recursive: true });
 		const commandDir = path.isAbsolute(command.command)
 			? path.dirname(command.command)
 			: null;
 		const child = spawn(command.command, command.args, {
+			cwd: workingDirectory,
 			env: buildChildEnv({
 				env,
 				extraPathDirs: commandDir ? [commandDir] : [],
@@ -963,9 +1043,7 @@ export async function runLocalCliReactLoop({
 				tool: event.tool,
 				params: event.params,
 			});
-			toolResults.push(
-				`TOOL_RESULT ${event.tool}: ${JSON.stringify(result)}`,
-			);
+			toolResults.push(`TOOL_RESULT ${event.tool}: ${JSON.stringify(result)}`);
 		}
 
 		if (finalText || !hadToolCall) {
@@ -993,7 +1071,9 @@ export async function generatePlanWithLocalCli({
 }): Promise<AgentPlan> {
 	const config = resolveLocalCliRuntimeConfig({ env });
 	if (!config.binPath) {
-		throw new Error(`configuration_error: ${config.agentId} CLI is not available`);
+		throw new Error(
+			`configuration_error: ${config.agentId} CLI is not available`,
+		);
 	}
 	const prompt = buildProtocolPrompt({
 		systemPrompt,

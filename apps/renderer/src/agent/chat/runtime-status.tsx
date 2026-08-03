@@ -30,12 +30,14 @@ function getRecordField({
 	return isRecord(nextValue) ? nextValue : undefined;
 }
 
-function formatRuntimeStatusFromValues({
+export function formatRuntimeStatusFromValues({
 	values,
 	status,
+	localCliAvailable,
 }: {
 	values: Record<string, unknown> | undefined;
 	status: unknown;
+	localCliAvailable?: boolean;
 }): AgentRuntimeStatus {
 	if (!values) return DEFAULT_RUNTIME_STATUS;
 	if (Array.isArray(status)) {
@@ -68,6 +70,13 @@ function formatRuntimeStatusFromValues({
 
 	const cli =
 		typeof values.AGENT_CLI_ID === "string" ? values.AGENT_CLI_ID : "cli";
+	if (localCliAvailable === false) {
+		return {
+			kind: "unconfigured",
+			label: "Local CLI unavailable",
+			detail: cli,
+		};
+	}
 	const model =
 		typeof values.AGENT_CLI_MODEL === "string" &&
 		values.AGENT_CLI_MODEL !== "default"
@@ -87,6 +96,9 @@ function useAgentRuntimeStatus() {
 
 	useEffect(() => {
 		let cancelled = false;
+		let cachedAgentId = "";
+		let cachedLocalCliAvailable: boolean | undefined;
+		let lastAgentScanAt = 0;
 
 		async function refreshRuntimeStatus() {
 			try {
@@ -100,8 +112,41 @@ function useAgentRuntimeStatus() {
 				const data: unknown = await response.json();
 				const values = getRecordField({ value: data, key: "values" });
 				const status = isRecord(data) ? data.status : undefined;
+				let localCliAvailable: boolean | undefined;
+				if (values?.AGENT_RUNTIME === "local-cli") {
+					const selectedAgentId = String(values.AGENT_CLI_ID ?? "");
+					const shouldScan =
+						selectedAgentId !== cachedAgentId ||
+						Date.now() - lastAgentScanAt >= 60_000;
+					if (shouldScan) {
+						const agentsResponse = await fetch("/api/desktop/agents", {
+							cache: "no-store",
+						});
+						const agentsData: unknown = agentsResponse.ok
+							? await agentsResponse.json()
+							: undefined;
+						const agents =
+							isRecord(agentsData) && Array.isArray(agentsData.agents)
+								? agentsData.agents
+								: [];
+						const selectedAgent = agents.find(
+							(agent) => isRecord(agent) && agent.id === selectedAgentId,
+						);
+						cachedAgentId = selectedAgentId;
+						cachedLocalCliAvailable =
+							isRecord(selectedAgent) && selectedAgent.available === true;
+						lastAgentScanAt = Date.now();
+					}
+					localCliAvailable = cachedLocalCliAvailable;
+				}
 				if (!cancelled) {
-					setRuntimeStatus(formatRuntimeStatusFromValues({ values, status }));
+					setRuntimeStatus(
+						formatRuntimeStatusFromValues({
+							values,
+							status,
+							localCliAvailable,
+						}),
+					);
 				}
 			} catch {
 				if (!cancelled) setRuntimeStatus(DEFAULT_RUNTIME_STATUS);

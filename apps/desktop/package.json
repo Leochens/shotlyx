@@ -2,7 +2,7 @@
 	"name": "@shotlyx/desktop",
 	"productName": "Shotlyx Desktop",
 	"description": "Desktop video editor and local agent workspace for Shotlyx.",
-	"version": "0.1.0-alpha.1",
+	"version": "0.1.0-alpha.2",
 	"private": true,
 	"author": "GuanTou Lab",
 	"license": "GPL-3.0-only",

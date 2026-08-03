@@ -1230,12 +1230,17 @@ function DesktopApiSettingsPageContent() {
 	const showOtherConfig = isEmbedded && embeddedSection === "other";
 	const requiredReady = useMemo(() => {
 		const requiredGroups = status.filter((group) => group.required);
-		return (
+		const configurationReady =
 			!isLoading &&
 			requiredGroups.length > 0 &&
-			requiredGroups.every((group) => group.configured)
+			requiredGroups.every((group) => group.configured);
+		if (!configurationReady || runtime !== LOCAL_RUNTIME) {
+			return configurationReady;
+		}
+		return localAgents.some(
+			(agent) => agent.id === values.AGENT_CLI_ID && agent.available,
 		);
-	}, [isLoading, status]);
+	}, [isLoading, localAgents, runtime, status, values.AGENT_CLI_ID]);
 
 	const updateConfigValues = ({
 		values: patch,
@@ -1356,18 +1361,26 @@ function DesktopApiSettingsPageContent() {
 	const handleSelectRuntime = (
 		nextRuntime: typeof LOCAL_RUNTIME | typeof API_RUNTIME,
 	) => {
-		const availableAgent = localAgents.find((agent) => agent.available);
+		const selectedAgent = localAgents.find(
+			(agent) => agent.id === values.AGENT_CLI_ID && agent.available,
+		);
+		const availableAgent =
+			selectedAgent ?? localAgents.find((agent) => agent.available);
 		updateConfigValues({
 			values: {
 				AGENT_RUNTIME: nextRuntime,
 				...(nextRuntime === LOCAL_RUNTIME
 					? {
-							AGENT_CLI_ID:
-								values.AGENT_CLI_ID || availableAgent?.id || "claude",
-							AGENT_CLI_MODEL: values.AGENT_CLI_MODEL || "default",
+							AGENT_CLI_ID: availableAgent?.id || "claude",
+							AGENT_CLI_MODEL:
+								availableAgent?.id === values.AGENT_CLI_ID
+									? values.AGENT_CLI_MODEL || "default"
+									: "default",
+							AGENT_CLI_PATH: availableAgent?.binPath ?? "",
 						}
 					: {}),
 			},
+			clearWhenEmpty: nextRuntime === LOCAL_RUNTIME,
 		});
 	};
 
@@ -1436,6 +1449,17 @@ function DesktopApiSettingsPageContent() {
 					values: data.values ?? {},
 				}),
 			);
+			if (data.values?.AGENT_RUNTIME === LOCAL_RUNTIME) {
+				const agentsResponse = await fetch("/api/desktop/agents", {
+					cache: "no-store",
+				});
+				const agentsData: unknown = agentsResponse.ok
+					? await agentsResponse.json()
+					: undefined;
+				if (isAgentsResponse(agentsData)) {
+					setLocalAgents(agentsData.agents);
+				}
+			}
 			setPendingClearKeys([]);
 			setRevealedSecrets({});
 			toast.success(pageCopy.toasts.saveSuccess, {
@@ -2800,14 +2824,19 @@ function DesktopApiSettingsPageContent() {
 								<button
 									key={agent.id}
 									type="button"
-									disabled={isLoading || isSaving}
+									disabled={isLoading || isSaving || !agent.available}
 									onClick={() =>
 										updateConfigValues({
 											values: {
 												AGENT_RUNTIME: LOCAL_RUNTIME,
 												AGENT_CLI_ID: agent.id,
-												AGENT_CLI_MODEL: values.AGENT_CLI_MODEL || "default",
+												AGENT_CLI_MODEL:
+													values.AGENT_CLI_ID === agent.id
+														? values.AGENT_CLI_MODEL || "default"
+														: "default",
+												AGENT_CLI_PATH: agent.binPath ?? "",
 											},
+											clearWhenEmpty: true,
 										})
 									}
 									className={`flex min-h-16 items-center gap-3 rounded-md border px-3 py-2 text-left text-sm transition ${

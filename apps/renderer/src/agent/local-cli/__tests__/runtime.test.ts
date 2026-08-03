@@ -14,6 +14,7 @@ import {
 	detectLocalCliAgents,
 	parseLocalCliEventLine,
 	parseLocalCliEventsFromLine,
+	resolveLocalCliWorkingDirectory,
 	runLocalCliReactLoop,
 } from "../runtime";
 
@@ -184,6 +185,45 @@ exit 0
 		}
 	});
 
+	test("does not reuse a Claude path after switching to Codex", async () => {
+		const fakeClaude = writeExecutable(
+			"claude",
+			`#!/usr/bin/env bash
+echo "2.1.220 (Claude Code)"
+`,
+		);
+		const fakeCodex = writeExecutable(
+			"codex",
+			`#!/usr/bin/env bash
+echo "codex-cli 0.130.0"
+`,
+		);
+
+		const agents = await detectLocalCliAgents({
+			env: {
+				PATH: tempDir,
+				AGENT_CLI_ID: "codex",
+				AGENT_CLI_PATH: fakeClaude,
+			},
+		});
+
+		expect(agents.find((agent) => agent.id === "codex")).toMatchObject({
+			available: true,
+			binPath: fakeCodex,
+			version: "codex-cli 0.130.0",
+		});
+	});
+
+	test("uses an isolated desktop working directory for local agents", () => {
+		expect(
+			resolveLocalCliWorkingDirectory({
+				env: {
+					SHOTLYX_DESKTOP_CONFIG_PATH: path.join(tempDir, "config.json"),
+				},
+			}),
+		).toBe(path.join(tempDir, "agent-workspace"));
+	});
+
 	test("builds safe stdin-based commands for Claude Code and Codex", () => {
 		expect(
 			buildLocalCliCommand({
@@ -212,12 +252,22 @@ exit 0
 			binPath: "/usr/local/bin/codex",
 			model: "gpt-5",
 		});
-		expect(codex.command).toBe("/usr/local/bin/codex");
-		expect(codex.promptViaStdin).toBe(true);
-		expect(codex.args).toContain("exec");
-		expect(codex.args).toContain("--json");
-		expect(codex.args).toContain("--model");
-		expect(codex.args).toContain("gpt-5");
+		expect(codex).toEqual({
+			command: "/usr/local/bin/codex",
+			args: [
+				"--ask-for-approval",
+				"never",
+				"exec",
+				"--json",
+				"--skip-git-repo-check",
+				"--sandbox",
+				"read-only",
+				"--model",
+				"gpt-5",
+			],
+			promptViaStdin: true,
+			streamFormat: "json-event-stream",
+		});
 	});
 
 	test("parses Shotlyx JSONL protocol events", () => {
@@ -305,9 +355,7 @@ exit 0
 					},
 				}),
 			),
-		).toEqual([
-			{ type: "reasoning", text: "Inspecting timeline tools." },
-		]);
+		).toEqual([{ type: "reasoning", text: "Inspecting timeline tools." }]);
 
 		expect(
 			parseLocalCliEventsFromLine(
@@ -348,9 +396,7 @@ exit 0
 					type: "item.updated",
 					item: {
 						type: "reasoning",
-						summary: [
-							{ type: "summary_text", text: "Checking editor state." },
-						],
+						summary: [{ type: "summary_text", text: "Checking editor state." }],
 					},
 				}),
 			),
@@ -434,5 +480,29 @@ fi
 			"final",
 			"usage",
 		]);
+	});
+
+	test("surfaces a client tool execution failure", async () => {
+		const fakeClaude = writeExecutable(
+			"claude",
+			`#!/usr/bin/env bash
+cat >/dev/null
+echo '{"type":"reasoning","text":"Trying the editor tool."}'
+echo '{"type":"tool_call","tool":"timeline_add_text","params":{"text":"Hello"}}'
+`,
+		);
+
+		expect(
+			runLocalCliReactLoop({
+				agentId: "claude",
+				binPath: fakeClaude,
+				systemPrompt: "You are Shotlyx Agent.",
+				messages: [{ role: "user", content: "Add a title" }],
+				toolSchemas: [],
+				onToolCall: async () => {
+					throw new Error("editor_runtime_unavailable");
+				},
+			}),
+		).rejects.toThrow("editor_runtime_unavailable");
 	});
 });

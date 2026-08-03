@@ -10,6 +10,7 @@
 		"build:desktop-api": "vite build --config vite.api.config.ts",
 		"start": "vite preview",
 		"preview": "vite preview",
+		"verify:local-agent": "bun scripts/verify-local-agent.ts",
 		"lint": "eslint src --ext .ts,.tsx --max-warnings 193",
 		"lint:fix": "eslint src --ext .ts,.tsx --fix",
 		"format": "prettier src --write",

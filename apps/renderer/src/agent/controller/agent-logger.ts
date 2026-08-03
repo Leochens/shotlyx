@@ -1,14 +1,32 @@
 /* eslint-disable shotlyx/prefer-object-params -- Logger methods mirror compact event fields at call sites. */
 import { appendFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
-const LOG_DIR = join(process.cwd(), "agent-dev", "logs");
+export function resolveAgentLogDirectory({
+	env = process.env,
+	cwd = process.cwd(),
+}: {
+	env?: Record<string, string | undefined>;
+	cwd?: string;
+} = {}): string {
+	const explicitDirectory = env.SHOTLYX_AGENT_LOG_DIR?.trim();
+	if (explicitDirectory) return explicitDirectory;
+	const desktopConfigPath = env.SHOTLYX_DESKTOP_CONFIG_PATH?.trim();
+	if (desktopConfigPath) {
+		return join(dirname(desktopConfigPath), "logs", "agent");
+	}
+	if (env.SHOTLYX_DESKTOP === "1" || env.VITE_SHOTLYX_DESKTOP === "1") {
+		return join(env.HOME ?? homedir(), ".shotlyx", "logs", "agent");
+	}
+	return join(cwd, "agent-dev", "logs");
+}
 
-function ensureDir() {
+function ensureDir(logDirectory: string) {
 	try {
-		mkdirSync(LOG_DIR, { recursive: true });
+		mkdirSync(logDirectory, { recursive: true });
 	} catch {
-		// directory already exists
+		// Logging remains best-effort when the directory is unavailable.
 	}
 }
 
@@ -30,8 +48,9 @@ export class AgentLogger {
 		this.sessionId = sessionId;
 		this.startTime = Date.now();
 		const date = new Date().toISOString().slice(0, 10);
-		ensureDir();
-		this.filePath = join(LOG_DIR, `agent-${date}.log`);
+		const logDirectory = resolveAgentLogDirectory();
+		ensureDir(logDirectory);
+		this.filePath = join(logDirectory, `agent-${date}.log`);
 	}
 
 	request(body: unknown) {
