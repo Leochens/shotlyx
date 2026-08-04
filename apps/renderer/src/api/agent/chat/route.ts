@@ -47,20 +47,15 @@ import {
 } from "./tool-result-continuation";
 import { shouldSuppressDuplicateToolCall } from "./tool-call-dedupe";
 import { formatToolResultForModel } from "./tool-result-format";
-import { getToolResultTimeoutMs } from "./tool-timeouts";
+import {
+	getToolResultTimeoutMs,
+	isMGGenerationTool,
+	isVisionAnalysisTool,
+	requiresExplicitToolRetry,
+} from "./tool-timeouts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const VISION_ANALYSIS_TOOL_NAMES = new Set([
-	"vision_analyze_image",
-	"vision_analyze_video",
-	"vision_analyze_media",
-]);
-
-function isVisionAnalysisTool(toolName: string): boolean {
-	return VISION_ANALYSIS_TOOL_NAMES.has(toolName);
-}
 
 const messageSchema = z.object({
 	role: z.string(),
@@ -615,7 +610,7 @@ export async function POST(request: ApiRequest) {
 					closed = true;
 				}
 			};
-			const seenVisionAnalysisCalls = new Set<string>();
+			const seenLongRunningToolCalls = new Set<string>();
 			let tokenUsageTotals = createEmptyTokenUsage();
 			const reportTokenUsage: TokenUsageReporter = ({
 				usage,
@@ -656,7 +651,7 @@ export async function POST(request: ApiRequest) {
 			): Promise<unknown> {
 				if (
 					shouldSuppressDuplicateToolCall({
-						seen: seenVisionAnalysisCalls,
+						seen: seenLongRunningToolCalls,
 						toolName,
 						params,
 					})
@@ -667,9 +662,11 @@ export async function POST(request: ApiRequest) {
 						callId,
 					});
 					return [
-						`Tool "${toolName}" was already called with the same media and analysis parameters in this assistant turn.`,
+						`Tool "${toolName}" was already called with the same parameters in this assistant turn.`,
 						`Do not call ${toolName} again automatically.`,
-						"Ask the user whether to keep waiting for the existing analysis, retry with lower detail, or provide a smaller/simpler media asset.",
+						isMGGenerationTool(toolName)
+							? "The existing MG generation may still be running. Ask the user to keep waiting or explicitly retry."
+							: "Ask the user whether to keep waiting for the existing analysis, retry with lower detail, or provide a smaller/simpler media asset.",
 					].join("\n");
 				}
 				console.log(`[agent] tool-call: ${toolName} callId=${callId}`);
@@ -704,11 +701,13 @@ export async function POST(request: ApiRequest) {
 						return;
 					}
 					console.log(`[agent] tool-timeout: ${toolName} callId=${callId}`);
-					if (isVisionAnalysisTool(toolName)) {
+					if (requiresExplicitToolRetry(toolName)) {
 						return [
-							`Tool "${toolName}" timed out while waiting for the visual analysis result.`,
+							`Tool "${toolName}" timed out while waiting for the ${isVisionAnalysisTool(toolName) ? "visual analysis" : "MG generation"} result.`,
 							`Do not call ${toolName} again automatically.`,
-							"The current visual analysis may still be running in the tool panel. Ask the user to keep waiting, retry with lower detail, or provide a smaller/simpler media asset.",
+							isMGGenerationTool(toolName)
+								? "The current MG job may still be running in the tool panel. Ask the user to keep waiting or explicitly retry."
+								: "The current visual analysis may still be running in the tool panel. Ask the user to keep waiting, retry with lower detail, or provide a smaller/simpler media asset.",
 							`Error: ${err instanceof Error ? err.message : "Tool execution failed"}`,
 						].join("\n");
 					}

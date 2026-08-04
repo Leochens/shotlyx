@@ -1,4 +1,9 @@
 import { sanitizeToolResultForModel } from "@/agent/controller/tool-result-sanitizer";
+import {
+	isMGGenerationTool,
+	isVisionAnalysisTool,
+	requiresExplicitToolRetry,
+} from "./tool-timeouts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -17,16 +22,6 @@ function formatChoiceOptions(options: unknown): string {
 		})
 		.filter((line): line is string => Boolean(line))
 		.join("\n");
-}
-
-const VISION_ANALYSIS_TOOL_NAMES = new Set([
-	"vision_analyze_image",
-	"vision_analyze_video",
-	"vision_analyze_media",
-]);
-
-function isVisionAnalysisTool(toolName: string): boolean {
-	return VISION_ANALYSIS_TOOL_NAMES.has(toolName);
 }
 
 function buildVisionRetryInstruction(toolName: string): string {
@@ -61,10 +56,12 @@ export function formatToolResultForModel({
 		if (typeof r.suggestion === "string") {
 			parts.push(`Suggestion: ${r.suggestion}`);
 		}
-		if (isVisionAnalysisTool(toolName)) {
+		if (requiresExplicitToolRetry(toolName)) {
 			parts.push(
 				`Do not call ${toolName} again automatically.`,
-				buildVisionRetryInstruction(toolName),
+				isMGGenerationTool(toolName)
+					? "Report the MG generation failure and ask the user before starting another full generation."
+					: buildVisionRetryInstruction(toolName),
 			);
 			return parts.join("\n");
 		}

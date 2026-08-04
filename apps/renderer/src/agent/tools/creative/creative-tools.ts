@@ -69,6 +69,7 @@ const SEEDANCE_VIDEO_ASPECT_RATIOS = [
 ] as const;
 const SEEDANCE_VIDEO_DURATIONS = [5, 8, 10, 12] as const;
 const IMAGE_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as const;
+const SHOTLYX_MG_MAX_OUTPUT_TOKENS = 9_000;
 // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 const ZERO_CREATIVE_MEDIA_TIME = 0 as MediaTime;
 
@@ -2782,7 +2783,7 @@ export function buildCreativeTools({
 							transparentBackground,
 							abortSignal: context?.signal,
 							repairAttempts: 1,
-							maxOutputTokens: 12_000,
+							maxOutputTokens: SHOTLYX_MG_MAX_OUTPUT_TOKENS,
 							templateMode,
 							templateId,
 						},
@@ -2879,7 +2880,7 @@ export function buildCreativeTools({
 							transparentBackground,
 							abortSignal: context?.signal,
 							repairAttempts: 1,
-							maxOutputTokens: 12_000,
+							maxOutputTokens: SHOTLYX_MG_MAX_OUTPUT_TOKENS,
 						});
 					} catch (error) {
 						emitToolProgress({
@@ -3070,8 +3071,8 @@ export function buildCreativeTools({
 							styleGuide,
 							transparentBackground,
 							abortSignal: context?.signal,
-							repairAttempts: 2,
-							maxOutputTokens: 12_000,
+							repairAttempts: 1,
+							maxOutputTokens: SHOTLYX_MG_MAX_OUTPUT_TOKENS,
 						},
 						fetchFn: creativeDeps.fetchFn,
 						componentCount: 1,
@@ -3122,8 +3123,8 @@ export function buildCreativeTools({
 					styleGuide,
 					transparentBackground,
 					abortSignal: context?.signal,
-					repairAttempts: 2,
-					maxOutputTokens: 12_000,
+					repairAttempts: 1,
+					maxOutputTokens: SHOTLYX_MG_MAX_OUTPUT_TOKENS,
 				});
 				const asset = registerShotlyxMGAsset({
 					document,

@@ -284,6 +284,21 @@ echo "codex-cli 0.130.0"
 		);
 	});
 
+	test("isolates one-shot Codex text tasks from plugins and persisted sessions", () => {
+		const command = buildLocalCliCommand({
+			agentId: "codex",
+			binPath: "/usr/local/bin/codex",
+			isolatedTask: true,
+		});
+
+		expect(command.args).toContain("--ephemeral");
+		expect(command.args).toContain("--ignore-user-config");
+		expect(command.args).toContain("--ignore-rules");
+		expect(command.args.indexOf("--ignore-user-config")).toBeGreaterThan(
+			command.args.indexOf("exec"),
+		);
+	});
+
 	test("parses Shotlyx JSONL protocol events", () => {
 		expect(
 			parseLocalCliEventLine(

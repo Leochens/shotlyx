@@ -483,7 +483,7 @@ describe("buildCreativeTools", () => {
 			durationSeconds: 6,
 			aspectRatio: "16:9",
 			transparentBackground: true,
-			maxOutputTokens: 12_000,
+			maxOutputTokens: 9_000,
 		});
 		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(1);
 		expect(insertElement).toHaveBeenCalledTimes(1);
@@ -828,7 +828,7 @@ describe("buildCreativeTools", () => {
 			aspectRatio: "16:9",
 			transparentBackground: true,
 			componentCount: 1,
-			maxOutputTokens: 12_000,
+			maxOutputTokens: 9_000,
 		});
 
 		expect(upsertShotlyxMGAsset).toHaveBeenCalledTimes(2);

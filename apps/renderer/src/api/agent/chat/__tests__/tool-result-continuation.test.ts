@@ -53,6 +53,19 @@ describe("tool result continuation", () => {
 		).toBe(false);
 	});
 
+	test("does not auto-continue into a second MG generation", () => {
+		expect(
+			shouldRunToolResultContinuation({
+				assistantText: "",
+				toolCallCount: 1,
+				formattedToolResults: [
+					"Do not call shotlyx_generate_mg_component again automatically.",
+				],
+				continuationDepth: 0,
+			}),
+		).toBe(false);
+	});
+
 	test("builds a synthetic prompt that tells the model to retry or ask after tool failure", () => {
 		const messages = buildToolResultContinuationMessages({
 			messages: [{ role: "user", content: "分析一下视频内容" }],

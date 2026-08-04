@@ -348,6 +348,33 @@ export default function ShotlyxComponent(props: Props) {
 		expect(document.componentSource).toContain("ShotlyxComponent");
 	});
 
+	test("preserves helper declarations before the default component export", async () => {
+		const document = await generateShotlyxMGComponentDocument({
+			generateSourceFn: async () => `
+\`\`\`tsx
+type Props = { title: string; primaryColor: string };
+
+const clampNumber = (value: number, min: number, max: number) =>
+	Math.min(max, Math.max(min, value));
+
+export default function ShotlyxComponent(props: Props) {
+	const frame = useCurrentFrame();
+	const opacity = clampNumber(frame / 18, 0, 1);
+	return <AbsoluteFill style={{ opacity, color: props.primaryColor }}>{props.title}</AbsoluteFill>;
+}
+\`\`\`
+`,
+			prompt: "生成标题「保留辅助函数」",
+			durationSeconds: 4,
+			aspectRatio: "16:9",
+			repairAttempts: 0,
+		});
+
+		expect(document.componentSource).toContain("const clampNumber");
+		expect(document.compiledModule).toContain("clampNumber");
+		expect(document.quality?.status).toBe("passed");
+	});
+
 	test("custom generation repairs invalid TSX without regenerating schema", async () => {
 		let calls = 0;
 		const generateTextMock = mock(

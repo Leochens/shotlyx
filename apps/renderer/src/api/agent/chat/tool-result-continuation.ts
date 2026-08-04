@@ -15,6 +15,8 @@ const NO_AUTOMATIC_VISION_RETRY_MARKERS = [
 	"Do not call vision_analyze_image again automatically.",
 	"Do not call vision_analyze_video again automatically.",
 	"Do not call vision_analyze_media again automatically.",
+	"Do not call shotlyx_generate_mg_component again automatically.",
+	"Do not call shotlyx_generate_mg_composition again automatically.",
 ];
 
 function hasNoAutomaticRetryToolResult(results: unknown[]): boolean {

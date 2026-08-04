@@ -400,11 +400,13 @@ export function buildLocalCliCommand({
 	binPath,
 	model,
 	enableWebSearch = false,
+	isolatedTask = false,
 }: {
 	agentId: LocalCliAgentId;
 	binPath: string;
 	model?: string;
 	enableWebSearch?: boolean;
+	isolatedTask?: boolean;
 }): LocalCliCommand {
 	if (agentId === "claude") {
 		const args = [
@@ -434,6 +436,9 @@ export function buildLocalCliCommand({
 		"never",
 		...(enableWebSearch ? ["--search"] : []),
 		"exec",
+		...(isolatedTask
+			? ["--ephemeral", "--ignore-user-config", "--ignore-rules"]
+			: []),
 		"--json",
 		"--skip-git-repo-check",
 		"--sandbox",
@@ -865,6 +870,7 @@ function runLocalCliOnce({
 	env,
 	signal,
 	enableWebSearch = false,
+	isolatedTask = false,
 }: {
 	agentId: LocalCliAgentId;
 	binPath: string;
@@ -873,6 +879,7 @@ function runLocalCliOnce({
 	env: Record<string, string | undefined>;
 	signal?: AbortSignal;
 	enableWebSearch?: boolean;
+	isolatedTask?: boolean;
 }): Promise<LocalCliEvent[]> {
 	return new Promise((resolve, reject) => {
 		const command = buildLocalCliCommand({
@@ -880,6 +887,7 @@ function runLocalCliOnce({
 			binPath,
 			model,
 			enableWebSearch,
+			isolatedTask,
 		});
 		const workingDirectory = resolveLocalCliWorkingDirectory({ env });
 		mkdirSync(workingDirectory, { recursive: true });
@@ -991,6 +999,7 @@ export async function runLocalCliReactLoop({
 	env = getRuntimeEnv(),
 	signal,
 	enableWebSearch = false,
+	isolatedTask = false,
 }: {
 	agentId: LocalCliAgentId;
 	binPath: string;
@@ -1004,6 +1013,7 @@ export async function runLocalCliReactLoop({
 	env?: Record<string, string | undefined>;
 	signal?: AbortSignal;
 	enableWebSearch?: boolean;
+	isolatedTask?: boolean;
 }): Promise<{ finalText: string; toolCallCount: number }> {
 	const toolResults: string[] = [];
 	const executedToolSignatures = new Set<string>();
@@ -1032,6 +1042,7 @@ export async function runLocalCliReactLoop({
 			env,
 			signal,
 			enableWebSearch,
+			isolatedTask,
 		});
 		let hadToolCall = false;
 
@@ -1106,6 +1117,7 @@ export async function runLocalCliTextTask({
 		env: config.env,
 		signal,
 		enableWebSearch,
+		isolatedTask: true,
 	});
 	const text = result.finalText.trim();
 	if (!text) {

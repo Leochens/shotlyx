@@ -67,4 +67,28 @@ describe("agent chat tool call dedupe", () => {
 			}),
 		).toBe(false);
 	});
+
+	test("suppresses a duplicate MG generation with identical parameters", () => {
+		const seen = new Set<string>();
+		const params = {
+			prompt: "生成一个数据趋势 MG",
+			durationSeconds: 5,
+			aspectRatio: "16:9",
+		};
+
+		expect(
+			shouldSuppressDuplicateToolCall({
+				seen,
+				toolName: "shotlyx_generate_mg_component",
+				params,
+			}),
+		).toBe(false);
+		expect(
+			shouldSuppressDuplicateToolCall({
+				seen,
+				toolName: "shotlyx_generate_mg_component",
+				params,
+			}),
+		).toBe(true);
+	});
 });

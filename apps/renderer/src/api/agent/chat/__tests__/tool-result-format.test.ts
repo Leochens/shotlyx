@@ -21,6 +21,22 @@ describe("formatToolResultForModel", () => {
 		expect(result).not.toContain("You may retry");
 	});
 
+	test("does not invite another full MG generation after a failure", () => {
+		const result = formatToolResultForModel({
+			toolName: "shotlyx_generate_mg_component",
+			result: {
+				status: "error",
+				error: "provider_error: MG generation timed out",
+			},
+		});
+
+		expect(result).toContain(
+			"Do not call shotlyx_generate_mg_component again automatically",
+		);
+		expect(result).toContain("ask the user");
+		expect(result).not.toContain("You may retry");
+	});
+
 	test("turns large vision video choices into an explicit user-question instruction", () => {
 		const result = formatToolResultForModel({
 			toolName: "vision_analyze_video",

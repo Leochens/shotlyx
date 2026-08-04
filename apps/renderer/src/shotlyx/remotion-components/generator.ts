@@ -42,7 +42,7 @@ import {
 
 const DEFAULT_FPS = 30;
 const DEFAULT_DURATION_SECONDS = 6;
-const MAX_OUTPUT_TOKENS = 12_000;
+const MAX_OUTPUT_TOKENS = 9_000;
 const RENDER_VALIDATION_FRAME_COUNT = 4;
 const MAX_SOURCE_CHARS = 32_000;
 const SVG_CHILD_TAG_RE =
@@ -1153,20 +1153,12 @@ function extractComponentSourceFromText({ text }: { text: string }): string {
 	const fenced = trimmed.match(
 		/```(?:tsx|typescript|ts|jsx|javascript|js)?\s*([\s\S]*?)```/i,
 	);
-	let source = (fenced?.[1] ?? trimmed).trim();
-	const exportIndex = source.search(
-		/export\s+default\s+function\s+ShotlyxComponent\b/,
-	);
-	if (exportIndex > 0) source = source.slice(exportIndex).trim();
+	const source = (fenced?.[1] ?? trimmed).trim();
 	if (!/export\s+default\s+function\s+ShotlyxComponent\b/.test(source)) {
-		source = source.replace(
+		return source.replace(
 			/\bfunction\s+ShotlyxComponent\b/,
 			"export default function ShotlyxComponent",
 		);
-	}
-	const trailingFenceIndex = source.indexOf("```");
-	if (trailingFenceIndex >= 0) {
-		source = source.slice(0, trailingFenceIndex).trim();
 	}
 	return source;
 }
@@ -1200,7 +1192,7 @@ export async function generateShotlyxMGComponentDocument({
 	providerConfig,
 	generateTextFn = generateText,
 	generateSourceFn,
-	repairAttempts = 2,
+	repairAttempts = 1,
 	abortSignal,
 	maxOutputTokens = MAX_OUTPUT_TOKENS,
 	transparentBackground = true,

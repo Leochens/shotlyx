@@ -26,12 +26,6 @@ function buildVisionAnalysisDedupeKey(params: Record<string, unknown>): string {
 	});
 }
 
-const VISION_ANALYSIS_TOOL_NAMES = new Set([
-	"vision_analyze_image",
-	"vision_analyze_video",
-	"vision_analyze_media",
-]);
-
 export function shouldSuppressDuplicateToolCall({
 	seen,
 	toolName,
@@ -41,9 +35,16 @@ export function shouldSuppressDuplicateToolCall({
 	toolName: string;
 	params: Record<string, unknown>;
 }): boolean {
-	if (!VISION_ANALYSIS_TOOL_NAMES.has(toolName)) return false;
-	const key = `${toolName}:${buildVisionAnalysisDedupeKey(params)}`;
+	if (!requiresExplicitToolRetry(toolName)) return false;
+	const paramsKey = isVisionAnalysisTool(toolName)
+		? buildVisionAnalysisDedupeKey(params)
+		: stableValueKey(params);
+	const key = `${toolName}:${paramsKey}`;
 	if (seen.has(key)) return true;
 	seen.add(key);
 	return false;
 }
+import {
+	isVisionAnalysisTool,
+	requiresExplicitToolRetry,
+} from "./tool-timeouts";

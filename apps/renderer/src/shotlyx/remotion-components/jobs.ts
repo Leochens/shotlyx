@@ -85,7 +85,7 @@ export type GenerateShotlyxMGJobDocumentFn = (
 const DEFAULT_COMPONENT_TIMEOUT_MS = 180_000;
 const DEFAULT_COMPONENT_RETRY_ATTEMPTS = 0;
 const DEFAULT_COMPONENT_REPAIR_ATTEMPTS = 0;
-const DEFAULT_COMPONENT_MAX_OUTPUT_TOKENS = 12_000;
+const DEFAULT_COMPONENT_MAX_OUTPUT_TOKENS = 9_000;
 const DEFAULT_COMPONENT_CONCURRENCY = 5;
 const globalShotlyxMGJobs = globalThis as typeof globalThis & {
 	__shotlyxMGJobs?: Map<string, ShotlyxMGJob>;
