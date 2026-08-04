@@ -16,6 +16,10 @@ import {
 	normalizeTokenUsage,
 	type AgentTokenUsageDelta,
 } from "@/agent/token-usage";
+import {
+	mergeLocalCliProxyEnvironment,
+	resolveSystemProxyEnvironment,
+} from "./system-proxy";
 
 export type LocalCliAgentId = "claude" | "codex";
 
@@ -310,7 +314,11 @@ function buildChildEnv({
 	env: Record<string, string | undefined>;
 	extraPathDirs?: string[];
 }): NodeJS.ProcessEnv {
-	const merged: NodeJS.ProcessEnv = { ...process.env, ...env };
+	const explicitEnv: NodeJS.ProcessEnv = { ...process.env, ...env };
+	const merged = mergeLocalCliProxyEnvironment({
+		explicitEnv,
+		systemProxyEnv: resolveSystemProxyEnvironment(),
+	});
 	merged.PATH = Array.from(
 		new Set([
 			...splitPathList(env.PATH),
