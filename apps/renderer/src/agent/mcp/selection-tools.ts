@@ -74,6 +74,8 @@ export function buildSelectionTools(editor: EditorCore): Tool[] {
 			description: "清除所有选中状态",
 			parameters: {},
 			mutating: true,
+			effect: "write",
+			confirmation: "never",
 			handler: () => {
 				editor.selection.clearSelection();
 				return { cleared: true };

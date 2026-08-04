@@ -167,6 +167,66 @@ describe("/api/agent/chat local CLI runtime", () => {
 		).toMatchObject({ text: "完成：已添加标题。" });
 	});
 
+	test("blocks destructive auto-mode tools and emits a confirmation plan", async () => {
+		writeFileSync(
+			process.env.SHOTLYX_CLAUDE_BIN!,
+			`#!/usr/bin/env bash
+prompt="$(cat)"
+if [[ "$prompt" == *"requires user confirmation"* ]]; then
+  echo '{"type":"final","text":"删除操作需要你先确认。"}'
+else
+  echo '{"type":"reasoning","text":"准备删除片段。"}'
+  echo '{"type":"tool_call","tool":"timeline_delete_clip","params":{"trackId":"main-1","elementId":"clip-1"}}'
+fi
+`,
+			"utf8",
+		);
+		chmodSync(process.env.SHOTLYX_CLAUDE_BIN!, 0o755);
+		const { POST } = await import("../route");
+		const request = new Request("http://localhost/api/agent/chat", {
+			method: "POST",
+			body: JSON.stringify({
+				messages: [{ role: "user", content: "Delete this clip" }],
+				mode: "auto",
+				toolSchemas: [
+					{
+						name: "timeline_delete_clip",
+						description: "Delete a clip.",
+						parameters: {
+							type: "object",
+							properties: {
+								trackId: { type: "string" },
+								elementId: { type: "string" },
+							},
+							required: ["trackId", "elementId"],
+						},
+						policy: {
+							effect: "destructive",
+							confirmation: "always",
+							idempotent: false,
+						},
+					},
+				],
+			}),
+			headers: { "Content-Type": "application/json" },
+		});
+
+		const response = await POST(request as Parameters<typeof POST>[0]);
+		const events = await readRouteEvents(response);
+
+		expect(events.map((event) => event.event)).not.toContain("tool-call");
+		expect(events.find((event) => event.event === "plan")?.data).toMatchObject({
+			needsConfirmation: true,
+			steps: [
+				{
+					tool: "timeline_delete_clip",
+					risk: "destructive",
+				},
+			],
+		});
+		expect(events.at(-1)?.event).toBe("done");
+	});
+
 	test("continues after a tool result when the first agent pass has no final text", async () => {
 		writeFileSync(
 			process.env.SHOTLYX_CLAUDE_BIN!,
@@ -174,6 +234,8 @@ describe("/api/agent/chat local CLI runtime", () => {
 prompt="$(cat)"
 if [[ "$prompt" == *"Tool Result Continuation"* ]]; then
   echo '{"type":"final","text":"工具返回后继续处理：需要你选择切分分析还是上传小视频。"}'
+elif [[ "$prompt" == *"TOOL_RESULT vision_analyze_video"* ]]; then
+  echo '{"type":"reasoning","text":"视觉工具已经返回，交给续跑流程。"}'
 else
   echo '{"type":"reasoning","text":"先调用视觉工具。"}'
   echo '{"type":"tool_call","tool":"vision_analyze_video","params":{"mediaAssetId":"media-1","analysisType":"quality_check"}}'

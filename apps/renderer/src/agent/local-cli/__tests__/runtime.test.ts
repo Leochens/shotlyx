@@ -535,6 +535,52 @@ echo '{"type":"tool_call","tool":"timeline_add_text","params":{"text":"Hello"}}'
 		).rejects.toThrow("editor_runtime_unavailable");
 	});
 
+	test("rejects multiple editor tool calls emitted in one ReAct turn", async () => {
+		const fakeClaude = writeExecutable(
+			"claude",
+			`#!/usr/bin/env bash
+cat >/dev/null
+echo '{"type":"reasoning","text":"Trying two actions."}'
+echo '{"type":"tool_call","tool":"timeline_get_summary","params":{}}'
+echo '{"type":"tool_call","tool":"selection_get_state","params":{}}'
+`,
+		);
+
+		await expect(
+			runLocalCliReactLoop({
+				agentId: "claude",
+				binPath: fakeClaude,
+				systemPrompt: "You are Shotlyx Agent.",
+				messages: [{ role: "user", content: "Inspect the editor" }],
+				toolSchemas: [],
+				onToolCall: async () => ({ status: "success" }),
+			}),
+		).rejects.toThrow("multiple tool calls in one turn");
+	});
+
+	test("surfaces a consecutive duplicate tool call instead of ending silently", async () => {
+		const fakeClaude = writeExecutable(
+			"claude",
+			`#!/usr/bin/env bash
+cat >/dev/null
+echo '{"type":"reasoning","text":"Checking again."}'
+echo '{"type":"tool_call","tool":"timeline_get_summary","params":{}}'
+`,
+		);
+
+		await expect(
+			runLocalCliReactLoop({
+				agentId: "claude",
+				binPath: fakeClaude,
+				systemPrompt: "You are Shotlyx Agent.",
+				messages: [{ role: "user", content: "Inspect the editor" }],
+				toolSchemas: [],
+				maxTurns: 3,
+				onToolCall: async () => ({ status: "success" }),
+			}),
+		).rejects.toThrow("consecutive duplicate tool call");
+	});
+
 	test("runs a keyless local CLI text task with native search enabled", async () => {
 		const fakeCodex = writeExecutable(
 			"codex",

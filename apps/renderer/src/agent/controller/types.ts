@@ -29,6 +29,18 @@ export interface ToolCallRecord {
 		status: "success" | "error";
 		data?: unknown;
 		error?: string;
+		verified?: boolean;
+		verification?: {
+			changes: Array<{
+				type: "added" | "removed" | "updated";
+				target: string;
+				detail?: string;
+			}>;
+			expectation?: {
+				description: string;
+				satisfied: boolean;
+			};
+		};
 	};
 }
 

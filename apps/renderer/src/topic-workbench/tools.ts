@@ -82,12 +82,17 @@ export function getTopicPackageResourceToolSchemas(): FunctionSchema[] {
 				required: [],
 				properties: {},
 			},
+			policy: {
+				effect: "read",
+				confirmation: "never",
+				idempotent: true,
+			},
 		},
 	];
 }
 
 export function getTopicWriteToolSchemas(): FunctionSchema[] {
-	return [
+	const schemas: FunctionSchema[] = [
 		{
 			name: "topic_set_candidates",
 			description:
@@ -307,6 +312,21 @@ export function getTopicWriteToolSchemas(): FunctionSchema[] {
 			},
 		},
 	];
+	return schemas.map((schema) => ({
+		...schema,
+		policy:
+			schema.name === "topic_reset_to_stage"
+				? {
+						effect: "destructive" as const,
+						confirmation: "always" as const,
+						idempotent: false,
+					}
+				: {
+						effect: "write" as const,
+						confirmation: "never" as const,
+						idempotent: false,
+					},
+	}));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

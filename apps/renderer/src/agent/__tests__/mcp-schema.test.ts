@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { toolToFunctionSchema, toolsToFunctionSchemas } from "@/agent/mcp/schema";
+import {
+	toolToFunctionSchema,
+	toolsToFunctionSchemas,
+} from "@/agent/mcp/schema";
 import type { Tool } from "@/agent/mcp/types";
 
 describe("Tool schema conversion", () => {
@@ -107,5 +110,39 @@ describe("Tool schema conversion", () => {
 		expect(schemas).toHaveLength(2);
 		expect(schemas[0]?.name).toBe("a");
 		expect(schemas[1]?.name).toBe("b");
+	});
+
+	test("publishes enforced policy metadata for destructive tools", () => {
+		const schema = toolToFunctionSchema({
+			name: "timeline_delete_clip",
+			description: "Delete one clip",
+			parameters: {},
+			mutating: true,
+			handler: () => ({ deleted: true }),
+		});
+
+		expect(schema.policy).toEqual({
+			effect: "destructive",
+			confirmation: "always",
+			idempotent: false,
+		});
+	});
+
+	test("allows explicit policy overrides for non-destructive clear actions", () => {
+		const schema = toolToFunctionSchema({
+			name: "selection_clear",
+			description: "Clear selection",
+			parameters: {},
+			mutating: true,
+			effect: "write",
+			confirmation: "never",
+			handler: () => ({}),
+		});
+
+		expect(schema.policy).toEqual({
+			effect: "write",
+			confirmation: "never",
+			idempotent: false,
+		});
 	});
 });

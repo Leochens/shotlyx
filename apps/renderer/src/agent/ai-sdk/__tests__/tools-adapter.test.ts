@@ -1,5 +1,8 @@
 import { describe, test, expect } from "bun:test";
-import { functionSchemaToZod, mcpToolsToAISDKTools } from "@/agent/ai-sdk/tools-adapter";
+import {
+	functionSchemaToZod,
+	mcpToolsToAISDKTools,
+} from "@/agent/ai-sdk/tools-adapter";
 import type { FunctionSchema } from "@/agent/mcp/schema";
 import type { EditorCore } from "@/core";
 
@@ -49,7 +52,26 @@ describe("functionSchemaToZod", () => {
 			},
 		};
 		const zodSchema = functionSchemaToZod(schema);
-		expect(zodSchema).toBeDefined();
+		expect(zodSchema.safeParse({}).success).toBe(true);
+	});
+
+	test("enforces the function schema required list", () => {
+		const schema: FunctionSchema = {
+			name: "test",
+			description: "Test",
+			parameters: {
+				type: "object",
+				properties: {
+					requiredValue: { type: "string", description: "Required" },
+					optionalValue: { type: "string", description: "Optional" },
+				},
+				required: ["requiredValue"],
+			},
+		};
+		const zodSchema = functionSchemaToZod(schema);
+
+		expect(zodSchema.safeParse({}).success).toBe(false);
+		expect(zodSchema.safeParse({ requiredValue: "ok" }).success).toBe(true);
 	});
 });
 

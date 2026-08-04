@@ -1,8 +1,10 @@
-import type { Tool, ToolParameter } from "./types";
+import { resolveToolPolicy } from "./tool-policy";
+import type { Tool, ToolParameter, ToolPolicy } from "./types";
 
 export interface FunctionSchema {
 	name: string;
 	description: string;
+	policy?: ToolPolicy;
 	parameters: {
 		type: "object";
 		properties: Record<string, unknown>;
@@ -43,6 +45,7 @@ export function toolToFunctionSchema(tool: Tool): FunctionSchema {
 	return {
 		name: tool.name,
 		description: tool.description,
+		policy: resolveToolPolicy(tool),
 		parameters: {
 			type: "object",
 			properties,

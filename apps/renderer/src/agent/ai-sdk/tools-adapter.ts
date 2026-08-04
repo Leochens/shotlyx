@@ -7,6 +7,7 @@ export function functionSchemaToZod(
 	schema: FunctionSchema,
 ): z.ZodObject<Record<string, z.ZodTypeAny>> {
 	const shape: Record<string, z.ZodTypeAny> = {};
+	const required = new Set(schema.parameters.required);
 
 	for (const [key, rawParam] of Object.entries(schema.parameters.properties)) {
 		const param = rawParam as {
@@ -44,7 +45,7 @@ export function functionSchemaToZod(
 			}
 		}
 
-		if (param.optional) {
+		if (!required.has(key)) {
 			zodType = zodType.optional();
 		}
 

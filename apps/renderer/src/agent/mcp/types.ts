@@ -1,5 +1,14 @@
 import type { ErrorCategory } from "./error-classification";
 
+export type ToolEffect = "read" | "write" | "destructive" | "external";
+export type ToolConfirmation = "never" | "always" | "explicit-user-intent";
+
+export interface ToolPolicy {
+	effect: ToolEffect;
+	confirmation: ToolConfirmation;
+	idempotent: boolean;
+}
+
 export interface ToolParameter {
 	type: "string" | "number" | "boolean" | "array" | "object";
 	description: string;
@@ -17,6 +26,9 @@ export interface Tool {
 		context?: ToolExecutionContext,
 	) => unknown;
 	mutating?: boolean;
+	effect?: ToolEffect;
+	confirmation?: ToolConfirmation;
+	idempotent?: boolean;
 	preconditions?: (params: Record<string, unknown>) => PreconditionResult;
 }
 
@@ -62,6 +74,17 @@ export interface ToolResult {
 	errorCategory?: ErrorCategory;
 	suggestion?: string;
 	verified?: boolean;
+	verification?: {
+		changes: Array<{
+			type: "added" | "removed" | "updated";
+			target: string;
+			detail?: string;
+		}>;
+		expectation?: {
+			description: string;
+			satisfied: boolean;
+		};
+	};
 }
 
 export interface ToolCall {

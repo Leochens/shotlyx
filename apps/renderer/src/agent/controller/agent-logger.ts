@@ -107,6 +107,15 @@ export class AgentLogger {
 		});
 	}
 
+	stateTransition(transition: unknown) {
+		this.write({
+			type: "state-transition",
+			direction: "internal",
+			payload: transition,
+			elapsedMs: Date.now() - this.startTime,
+		});
+	}
+
 	done() {
 		this.write({
 			type: "done",

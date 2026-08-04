@@ -1024,7 +1024,7 @@ export async function runLocalCliReactLoop({
 	isolatedTask?: boolean;
 }): Promise<{ finalText: string; toolCallCount: number }> {
 	const toolResults: string[] = [];
-	const executedToolSignatures = new Set<string>();
+	let lastExecutedToolSignature: string | null = null;
 	let finalText = "";
 	let toolCallCount = 0;
 
@@ -1053,6 +1053,23 @@ export async function runLocalCliReactLoop({
 			isolatedTask,
 		});
 		let hadToolCall = false;
+		const turnToolCalls = events.filter(
+			(event): event is Extract<LocalCliEvent, { type: "tool_call" }> =>
+				event.type === "tool_call",
+		);
+		if (turnToolCalls.length > 1) {
+			throw new Error(
+				"local_cli_protocol_error: multiple tool calls in one turn",
+			);
+		}
+		if (
+			turnToolCalls.length > 0 &&
+			events.some((event) => event.type === "final" || event.type === "text")
+		) {
+			throw new Error(
+				"local_cli_protocol_error: final response and tool call in the same turn",
+			);
+		}
 
 		for (const event of events) {
 			onEvent?.(event);
@@ -1064,10 +1081,12 @@ export async function runLocalCliReactLoop({
 			}
 			if (event.type !== "tool_call") continue;
 			const toolSignature = `${event.tool}:${JSON.stringify(event.params)}`;
-			if (toolResults.length > 0 && executedToolSignatures.has(toolSignature)) {
-				return { finalText, toolCallCount };
+			if (toolSignature === lastExecutedToolSignature) {
+				throw new Error(
+					`local_cli_protocol_error: consecutive duplicate tool call ${event.tool}`,
+				);
 			}
-			executedToolSignatures.add(toolSignature);
+			lastExecutedToolSignature = toolSignature;
 			hadToolCall = true;
 			toolCallCount += 1;
 			const callId =

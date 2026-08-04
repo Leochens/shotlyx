@@ -17,7 +17,7 @@ import { buildFlowerTextTools } from "./flower-text-tools";
 import { buildTextOverlayTools } from "./text-overlay-tools";
 import { buildSubtitleTools } from "./subtitle-tools";
 import { classifyError } from "./error-classification";
-import { captureSnapshot, verifyChanges } from "./verification";
+import { captureSnapshot, verifyToolMutation } from "./verification";
 import { buildCreativeTools } from "@/agent/tools/creative/creative-tools";
 import { buildStockMediaTools } from "@/agent/tools/stock-media/stock-tools";
 import {
@@ -198,11 +198,21 @@ export class MCPServer {
 
 			if (shouldVerify && beforeSnapshot) {
 				const afterSnapshot = captureSnapshot(this.editor!);
-				const verification = verifyChanges(beforeSnapshot, afterSnapshot);
+				const verification = verifyToolMutation({
+					toolName,
+					params: safeParams,
+					data,
+					before: beforeSnapshot,
+					after: afterSnapshot,
+				});
 				return {
 					status: "success",
 					data,
 					verified: verification.verified,
+					verification: {
+						changes: verification.changes,
+						expectation: verification.expectation,
+					},
 				};
 			}
 

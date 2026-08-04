@@ -9,6 +9,40 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function formatVerificationEvidence(result: Record<string, unknown>): string {
+	const parts: string[] = [];
+	if (typeof result.verified === "boolean") {
+		parts.push(`verified: ${result.verified}`);
+	}
+	const verification = isRecord(result.verification)
+		? result.verification
+		: null;
+	const expectation = isRecord(verification?.expectation)
+		? verification.expectation
+		: null;
+	if (typeof expectation?.description === "string") {
+		parts.push(
+			`expectation: ${expectation.description} (${expectation.satisfied === true ? "satisfied" : "not satisfied"})`,
+		);
+	}
+	const changes = Array.isArray(verification?.changes)
+		? verification.changes
+		: [];
+	const changeSummary = changes.slice(0, 8).flatMap((change) => {
+		if (!isRecord(change)) return [];
+		if (typeof change.type !== "string" || typeof change.target !== "string") {
+			return [];
+		}
+		return [
+			`${change.type} ${change.target}${typeof change.detail === "string" ? ` ${change.detail}` : ""}`,
+		];
+	});
+	if (changeSummary.length > 0) {
+		parts.push(`changes: ${changeSummary.join(", ")}`);
+	}
+	return parts.length > 0 ? ` (${parts.join("; ")})` : "";
+}
+
 function formatChoiceOptions(options: unknown): string {
 	if (!Array.isArray(options)) return "";
 	return options
@@ -106,9 +140,8 @@ export function formatToolResultForModel({
 		].join("\n");
 	}
 
-	const verified =
-		typeof r.verified === "boolean" ? ` (verified: ${r.verified})` : "";
+	const verificationEvidence = formatVerificationEvidence(r);
 	return typeof data === "string"
-		? `${data}${verified}`
-		: `${JSON.stringify(data)}${verified}`;
+		? `${data}${verificationEvidence}`
+		: `${JSON.stringify(data)}${verificationEvidence}`;
 }

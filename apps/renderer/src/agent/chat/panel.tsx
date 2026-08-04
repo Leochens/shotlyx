@@ -2484,6 +2484,8 @@ export function ChatPanel() {
 								status: toolResult.status,
 								data: toolResult.data,
 								error: toolResult.error,
+								verified: toolResult.verified,
+								verification: toolResult.verification,
 							},
 						} as ToolCallRecord;
 					}

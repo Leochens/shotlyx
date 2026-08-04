@@ -12,6 +12,7 @@ import { buildSystemPrompt } from "@/agent/llm/prompts";
 import { resolveExecutionMode } from "@/agent/controller/mode-resolver";
 import type { AgentPlan, AgentStep } from "@/agent/controller/types";
 import { AgentLogger } from "@/agent/controller/agent-logger";
+import { AgentExecutionStateMachine } from "@/agent/controller/execution-state";
 import {
 	compactReferencesForModel,
 	isAgentContextReference,
@@ -20,6 +21,11 @@ import {
 import { compactBrandKit } from "@/brand-kit/compact";
 import type { ProjectBrandKit } from "@/brand-kit/types";
 import type { FunctionSchema } from "@/agent/mcp/schema";
+import {
+	riskFromToolPolicy,
+	resolveSchemaToolPolicy,
+} from "@/agent/mcp/tool-policy";
+import type { ToolPolicy } from "@/agent/mcp/types";
 import { splitPreviewSafeSteps } from "@/agent/controller/creative-preview";
 import type { MessageAction } from "@/agent/controller/types";
 import {
@@ -74,8 +80,17 @@ const toolSchemaDef = z.object({
 	name: z.string(),
 	description: z.string(),
 	parameters: z.object({
+		type: z.literal("object").optional().default("object"),
 		properties: z.record(z.string(), z.unknown()),
+		required: z.array(z.string()).optional().default([]),
 	}),
+	policy: z
+		.object({
+			effect: z.enum(["read", "write", "destructive", "external"]),
+			confirmation: z.enum(["never", "always", "explicit-user-intent"]),
+			idempotent: z.boolean(),
+		})
+		.optional(),
 });
 
 const requestSchema = z.object({
@@ -107,6 +122,48 @@ type TokenUsageReporter = (event: {
 	label: string;
 	approximate?: boolean;
 }) => void;
+
+function findToolSchema({
+	toolSchemas,
+	toolName,
+}: {
+	toolSchemas: FunctionSchema[];
+	toolName: string;
+}): FunctionSchema | undefined {
+	return toolSchemas.find((schema) => schema.name === toolName);
+}
+
+function getToolPolicy({
+	toolSchemas,
+	toolName,
+}: {
+	toolSchemas: FunctionSchema[];
+	toolName: string;
+}): ToolPolicy {
+	const schema = findToolSchema({ toolSchemas, toolName });
+	return resolveSchemaToolPolicy({ name: toolName, policy: schema?.policy });
+}
+
+function enforcePlanToolPolicies({
+	plan,
+	toolSchemas,
+}: {
+	plan: AgentPlan;
+	toolSchemas: FunctionSchema[];
+}): AgentPlan {
+	const steps = plan.steps.map((step) => ({
+		...step,
+		risk: riskFromToolPolicy(
+			getToolPolicy({ toolSchemas, toolName: step.tool }),
+		),
+	}));
+	return {
+		...plan,
+		steps,
+		needsConfirmation:
+			plan.needsConfirmation || steps.some((step) => step.risk !== "none"),
+	};
+}
 
 function buildReferencesContextText({
 	references,
@@ -235,7 +292,7 @@ async function generatePlanFromLLM(
 
 	if (isLocalCliRuntimeEnabled()) {
 		try {
-			return await generatePlanWithLocalCli({
+			const plan = await generatePlanWithLocalCli({
 				systemPrompt,
 				messages,
 				toolSchemas,
@@ -249,6 +306,7 @@ async function generatePlanFromLLM(
 					});
 				},
 			});
+			return enforcePlanToolPolicies({ plan, toolSchemas });
 		} catch (err) {
 			logger.error(err);
 			return {
@@ -301,23 +359,30 @@ async function generatePlanFromLLM(
 			} else if (part.type === "reasoning-delta") {
 				reasoning += part.text;
 			} else if (part.type === "tool-call") {
+				const policy = getToolPolicy({
+					toolSchemas,
+					toolName: part.toolName,
+				});
 				steps.push({
 					tool: part.toolName,
 					params: (part.input as Record<string, unknown>) ?? {},
 					description: `调用 ${part.toolName}`,
-					risk: "none",
+					risk: riskFromToolPolicy(policy),
 				});
 			}
 		}
 
 		console.log("[agent] generatePlan done, steps=" + steps.length);
-		return {
-			complexity:
-				steps.length > 3 ? "complex" : steps.length > 1 ? "medium" : "simple",
-			reasoning,
-			steps,
-			needsConfirmation: steps.length > 3,
-		};
+		return enforcePlanToolPolicies({
+			toolSchemas,
+			plan: {
+				complexity:
+					steps.length > 3 ? "complex" : steps.length > 1 ? "medium" : "simple",
+				reasoning,
+				steps,
+				needsConfirmation: steps.length > 3,
+			},
+		});
 	} catch (err) {
 		logger.error(err);
 		return {
@@ -329,14 +394,21 @@ async function generatePlanFromLLM(
 	}
 }
 
-async function proxyExecuteStep(
-	step: { tool: string; params: Record<string, unknown> },
-	sessionId: string,
-	logger: AgentLogger,
-	sseSend: (event: string, data: unknown) => void,
-	signal?: AbortSignal,
-): Promise<string> {
-	const callId = `${step.tool}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+async function proxyExecuteStep({
+	step,
+	sessionId,
+	logger,
+	sseSend,
+	signal,
+	callId = `${step.tool}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+}: {
+	step: { tool: string; params: Record<string, unknown> };
+	sessionId: string;
+	logger: AgentLogger;
+	sseSend: (event: string, data: unknown) => void;
+	signal?: AbortSignal;
+	callId?: string;
+}): Promise<{ observation: string; success: boolean; verified?: boolean }> {
 	logger.toolCall(callId, step.tool, step.params);
 	sseSend("tool-call", {
 		callId,
@@ -359,17 +431,31 @@ async function proxyExecuteStep(
 			result,
 		});
 		logger.toolResult(callId, modelResult);
-		return `[SUCCESS] ${step.tool}: ${
-			typeof modelResult === "string"
-				? modelResult
-				: JSON.stringify(modelResult)
-		}`;
+		const resultRecord =
+			typeof result === "object" && result !== null
+				? (result as Record<string, unknown>)
+				: null;
+		return {
+			observation: `[SUCCESS] ${step.tool}: ${
+				typeof modelResult === "string"
+					? modelResult
+					: JSON.stringify(modelResult)
+			}`,
+			success: resultRecord?.status !== "error",
+			verified:
+				typeof resultRecord?.verified === "boolean"
+					? resultRecord.verified
+					: undefined,
+		};
 	} catch (err) {
 		logger.error(err);
 		if (isAbortError(err)) {
 			throw err;
 		}
-		return `[FAILED] ${step.tool}: ${String(err)}`;
+		return {
+			observation: `[FAILED] ${step.tool}: ${String(err)}`,
+			success: false,
+		};
 	}
 }
 
@@ -611,6 +697,15 @@ export async function POST(request: ApiRequest) {
 				}
 			};
 			const seenLongRunningToolCalls = new Set<string>();
+			const toolSchemaByName = new Map(
+				(toolSchemas as FunctionSchema[]).map((schema) => [
+					schema.name,
+					schema,
+				]),
+			);
+			const executionState = new AgentExecutionStateMachine({
+				onTransition: (transition) => logger.stateTransition(transition),
+			});
 			let tokenUsageTotals = createEmptyTokenUsage();
 			const reportTokenUsage: TokenUsageReporter = ({
 				usage,
@@ -644,11 +739,55 @@ export async function POST(request: ApiRequest) {
 				});
 			};
 
+			async function executeConfirmedStep(step: {
+				tool: string;
+				params: Record<string, unknown>;
+			}): Promise<string> {
+				const schema = toolSchemaByName.get(step.tool);
+				if (!schema) {
+					return `[FAILED] ${step.tool}: tool is not available in this Agent run`;
+				}
+				const callId = `${step.tool}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+				const decision = executionState.requestTool({
+					callId,
+					tool: step.tool,
+					params: step.params,
+					policy: resolveSchemaToolPolicy({
+						name: schema.name,
+						policy: schema.policy,
+					}),
+					confirmed: true,
+				});
+				if (decision.status !== "allowed") {
+					return `[FAILED] ${step.tool}: ${decision.reason}`;
+				}
+
+				const outcome = await proxyExecuteStep({
+					step,
+					sessionId,
+					logger,
+					sseSend,
+					signal: request.signal,
+					callId,
+				});
+				executionState.recordToolResult({
+					callId,
+					success: outcome.success,
+					verified: outcome.verified,
+				});
+				executionState.startNextTurn();
+				return outcome.observation;
+			}
+
 			async function proxyOnToolCall(
 				callId: string,
 				toolName: string,
 				params: Record<string, unknown>,
 			): Promise<unknown> {
+				const schema = toolSchemaByName.get(toolName);
+				if (!schema) {
+					return `Tool "${toolName}" is not available in this Agent run. Choose an available tool.`;
+				}
 				if (
 					shouldSuppressDuplicateToolCall({
 						seen: seenLongRunningToolCalls,
@@ -668,6 +807,41 @@ export async function POST(request: ApiRequest) {
 							? "The existing MG generation may still be running. Ask the user to keep waiting or explicitly retry."
 							: "Ask the user whether to keep waiting for the existing analysis, retry with lower detail, or provide a smaller/simpler media asset.",
 					].join("\n");
+				}
+				const policy = resolveSchemaToolPolicy({
+					name: schema.name,
+					policy: schema.policy,
+				});
+				const decision = executionState.requestTool({
+					callId,
+					tool: toolName,
+					params,
+					policy,
+				});
+				if (decision.status === "confirmation_required") {
+					const confirmationPlan: AgentPlan = {
+						complexity: "simple",
+						reasoning: `操作“${toolName}”会删除或覆盖现有内容，需要你确认后才能执行。`,
+						steps: [
+							{
+								tool: toolName,
+								params,
+								description: `确认执行 ${toolName}`,
+								risk: riskFromToolPolicy(policy),
+							},
+						],
+						needsConfirmation: true,
+					};
+					logger.plan(confirmationPlan);
+					sseSend("plan", buildPlanEvent(confirmationPlan, "suggest"));
+					return [
+						`Tool "${toolName}" was not executed because it requires user confirmation.`,
+						"A confirmation action has been shown in the UI.",
+						"Do not claim the operation completed and do not call another tool until the user responds.",
+					].join("\n");
+				}
+				if (decision.status === "blocked") {
+					return `Tool "${toolName}" was blocked by the execution state machine: ${decision.reason}. Do not claim it completed.`;
 				}
 				console.log(`[agent] tool-call: ${toolName} callId=${callId}`);
 				logger.toolCall(callId, toolName, params);
@@ -693,12 +867,35 @@ export async function POST(request: ApiRequest) {
 						result,
 					});
 					logger.toolResult(callId, modelResult);
+					const resultRecord =
+						typeof result === "object" && result !== null
+							? (result as Record<string, unknown>)
+							: null;
+					executionState.recordToolResult({
+						callId,
+						success: resultRecord?.status !== "error",
+						verified:
+							typeof resultRecord?.verified === "boolean"
+								? resultRecord.verified
+								: undefined,
+					});
+					if (isLocalCliRuntimeEnabled()) {
+						executionState.startNextTurn();
+					}
 					return modelResult;
 				} catch (err) {
 					logger.error(err);
 					if (isAbortError(err) || request.signal.aborted) {
 						closed = true;
+						executionState.fail("aborted");
 						return;
+					}
+					executionState.recordToolResult({
+						callId,
+						success: false,
+					});
+					if (isLocalCliRuntimeEnabled()) {
+						executionState.startNextTurn();
 					}
 					console.log(`[agent] tool-timeout: ${toolName} callId=${callId}`);
 					if (requiresExplicitToolRetry(toolName)) {
@@ -747,6 +944,7 @@ export async function POST(request: ApiRequest) {
 					stopWhen: stepCountIs(20),
 					abortSignal: request.signal,
 					onStepFinish({ usage }) {
+						executionState.startNextTurn();
 						reportTokenUsage({
 							usage,
 							source: "api",
@@ -1143,13 +1341,7 @@ export async function POST(request: ApiRequest) {
 						);
 
 						for (const step of previewSteps) {
-							const line = await proxyExecuteStep(
-								step,
-								sessionId,
-								logger,
-								sseSend,
-								request.signal,
-							);
+							const line = await executeConfirmedStep(step);
 							observationLines.push(line);
 						}
 
@@ -1237,13 +1429,7 @@ export async function POST(request: ApiRequest) {
 				if (action === "confirm" && existingPlan) {
 					const observationLines: string[] = [];
 					for (const step of existingPlan.steps) {
-						const line = await proxyExecuteStep(
-							step,
-							sessionId,
-							logger,
-							sseSend,
-							request.signal,
-						);
+						const line = await executeConfirmedStep(step);
 						observationLines.push(line);
 					}
 
@@ -1256,6 +1442,7 @@ export async function POST(request: ApiRequest) {
 					];
 
 					await runProxyLoop(msgs);
+					executionState.complete();
 					logger.done();
 					sseSend("done", {});
 					controller.close();
@@ -1267,13 +1454,7 @@ export async function POST(request: ApiRequest) {
 					existingPlan &&
 					existingPlan.steps.length > 0
 				) {
-					await proxyExecuteStep(
-						existingPlan.steps[0],
-						sessionId,
-						logger,
-						sseSend,
-						request.signal,
-					);
+					await executeConfirmedStep(existingPlan.steps[0]);
 
 					if (mode === "auto") {
 						await runProxyLoop(makeCoreMessages());
@@ -1290,6 +1471,7 @@ export async function POST(request: ApiRequest) {
 						await handleSuggestOrManual(plan);
 					}
 
+					executionState.complete();
 					logger.done();
 					sseSend("done", {});
 					controller.close();
@@ -1311,9 +1493,13 @@ export async function POST(request: ApiRequest) {
 					await handleSuggestOrManual(plan);
 				}
 
+				executionState.complete();
 				logger.done();
 				sseSend("done", {});
 			} catch (err) {
+				executionState.fail(
+					err instanceof Error ? err.message : "agent_run_failed",
+				);
 				logger.error(err);
 				if (isAbortError(err) || request.signal.aborted) {
 					closed = true;

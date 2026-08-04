@@ -124,4 +124,32 @@ describe("formatToolResultForModel", () => {
 		expect(result).toContain("Ask the user");
 		expect(result).not.toContain("Use this visual analysis as evidence");
 	});
+
+	test("includes semantic verification evidence for editor mutations", () => {
+		const result = formatToolResultForModel({
+			toolName: "timeline_update_text_content",
+			result: {
+				status: "success",
+				verified: true,
+				data: { elementId: "text-1", content: "After" },
+				verification: {
+					changes: [
+						{
+							type: "updated",
+							target: "element",
+							detail: "text-track:text-1",
+						},
+					],
+					expectation: {
+						description: "text_content:text-track:text-1",
+						satisfied: true,
+					},
+				},
+			},
+		});
+
+		expect(result).toContain("verified: true");
+		expect(result).toContain("text_content:text-track:text-1");
+		expect(result).toContain("updated element text-track:text-1");
+	});
 });
